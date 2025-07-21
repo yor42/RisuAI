@@ -230,6 +230,9 @@ export function setDatabase(data:Database){
     if(checkNullish(data.showMemoryLimit)){
         data.showMemoryLimit = false
     }
+    if(checkNullish(data.showFirstMessagePages)){
+        data.showFirstMessagePages = false
+    }
     if(checkNullish(data.supaMemoryKey)){
         data.supaMemoryKey = ""
     }
@@ -1056,6 +1059,7 @@ export interface Database{
     claude1HourCaching:boolean
     rememberToolUsage:boolean
     simplifiedToolUse:boolean
+    showFirstMessagePages:boolean
 }
 
 interface SeparateParameters{
