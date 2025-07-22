@@ -66,12 +66,10 @@ jobs:
             
             # Configure sources for arm64 packages
             {
-              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs) main restricted"
-              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs)-updates main restricted"
-              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs) universe"
-              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs)-updates universe"
-              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs) multiverse"
-              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs)-updates multiverse"
+              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs) main restricted universe multiverse"
+              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs)-updates main restricted universe multiverse"
+              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs)-security main restricted universe multiverse"
+              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs)-backports main restricted universe multiverse"
             } | sudo tee /etc/apt/sources.list.d/arm64.list > /dev/null
             
             # Update package lists
@@ -117,6 +115,13 @@ jobs:
           sudo apt-get install -y flatpak flatpak-builder
           sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           sudo flatpak install -y flathub org.freedesktop.Platform//23.08 org.freedesktop.Sdk//23.08 org.freedesktop.Sdk.Extension.rust-stable//23.08 org.freedesktop.Sdk.Extension.node20//23.08
+          # DNS 설정 개선 (Flatpak 빌드용)
+          echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf
+          echo "nameserver 8.8.4.4" | sudo tee -a /etc/resolv.conf
+          # npm 레지스트리 연결 테스트
+          npm config set registry https://registry.npmjs.org/
+          npm config set fetch-retries 5
+          npm config set fetch-retry-factor 10
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -262,7 +267,7 @@ jobs:
       - name: build flatpak
         if: matrix.settings.flatpak
         run: |
-          flatpak-builder --share=network --force-clean --sandbox --repo=repo --ccache --mirror-screenshots-url=https://dl.flathub.org/media/ --install-deps-from=flathub build-dir co.aiclient.risu.yml
+          flatpak-builder --force-clean --repo=repo --ccache --mirror-screenshots-url=https://dl.flathub.org/media/ --install-deps-from=flathub build-dir co.aiclient.risu.yml
           flatpak build-bundle repo risuai.flatpak co.aiclient.risu
           mkdir -p flatpak-build
           mv risuai.flatpak flatpak-build/

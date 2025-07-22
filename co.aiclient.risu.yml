@@ -34,6 +34,8 @@ modules:
   - name: risuai
     buildsystem: simple
     build-options:
+      build-args:
+        - --share=network
       env:
         NPM_CONFIG_LOGLEVEL: info
         npm_config_cache: /run/build/risuai/flatpak-node/npm-cache
