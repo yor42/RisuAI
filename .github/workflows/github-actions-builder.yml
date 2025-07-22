@@ -411,6 +411,20 @@ jobs:
           
           # 의존성 문제가 있어도 빌드 계속 진행
           echo "Cross-compilation environment setup completed with available tools"
+      - name: prepare ARM64 build configuration
+        if: contains(matrix.settings.args, 'aarch64-unknown-linux-gnu')
+        run: |
+          echo "=== Preparing ARM64 build configuration ==="
+          
+          # 원본 Cargo.toml 백업
+          cp src-tauri/Cargo.toml src-tauri/Cargo.toml.backup
+          
+          # ARM64용 Cargo.toml로 교체 (updater 제거됨)
+          cp src-tauri/Cargo.arm64.toml src-tauri/Cargo.toml
+          
+          echo "ARM64 Cargo.toml configuration applied"
+          echo "Checking updater dependencies:"
+          grep -n "updater" src-tauri/Cargo.toml || echo "✅ No updater dependencies found"
       - uses: tauri-apps/tauri-action@v0.5.16
         if: ${{ !matrix.settings.flatpak && !matrix.settings.android }}
         env:
@@ -419,6 +433,7 @@ jobs:
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+          VITE_DISABLE_UPDATER: ${{ contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && 'true' || 'false' }}
         with:
           tagName: 'v__VERSION__'
           releaseName: 'v__VERSION__'
@@ -427,6 +442,18 @@ jobs:
           prerelease: false
           args: ${{ contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && '--target aarch64-unknown-linux-gnu --config src-tauri/tauri.conf.arm64.json' || matrix.settings.args }}
           tauriScript: "pnpm tauri"
+      - name: restore original Cargo.toml
+        if: contains(matrix.settings.args, 'aarch64-unknown-linux-gnu')
+        run: |
+          echo "=== Restoring original Cargo.toml ==="
+          
+          # 원본 Cargo.toml 복원
+          if [ -f "src-tauri/Cargo.toml.backup" ]; then
+            mv src-tauri/Cargo.toml.backup src-tauri/Cargo.toml
+            echo "Original Cargo.toml restored"
+          else
+            echo "No backup found, keeping current Cargo.toml"
+          fi
       - name: create flatpak binary archive
         if: startsWith(matrix.settings.platform, 'ubuntu') && !matrix.settings.android
         run: |
@@ -455,9 +482,18 @@ jobs:
           
           # Flatpak용 바이너리 아카이브 생성
           mkdir -p flatpak-binaries
-          tar -czf "flatpak-binaries/risuai-bin-${ARCH_SUFFIX}.tar.gz" \
-            -C "$TARGET_DIR" "$BINARY_NAME" \
-            -C "../../../src-tauri/icons" "128x128.png" "128x128@2x.png"
+          
+          # 임시 디렉토리에 필요한 파일들 복사
+          mkdir -p temp-flatpak
+          cp "$TARGET_DIR/$BINARY_NAME" temp-flatpak/RisuAI
+          cp src-tauri/icons/128x128.png temp-flatpak/ 2>/dev/null || echo "128x128.png not found"
+          cp src-tauri/icons/128x128@2x.png temp-flatpak/ 2>/dev/null || echo "128x128@2x.png not found"
+          
+          # 아카이브 생성
+          tar -czf "flatpak-binaries/risuai-bin-${ARCH_SUFFIX}.tar.gz" -C temp-flatpak .
+          
+          # 정리
+          rm -rf temp-flatpak
           
           echo "Created archive: flatpak-binaries/risuai-bin-${ARCH_SUFFIX}.tar.gz"
           tar -tzf "flatpak-binaries/risuai-bin-${ARCH_SUFFIX}.tar.gz"
