@@ -23,28 +23,41 @@ finish-args:
 
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/node20/bin
+  build-args:
+    - --share=network
   env:
     CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
     CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: clang
     CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS: -C link-arg=--target=aarch64-unknown-linux-gnu
     CC_aarch64_unknown_linux_gnu: clang --target=aarch64-unknown-linux-gnu
     CXX_aarch64_unknown_linux_gnu: clang++ --target=aarch64-unknown-linux-gnu
+    # pnpm 설정
+    PNPM_CONFIG_LOGLEVEL: info
+    PNPM_HOME: /run/build/risuai/pnpm-global
+    # npm 호환성을 위한 설정도 유지
+    NPM_CONFIG_LOGLEVEL: info
+    npm_config_cache: /run/build/risuai/flatpak-node/npm-cache
+    npm_config_nodedir: /usr/lib/sdk/node20
+    npm_config_offline: 'false'
+    npm_config_prefix: /run/build/risuai/npm-global
 
 modules:
   - name: risuai
     buildsystem: simple
-    build-options:
-      build-args:
-        - --share=network
-      env:
-        NPM_CONFIG_LOGLEVEL: info
-        npm_config_cache: /run/build/risuai/flatpak-node/npm-cache
-        npm_config_nodedir: /usr/lib/sdk/node20
-        npm_config_offline: 'false'
-        npm_config_prefix: /run/build/risuai/npm-global
     build-commands:
-      - npm install
-      - npx tauri build --target x86_64-unknown-linux-gnu
+      # pnpm 설치 (Node.js 20에 포함되어 있지 않을 수 있음)
+      - npm install -g pnpm@latest
+      # 네트워크 설정 개선
+      - pnpm config set network-timeout 600000
+      - pnpm config set fetch-retries 5
+      - pnpm config set fetch-retry-factor 10
+      - pnpm config set fetch-retry-mintimeout 10000
+      - pnpm config set fetch-retry-maxtimeout 60000
+      # 의존성 설치 (peer dependency 충돌 해결)
+      - pnpm install --no-frozen-lockfile --legacy-peer-deps
+      # Tauri 빌드
+      - pnpm tauri build --target x86_64-unknown-linux-gnu
+      # 설치
       - install -Dm755 src-tauri/target/x86_64-unknown-linux-gnu/release/risuai -t /app/bin/
       - install -Dm644 src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/co.aiclient.risu.png
       - install -Dm644 src-tauri/icons/128x128@2x.png /app/share/icons/hicolor/256x256/apps/co.aiclient.risu.png
