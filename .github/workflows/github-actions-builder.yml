@@ -60,18 +60,18 @@ jobs:
             sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross
             
             # Install pkg-config for cross-compilation
-            sudo apt-get install -y pkg-config pkgconf-pkg-config
+            sudo apt-get install -y pkg-config pkgconf
             # Add arm64 architecture for cross-compilation
             sudo dpkg --add-architecture arm64
             
             # Configure sources for arm64 packages
             {
-              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ \$(lsb_release -cs) main restricted"
-              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ \$(lsb_release -cs)-updates main restricted"
-              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ \$(lsb_release -cs) universe"
-              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ \$(lsb_release -cs)-updates universe"
-              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ \$(lsb_release -cs) multiverse"
-              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ \$(lsb_release -cs)-updates multiverse"
+              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs) main restricted"
+              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs)-updates main restricted"
+              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs) universe"
+              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs)-updates universe"
+              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs) multiverse"
+              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs)-updates multiverse"
             } | sudo tee /etc/apt/sources.list.d/arm64.list > /dev/null
             
             # Update package lists
@@ -118,9 +118,8 @@ jobs:
           sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           sudo flatpak install -y flathub org.freedesktop.Platform//23.08 org.freedesktop.Sdk//23.08 org.freedesktop.Sdk.Extension.rust-stable//23.08 org.freedesktop.Sdk.Extension.node20//23.08
       - name: install Rust stable
-        uses: dtolnay/rust-toolchain@stable # Set this to dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@stable
         with:
-          # Those targets are only used on macos runners so it's in an `if` to slightly speed up windows and linux builds.
           targets: ${{ matrix.settings.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || (matrix.settings.android && 'aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android' || (contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && 'aarch64-unknown-linux-gnu' || '')) }}
       - name: Get pnpm store directory
         id: pnpm-cache
@@ -137,21 +136,19 @@ jobs:
       - name: configure dns and network settings (linux/macos only)
         if: matrix.settings.platform != 'windows-latest'
         run: |
-          # Configure DNS to use reliable DNS servers
           echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf
           echo "nameserver 8.8.4.4" | sudo tee -a /etc/resolv.conf
           echo "nameserver 1.1.1.1" | sudo tee -a /etc/resolv.conf
       - name: configure network settings
         run: |
-          # Configure npm/pnpm network settings
           pnpm config set network-timeout 600000
           pnpm config set fetch-retries 5
           pnpm config set fetch-retry-factor 10
           pnpm config set fetch-retry-mintimeout 10000
           pnpm config set fetch-retry-maxtimeout 60000
       - name: install frontend dependencies
+        shell: bash
         run: |
-          # Retry mechanism for pnpm install
           for i in {1..3}; do
             echo "Attempt $i: Installing frontend dependencies..."
             if pnpm install --no-frozen-lockfile; then
@@ -186,19 +183,13 @@ jobs:
           echo "AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar" >> $GITHUB_ENV
           echo "STRIP_aarch64_unknown_linux_gnu=aarch64-linux-gnu-strip" >> $GITHUB_ENV
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-          
-          # PKG_CONFIG setup for cross-compilation
           echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
           echo "PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=1" >> $GITHUB_ENV
           echo "PKG_CONFIG_SYSROOT_DIR=/usr/aarch64-linux-gnu/" >> $GITHUB_ENV
           echo "PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
           echo "PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
-          
-          # Additional environment variables for cross-compilation
           echo "RUSTFLAGS=-L /usr/lib/aarch64-linux-gnu -L /usr/aarch64-linux-gnu/lib" >> $GITHUB_ENV
           echo "BINDGEN_EXTRA_CLANG_ARGS=-I/usr/aarch64-linux-gnu/include" >> $GITHUB_ENV
-          
-          # Ensure pkg-config can find the cross-compiled libraries
           echo "PKG_CONFIG_aarch64_unknown_linux_gnu=/usr/bin/aarch64-linux-gnu-pkg-config" >> $GITHUB_ENV
       - uses: tauri-apps/tauri-action@v0.5.16
         if: ${{ !matrix.settings.flatpak && !matrix.settings.android }}
@@ -209,7 +200,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         with:
-          tagName: 'v__VERSION__' # the action automatically replaces \_\_VERSION\_\_ with the app version.
+          tagName: 'v__VERSION__'
           releaseName: 'v__VERSION__'
           releaseBody: 'Release of v__VERSION__'
           releaseDraft: true
@@ -229,23 +220,13 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          # Create keystore from base64 encoded secret
           echo "$KEYSTORE_FILE" | base64 -d > keystore.jks
-          
-          # Create output directory
           mkdir -p android-build
-          
-          # Find unsigned APKs and sign them
           for apk in $(find src-tauri/gen/android -name "*.apk"); do
             apk_name=$(basename "$apk" .apk)
             signed_apk="android-build/${apk_name}-signed.apk"
-            
-            # Sign APK using apksigner (recommended over jarsigner)
-            # Use the correct apksigner syntax
             BUILD_TOOLS_VERSION=$(ls $ANDROID_HOME/build-tools/ | sort -V | tail -n 1)
             APKSIGNER="$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION/apksigner"
-            
-            # Check if apksigner exists and is executable
             if [ -f "$APKSIGNER" ] && [ -x "$APKSIGNER" ]; then
               echo "Using apksigner: $APKSIGNER"
               $APKSIGNER sign \
@@ -256,29 +237,21 @@ jobs:
                 --out "$signed_apk" \
                 "$apk"
             else
-              # Fallback to jarsigner if apksigner is not available
               echo "apksigner not found, falling back to jarsigner"
               jarsigner -verbose -sigalg SHA1withRSA -digestalg SHA1 \
                 -keystore keystore.jks \
                 -storepass "$KEYSTORE_PASSWORD" \
                 -keypass "$KEY_PASSWORD" \
                 "$apk" "$KEY_ALIAS"
-              
-              # Zipalign the signed APK
               if [ -f "$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION/zipalign" ]; then
                 $ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION/zipalign -v 4 "$apk" "$signed_apk"
               else
                 cp "$apk" "$signed_apk"
               fi
             fi
-            
             echo "Signed APK: $signed_apk"
           done
-          
-          # Clean up keystore file
           rm -f keystore.jks
-          
-          # Copy any remaining unsigned APKs if signing failed
           find src-tauri/gen/android -name "*.apk" -exec cp {} android-build/ \; || true
       - name: upload android artifacts
         if: matrix.settings.android
@@ -289,7 +262,7 @@ jobs:
       - name: build flatpak
         if: matrix.settings.flatpak
         run: |
-          flatpak-builder --force-clean --sandbox --repo=repo --ccache --mirror-screenshots-url=https://dl.flathub.org/media/ --install-deps-from=flathub build-dir co.aiclient.risu.yml
+          flatpak-builder --share=network --force-clean --sandbox --repo=repo --ccache --mirror-screenshots-url=https://dl.flathub.org/media/ --install-deps-from=flathub build-dir co.aiclient.risu.yml
           flatpak build-bundle repo risuai.flatpak co.aiclient.risu
           mkdir -p flatpak-build
           mv risuai.flatpak flatpak-build/
