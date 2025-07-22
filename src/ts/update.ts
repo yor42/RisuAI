@@ -8,6 +8,12 @@ export async function checkRisuUpdate(){
         return
     }
 
+    // ARM64 빌드에서 updater 비활성화
+    if(import.meta.env.VITE_DISABLE_UPDATER === 'true'){
+        console.log('Updater disabled for this build')
+        return
+    }
+
     try {
         // Dynamically import updater plugins only on desktop
         const { check } = await import('@tauri-apps/plugin-updater');

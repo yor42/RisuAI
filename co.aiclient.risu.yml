@@ -27,251 +27,61 @@ build-options:
     - --share=network
   env:
     CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
-    CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
-    CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: -C link-arg=--target=x86_64-unknown-linux-gnu
-    CC_x86_64_unknown_linux_gnu: clang --target=x86_64-unknown-linux-gnu
-    CXX_x86_64_unknown_linux_gnu: clang++ --target=x86_64-unknown-linux-gnu
-    # Node.js와 npm 설정 (환경 변수만 사용)
     NODE_ENV: production
-    NPM_CONFIG_CACHE: /run/build/risuai/npm-cache
-    NPM_CONFIG_PREFIX: /run/build/risuai/npm-global
-    NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
-    NPM_CONFIG_FORCE: 'true'
-    NPM_CONFIG_LEGACY_PEER_DEPS: 'true'
-    NPM_CONFIG_FETCH_RETRIES: '5'
-    NPM_CONFIG_FETCH_RETRY_FACTOR: '10'
-    NPM_CONFIG_AUDIT: 'false'
-    NPM_CONFIG_FUND: 'false'
-    # 플랫폼 관련 환경 변수
-    npm_config_target_platform: linux
-    npm_config_target_arch: x64
-    npm_config_disturl: https://electronjs.org/headers
 
 modules:
-  # Install Ubuntu-style JavaScript Core development package
-  - name: javascriptcore-deps
-    buildsystem: simple
-    build-commands:
-      - echo "Installing JavaScript Core development package (Ubuntu style)..."
-      # Ubuntu 패키지명으로 설치 시도 (Flatpak 환경에서는 제한적)
-      - |
-        echo "Attempting to install libjavascriptcoregtk-4.1-dev..."
-        if command -v apt-get >/dev/null 2>&1; then
-          apt-get update && apt-get install -y libjavascriptcoregtk-4.1-dev libwebkit2gtk-4.1-dev || echo "APT installation failed in Flatpak environment"
-        else
-          echo "APT not available in Flatpak environment"
-        fi
-      # Flatpak SDK에서 JavaScript Core 파일 찾기
-      - echo "=== Searching for existing JavaScript Core in Flatpak SDK ==="
-      - find /usr -name "*javascriptcore*" -type f 2>/dev/null | head -10 || echo "No JavaScriptCore files found"
-      - find /usr -name "*.pc" | xargs grep -l "javascriptcore" 2>/dev/null || echo "No JavaScriptCore in pkg-config files"
-      # 설치 확인
-      - pkg-config --exists javascriptcoregtk-4.1 && echo "JavaScriptCore GTK 4.1 available!" || echo "JavaScriptCore GTK 4.1 NOT available"
-      - echo "Available WebKit/JS packages:"
-      - pkg-config --list-all | grep -E "(webkit|javascript)" || echo "No WebKit/JavaScript packages found"
-    sources: []
   - name: risuai
     buildsystem: simple
     build-commands:
-      # 진단: Flatpak 빌드 환경 확인
-      - echo "=== Flatpak Build Environment Diagnostic ==="
-      - echo "SDK Version:" && cat /usr/lib/os-release || echo "No OS release info"
-      - echo "Available Rust versions:" && find /usr/lib/sdk -name "*rust*" -type d || echo "No Rust SDKs found"
-      - echo "Rust SDK Extension status:" && ls -la /usr/lib/sdk/rust-nightly/ || echo "Rust nightly not found"
-      # 링커 환경 설정 (clang 사용 가능성 확인)
-      - echo "=== Checking Available Compilers ==="
-      - which clang && echo "Clang found: $(clang --version)" || echo "Clang not available"
-      - which gcc && echo "GCC found: $(gcc --version)" || echo "GCC not available"
-      - |
-        if command -v clang >/dev/null 2>&1; then
-          echo "Using clang as configured"
-        else
-          echo "Clang not available, modifying linker configuration to use gcc"
-          export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=gcc
-          export CC_x86_64_unknown_linux_gnu=gcc
-          export CXX_x86_64_unknown_linux_gnu=g++
-          unset CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS
-        fi
-      # Node.js 환경 설정
-      - export PATH=/usr/lib/sdk/node20/bin:$PATH
+      # 환경 설정
+      - export PATH=/usr/lib/sdk/rust-nightly/bin:/usr/lib/sdk/node20/bin:$PATH
+      - rustc --version
       - node --version
       - npm --version
-      # npm 설정 (유효한 옵션만 사용)
-      - npm config set force true
-      - npm config set legacy-peer-deps true
-      - npm config set registry https://registry.npmjs.org/
-      - npm config set fetch-retries 5
-      - npm config set fetch-retry-factor 10
-      - npm config set audit false
-      - npm config set fund false
-      # 환경 변수로 플랫폼 설정
-      - export npm_config_target_platform=linux
-      - export npm_config_target_arch=x64
-      - export npm_config_disturl=https://electronjs.org/headers
-      - export npm_config_cache=/run/build/risuai/npm-cache
-      # 프로젝트 구조 확인
-      - ls -la
-      - cat package.json | grep -A5 -B5 "scripts" || echo "No scripts section found"
-      - ls -la src-tauri/ || echo "No src-tauri directory found"
-      # 의존성 설치 (npm 사용)
-      - npm install --legacy-peer-deps --force --no-optional --no-audit --no-fund
-      # 진단: Rust 및 Cargo 버전 확인
-      - echo "=== Rust Toolchain Diagnostic ==="
-      - export PATH=/usr/lib/sdk/rust-nightly/bin:$PATH
-      - rustc --version || echo "Rust not available"
-      - cargo --version || echo "Cargo not available"
-      # 프로젝트 구조 확인 및 수정
-      - echo "=== Project Structure Diagnostic ==="
-      - pwd
-      - ls -la
-      - ls -la src-tauri/ || echo "No src-tauri directory"
-      - echo "=== Dependency Analysis ==="
+      
+      # Frontend dependencies 설치 (GitHub Actions와 동일한 방식)
+      - npm install -g pnpm@9
+      - pnpm install --no-frozen-lockfile
+      
+      # 아키텍처별 Tauri 빌드
       - |
-        if [ -d "src-tauri" ]; then
-          echo "Found src-tauri directory"
-          cd src-tauri
-          ls -la
-          if [ -f "Cargo.toml" ]; then
-            echo "Found Cargo.toml"
-            cargo tree --format "{p} {f}" | grep -E "(base64ct|edition)" || echo "No edition-related dependencies found"
-          else
-            echo "No Cargo.toml in src-tauri"
-          fi
-          cd ..
+        if [ "$(uname -m)" = "x86_64" ]; then
+          TARGET_ARCH="x86_64-unknown-linux-gnu"
         else
-          echo "No src-tauri directory found, checking root"
-          if [ -f "Cargo.toml" ]; then
-            echo "Found Cargo.toml in root"
-            cargo tree --format "{p} {f}" | grep -E "(base64ct|edition)" || echo "No edition-related dependencies found"
-          else
-            echo "No Cargo.toml found anywhere"
-          fi
+          TARGET_ARCH="aarch64-unknown-linux-gnu"
         fi
-      # JavaScript Core 환경변수 설정 및 빌드
+        echo "Building for target: $TARGET_ARCH"
+        pnpm tauri build --target $TARGET_ARCH
+      
+      # 바이너리 동적 검색 및 설치
       - |
-        export PATH=/usr/lib/sdk/rust-nightly/bin:$PATH
-        
-        # JavaScript Core pkg-config 경로 강제 추가
-        echo "=== JavaScript Core Environment Setup ==="
-        export PKG_CONFIG_PATH="/app/lib/pkgconfig:/app/share/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig"
-        
-        # JavaScript Core 라이브러리 수동 탐색
-        echo "Searching for JavaScript Core libraries:"
-        find /usr -name "*javascript*" -type f 2>/dev/null | head -5 || echo "No JavaScript files"
-        find /app -name "*javascript*" -type f 2>/dev/null | head -5 || echo "No JavaScript files in /app"
-        
-        # 링커 환경변수 재설정
-        if command -v clang >/dev/null 2>&1; then
-          echo "Using clang as linker"
-          export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=clang
-          export CC_x86_64_unknown_linux_gnu="clang --target=x86_64-unknown-linux-gnu"
-          export CXX_x86_64_unknown_linux_gnu="clang++ --target=x86_64-unknown-linux-gnu"
-          export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C link-arg=--target=x86_64-unknown-linux-gnu"
-        else
-          echo "Fallback to gcc as linker"
-          export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=gcc
-          export CC_x86_64_unknown_linux_gnu=gcc
-          export CXX_x86_64_unknown_linux_gnu=g++
-          export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS=""
-        fi
-        
-        echo "Current linker config:"
-        echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=$CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER"
-        echo "CC_x86_64_unknown_linux_gnu=$CC_x86_64_unknown_linux_gnu"
-        echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
-        
-        # Tauri 빌드 (올바른 디렉토리에서)
-        if npm run --silent 2>/dev/null | grep -q "tauri"; then
-          echo "Found tauri script, running build..."
-          npm run tauri build -- --target x86_64-unknown-linux-gnu
-        elif [ -f "src-tauri/Cargo.toml" ]; then
-          echo "No tauri script found, trying direct cargo build in src-tauri..."
-          cd src-tauri && pwd && ls -la
-          cargo build --release --target x86_64-unknown-linux-gnu
-          cd ..
-        elif [ -f "Cargo.toml" ]; then
-          echo "Found Cargo.toml in root, trying root cargo build..."
-          cargo build --release --target x86_64-unknown-linux-gnu
-        else
-          echo "No Tauri or Cargo configuration found"
-          echo "Project structure:"
-          find . -name "Cargo.toml" -type f 2>/dev/null || echo "No Cargo.toml found anywhere"
-          exit 1
-        fi
-      # 빌드 결과 확인
-      - ls -la src-tauri/target/x86_64-unknown-linux-gnu/release/ || echo "Release directory not found"
-      - find src-tauri/target -name "*" -type f -executable | head -10 || echo "No executables found"
-      # 실행 파일 찾기 및 설치 (유연한 방식)
-      - |
-        RELEASE_DIR="src-tauri/target/x86_64-unknown-linux-gnu/release"
-        if [ -f "$RELEASE_DIR/risuai" ]; then
-          BINARY_NAME="risuai"
-        elif [ -f "$RELEASE_DIR/risu-ai" ]; then
-          BINARY_NAME="risu-ai"
-        elif [ -f "$RELEASE_DIR/RisuAI" ]; then
-          BINARY_NAME="RisuAI"
-        else
-          # 첫 번째로 찾은 실행 파일 사용
-          BINARY_NAME=$(find $RELEASE_DIR -maxdepth 1 -type f -executable | head -1 | xargs basename)
-        fi
-        
-        if [ -n "$BINARY_NAME" ] && [ -f "$RELEASE_DIR/$BINARY_NAME" ]; then
-          echo "Installing binary: $BINARY_NAME"
-          install -Dm755 "$RELEASE_DIR/$BINARY_NAME" /app/bin/risuai
-        else
-          echo "No suitable binary found in $RELEASE_DIR"
-          exit 1
-        fi
-      # 아이콘 찾기 및 설치 (유연한 방식)
-      - |
-        ICON_DIRS=("src-tauri/icons" "icons" "assets/icons" "public/icons")
-        ICON_SIZES=("128x128" "128" "icon")
-        
-        for dir in "${ICON_DIRS[@]}"; do
-          if [ -d "$dir" ]; then
-            echo "Found icon directory: $dir"
-            ls -la "$dir" || true
-            
-            # 128x128 아이콘 찾기
-            for size in "${ICON_SIZES[@]}"; do
-              if [ -f "$dir/${size}.png" ]; then
-                install -Dm644 "$dir/${size}.png" /app/share/icons/hicolor/128x128/apps/co.aiclient.risu.png
-                echo "Installed 128x128 icon from $dir/${size}.png"
-                break
-              elif [ -f "$dir/${size}x${size}.png" ]; then
-                install -Dm644 "$dir/${size}x${size}.png" /app/share/icons/hicolor/128x128/apps/co.aiclient.risu.png
-                echo "Installed 128x128 icon from $dir/${size}x${size}.png"
-                break
-              fi
-            done
-            
-            # 256x256 또는 고해상도 아이콘 찾기
-            if [ -f "$dir/128x128@2x.png" ]; then
-              install -Dm644 "$dir/128x128@2x.png" /app/share/icons/hicolor/256x256/apps/co.aiclient.risu.png
-              echo "Installed 256x256 icon from $dir/128x128@2x.png"
-            elif [ -f "$dir/256x256.png" ]; then
-              install -Dm644 "$dir/256x256.png" /app/share/icons/hicolor/256x256/apps/co.aiclient.risu.png
-              echo "Installed 256x256 icon from $dir/256x256.png"
-            elif [ -f "$dir/256.png" ]; then
-              install -Dm644 "$dir/256.png" /app/share/icons/hicolor/256x256/apps/co.aiclient.risu.png
-              echo "Installed 256x256 icon from $dir/256.png"
+        # 아키텍처별 릴리스 디렉토리 확인
+        for target_dir in src-tauri/target/*/release; do
+          if [ -d "$target_dir" ]; then
+            echo "Found release directory: $target_dir"
+            # 실행 가능한 바이너리 찾기
+            if [ -f "$target_dir/RisuAI" ]; then
+              BINARY_PATH="$target_dir/RisuAI"
+              break
+            elif [ -f "$target_dir/risuai" ]; then
+              BINARY_PATH="$target_dir/risuai"
+              break
             fi
-            break
           fi
         done
-      # 메타데이터 설치 (있는 경우에만)
-      - |
-        if [ -f "co.aiclient.risu.metainfo.xml" ]; then
-          install -Dm644 co.aiclient.risu.metainfo.xml -t /app/share/metainfo/
+        
+        if [ -n "$BINARY_PATH" ]; then
+          echo "Installing binary from: $BINARY_PATH"
+          install -Dm755 "$BINARY_PATH" /app/bin/risuai
         else
-          echo "No metainfo.xml found, skipping..."
+          echo "No suitable binary found"
+          exit 1
         fi
-      - |
-        if [ -f "co.aiclient.risu.desktop" ]; then
-          install -Dm644 co.aiclient.risu.desktop -t /app/share/applications/
-        else
-          echo "No desktop file found, skipping..."
-        fi
+      
+      # 아이콘 설치
+      - install -Dm644 src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/co.aiclient.risu.png
+      - install -Dm644 src-tauri/icons/128x128@2x.png /app/share/icons/hicolor/256x256/apps/co.aiclient.risu.png || true
+      
     sources:
       - type: dir
         path: .
