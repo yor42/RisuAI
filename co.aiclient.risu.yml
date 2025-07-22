@@ -31,16 +31,13 @@ build-options:
     CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: -C link-arg=--target=x86_64-unknown-linux-gnu
     CC_x86_64_unknown_linux_gnu: clang --target=x86_64-unknown-linux-gnu
     CXX_x86_64_unknown_linux_gnu: clang++ --target=x86_64-unknown-linux-gnu
-    # Node.js와 pnpm 설정
+    # Node.js 기본 설정
     NODE_ENV: production
-    PNPM_HOME: /run/build/risuai/pnpm-global
-    PNPM_CONFIG_LOGLEVEL: info
-    PNPM_CONFIG_REGISTRY: https://registry.npmjs.org/
-    PNPM_CONFIG_STORE_DIR: /run/build/risuai/pnpm-store
-    PNPM_CONFIG_CACHE_DIR: /run/build/risuai/pnpm-cache
-    PNPM_CONFIG_STATE_DIR: /run/build/risuai/pnpm-state
-    PNPM_CONFIG_SHAMEFULLY_HOIST: 'true'
-    PNPM_CONFIG_STRICT_PEER_DEPENDENCIES: 'false'
+    # npm 설정 (fallback용)
+    NPM_CONFIG_LOGLEVEL: info
+    NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+    NPM_CONFIG_CACHE: /run/build/risuai/npm-cache
+    NPM_CONFIG_PREFIX: /run/build/risuai/npm-global
     # 플랫폼 관련 설정
     npm_config_target_platform: linux
     npm_config_target_arch: x64
@@ -48,30 +45,52 @@ build-options:
     npm_config_force: 'true'
     npm_config_optional: 'false'
     npm_config_legacy_peer_deps: 'true'
+    npm_config_fetch_retries: '5'
+    npm_config_fetch_retry_factor: '10'
 
 modules:
   - name: risuai
     buildsystem: simple
     build-commands:
-      # Node.js 및 corepack 설정
+      # Node.js 환경 설정
       - export PATH=/usr/lib/sdk/node20/bin:$PATH
       - node --version
       - npm --version
-      # corepack을 통해 pnpm 활성화
-      - corepack enable
-      - corepack prepare pnpm@9 --activate
+      # Flatpak 환경에서 pnpm 수동 설치 (corepack 대신)
+      - mkdir -p /run/build/risuai/pnpm-bin
+      - export PNPM_HOME=/run/build/risuai/pnpm-bin
+      - export PATH=$PNPM_HOME:$PATH
+      - curl -fsSL https://get.pnpm.io/install.sh | ENV=$HOME/.bashrc SHELL=/bin/bash bash -
+      - export PATH=$PNPM_HOME:$PATH
       - pnpm --version
-      # 플랫폼별 선택적 의존성 무시하고 pnpm 설치
+      # pnpm 설정
       - pnpm config set target-platform linux
       - pnpm config set target-arch x64
       - pnpm config set optional false
       - pnpm config set force true
       - pnpm config set legacy-peer-deps true
       - pnpm config set registry https://registry.npmjs.org/
-      # 의존성 설치 (플랫폼별 패키지 무시)
-      - PNPM_CONFIG_OPTIONAL=false pnpm install --no-frozen-lockfile --force --ignore-platform
+      - pnpm config set shamefully-hoist true
+      - pnpm config set strict-peer-dependencies false
+      # npm 설정 (fallback용)
+      - npm config set target-platform linux
+      - npm config set target-arch x64
+      - npm config set optional false
+      - npm config set force true
+      - npm config set legacy-peer-deps true
+      # 의존성 설치 시도 (pnpm 우선, 실패시 npm)
+      - |
+        if ! pnpm install --no-frozen-lockfile --force --ignore-platform; then
+          echo "pnpm install failed, trying with npm..."
+          npm install --legacy-peer-deps --force --no-optional
+        fi
       # Tauri 빌드 (Linux x64 타겟 명시)
-      - pnpm tauri build -- --target x86_64-unknown-linux-gnu
+      - |
+        if command -v pnpm >/dev/null 2>&1; then
+          pnpm tauri build -- --target x86_64-unknown-linux-gnu
+        else
+          npm run tauri build -- --target x86_64-unknown-linux-gnu
+        fi
       # 설치
       - install -Dm755 src-tauri/target/x86_64-unknown-linux-gnu/release/risuai -t /app/bin/
       - install -Dm644 src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/co.aiclient.risu.png
