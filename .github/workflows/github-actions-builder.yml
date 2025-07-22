@@ -20,7 +20,7 @@ jobs:
             args: '--target x86_64-apple-darwin'
           - platform: 'ubuntu-latest' # for Tauri v1 you could replace this with ubuntu-20.04.
             args: '--target x86_64-unknown-linux-gnu'
-          - platform: 'ubuntu-latest' # ARM Linux support (Raspberry Pi, ARM servers, etc.) - using 22.04 to avoid Noble ARM64 repo issues
+          - platform: 'ubuntu-22.04' # ARM Linux support (Raspberry Pi, ARM servers, etc.) - using 22.04 to avoid Noble ARM64 repo issues
             args: '--target aarch64-unknown-linux-gnu'
           - platform: 'windows-latest'
             args: '--target x86_64-pc-windows-msvc'
@@ -124,12 +124,24 @@ jobs:
             "librsvg2-dev:arm64"
           )
           
-          # 빌드 메시지에서 추천한 패키지들 직접 설치
-          echo "=== Installing Build-Recommended Packages ==="
-          recommended_packages=(
-            "gdk-3.0-dev:arm64"
-            "libgdk-3.0-dev:arm64"
+          # 정확한 Ubuntu 패키지명으로 GDK 3.0 설치
+          echo "=== Installing Correct GDK 3.0 Packages ==="
+          # Ubuntu에서 gdk-3.0.pc는 libgtk-3-dev에 포함됨
+          gdk_packages=(
+            "libgtk-3-dev:arm64"  # 이미 위에서 설치되지만 확실하게
           )
+          
+          # pkg-config에서 필요한 경우 직접 검색하여 설치
+          echo "Checking for GDK 3.0 in existing packages..."
+          if ! pkgconf --exists gdk-3.0 2>/dev/null; then
+            echo "GDK 3.0 not found, installing additional packages..."
+            additional_gdk_packages=(
+              "pkg-config:arm64"
+              "pkgconf:arm64"
+            )
+          else
+            echo "GDK 3.0 already available"
+          fi
           
           # 기본 ARM64 패키지 설치
           for package in "${arm64_packages[@]}"; do
@@ -139,18 +151,35 @@ jobs:
             }
           done
           
-          # 빌드 추천 패키지 설치 (GDK 3.0 문제 해결)
-          for package in "${recommended_packages[@]}"; do
-            echo "Installing build-recommended package $package..."
+          # GDK 패키지 재확인 및 추가 설치
+          for package in "${gdk_packages[@]}"; do
+            echo "Ensuring $package is properly installed..."
             sudo apt-get install -y --no-install-recommends "$package" || {
-              echo "Failed to install $package, trying alternatives..."
+              echo "Failed to ensure $package installation"
             }
           done
           
-          # pkg-config 파일 확인
-          echo "=== Verifying GDK 3.0 pkg-config ==="
+          # 추가 패키지 설치 (필요한 경우만)
+          if [ -n "${additional_gdk_packages}" ]; then
+            for package in "${additional_gdk_packages[@]}"; do
+              echo "Installing additional package $package..."
+              sudo apt-get install -y --no-install-recommends "$package" || {
+                echo "Failed to install $package"
+              }
+            done
+          fi
+          
+          # pkg-config 파일 상세 확인
+          echo "=== Detailed GDK 3.0 Verification ==="
+          echo "Searching for gdk-3.0.pc file:"
+          find /usr -name "gdk-3.0.pc" 2>/dev/null || echo "gdk-3.0.pc not found anywhere"
+          echo "All GDK related pkg-config files:"
           find /usr/lib/aarch64-linux-gnu/pkgconfig -name "*gdk*" 2>/dev/null || echo "No GDK pkg-config files found"
-          ls -la /usr/lib/aarch64-linux-gnu/pkgconfig/ | grep gdk || echo "No GDK files in pkg-config directory"
+          echo "Testing pkgconf for GDK 3.0:"
+          pkgconf --exists gdk-3.0 && echo "✅ GDK 3.0 available via pkgconf" || echo "❌ GDK 3.0 NOT available via pkgconf"
+          echo "PKG_CONFIG_PATH contents:"
+          echo "PKG_CONFIG_PATH=${PKG_CONFIG_PATH}"
+          echo "PKG_CONFIG_LIBDIR=${PKG_CONFIG_LIBDIR}"
           
           echo "ARM64 cross-compilation environment setup completed"
       - name: setup java (android only)

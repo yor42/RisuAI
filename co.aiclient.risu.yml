@@ -120,15 +120,46 @@ modules:
       - export PATH=/usr/lib/sdk/rust-nightly/bin:$PATH
       - rustc --version || echo "Rust not available"
       - cargo --version || echo "Cargo not available"
+      # 프로젝트 구조 확인 및 수정
+      - echo "=== Project Structure Diagnostic ==="
+      - pwd
+      - ls -la
+      - ls -la src-tauri/ || echo "No src-tauri directory"
       - echo "=== Dependency Analysis ==="
-      - cd src-tauri
-      - cargo tree --format "{p} {f}" | grep -E "(base64ct|edition)" || echo "No edition-related dependencies found"
-      - cd ..
-      # Tauri 스크립트 확인 및 빌드 (링커 설정 포함)
+      - if [ -d "src-tauri" ]; then
+          echo "Found src-tauri directory"
+          cd src-tauri
+          ls -la
+          if [ -f "Cargo.toml" ]; then
+            echo "Found Cargo.toml"
+            cargo tree --format "{p} {f}" | grep -E "(base64ct|edition)" || echo "No edition-related dependencies found"
+          else
+            echo "No Cargo.toml in src-tauri"
+          fi
+          cd ..
+        else
+          echo "No src-tauri directory found, checking root"
+          if [ -f "Cargo.toml" ]; then
+            echo "Found Cargo.toml in root"
+            cargo tree --format "{p} {f}" | grep -E "(base64ct|edition)" || echo "No edition-related dependencies found"
+          else
+            echo "No Cargo.toml found anywhere"
+          fi
+        fi
+      # JavaScript Core 환경변수 설정 및 빌드
       - |
         export PATH=/usr/lib/sdk/rust-nightly/bin:$PATH
         
-        # 링커 환경변수 재설정 (clang 사용 가능성에 따라)
+        # JavaScript Core pkg-config 경로 강제 추가
+        echo "=== JavaScript Core Environment Setup ==="
+        export PKG_CONFIG_PATH="/app/lib/pkgconfig:/app/share/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig"
+        
+        # JavaScript Core 라이브러리 수동 탐색
+        echo "Searching for JavaScript Core libraries:"
+        find /usr -name "*javascript*" -type f 2>/dev/null | head -5 || echo "No JavaScript files"
+        find /app -name "*javascript*" -type f 2>/dev/null | head -5 || echo "No JavaScript files in /app"
+        
+        # 링커 환경변수 재설정
         if command -v clang >/dev/null 2>&1; then
           echo "Using clang as linker"
           export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=clang
@@ -146,17 +177,24 @@ modules:
         echo "Current linker config:"
         echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=$CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER"
         echo "CC_x86_64_unknown_linux_gnu=$CC_x86_64_unknown_linux_gnu"
+        echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
         
-        if npm run --silent | grep -q "tauri"; then
+        # Tauri 빌드 (올바른 디렉토리에서)
+        if npm run --silent 2>/dev/null | grep -q "tauri"; then
           echo "Found tauri script, running build..."
           npm run tauri build -- --target x86_64-unknown-linux-gnu
         elif [ -f "src-tauri/Cargo.toml" ]; then
-          echo "No tauri script found, trying direct cargo build..."
-          cd src-tauri
+          echo "No tauri script found, trying direct cargo build in src-tauri..."
+          cd src-tauri && pwd && ls -la
           cargo build --release --target x86_64-unknown-linux-gnu
           cd ..
+        elif [ -f "Cargo.toml" ]; then
+          echo "Found Cargo.toml in root, trying root cargo build..."
+          cargo build --release --target x86_64-unknown-linux-gnu
         else
-          echo "No Tauri configuration found, this might not be a Tauri project"
+          echo "No Tauri or Cargo configuration found"
+          echo "Project structure:"
+          find . -name "Cargo.toml" -type f 2>/dev/null || echo "No Cargo.toml found anywhere"
           exit 1
         fi
       # 빌드 결과 확인
