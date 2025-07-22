@@ -51,6 +51,11 @@ modules:
   - name: risuai
     buildsystem: simple
     build-commands:
+      # 진단: Flatpak 빌드 환경 확인
+      - echo "=== Flatpak Build Environment Diagnostic ==="
+      - echo "SDK Version:" && cat /usr/lib/os-release || echo "No OS release info"
+      - echo "Available Rust versions:" && find /usr/lib/sdk -name "*rust*" -type d || echo "No Rust SDKs found"
+      - echo "Rust SDK Extension status:" && ls -la /usr/lib/sdk/rust-stable/ || echo "Rust stable not found"
       # Node.js 환경 설정
       - export PATH=/usr/lib/sdk/node20/bin:$PATH
       - node --version
@@ -74,8 +79,18 @@ modules:
       - ls -la src-tauri/ || echo "No src-tauri directory found"
       # 의존성 설치 (npm 사용)
       - npm install --legacy-peer-deps --force --no-optional --no-audit --no-fund
+      # 진단: Rust 및 Cargo 버전 확인
+      - echo "=== Rust Toolchain Diagnostic ==="
+      - export PATH=/usr/lib/sdk/rust-stable/bin:$PATH
+      - rustc --version || echo "Rust not available"
+      - cargo --version || echo "Cargo not available"
+      - echo "=== Dependency Analysis ==="
+      - cd src-tauri
+      - cargo tree --format "{p} {f}" | grep -E "(base64ct|edition)" || echo "No edition-related dependencies found"
+      - cd ..
       # Tauri 스크립트 확인 및 빌드
       - |
+        export PATH=/usr/lib/sdk/rust-stable/bin:$PATH
         if npm run --silent | grep -q "tauri"; then
           echo "Found tauri script, running build..."
           npm run tauri build -- --target x86_64-unknown-linux-gnu

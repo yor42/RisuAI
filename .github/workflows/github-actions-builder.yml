@@ -54,6 +54,18 @@ jobs:
       - name: install dependencies (ubuntu only)
         if: matrix.settings.platform == 'ubuntu-latest' && !matrix.settings.android && !matrix.settings.flatpak
         run: |
+          # 진단: Ubuntu 버전 및 ARM64 저장소 상태 확인
+          echo "=== Ubuntu Version & Architecture Diagnostic ==="
+          lsb_release -a
+          uname -a
+          dpkg --print-architecture
+          dpkg --print-foreign-architectures
+          
+          # 진단: 저장소 접근 가능성 테스트
+          echo "=== Repository Access Test ==="
+          curl -I https://security.ubuntu.com/ubuntu/dists/noble/main/binary-arm64/Packages || echo "ARM64 security repo failed"
+          curl -I http://ports.ubuntu.com/ubuntu-ports/dists/noble/main/binary-arm64/Packages || echo "ARM64 ports repo failed"
+          
           sudo apt-get update
           
           # 기본 의존성 설치
@@ -136,10 +148,25 @@ jobs:
           # DNS 설정 개선 (Flatpak 빌드용)
           echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf
           echo "nameserver 8.8.4.4" | sudo tee -a /etc/resolv.conf
-      - name: install Rust stable
+      - name: install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        if: ${{ !matrix.settings.flatpak }}
         with:
           targets: ${{ matrix.settings.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || (matrix.settings.android && 'aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android' || (contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && 'aarch64-unknown-linux-gnu' || '')) }}
+      - name: install Rust nightly (flatpak only)
+        uses: dtolnay/rust-toolchain@nightly
+        if: matrix.settings.flatpak
+        with:
+          targets: x86_64-unknown-linux-gnu
+      - name: Rust diagnostic
+        run: |
+          echo "=== Rust Toolchain Diagnostic ==="
+          rustc --version
+          cargo --version
+          rustup show
+          echo "=== Dependency Tree Analysis ==="
+          cd src-tauri
+          cargo tree --format "{p} {f}" | grep -E "(base64ct|edition)" || echo "No edition-related dependencies found"
       - name: Get pnpm store directory
         id: pnpm-cache
         shell: bash
