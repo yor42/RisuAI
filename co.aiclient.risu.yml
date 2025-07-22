@@ -23,8 +23,6 @@ finish-args:
 
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/node20/bin
-  build-args:
-    - --share=network
   env:
     CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
     CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: clang
@@ -44,7 +42,7 @@ modules:
     build-commands:
       - corepack enable
       - corepack install --global pnpm@latest
-      - pnpm install --frozen-lockfile --offline
+      - pnpm install --frozen-lockfile
       - pnpm tauri build --target x86_64-unknown-linux-gnu
       - install -Dm755 src-tauri/target/x86_64-unknown-linux-gnu/release/risuai -t /app/bin/
       - install -Dm644 src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/co.aiclient.risu.png
