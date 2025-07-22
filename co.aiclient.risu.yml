@@ -3,7 +3,7 @@ runtime: org.freedesktop.Platform
 runtime-version: '23.08'
 sdk: org.freedesktop.Sdk
 sdk-extensions:
-  - org.freedesktop.Sdk.Extension.rust-stable
+  - org.freedesktop.Sdk.Extension.rust-nightly
   - org.freedesktop.Sdk.Extension.node20
 command: risuai
 separate-locales: false
@@ -22,7 +22,7 @@ finish-args:
   - --own-name=org.mpris.MediaPlayer2.risuai
 
 build-options:
-  append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/node20/bin
+  append-path: /usr/lib/sdk/rust-nightly/bin:/usr/lib/sdk/node20/bin
   build-args:
     - --share=network
   env:
@@ -55,7 +55,7 @@ modules:
       - echo "=== Flatpak Build Environment Diagnostic ==="
       - echo "SDK Version:" && cat /usr/lib/os-release || echo "No OS release info"
       - echo "Available Rust versions:" && find /usr/lib/sdk -name "*rust*" -type d || echo "No Rust SDKs found"
-      - echo "Rust SDK Extension status:" && ls -la /usr/lib/sdk/rust-stable/ || echo "Rust stable not found"
+      - echo "Rust SDK Extension status:" && ls -la /usr/lib/sdk/rust-nightly/ || echo "Rust nightly not found"
       # Node.js 환경 설정
       - export PATH=/usr/lib/sdk/node20/bin:$PATH
       - node --version
@@ -81,7 +81,7 @@ modules:
       - npm install --legacy-peer-deps --force --no-optional --no-audit --no-fund
       # 진단: Rust 및 Cargo 버전 확인
       - echo "=== Rust Toolchain Diagnostic ==="
-      - export PATH=/usr/lib/sdk/rust-stable/bin:$PATH
+      - export PATH=/usr/lib/sdk/rust-nightly/bin:$PATH
       - rustc --version || echo "Rust not available"
       - cargo --version || echo "Cargo not available"
       - echo "=== Dependency Analysis ==="
@@ -90,7 +90,7 @@ modules:
       - cd ..
       # Tauri 스크립트 확인 및 빌드
       - |
-        export PATH=/usr/lib/sdk/rust-stable/bin:$PATH
+        export PATH=/usr/lib/sdk/rust-nightly/bin:$PATH
         if npm run --silent | grep -q "tauri"; then
           echo "Found tauri script, running build..."
           npm run tauri build -- --target x86_64-unknown-linux-gnu

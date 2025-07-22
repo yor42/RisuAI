@@ -20,7 +20,7 @@ jobs:
             args: '--target x86_64-apple-darwin'
           - platform: 'ubuntu-latest' # for Tauri v1 you could replace this with ubuntu-20.04.
             args: '--target x86_64-unknown-linux-gnu'
-          - platform: 'ubuntu-latest' # ARM Linux support (Raspberry Pi, ARM servers, etc.)
+          - platform: 'ubuntu-22.04' # ARM Linux support (Raspberry Pi, ARM servers, etc.) - using 22.04 to avoid Noble ARM64 repo issues
             args: '--target aarch64-unknown-linux-gnu'
           - platform: 'windows-latest'
             args: '--target x86_64-pc-windows-msvc'
@@ -52,7 +52,7 @@ jobs:
           version: 9
           run_install: false
       - name: install dependencies (ubuntu only)
-        if: matrix.settings.platform == 'ubuntu-latest' && !matrix.settings.android && !matrix.settings.flatpak
+        if: startsWith(matrix.settings.platform, 'ubuntu') && !matrix.settings.android && !matrix.settings.flatpak
         run: |
           # 진단: Ubuntu 버전 및 ARM64 저장소 상태 확인
           echo "=== Ubuntu Version & Architecture Diagnostic ==="
@@ -63,8 +63,9 @@ jobs:
           
           # 진단: 저장소 접근 가능성 테스트
           echo "=== Repository Access Test ==="
-          curl -I https://security.ubuntu.com/ubuntu/dists/noble/main/binary-arm64/Packages || echo "ARM64 security repo failed"
-          curl -I http://ports.ubuntu.com/ubuntu-ports/dists/noble/main/binary-arm64/Packages || echo "ARM64 ports repo failed"
+          UBUNTU_CODENAME=$(lsb_release -cs)
+          curl -I https://security.ubuntu.com/ubuntu/dists/$UBUNTU_CODENAME/main/binary-arm64/Packages || echo "ARM64 security repo failed"
+          curl -I http://ports.ubuntu.com/ubuntu-ports/dists/$UBUNTU_CODENAME/main/binary-arm64/Packages || echo "ARM64 ports repo failed"
           
           sudo apt-get update
           
@@ -81,12 +82,13 @@ jobs:
             # ARM64 아키텍처 추가
             sudo dpkg --add-architecture arm64
             
-            # ARM64 패키지 저장소 설정 (security 저장소 제외)
-            sudo tee /etc/apt/sources.list.d/arm64.list > /dev/null << 'EOF'
+            # ARM64 패키지 저장소 설정 (security 저장소 제외) - 동적 codename 사용
+            UBUNTU_CODENAME=$(lsb_release -cs)
+            sudo tee /etc/apt/sources.list.d/arm64.list > /dev/null << EOF
           # ARM64 패키지를 위한 ports 저장소 (security 제외)
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble main restricted universe multiverse
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble-updates main restricted universe multiverse
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble-backports main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $UBUNTU_CODENAME main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $UBUNTU_CODENAME-updates main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $UBUNTU_CODENAME-backports main restricted universe multiverse
           EOF
             
             # 패키지 목록 업데이트
@@ -144,7 +146,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y flatpak flatpak-builder
           sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          sudo flatpak install -y flathub org.freedesktop.Platform//23.08 org.freedesktop.Sdk//23.08 org.freedesktop.Sdk.Extension.rust-stable//23.08 org.freedesktop.Sdk.Extension.node20//23.08
+          sudo flatpak install -y flathub org.freedesktop.Platform//23.08 org.freedesktop.Sdk//23.08 org.freedesktop.Sdk.Extension.rust-nightly//23.08 org.freedesktop.Sdk.Extension.node20//23.08
           # DNS 설정 개선 (Flatpak 빌드용)
           echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf
           echo "nameserver 8.8.4.4" | sudo tee -a /etc/resolv.conf
@@ -214,7 +216,7 @@ jobs:
             ${{ runner.os }}-pnpm-store-
             ${{ runner.os }}-pnpm-
       - name: configure dns and network settings (linux/macos only)
-        if: matrix.settings.platform != 'windows-latest'
+        if: startsWith(matrix.settings.platform, 'ubuntu') || matrix.settings.platform == 'macos-latest'
         run: |
           echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf
           echo "nameserver 8.8.4.4" | sudo tee -a /etc/resolv.conf
