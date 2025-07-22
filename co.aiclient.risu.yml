@@ -31,22 +31,19 @@ build-options:
     CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: -C link-arg=--target=x86_64-unknown-linux-gnu
     CC_x86_64_unknown_linux_gnu: clang --target=x86_64-unknown-linux-gnu
     CXX_x86_64_unknown_linux_gnu: clang++ --target=x86_64-unknown-linux-gnu
-    # Node.js 기본 설정
+    # Node.js와 npm 설정
     NODE_ENV: production
-    # npm 설정 (fallback용)
     NPM_CONFIG_LOGLEVEL: info
     NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
     NPM_CONFIG_CACHE: /run/build/risuai/npm-cache
     NPM_CONFIG_PREFIX: /run/build/risuai/npm-global
-    # 플랫폼 관련 설정
-    npm_config_target_platform: linux
-    npm_config_target_arch: x64
-    npm_config_disturl: https://electronjs.org/headers
-    npm_config_force: 'true'
-    npm_config_optional: 'false'
-    npm_config_legacy_peer_deps: 'true'
-    npm_config_fetch_retries: '5'
-    npm_config_fetch_retry_factor: '10'
+    NPM_CONFIG_TARGET_PLATFORM: linux
+    NPM_CONFIG_TARGET_ARCH: x64
+    NPM_CONFIG_FORCE: 'true'
+    NPM_CONFIG_OPTIONAL: 'false'
+    NPM_CONFIG_LEGACY_PEER_DEPS: 'true'
+    NPM_CONFIG_FETCH_RETRIES: '5'
+    NPM_CONFIG_FETCH_RETRY_FACTOR: '10'
 
 modules:
   - name: risuai
@@ -56,47 +53,109 @@ modules:
       - export PATH=/usr/lib/sdk/node20/bin:$PATH
       - node --version
       - npm --version
-      # Flatpak 환경에서 pnpm 수동 설치 (corepack 대신)
-      - mkdir -p /run/build/risuai/pnpm-bin
-      - export PNPM_HOME=/run/build/risuai/pnpm-bin
-      - export PATH=$PNPM_HOME:$PATH
-      - curl -fsSL https://get.pnpm.io/install.sh | ENV=$HOME/.bashrc SHELL=/bin/bash bash -
-      - export PATH=$PNPM_HOME:$PATH
-      - pnpm --version
-      # pnpm 설정
-      - pnpm config set target-platform linux
-      - pnpm config set target-arch x64
-      - pnpm config set optional false
-      - pnpm config set force true
-      - pnpm config set legacy-peer-deps true
-      - pnpm config set registry https://registry.npmjs.org/
-      - pnpm config set shamefully-hoist true
-      - pnpm config set strict-peer-dependencies false
-      # npm 설정 (fallback용)
+      # npm 설정
       - npm config set target-platform linux
       - npm config set target-arch x64
       - npm config set optional false
       - npm config set force true
       - npm config set legacy-peer-deps true
-      # 의존성 설치 시도 (pnpm 우선, 실패시 npm)
+      - npm config set registry https://registry.npmjs.org/
+      - npm config set fetch-retries 5
+      - npm config set fetch-retry-factor 10
+      # 프로젝트 구조 확인
+      - ls -la
+      - cat package.json | grep -A5 -B5 "scripts" || echo "No scripts section found"
+      - ls -la src-tauri/ || echo "No src-tauri directory found"
+      # 의존성 설치 (npm 사용)
+      - npm install --legacy-peer-deps --force --no-optional
+      # Tauri 스크립트 확인 및 빌드
       - |
-        if ! pnpm install --no-frozen-lockfile --force --ignore-platform; then
-          echo "pnpm install failed, trying with npm..."
-          npm install --legacy-peer-deps --force --no-optional
-        fi
-      # Tauri 빌드 (Linux x64 타겟 명시)
-      - |
-        if command -v pnpm >/dev/null 2>&1; then
-          pnpm tauri build -- --target x86_64-unknown-linux-gnu
-        else
+        if npm run --silent | grep -q "tauri"; then
+          echo "Found tauri script, running build..."
           npm run tauri build -- --target x86_64-unknown-linux-gnu
+        elif [ -f "src-tauri/Cargo.toml" ]; then
+          echo "No tauri script found, trying direct cargo build..."
+          cd src-tauri
+          cargo build --release --target x86_64-unknown-linux-gnu
+          cd ..
+        else
+          echo "No Tauri configuration found, this might not be a Tauri project"
+          exit 1
         fi
-      # 설치
-      - install -Dm755 src-tauri/target/x86_64-unknown-linux-gnu/release/risuai -t /app/bin/
-      - install -Dm644 src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/co.aiclient.risu.png
-      - install -Dm644 src-tauri/icons/128x128@2x.png /app/share/icons/hicolor/256x256/apps/co.aiclient.risu.png
-      - install -Dm644 co.aiclient.risu.metainfo.xml -t /app/share/metainfo/
-      - install -Dm644 co.aiclient.risu.desktop -t /app/share/applications/
+      # 빌드 결과 확인
+      - ls -la src-tauri/target/x86_64-unknown-linux-gnu/release/ || echo "Release directory not found"
+      - find src-tauri/target -name "*" -type f -executable | head -10 || echo "No executables found"
+      # 실행 파일 찾기 및 설치 (유연한 방식)
+      - |
+        RELEASE_DIR="src-tauri/target/x86_64-unknown-linux-gnu/release"
+        if [ -f "$RELEASE_DIR/risuai" ]; then
+          BINARY_NAME="risuai"
+        elif [ -f "$RELEASE_DIR/risu-ai" ]; then
+          BINARY_NAME="risu-ai"
+        elif [ -f "$RELEASE_DIR/RisuAI" ]; then
+          BINARY_NAME="RisuAI"
+        else
+          # 첫 번째로 찾은 실행 파일 사용
+          BINARY_NAME=$(find $RELEASE_DIR -maxdepth 1 -type f -executable | head -1 | xargs basename)
+        fi
+        
+        if [ -n "$BINARY_NAME" ] && [ -f "$RELEASE_DIR/$BINARY_NAME" ]; then
+          echo "Installing binary: $BINARY_NAME"
+          install -Dm755 "$RELEASE_DIR/$BINARY_NAME" /app/bin/risuai
+        else
+          echo "No suitable binary found in $RELEASE_DIR"
+          exit 1
+        fi
+      # 아이콘 찾기 및 설치 (유연한 방식)
+      - |
+        ICON_DIRS=("src-tauri/icons" "icons" "assets/icons" "public/icons")
+        ICON_SIZES=("128x128" "128" "icon")
+        
+        for dir in "${ICON_DIRS[@]}"; do
+          if [ -d "$dir" ]; then
+            echo "Found icon directory: $dir"
+            ls -la "$dir" || true
+            
+            # 128x128 아이콘 찾기
+            for size in "${ICON_SIZES[@]}"; do
+              if [ -f "$dir/${size}.png" ]; then
+                install -Dm644 "$dir/${size}.png" /app/share/icons/hicolor/128x128/apps/co.aiclient.risu.png
+                echo "Installed 128x128 icon from $dir/${size}.png"
+                break
+              elif [ -f "$dir/${size}x${size}.png" ]; then
+                install -Dm644 "$dir/${size}x${size}.png" /app/share/icons/hicolor/128x128/apps/co.aiclient.risu.png
+                echo "Installed 128x128 icon from $dir/${size}x${size}.png"
+                break
+              fi
+            done
+            
+            # 256x256 또는 고해상도 아이콘 찾기
+            if [ -f "$dir/128x128@2x.png" ]; then
+              install -Dm644 "$dir/128x128@2x.png" /app/share/icons/hicolor/256x256/apps/co.aiclient.risu.png
+              echo "Installed 256x256 icon from $dir/128x128@2x.png"
+            elif [ -f "$dir/256x256.png" ]; then
+              install -Dm644 "$dir/256x256.png" /app/share/icons/hicolor/256x256/apps/co.aiclient.risu.png
+              echo "Installed 256x256 icon from $dir/256x256.png"
+            elif [ -f "$dir/256.png" ]; then
+              install -Dm644 "$dir/256.png" /app/share/icons/hicolor/256x256/apps/co.aiclient.risu.png
+              echo "Installed 256x256 icon from $dir/256.png"
+            fi
+            break
+          fi
+        done
+      # 메타데이터 설치 (있는 경우에만)
+      - |
+        if [ -f "co.aiclient.risu.metainfo.xml" ]; then
+          install -Dm644 co.aiclient.risu.metainfo.xml -t /app/share/metainfo/
+        else
+          echo "No metainfo.xml found, skipping..."
+        fi
+      - |
+        if [ -f "co.aiclient.risu.desktop" ]; then
+          install -Dm644 co.aiclient.risu.desktop -t /app/share/applications/
+        else
+          echo "No desktop file found, skipping..."
+        fi
     sources:
       - type: dir
         path: .

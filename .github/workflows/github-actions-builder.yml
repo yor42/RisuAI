@@ -63,21 +63,23 @@ jobs:
           if [[ "${{ matrix.settings.args }}" == *"aarch64-unknown-linux-gnu"* ]]; then
             echo "Setting up ARM64 cross-compilation environment..."
             
-            # 기본 패키지 설치 (오류 무시)
-            sudo apt-get install -y pkg-config pkgconf || echo "Failed to install pkg-config tools"
+            # 기본 패키지 설치
+            sudo apt-get install -y pkg-config pkgconf
             
             # ARM64 아키텍처 추가
-            sudo dpkg --add-architecture arm64 || echo "Failed to add arm64 architecture"
+            sudo dpkg --add-architecture arm64
             
-            # ARM64 패키지 저장소 설정
-            {
-              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs) main restricted universe multiverse"
-              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs)-updates main restricted universe multiverse"
-              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs)-backports main restricted universe multiverse"
-            } | sudo tee /etc/apt/sources.list.d/arm64.list > /dev/null || echo "Failed to add ARM64 repositories"
+            # ARM64 패키지 저장소 설정 (security 저장소 제외)
+            sudo tee /etc/apt/sources.list.d/arm64.list > /dev/null << 'EOF'
+          # ARM64 패키지를 위한 ports 저장소 (security 제외)
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble-updates main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ noble-backports main restricted universe multiverse
+          EOF
             
-            # 패키지 목록 업데이트 (오류 무시)
-            sudo apt-get update || echo "Package update failed, continuing..."
+            # 패키지 목록 업데이트
+            echo "Updating package lists for ARM64..."
+            sudo apt-get update
             
             # ARM64 라이브러리 설치 시도 (best effort)
             arm64_packages=(
@@ -95,12 +97,14 @@ jobs:
             
             for package in "${arm64_packages[@]}"; do
               echo "Attempting to install $package..."
-              if ! sudo apt-get install -y --no-install-recommends "$package"; then
+              if sudo apt-get install -y --no-install-recommends "$package"; then
+                echo "Successfully installed $package"
+              else
                 echo "Failed to install $package, continuing with available packages..."
               fi
             done
             
-            echo "ARM64 library installation completed (some packages may have failed)"
+            echo "ARM64 library installation completed"
           fi
       - name: setup java (android only)
         if: matrix.settings.android
