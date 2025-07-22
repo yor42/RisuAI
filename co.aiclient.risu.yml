@@ -40,8 +40,9 @@ modules:
         npm_config_nodedir: /usr/lib/sdk/node20
         npm_config_offline: 'true'
     build-commands:
-      - corepack enable
-      - corepack install --global pnpm@latest
+      - curl -fsSL https://get.pnpm.io/install.sh | sh -
+      - export PATH="$HOME/.local/share/pnpm:$PATH"
+      - pnpm --version
       - pnpm install --frozen-lockfile
       - pnpm tauri build --target x86_64-unknown-linux-gnu
       - install -Dm755 src-tauri/target/x86_64-unknown-linux-gnu/release/risuai -t /app/bin/
