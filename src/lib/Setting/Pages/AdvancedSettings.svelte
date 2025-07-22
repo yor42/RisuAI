@@ -11,7 +11,6 @@
     import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
     import Help from "src/lib/Others/Help.svelte";
     import { installPython } from "src/ts/process/models/local";
-    import { Capacitor } from "@capacitor/core";
     import { capStorageInvestigation } from "src/ts/storage/mobileStorage";
     import Arcodion from "src/lib/UI/Arcodion.svelte";
   import { PlusIcon, TrashIcon, ArrowUp, ArrowDown } from "lucide-svelte";
@@ -463,7 +462,7 @@
 >
     {language.ShowLog}
 </Button>
-{#if Capacitor.isNativePlatform()}
+{#if isTauri}
     <Button
         className="mt-4"
         onclick={async () => {

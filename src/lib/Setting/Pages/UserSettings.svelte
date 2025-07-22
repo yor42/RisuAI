@@ -12,7 +12,6 @@
     import { LoadLocalBackup, SaveLocalBackup } from "src/ts/drive/backuplocal";
     import Button from "src/lib/UI/GUI/Button.svelte";
     import { exportAsDataset } from "src/ts/storage/exportAsDataset";
-    import { Capacitor } from "@capacitor/core";
     let openIframe = $state(false)
     let openIframeURL = $state('')
     let popup:Window = null
@@ -83,7 +82,7 @@
         if(await alertConfirm(language.backupConfirm)){
             localStorage.setItem('backup', 'save')
             
-            if(isTauri || isNodeServer || Capacitor.isNativePlatform()){
+            if(isTauri || isNodeServer){
                 checkDriver('savetauri')
             }
             else{
@@ -98,7 +97,7 @@
     onclick={async () => {
         if((await alertConfirm(language.backupLoadConfirm)) && (await alertConfirm(language.backupLoadConfirm2))){
             localStorage.setItem('backup', 'load')
-            if(isTauri || isNodeServer || Capacitor.isNativePlatform()){
+            if(isTauri || isNodeServer){
                 checkDriver('loadtauri')
             }
             else{
@@ -127,7 +126,7 @@
     </div>
     {#if DBState.db.account}
         <span class="mb-4 text-textcolor2">ID: {DBState.db.account.id}</span>
-        {#if !isTauri && (!Capacitor.isNativePlatform())}
+        {#if !isTauri}
             <div class="flex items-center mt-2">
                 {#if DBState.db.account.useSync || forageStorage.isAccount}
                     <Check check={true} name={language.SaveDataInAccount} onChange={(v) => {
