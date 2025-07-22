@@ -31,6 +31,9 @@
   "version": "164.1.2",
   "identifier": "co.aiclient.risu",
   "plugins": {
+    "updater": {
+      "active": false
+    },
     "deep-link": {
       "desktop": {
         "schemes": ["risuailocal"]

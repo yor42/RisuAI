@@ -2,9 +2,6 @@ app-id: co.aiclient.risu
 runtime: org.freedesktop.Platform
 runtime-version: '23.08'
 sdk: org.freedesktop.Sdk
-sdk-extensions:
-  - org.freedesktop.Sdk.Extension.rust-nightly
-  - org.freedesktop.Sdk.Extension.node20
 command: risuai
 separate-locales: false
 
@@ -21,71 +18,17 @@ finish-args:
   - --talk-name=com.canonical.indicator.application
   - --own-name=org.mpris.MediaPlayer2.risuai
 
-build-options:
-  append-path: /usr/lib/sdk/rust-nightly/bin:/usr/lib/sdk/node20/bin
-  build-args:
-    - --share=network
-  env:
-    CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
-    NODE_ENV: production
-
 modules:
   - name: risuai
     buildsystem: simple
     build-commands:
-      # 환경 설정
-      - export PATH=/usr/lib/sdk/rust-nightly/bin:/usr/lib/sdk/node20/bin:$PATH
-      - rustc --version
-      - node --version
-      - npm --version
-      
-      # Frontend dependencies 설치 (GitHub Actions와 동일한 방식)
-      - npm install -g pnpm@9
-      - pnpm install --no-frozen-lockfile
-      
-      # 아키텍처별 Tauri 빌드
-      - |
-        if [ "$(uname -m)" = "x86_64" ]; then
-          TARGET_ARCH="x86_64-unknown-linux-gnu"
-        else
-          TARGET_ARCH="aarch64-unknown-linux-gnu"
-        fi
-        echo "Building for target: $TARGET_ARCH"
-        pnpm tauri build --target $TARGET_ARCH
-      
-      # 바이너리 동적 검색 및 설치
-      - |
-        # 아키텍처별 릴리스 디렉토리 확인
-        for target_dir in src-tauri/target/*/release; do
-          if [ -d "$target_dir" ]; then
-            echo "Found release directory: $target_dir"
-            # 실행 가능한 바이너리 찾기
-            if [ -f "$target_dir/RisuAI" ]; then
-              BINARY_PATH="$target_dir/RisuAI"
-              break
-            elif [ -f "$target_dir/risuai" ]; then
-              BINARY_PATH="$target_dir/risuai"
-              break
-            fi
-          fi
-        done
-        
-        if [ -n "$BINARY_PATH" ]; then
-          echo "Installing binary from: $BINARY_PATH"
-          install -Dm755 "$BINARY_PATH" /app/bin/risuai
-        else
-          echo "No suitable binary found"
-          exit 1
-        fi
+      # GitHub Actions에서 빌드된 바이너리 설치
+      - install -Dm755 RisuAI /app/bin/risuai
       
       # 아이콘 설치
-      - install -Dm644 src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/co.aiclient.risu.png
-      - install -Dm644 src-tauri/icons/128x128@2x.png /app/share/icons/hicolor/256x256/apps/co.aiclient.risu.png || true
+      - install -Dm644 128x128.png /app/share/icons/hicolor/128x128/apps/co.aiclient.risu.png
+      - install -Dm644 128x128@2x.png /app/share/icons/hicolor/256x256/apps/co.aiclient.risu.png || true
       
     sources:
-      - type: dir
-        path: .
-        skip:
-          - .git
-          - node_modules
-          - src-tauri/target
+      - type: archive
+        path: risuai-bin.tar.gz  # GitHub Actions에서 생성된 바이너리 아카이브

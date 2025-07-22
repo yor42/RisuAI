@@ -427,6 +427,46 @@ jobs:
           prerelease: false
           args: ${{ contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && '--target aarch64-unknown-linux-gnu --config src-tauri/tauri.conf.arm64.json' || matrix.settings.args }}
           tauriScript: "pnpm tauri"
+      - name: create flatpak binary archive
+        if: startsWith(matrix.settings.platform, 'ubuntu') && !matrix.settings.android
+        run: |
+          echo "=== Creating Flatpak Binary Archive ==="
+          
+          # 아키텍처별 바이너리 경로 확인
+          if [[ "${{ matrix.settings.args }}" == *"aarch64-unknown-linux-gnu"* ]]; then
+            TARGET_DIR="src-tauri/target/aarch64-unknown-linux-gnu/release"
+            ARCH_SUFFIX="aarch64"
+          else
+            TARGET_DIR="src-tauri/target/x86_64-unknown-linux-gnu/release"
+            ARCH_SUFFIX="x86_64"
+          fi
+          
+          # 바이너리 파일 확인
+          if [ -f "$TARGET_DIR/RisuAI" ]; then
+            BINARY_NAME="RisuAI"
+          elif [ -f "$TARGET_DIR/risuai" ]; then
+            BINARY_NAME="risuai"
+          else
+            echo "No binary found in $TARGET_DIR"
+            exit 1
+          fi
+          
+          echo "Found binary: $TARGET_DIR/$BINARY_NAME"
+          
+          # Flatpak용 바이너리 아카이브 생성
+          mkdir -p flatpak-binaries
+          tar -czf "flatpak-binaries/risuai-bin-${ARCH_SUFFIX}.tar.gz" \
+            -C "$TARGET_DIR" "$BINARY_NAME" \
+            -C "../../../src-tauri/icons" "128x128.png" "128x128@2x.png"
+          
+          echo "Created archive: flatpak-binaries/risuai-bin-${ARCH_SUFFIX}.tar.gz"
+          tar -tzf "flatpak-binaries/risuai-bin-${ARCH_SUFFIX}.tar.gz"
+      - name: upload flatpak binary archive
+        if: startsWith(matrix.settings.platform, 'ubuntu') && !matrix.settings.android
+        uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-binaries-${{ contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && 'aarch64' || 'x86_64' }}
+          path: flatpak-binaries/
       - name: build android
         if: matrix.settings.android
         run: |
@@ -482,19 +522,29 @@ jobs:
       - name: build flatpak (Linux builds)
         if: startsWith(matrix.settings.platform, 'ubuntu') && !matrix.settings.android
         run: |
-          echo "=== Building Flatpak for $FLATPAK_ARCH architecture ==="
+          echo "=== Building Flatpak for $FLATPAK_ARCH architecture using pre-built binaries ==="
+          
+          # 아키텍처별 바이너리 아카이브 확인
+          ARCHIVE_NAME="risuai-bin-${FLATPAK_ARCH}.tar.gz"
+          if [ ! -f "flatpak-binaries/$ARCHIVE_NAME" ]; then
+            echo "Binary archive not found: flatpak-binaries/$ARCHIVE_NAME"
+            exit 1
+          fi
+          
+          # 매니페스트에서 참조할 수 있도록 아카이브를 적절한 위치에 복사
+          cp "flatpak-binaries/$ARCHIVE_NAME" "risuai-bin.tar.gz"
           
           # 아키텍처별 빌드 디렉토리 설정
           BUILD_DIR="build-dir-$FLATPAK_ARCH"
           REPO_DIR="repo-$FLATPAK_ARCH"
           OUTPUT_NAME="risuai-$FLATPAK_ARCH.flatpak"
           
-          # Flatpak 매니페스트를 사용하여 아키텍처별 빌드
+          # Flatpak 매니페스트를 사용하여 빌드 (아키텍처별)
           if [[ "$FLATPAK_ARCH" == "aarch64" ]]; then
-            echo "Building ARM64 Flatpak with cross-compilation..."
+            echo "Building ARM64 Flatpak using pre-built binaries..."
             flatpak-builder --force-clean --repo=$REPO_DIR --ccache --install-deps-from=flathub --arch=aarch64 $BUILD_DIR co.aiclient.risu.yml
           else
-            echo "Building AMD64 Flatpak..."
+            echo "Building AMD64 Flatpak using pre-built binaries..."
             flatpak-builder --force-clean --repo=$REPO_DIR --ccache --install-deps-from=flathub $BUILD_DIR co.aiclient.risu.yml
           fi
           
