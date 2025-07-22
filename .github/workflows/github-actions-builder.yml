@@ -110,7 +110,7 @@ jobs:
           # pkgconf 설치
           sudo apt-get install -y pkgconf
           
-          # ARM64 라이브러리 설치
+          # ARM64 라이브러리 설치 (빌드 메시지 추천 패키지 포함)
           echo "=== Installing ARM64 Libraries ==="
           arm64_packages=(
             "libglib2.0-dev:arm64"
@@ -124,12 +124,33 @@ jobs:
             "librsvg2-dev:arm64"
           )
           
+          # 빌드 메시지에서 추천한 패키지들 직접 설치
+          echo "=== Installing Build-Recommended Packages ==="
+          recommended_packages=(
+            "gdk-3.0-dev:arm64"
+            "libgdk-3.0-dev:arm64"
+          )
+          
+          # 기본 ARM64 패키지 설치
           for package in "${arm64_packages[@]}"; do
             echo "Installing $package..."
             sudo apt-get install -y --no-install-recommends "$package" || {
               echo "Failed to install $package, continuing..."
             }
           done
+          
+          # 빌드 추천 패키지 설치 (GDK 3.0 문제 해결)
+          for package in "${recommended_packages[@]}"; do
+            echo "Installing build-recommended package $package..."
+            sudo apt-get install -y --no-install-recommends "$package" || {
+              echo "Failed to install $package, trying alternatives..."
+            }
+          done
+          
+          # pkg-config 파일 확인
+          echo "=== Verifying GDK 3.0 pkg-config ==="
+          find /usr/lib/aarch64-linux-gnu/pkgconfig -name "*gdk*" 2>/dev/null || echo "No GDK pkg-config files found"
+          ls -la /usr/lib/aarch64-linux-gnu/pkgconfig/ | grep gdk || echo "No GDK files in pkg-config directory"
           
           echo "ARM64 cross-compilation environment setup completed"
       - name: setup java (android only)

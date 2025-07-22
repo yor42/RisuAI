@@ -48,19 +48,27 @@ build-options:
     npm_config_disturl: https://electronjs.org/headers
 
 modules:
-  # JavaScript Core and WebKit development files for Flatpak
-  - name: webkit-dev
+  # Install Ubuntu-style JavaScript Core development package
+  - name: javascriptcore-deps
     buildsystem: simple
     build-commands:
-      - echo "Checking for WebKit and JavaScript Core development files..."
-      # pkg-config 파일 존재 확인
-      - find /usr -name "*webkit*" -name "*.pc" 2>/dev/null | head -5 || echo "No WebKit pkg-config files found"
-      - find /usr -name "*javascript*" -name "*.pc" 2>/dev/null | head -5 || echo "No JavaScript pkg-config files found"
-      - find /usr -name "gdk*.pc" 2>/dev/null | head -5 || echo "No GDK pkg-config files found"
-      # PKG_CONFIG_PATH 확인 및 설정
-      - echo "Current PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
-      - export PKG_CONFIG_PATH="/app/lib/pkgconfig:/app/share/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig"
-      - pkg-config --list-all | grep -E "(webkit|javascript|gdk)" || echo "No WebKit/JS/GDK packages found in pkg-config"
+      - echo "Installing JavaScript Core development package (Ubuntu style)..."
+      # Ubuntu 패키지명으로 설치 시도 (Flatpak 환경에서는 제한적)
+      - |
+        echo "Attempting to install libjavascriptcoregtk-4.1-dev..."
+        if command -v apt-get >/dev/null 2>&1; then
+          apt-get update && apt-get install -y libjavascriptcoregtk-4.1-dev libwebkit2gtk-4.1-dev || echo "APT installation failed in Flatpak environment"
+        else
+          echo "APT not available in Flatpak environment"
+        fi
+      # Flatpak SDK에서 JavaScript Core 파일 찾기
+      - echo "=== Searching for existing JavaScript Core in Flatpak SDK ==="
+      - find /usr -name "*javascriptcore*" -type f 2>/dev/null | head -10 || echo "No JavaScriptCore files found"
+      - find /usr -name "*.pc" | xargs grep -l "javascriptcore" 2>/dev/null || echo "No JavaScriptCore in pkg-config files"
+      # 설치 확인
+      - pkg-config --exists javascriptcoregtk-4.1 && echo "JavaScriptCore GTK 4.1 available!" || echo "JavaScriptCore GTK 4.1 NOT available"
+      - echo "Available WebKit/JS packages:"
+      - pkg-config --list-all | grep -E "(webkit|javascript)" || echo "No WebKit/JavaScript packages found"
     sources: []
   - name: risuai
     buildsystem: simple
