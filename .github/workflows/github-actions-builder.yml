@@ -63,7 +63,7 @@ jobs:
             # Update sources but continue on errors
             sudo apt-get update || true
             # Install cross-compilation libraries (optional, continue on failure)
-            sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev:arm64 libgtk-3-dev:arm64 libappindicator3-dev:arm64 librsvg2-dev:arm64 || echo "Warning: Some ARM64 packages could not be installed, continuing with basic cross-compilation tools"
+            sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev:arm64 libgtk-3-dev:arm64 libappindicator3-dev:arm64 librsvg2-dev:arm64 libglib2.0-dev:arm64 libgobject-introspection-1.0-dev:arm64 || echo "Warning: Some ARM64 packages could not be installed, continuing with basic cross-compilation tools"
           fi
       - name: setup java (android only)
         if: matrix.settings.android
@@ -133,7 +133,9 @@ jobs:
           echo "PKG_CONFIG_SYSROOT_DIR=/usr/aarch64-linux-gnu/" >> $GITHUB_ENV
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
           echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
-          echo "PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig:/usr/aarch64-linux-gnu/lib/pkgconfig" >> $GITHUB_ENV
+          echo "PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
+          echo "RUSTFLAGS=-L /usr/lib/aarch64-linux-gnu -L /usr/aarch64-linux-gnu/lib" >> $GITHUB_ENV
       - uses: tauri-apps/tauri-action@v0.5.16
         if: ${{ !matrix.settings.flatpak && !matrix.settings.android }}
         env:
