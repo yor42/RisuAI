@@ -1,0 +1,73 @@
+{
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5174"
+  },
+  "bundle": {
+    "active": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": [
+      "src-python/*"
+    ],
+    "targets": ["deb", "rpm"],
+    "fileAssociations": [
+      {
+        "ext": [
+          "risum", "risup", "charx"
+        ]
+      }
+    ]
+  },
+  "productName": "RisuAI",
+  "mainBinaryName": "RisuAI",
+  "version": "164.1.2",
+  "identifier": "co.aiclient.risu",
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["risuailocal"]
+      }
+    }
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "fullscreen": false,
+        "resizable": true,
+        "title": "RisuAI",
+        "width": 1024,
+        "height": 768,
+        "minWidth": 300,
+        "minHeight": 500,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "assetProtocol": {
+        "scope": [
+          "asset",
+          "$APPDATA",
+          "$APPDATA/*",
+          "$APPDATA/**/*",
+          "/data/**/*"
+        ],
+        "enable": true
+      },
+      "csp": null,
+      "capabilities": [
+        "desktop-capability",
+        "mobile-capability",
+        "migrated"
+      ]
+    }
+  }
+}

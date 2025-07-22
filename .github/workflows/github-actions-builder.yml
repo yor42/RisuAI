@@ -193,12 +193,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y flatpak flatpak-builder
           
-          # ARM64 빌드를 위한 QEMU 설정
+          # 아키텍처 설정
           if [[ "${{ matrix.settings.args }}" == *"aarch64-unknown-linux-gnu"* ]]; then
-            echo "=== Setting up QEMU for ARM64 Flatpak cross-compilation ==="
-            sudo apt-get install -y qemu-user-static binfmt-support
-            sudo systemctl restart systemd-binfmt || true
+            echo "=== Setting up ARM64 Flatpak build ==="
             FLATPAK_ARCH="aarch64"
+            # ARM64는 AMD64 환경에서만 빌드하므로 cross-compilation 접근
+            echo "ARM64 Flatpak will be built using cross-compilation on AMD64"
           else
             echo "=== Setting up AMD64 Flatpak build ==="
             FLATPAK_ARCH="x86_64"
@@ -209,12 +209,19 @@ jobs:
           # Flathub 저장소 추가
           sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           
-          # 아키텍처별 런타임 및 SDK 설치
-          echo "Installing Flatpak runtime and SDK for $FLATPAK_ARCH..."
-          sudo flatpak install -y flathub org.freedesktop.Platform//$FLATPAK_ARCH/23.08 || echo "Platform installation failed, continuing..."
-          sudo flatpak install -y flathub org.freedesktop.Sdk//$FLATPAK_ARCH/23.08 || echo "SDK installation failed, continuing..."
-          sudo flatpak install -y flathub org.freedesktop.Sdk.Extension.rust-nightly//$FLATPAK_ARCH/23.08 || echo "Rust extension installation failed, continuing..."
-          sudo flatpak install -y flathub org.freedesktop.Sdk.Extension.node20//$FLATPAK_ARCH/23.08 || echo "Node extension installation failed, continuing..."
+          # 아키텍처에 관계없이 기본 런타임만 설치 (AMD64)
+          echo "Installing base Flatpak runtime and SDK..."
+          sudo flatpak install -y flathub org.freedesktop.Platform//23.08 || echo "Platform installation failed, continuing..."
+          sudo flatpak install -y flathub org.freedesktop.Sdk//23.08 || echo "SDK installation failed, continuing..."
+          sudo flatpak install -y flathub org.freedesktop.Sdk.Extension.rust-nightly//23.08 || echo "Rust extension installation failed, continuing..."
+          sudo flatpak install -y flathub org.freedesktop.Sdk.Extension.node20//23.08 || echo "Node extension installation failed, continuing..."
+          
+          # ARM64의 경우 QEMU 설정 추가
+          if [[ "$FLATPAK_ARCH" == "aarch64" ]]; then
+            echo "=== Setting up QEMU for ARM64 emulation ==="
+            sudo apt-get install -y qemu-user-static binfmt-support
+            sudo systemctl restart systemd-binfmt || true
+          fi
           
           # DNS 설정 개선
           echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf
@@ -418,7 +425,7 @@ jobs:
           releaseBody: 'Release of v__VERSION__'
           releaseDraft: true
           prerelease: false
-          args: ${{ contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && '--target aarch64-unknown-linux-gnu --bundles deb,rpm' || matrix.settings.args }}
+          args: ${{ contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && '--target aarch64-unknown-linux-gnu --config src-tauri/tauri.conf.arm64.json' || matrix.settings.args }}
           tauriScript: "pnpm tauri"
       - name: build android
         if: matrix.settings.android
