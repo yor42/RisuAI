@@ -151,35 +151,23 @@ jobs:
             }
           done
           
-          # GDK 패키지 재확인 및 추가 설치
-          for package in "${gdk_packages[@]}"; do
-            echo "Ensuring $package is properly installed..."
-            sudo apt-get install -y --no-install-recommends "$package" || {
-              echo "Failed to ensure $package installation"
-            }
-          done
-          
-          # 추가 패키지 설치 (필요한 경우만)
-          if [ -n "${additional_gdk_packages}" ]; then
-            for package in "${additional_gdk_packages[@]}"; do
-              echo "Installing additional package $package..."
-              sudo apt-get install -y --no-install-recommends "$package" || {
-                echo "Failed to install $package"
-              }
-            done
-          fi
+          # 의존성 상태 최종 확인
+          echo "=== Final Dependency Status Check ==="
+          echo "Installed ARM64 packages:"
+          dpkg -l | grep :arm64 | grep -E "(gtk|gdk|cairo|pango)" || echo "No GTK-related ARM64 packages found"
           
           # pkg-config 파일 상세 확인
-          echo "=== Detailed GDK 3.0 Verification ==="
-          echo "Searching for gdk-3.0.pc file:"
-          find /usr -name "gdk-3.0.pc" 2>/dev/null || echo "gdk-3.0.pc not found anywhere"
-          echo "All GDK related pkg-config files:"
-          find /usr/lib/aarch64-linux-gnu/pkgconfig -name "*gdk*" 2>/dev/null || echo "No GDK pkg-config files found"
-          echo "Testing pkgconf for GDK 3.0:"
-          pkgconf --exists gdk-3.0 && echo "✅ GDK 3.0 available via pkgconf" || echo "❌ GDK 3.0 NOT available via pkgconf"
-          echo "PKG_CONFIG_PATH contents:"
-          echo "PKG_CONFIG_PATH=${PKG_CONFIG_PATH}"
-          echo "PKG_CONFIG_LIBDIR=${PKG_CONFIG_LIBDIR}"
+          echo "=== Final pkg-config Verification ==="
+          echo "Available pkg-config files in ARM64:"
+          find /usr/lib/aarch64-linux-gnu/pkgconfig -name "*.pc" 2>/dev/null | head -10 || echo "No pkg-config files found"
+          echo "GDK related files:"
+          find /usr/lib/aarch64-linux-gnu/pkgconfig -name "*gdk*" 2>/dev/null || echo "No GDK pkg-config files"
+          find /usr/lib/aarch64-linux-gnu/pkgconfig -name "*gtk*" 2>/dev/null || echo "No GTK pkg-config files"
+          echo "Testing basic pkg-config functionality:"
+          pkgconf --exists glib-2.0 && echo "✅ GLib 2.0 available" || echo "❌ GLib 2.0 not available"
+          pkgconf --exists cairo && echo "✅ Cairo available" || echo "❌ Cairo not available"
+          pkgconf --exists pango && echo "✅ Pango available" || echo "❌ Pango not available"
+          pkgconf --exists gdk-3.0 && echo "✅ GDK 3.0 available" || echo "❌ GDK 3.0 NOT available (expected if dependencies failed)"
           
           echo "ARM64 cross-compilation environment setup completed"
       - name: setup java (android only)

@@ -126,7 +126,8 @@ modules:
       - ls -la
       - ls -la src-tauri/ || echo "No src-tauri directory"
       - echo "=== Dependency Analysis ==="
-      - if [ -d "src-tauri" ]; then
+      - |
+        if [ -d "src-tauri" ]; then
           echo "Found src-tauri directory"
           cd src-tauri
           ls -la
