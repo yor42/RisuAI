@@ -20,7 +20,7 @@ jobs:
             args: '--target x86_64-apple-darwin'
           - platform: 'ubuntu-latest' # for Tauri v1 you could replace this with ubuntu-20.04.
             args: '--target x86_64-unknown-linux-gnu'
-          - platform: 'ubuntu-22.04' # ARM Linux support (Raspberry Pi, ARM servers, etc.) - using 22.04 to avoid Noble ARM64 repo issues
+          - platform: 'ubuntu-latest' # ARM Linux support (Raspberry Pi, ARM servers, etc.) - using 22.04 to avoid Noble ARM64 repo issues
             args: '--target aarch64-unknown-linux-gnu'
           - platform: 'windows-latest'
             args: '--target x86_64-pc-windows-msvc'
