@@ -29,11 +29,8 @@ import { AutoStorage } from "./storage/autoStorage";
 import { updateAnimationSpeed } from "./gui/animation";
 import { updateColorScheme, updateTextThemeAndCSS } from "./gui/colorscheme";
 import { saveDbKei } from "./kei/backup";
-import { Capacitor, CapacitorHttp } from '@capacitor/core';
-import * as CapFS from '@capacitor/filesystem'
 import { save } from "@tauri-apps/plugin-dialog";
 import { listen } from '@tauri-apps/api/event'
-import { registerPlugin } from '@capacitor/core';
 import { language } from "src/lang";
 import { startObserveDom } from "./observer.svelte";
 import { updateGuisize } from "./gui/guisize";
@@ -51,7 +48,11 @@ export const isTauri = !!window.__TAURI_INTERNALS__
 export const isNodeServer = !!globalThis.__NODE__
 export const forageStorage = new AutoStorage()
 export const googleBuild = false
-export const isMobile = navigator.userAgent.match(/(iPad)|(iPhone)|(iPod)|(android)|(webOS)/i)
+// Check if running on mobile platform (Tauri Android or legacy detection)
+export const isMobile = isTauri ? (
+    /Android/i.test(navigator.userAgent) ||
+    /iPhone|iPad|iPod/i.test(navigator.userAgent)
+) : navigator.userAgent.match(/(iPad)|(iPhone)|(iPod)|(android)|(webOS)/i)
 
 const appWindow = isTauri ? getCurrentWebviewWindow() : null
 
@@ -111,22 +112,13 @@ let pathCache:{[key:string]:string} = {}
 let checkedPaths:string[] = []
 
 /**
- * Checks if a file exists in the Capacitor filesystem.
- * 
- * @param {CapFS.GetUriOptions} getUriOptions - The options for getting the URI of the file.
- * @returns {Promise<boolean>} - A promise that resolves to true if the file exists, false otherwise.
+ * Checks if a file exists in the mobile filesystem (deprecated - legacy Capacitor support).
+ * For Tauri Android, use exists() from @tauri-apps/plugin-fs instead.
  */
-async function checkCapFileExists(getUriOptions: CapFS.GetUriOptions): Promise<boolean> {
-    try {
-        await CapFS.Filesystem.stat(getUriOptions);
-        return true;
-    } catch (checkDirException) {
-        if (checkDirException.message === 'File does not exist') {
-            return false;
-        } else {
-            throw checkDirException;
-        }
-    }
+async function checkCapFileExists(): Promise<boolean> {
+    // This is kept for backward compatibility but should not be used
+    // Use Tauri's exists() function instead
+    return false;
 }
 
 /**
@@ -156,18 +148,23 @@ export async function getFileSrc(loc:string) {
     if(forageStorage.isAccount && loc.startsWith('assets')){
         return hubURL + `/rs/` + loc
     }
-    if(Capacitor.isNativePlatform()){
-        if(!await checkCapFileExists({
-            path: encodeCapKeySafe(loc),
-            directory: CapFS.Directory.External
-        })){
+    // Mobile platform handling now uses Tauri instead of Capacitor
+    if(isMobile && isTauri){
+        // Use Tauri's file system for mobile platforms
+        try {
+            if(appDataDirPath === ''){
+                appDataDirPath = await appDataDir();
+            }
+            const fullPath = await join(appDataDirPath, loc)
+            const fileExists = await exists(fullPath)
+            if(!fileExists){
+                return ''
+            }
+            return convertFileSrc(fullPath)
+        } catch (error) {
+            console.error('Error accessing file on mobile:', error)
             return ''
         }
-        const uri = await CapFS.Filesystem.getUri({
-            path: encodeCapKeySafe(loc),
-            directory: CapFS.Directory.External
-        })
-        return Capacitor.convertFileSrc(uri.uri)
     }
     try {
         if(usingSw){
@@ -628,7 +625,7 @@ export async function loadData() {
                     return
                 }
                 LoadingStatusState.text = "Checking Service Worker..."
-                if(navigator.serviceWorker && (!Capacitor.isNativePlatform())){
+                if(navigator.serviceWorker && (!isMobile || !isTauri)){
                     usingSw = true
                     await registerSw()
                 }
@@ -841,8 +838,9 @@ export async function globalFetch(url: string, arg: GlobalFetchArgs = {}): Promi
     if (isTauri) {
       return await fetchWithTauri(url, arg);
     }
-    if (Capacitor.isNativePlatform()) {
-      return await fetchWithCapacitor(url, arg);
+    // Mobile platforms now use Tauri HTTP fetch
+    if (isMobile && isTauri) {
+      return await fetchWithTauri(url, arg);
     }
     return await fetchWithProxy(url, arg);
 
@@ -949,21 +947,12 @@ async function fetchWithTauri(url: string, arg: GlobalFetchArgs): Promise<Global
     }
 }
 
-// Decoupled globalFetch built-in function
+// Legacy Capacitor fetch function - deprecated
+// Mobile platforms now use fetchWithTauri instead
 async function fetchWithCapacitor(url: string, arg: GlobalFetchArgs): Promise<GlobalFetchResult> {
-  const { body, headers = {}, rawResponse } = arg;
-  headers["Content-Type"] = body instanceof URLSearchParams ? "application/x-www-form-urlencoded" : "application/json";
-
-  const res = await CapacitorHttp.request({ url, method: arg.method ?? "POST", headers, data: body, responseType: rawResponse ? "arraybuffer" : "json" });
-
-  addFetchLogInGlobalFetch(rawResponse ? "Uint8Array Response" : res.data, true, url, arg);
-
-  return {
-    ok: true,
-    data: rawResponse ? new Uint8Array(res.data as ArrayBuffer) : res.data,
-    headers: res.headers,
-    status: res.status
-  };
+  // This function is kept for backward compatibility but should not be used
+  // All mobile HTTP requests should use fetchWithTauri
+  throw new Error('fetchWithCapacitor is deprecated - use fetchWithTauri for mobile platforms');
 }
 
 /**
@@ -1536,52 +1525,21 @@ export class TauriWriter{
 }
 
 /**
- * A writer class for mobile environment.
+ * Legacy mobile writer class - deprecated.
+ * Mobile platforms now use TauriWriter instead.
  */
 class MobileWriter{
     path: string
     firstWrite: boolean = true
 
-    /**
-     * Creates an instance of MobileWriter.
-     * 
-     * @param {string} path - The file path to write to.
-     */
     constructor(path: string){
         this.path = path
     }
 
-    /**
-     * Writes data to the file.
-     * 
-     * @param {Uint8Array} data - The data to write.
-     */
     async write(data:Uint8Array) {
-        if(this.firstWrite){
-            if(!await CapFS.Filesystem.checkPermissions()){
-                await CapFS.Filesystem.requestPermissions()
-            }
-            await CapFS.Filesystem.writeFile({
-                path: this.path,
-                data: Buffer.from(data).toString('base64'),
-                recursive: true,
-                directory: CapFS.Directory.Documents
-            })
-        }
-        else{
-            await CapFS.Filesystem.appendFile({
-                path: this.path,
-                data: Buffer.from(data).toString('base64'),
-                directory: CapFS.Directory.Documents
-            })
-        }
-        
-        this.firstWrite = false
+        throw new Error('MobileWriter is deprecated - use TauriWriter for mobile platforms');
     }
 
-    /**
-     * Closes the writer. (No operation for MobileWriter)
-     */
     async close(){
         // do nothing
     }
@@ -1615,8 +1573,18 @@ export class LocalWriter {
             this.writer = new TauriWriter(filePath)
             return true
         }
-        if (Capacitor.isNativePlatform()) {
-            this.writer = new MobileWriter(name + '.' + ext[0])
+        if (isMobile && isTauri) {
+            // Mobile platforms now use Tauri file system
+            const filePath = await save({
+                filters: [{
+                    name: name,
+                    extensions: ext
+                }]
+            });
+            if (!filePath) {
+                return false
+            }
+            this.writer = new TauriWriter(filePath)
             return true
         }
         const streamSaver = await import('streamsaver')
@@ -1779,17 +1747,10 @@ if (isTauri) {
     })
 }
 
-if (Capacitor.isNativePlatform()) {
-    capStreamedFetch = registerPlugin<StreamedFetchPlugin>('CapacitorHttp', CapacitorHttp)
-
-    capStreamedFetch.addListener('streamed_fetch', (data) => {
-        try {
-            nativeFetchData[data.id]?.push(data)
-        } catch (error) {
-            console.error(error)
-        }
-    })
-    streamedFetchListening = true
+// Legacy Capacitor streamed fetch - deprecated
+// Mobile platforms now use Tauri's streamed fetch via invoke
+if (false) { // Disabled - use Tauri instead
+    // This code block is kept for reference but should not be executed
 }
 
 /**

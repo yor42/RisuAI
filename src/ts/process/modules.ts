@@ -1,13 +1,12 @@
 import { language } from "src/lang"
 import { alertConfirm, alertError, alertModuleSelect, alertNormal, alertStore } from "../alert"
 import { getCurrentCharacter, getCurrentChat, getDatabase, setCurrentCharacter, setDatabase, type customscript, type loreBook, type triggerscript } from "../storage/database.svelte"
-import { AppendableBuffer, downloadFile, isNodeServer, isTauri, readImage, saveAsset } from "../globalApi.svelte"
+import { AppendableBuffer, downloadFile, isNodeServer, isTauri, isMobile, readImage, saveAsset } from "../globalApi.svelte"
 import { selectSingleFile, sleep } from "../util"
 import { v4 } from "uuid"
 import { convertExternalLorebook } from "./lorebook.svelte"
 import { decodeRPack, encodeRPack } from "../rpack/rpack_bg"
 import { convertImage } from "../parser.svelte"
-import { Capacitor } from "@capacitor/core"
 import { HideIconStore, moduleBackgroundEmbedding, ReloadGUIPointer } from "../stores.svelte"
 import {get} from "svelte/store"
 
@@ -158,7 +157,7 @@ export async function readModule(buf:Buffer):Promise<RisuModule> {
             type: 'wait',
             msg: `Loading... (Adding Assets ${i} / ${module.assets.length})`
         })
-        if(!isTauri && !Capacitor.isNativePlatform() &&!isNodeServer){
+        if(!isTauri && !isMobile && isTauri &&!isNodeServer){
             await sleep(100)
         }
         i++

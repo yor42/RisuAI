@@ -52,7 +52,8 @@ export default defineConfig(({command, mode}) => {
     
     optimizeDeps:{
       exclude: [
-        "@browsermt/bergamot-translator"
+        "@browsermt/bergamot-translator",
+        "@mlc-ai/web-llm"
       ],
       needsInterop:[
         "@mlc-ai/web-tokenizers"

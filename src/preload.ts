@@ -1,5 +1,3 @@
-import { Capacitor } from "@capacitor/core";
-
 export function preLoadCheck(){
     const searchParams = new URLSearchParams(location.search);
 
@@ -7,7 +5,15 @@ export function preLoadCheck(){
     const isTauri = !!window.__TAURI_INTERNALS__
     //@ts-ignore
     const isNodeServer = !!globalThis.__NODE__
-    const isCapacitor = Capacitor.isNativePlatform();
+    
+    // Check if running on mobile platform (Tauri Android or legacy Capacitor)
+    const isMobile = isTauri && (
+        /Android/i.test(navigator.userAgent) ||
+        /iPhone|iPad|iPod/i.test(navigator.userAgent)
+    );
+    
+    // Keep isCapacitor for backward compatibility, now represents mobile platform
+    const isCapacitor = isMobile;
 
     const isWeb = !isTauri && !isNodeServer && location.hostname === 'risuai.xyz' && !isCapacitor;
     

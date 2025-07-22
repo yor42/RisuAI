@@ -221,6 +221,15 @@ function readFileAsUint8Array(file) {
 }
 
 export async function changeFullscreen(){
+    // Skip fullscreen operations on mobile platforms
+    if(isTauri) {
+        const userAgent = navigator.userAgent;
+        const isMobile = /Android/i.test(userAgent) || /iPhone|iPad|iPod/i.test(userAgent);
+        if(isMobile) {
+            return;
+        }
+    }
+    
     const db = getDatabase()
     const isFull = await appWindow.isFullscreen()
     if(db.fullScreen && (!isFull)){

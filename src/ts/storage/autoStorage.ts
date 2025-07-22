@@ -1,5 +1,5 @@
 import localforage from "localforage"
-import { isNodeServer, replaceDbResources } from "../globalApi.svelte"
+import { isNodeServer, replaceDbResources, isTauri, isMobile } from "../globalApi.svelte"
 import { NodeStorage } from "./nodeStorage"
 import { OpfsStorage } from "./opfsStorage"
 import { alertInput, alertSelect, alertStore } from "../alert"
@@ -8,7 +8,6 @@ import { AccountStorage } from "./accountStorage"
 import { decodeRisuSave, encodeRisuSaveLegacy } from "./risuSave";
 import { language } from "src/lang"
 import { MobileStorage } from "./mobileStorage"
-import { Capacitor } from "@capacitor/core"
 
 export class AutoStorage{
     isAccount:boolean = false
@@ -124,8 +123,13 @@ export class AutoStorage{
                 this.isAccount = true
                 return
             }
-            if(Capacitor.isNativePlatform()){
-                this.realStorage = new MobileStorage()
+            if(isMobile && isTauri){
+                // Mobile platforms now use Tauri-based storage
+                // For now, fallback to localforage until TauriMobileStorage is implemented
+                console.log("using tauri mobile storage (fallback to localforage)")
+                this.realStorage = localforage.createInstance({
+                    name: "risuai"
+                })
                 return
             }
             if(isNodeServer){

@@ -1,4 +1,5 @@
-import * as CapFS from '@capacitor/filesystem'
+// Legacy Capacitor-based mobile storage - deprecated
+// For Tauri 2.0 Android, use Tauri's file system API instead
 
 export function encodeCapKeySafe(oldKey:string){
     return oldKey.replace(/_/g, '__').replace(/\//g, '_s').replace(/\./g, '_d').replace(/\$/g, '_t').replace(/-/g, '_h').replace(/:/g, '_c') + '.bin'
@@ -9,45 +10,18 @@ export function decodeCapKeySafe(newKey:string){
     return newKey.replace(/_c/g, ':').replace(/_h/g, '-').replace(/_t/g, '$').replace(/_d/g, '.').replace(/_s/g, '/').replace(/__/g, '_')
 }
 
-
 export class MobileStorage{
     async setItem(key:string, value:Uint8Array) {
-        await CapFS.Filesystem.writeFile({
-            path: encodeCapKeySafe(key),
-            data: Buffer.from(value).toString('base64'),
-            directory: CapFS.Directory.External,
-            recursive: true,
-        })
+        throw new Error('MobileStorage is deprecated - use Tauri-based storage for mobile platforms')
     }
     async getItem(key:string):Promise<Buffer> {
-        try {
-            const b64 = await CapFS.Filesystem.readFile({
-                path: encodeCapKeySafe(key),
-                directory: CapFS.Directory.External,   
-            })
-            return Buffer.from(b64.data as string, 'base64')
-        } catch (error) {
-            if(error){
-                if(error.message.includes(`does not exist`)){
-                    return null
-                }
-            }
-            throw error
-        }
+        throw new Error('MobileStorage is deprecated - use Tauri-based storage for mobile platforms')
     }
     async keys():Promise<string[]>{
-        const files = await CapFS.Filesystem.readdir({
-            path: '',
-            directory: CapFS.Directory.External,
-        })
-
-        return files.files.map(f=>decodeCapKeySafe(f.name))
+        throw new Error('MobileStorage is deprecated - use Tauri-based storage for mobile platforms')
     }
     async removeItem(key:string){
-        await CapFS.Filesystem.deleteFile({
-            path: encodeCapKeySafe(key),
-            directory: CapFS.Directory.External,   
-        })
+        throw new Error('MobileStorage is deprecated - use Tauri-based storage for mobile platforms')
     }
 
     listItem = this.keys
@@ -67,21 +41,12 @@ function byteLengthToString(byteLength:number):string{
 }
 
 export async function capStorageInvestigation(){
+    // Legacy Capacitor storage investigation - deprecated
+    // For Tauri mobile platforms, implement Tauri-based storage investigation
     const investResults:{
         key:string,
         size:string,
     }[] = []
-
-    const files = await CapFS.Filesystem.readdir({
-        path: '',
-        directory: CapFS.Directory.External,
-    })
-
-    for(const file of files.files){
-        const key = decodeCapKeySafe(file.name)
-        const size = file.size
-        investResults.push({key, size: byteLengthToString(size)})
-    }
 
     const estimated = await navigator.storage.estimate()
 

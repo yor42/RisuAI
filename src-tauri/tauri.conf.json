@@ -72,7 +72,12 @@
         ],
         "enable": true
       },
-      "csp": null
+      "csp": null,
+      "capabilities": [
+        "desktop-capability",
+        "mobile-capability",
+        "migrated"
+      ]
     }
   }
 }

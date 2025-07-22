@@ -1,0 +1,60 @@
+app-id: co.aiclient.risu
+runtime: org.freedesktop.Platform
+runtime-version: '23.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+  - org.freedesktop.Sdk.Extension.node20
+command: risuai
+separate-locales: false
+
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+  - --filesystem=home
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --talk-name=com.canonical.AppMenu.Registrar
+  - --talk-name=com.canonical.indicator.application
+  - --own-name=org.mpris.MediaPlayer2.risuai
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/node20/bin
+  build-args:
+    - --share=network
+  env:
+    CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: clang
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS: -C link-arg=--target=aarch64-unknown-linux-gnu
+    CC_aarch64_unknown_linux_gnu: clang --target=aarch64-unknown-linux-gnu
+    CXX_aarch64_unknown_linux_gnu: clang++ --target=aarch64-unknown-linux-gnu
+
+modules:
+  - name: risuai
+    buildsystem: simple
+    build-options:
+      env:
+        NPM_CONFIG_LOGLEVEL: info
+        npm_config_cache: /run/build/risuai/flatpak-node/npm-cache
+        npm_config_nodedir: /usr/lib/sdk/node20
+        npm_config_offline: 'true'
+    build-commands:
+      - corepack enable
+      - corepack install --global pnpm@latest
+      - pnpm install --frozen-lockfile --offline
+      - pnpm tauri build --target x86_64-unknown-linux-gnu
+      - install -Dm755 src-tauri/target/x86_64-unknown-linux-gnu/release/risuai -t /app/bin/
+      - install -Dm644 src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/co.aiclient.risu.png
+      - install -Dm644 src-tauri/icons/128x128@2x.png /app/share/icons/hicolor/256x256/apps/co.aiclient.risu.png
+      - install -Dm644 co.aiclient.risu.metainfo.xml -t /app/share/metainfo/
+      - install -Dm644 co.aiclient.risu.desktop -t /app/share/applications/
+    sources:
+      - type: dir
+        path: .
+        skip:
+          - .git
+          - node_modules
+          - src-tauri/target

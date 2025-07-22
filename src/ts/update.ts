@@ -1,19 +1,19 @@
 import { alertConfirm, alertWait } from "./alert";
 import { language } from "../lang";
-import { Capacitor } from "@capacitor/core";
-import {
-    check,
-} from '@tauri-apps/plugin-updater'
-import { relaunch } from '@tauri-apps/plugin-process'
+import { isMobile, isTauri } from "./globalApi.svelte";
 
 export async function checkRisuUpdate(){
 
-    if(Capacitor.isNativePlatform()){
+    if(isMobile && isTauri){
         return
     }
 
     try {
-        const checked = await check()     
+        // Dynamically import updater plugins only on desktop
+        const { check } = await import('@tauri-apps/plugin-updater');
+        const { relaunch } = await import('@tauri-apps/plugin-process');
+        
+        const checked = await check()
         if(checked){
             const conf = await alertConfirm(language.newVersion)
             if(conf){
@@ -23,7 +23,7 @@ export async function checkRisuUpdate(){
             }
         }
     } catch (error) {
-        console.error(error)
+        console.error('Update check failed:', error)
     }
 }
 

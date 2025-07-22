@@ -1,8 +1,7 @@
 import { get, writable } from "svelte/store"
 import { sleep } from "./util"
 import { language } from "../lang"
-import { isNodeServer, isTauri } from "./globalApi.svelte"
-import { Capacitor } from "@capacitor/core"
+import { isNodeServer, isTauri, isMobile } from "./globalApi.svelte"
 import { getDatabase, type MessageGenerationInfo } from "./storage/database.svelte"
 import { alertStore as alertStoreImported } from "./stores.svelte"
 
@@ -58,7 +57,7 @@ export function alertError(msg: string | Error) {
     //check if it's a known error
     if(msg.includes('Failed to fetch') || msg.includes("NetworkError when attempting to fetch resource.")){
         submsg =    db.usePlainFetch ? language.errors.networkFetchPlain :
-                    (!isTauri && !isNodeServer && !Capacitor.isNativePlatform()) ? language.errors.networkFetchWeb : language.errors.networkFetch
+                    (!isTauri && !isNodeServer && !isMobile) ? language.errors.networkFetchWeb : language.errors.networkFetch
     }
 
     alertStoreImported.set({

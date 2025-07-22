@@ -1,0 +1,69 @@
+{
+  "identifier": "mobile-capability",
+  "platforms": [
+    "android",
+    "iOS"
+  ],
+  "permissions": [
+    "core:default",
+    "fs:default",
+    "fs:allow-read-file",
+    "fs:allow-write-file",
+    "fs:allow-read-dir",
+    "fs:allow-copy-file",
+    "fs:allow-mkdir",
+    "fs:allow-remove",
+    "fs:allow-rename",
+    "fs:allow-exists",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        "$APPDATA",
+        "$APPDATA/*",
+        "$APPDATA/**/*",
+        "$DOWNLOAD/*",
+        "/data/**/*",
+        "$RESOURCE/*"
+      ]
+    },
+    "dialog:default",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "dialog:allow-message",
+    "dialog:allow-ask",
+    "dialog:allow-confirm",
+    "http:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        {
+          "url": "https://*/*"
+        },
+        {
+          "url": "https://*/**/*"
+        },
+        {
+          "url": "http://*/*"
+        },
+        {
+          "url": "http://*/**/*"
+        },
+        {
+          "url": "http://*:**"
+        }
+      ]
+    },
+    "os:default",
+    "os:allow-platform",
+    "os:allow-version",
+    "os:allow-os-type",
+    "os:allow-family",
+    "os:allow-arch",
+    "os:allow-exe-extension",
+    "os:allow-locale",
+    "os:allow-hostname",
+    "process:default",
+    "shell:default",
+    "shell:allow-open"
+  ]
+}

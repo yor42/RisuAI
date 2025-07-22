@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=RisuAI
+GenericName=AI Chat Client
+Comment=Advanced AI chat client with character support
+Exec=risuai
+Icon=co.aiclient.risu
+Categories=Network;Chat;
+StartupNotify=true
+StartupWMClass=risuai
+Keywords=AI;Chat;Character;LLM;

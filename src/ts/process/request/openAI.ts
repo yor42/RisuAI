@@ -4,12 +4,11 @@ import { getDatabase } from "src/ts/storage/database.svelte"
 import { LLMFlags, LLMFormat } from "src/ts/model/modellist"
 import { strongBan, tokenizeNum } from "src/ts/tokenizer"
 import { getFreeOpenRouterModel } from "src/ts/model/openrouter"
-import { addFetchLog, fetchNative, globalFetch, isNodeServer, isTauri, textifyReadableStream } from "src/ts/globalApi.svelte"
+import { addFetchLog, fetchNative, globalFetch, isNodeServer, isTauri, isMobile, textifyReadableStream } from "src/ts/globalApi.svelte"
 import type { OpenAIChatFull } from "../index.svelte"
 import { extractJSON, getOpenAIJSONSchema } from "../templates/jsonSchema"
 import { applyChatTemplate } from "../templates/chatTemplate"
 import { supportsInlayImage } from "../files/inlays"
-import { Capacitor } from "@capacitor/core"
 import { replaceAsync, simplifySchema } from "src/ts/util"
 import { callTool, decodeToolCall, encodeToolCall } from "../mcp/mcp"
 import { alertError, alertNormal, alertWait, showHypaV2Alert } from "src/ts/alert";
@@ -558,7 +557,7 @@ export async function requestOpenAI(arg:RequestDataArgumentExtended):Promise<req
         // @ts-ignore
         body.n = db.genTime
     }
-    let throughProxi = (!isTauri) && (!isNodeServer) && (!db.usePlainFetch) && (!Capacitor.isNativePlatform())
+    let throughProxi = (!isTauri) && (!isNodeServer) && (!db.usePlainFetch) && (!isMobile && isTauri)
     if(arg.useStreaming){
         body.stream = true
         let urlHost = new URL(replacerURL).host
