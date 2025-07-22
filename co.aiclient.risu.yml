@@ -31,19 +31,21 @@ build-options:
     CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: -C link-arg=--target=x86_64-unknown-linux-gnu
     CC_x86_64_unknown_linux_gnu: clang --target=x86_64-unknown-linux-gnu
     CXX_x86_64_unknown_linux_gnu: clang++ --target=x86_64-unknown-linux-gnu
-    # Node.js와 npm 설정
+    # Node.js와 npm 설정 (환경 변수만 사용)
     NODE_ENV: production
-    NPM_CONFIG_LOGLEVEL: info
-    NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
     NPM_CONFIG_CACHE: /run/build/risuai/npm-cache
     NPM_CONFIG_PREFIX: /run/build/risuai/npm-global
-    NPM_CONFIG_TARGET_PLATFORM: linux
-    NPM_CONFIG_TARGET_ARCH: x64
+    NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
     NPM_CONFIG_FORCE: 'true'
-    NPM_CONFIG_OPTIONAL: 'false'
     NPM_CONFIG_LEGACY_PEER_DEPS: 'true'
     NPM_CONFIG_FETCH_RETRIES: '5'
     NPM_CONFIG_FETCH_RETRY_FACTOR: '10'
+    NPM_CONFIG_AUDIT: 'false'
+    NPM_CONFIG_FUND: 'false'
+    # 플랫폼 관련 환경 변수
+    npm_config_target_platform: linux
+    npm_config_target_arch: x64
+    npm_config_disturl: https://electronjs.org/headers
 
 modules:
   - name: risuai
@@ -53,21 +55,25 @@ modules:
       - export PATH=/usr/lib/sdk/node20/bin:$PATH
       - node --version
       - npm --version
-      # npm 설정
-      - npm config set target-platform linux
-      - npm config set target-arch x64
-      - npm config set optional false
+      # npm 설정 (유효한 옵션만 사용)
       - npm config set force true
       - npm config set legacy-peer-deps true
       - npm config set registry https://registry.npmjs.org/
       - npm config set fetch-retries 5
       - npm config set fetch-retry-factor 10
+      - npm config set audit false
+      - npm config set fund false
+      # 환경 변수로 플랫폼 설정
+      - export npm_config_target_platform=linux
+      - export npm_config_target_arch=x64
+      - export npm_config_disturl=https://electronjs.org/headers
+      - export npm_config_cache=/run/build/risuai/npm-cache
       # 프로젝트 구조 확인
       - ls -la
       - cat package.json | grep -A5 -B5 "scripts" || echo "No scripts section found"
       - ls -la src-tauri/ || echo "No src-tauri directory found"
       # 의존성 설치 (npm 사용)
-      - npm install --legacy-peer-deps --force --no-optional
+      - npm install --legacy-peer-deps --force --no-optional --no-audit --no-fund
       # Tauri 스크립트 확인 및 빌드
       - |
         if npm run --silent | grep -q "tauri"; then
