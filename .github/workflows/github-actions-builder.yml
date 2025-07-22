@@ -65,14 +65,14 @@ jobs:
             sudo dpkg --add-architecture arm64
             
             # Configure sources for arm64 packages
-            sudo tee /etc/apt/sources.list.d/arm64.list > /dev/null <<EOF
-            deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs) main restricted
-            deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs)-updates main restricted
-            deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs) universe
-            deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs)-updates universe
-            deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs) multiverse
-            deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs)-updates multiverse
-            EOF
+            {
+              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ \$(lsb_release -cs) main restricted"
+              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ \$(lsb_release -cs)-updates main restricted"
+              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ \$(lsb_release -cs) universe"
+              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ \$(lsb_release -cs)-updates universe"
+              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ \$(lsb_release -cs) multiverse"
+              echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ \$(lsb_release -cs)-updates multiverse"
+            } | sudo tee /etc/apt/sources.list.d/arm64.list > /dev/null
             
             # Update package lists
             sudo apt-get update
@@ -134,20 +134,21 @@ jobs:
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-pnpm-store-
-      - name: configure dns and network settings
+      - name: configure dns and network settings (linux/macos only)
+        if: matrix.settings.platform != 'windows-latest'
         run: |
           # Configure DNS to use reliable DNS servers
           echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf
           echo "nameserver 8.8.4.4" | sudo tee -a /etc/resolv.conf
           echo "nameserver 1.1.1.1" | sudo tee -a /etc/resolv.conf
-          
+      - name: configure network settings
+        run: |
           # Configure npm/pnpm network settings
           pnpm config set network-timeout 600000
           pnpm config set fetch-retries 5
           pnpm config set fetch-retry-factor 10
           pnpm config set fetch-retry-mintimeout 10000
           pnpm config set fetch-retry-maxtimeout 60000
-          
       - name: install frontend dependencies
         run: |
           # Retry mechanism for pnpm install
