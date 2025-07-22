@@ -23,8 +23,8 @@ app.delete(
   hubProxyFunc
 );
 
-app.use(express.json({ limit: "50mb" }));
-app.use(express.raw({ type: "application/octet-stream", limit: "50mb" }));
+app.use(express.json({ limit: "100mb" }));
+app.use(express.raw({ type: "application/octet-stream", limit: "100mb" }));
 const { pipeline } = require("stream/promises");
 const https = require("https");
 const sslPath = path.join(process.cwd(), "server/node/ssl/certificate");
