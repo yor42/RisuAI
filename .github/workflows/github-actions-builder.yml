@@ -47,9 +47,10 @@ jobs:
         run: |
           echo "VERSION_JSON=$(jq -c . < version.json)" >> $GITHUB_ENV
       - name: install pnpm
-        uses: pnpm/action-setup@v3
+        uses: pnpm/action-setup@v4
         with:
-          version: latest
+          version: 9
+          run_install: false
       - name: install dependencies (ubuntu only)
         if: matrix.settings.platform == 'ubuntu-latest' && !matrix.settings.android && !matrix.settings.flatpak
         run: |
@@ -123,12 +124,6 @@ jobs:
           # DNS 설정 개선 (Flatpak 빌드용)
           echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf
           echo "nameserver 8.8.4.4" | sudo tee -a /etc/resolv.conf
-          # pnpm 레지스트리 연결 테스트
-          corepack enable
-          corepack prepare pnpm@latest --activate
-          pnpm config set registry https://registry.npmjs.org/
-          pnpm config set fetch-retries 5
-          pnpm config set fetch-retry-factor 10
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -137,14 +132,48 @@ jobs:
         id: pnpm-cache
         shell: bash
         run: |
-          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+          # pnpm store path가 실패할 경우를 대비한 안전한 방법
+          if command -v pnpm >/dev/null 2>&1; then
+            STORE_PATH=$(pnpm store path 2>/dev/null || echo "")
+            if [ -z "$STORE_PATH" ] || [ ! -d "$STORE_PATH" ]; then
+              # 기본 pnpm store 경로 사용
+              case "${{ runner.os }}" in
+                Windows)
+                  STORE_PATH="$HOME/AppData/Local/pnpm/store"
+                  ;;
+                macOS)
+                  STORE_PATH="$HOME/Library/pnpm/store"
+                  ;;
+                Linux)
+                  STORE_PATH="$HOME/.local/share/pnpm/store"
+                  ;;
+              esac
+            fi
+          else
+            # pnpm이 없는 경우 기본 경로 설정
+            case "${{ runner.os }}" in
+              Windows)
+                STORE_PATH="$HOME/AppData/Local/pnpm/store"
+                ;;
+              macOS)
+                STORE_PATH="$HOME/Library/pnpm/store"
+                ;;
+              Linux)
+                STORE_PATH="$HOME/.local/share/pnpm/store"
+                ;;
+            esac
+          fi
+          echo "STORE_PATH=$STORE_PATH" >> $GITHUB_OUTPUT
+          echo "Using pnpm store path: $STORE_PATH"
       - uses: actions/cache@v4
         name: Setup pnpm cache
+        continue-on-error: true
         with:
           path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-pnpm-store-
+            ${{ runner.os }}-pnpm-
       - name: configure dns and network settings (linux/macos only)
         if: matrix.settings.platform != 'windows-latest'
         run: |
@@ -155,6 +184,16 @@ jobs:
         if: ${{ !matrix.settings.flatpak }}
         shell: bash
         run: |
+          # pnpm 설치 확인
+          if ! command -v pnpm >/dev/null 2>&1; then
+            echo "pnpm not found, installing via corepack..."
+            corepack enable
+            corepack prepare pnpm@latest --activate
+          fi
+          
+          # pnpm 버전 확인
+          echo "pnpm version: $(pnpm --version)"
+          
           for i in {1..3}; do
             echo "Attempt $i: Installing frontend dependencies..."
             if pnpm install --no-frozen-lockfile; then
