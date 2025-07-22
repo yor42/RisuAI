@@ -79,17 +79,23 @@ jobs:
             sudo apt-get update || true
             
             # Install essential ARM64 development libraries (사용 가능한 것만 설치)
-            sudo apt-get install -y --no-install-recommends --ignore-missing \
-              libglib2.0-dev:arm64 \
-              libgtk-3-dev:arm64 \
-              libwebkit2gtk-4.1-dev:arm64 \
-              libappindicator3-dev:arm64 \
-              librsvg2-dev:arm64 \
-              libgobject-introspection-1.0-dev:arm64 \
-              libcairo2-dev:arm64 \
-              libpango1.0-dev:arm64 \
-              libgdk-pixbuf-2.0-dev:arm64 \
-              libatk1.0-dev:arm64 || true
+            packages_to_install=(
+              libglib2.0-dev:arm64
+              libgtk-3-dev:arm64
+              libwebkit2gtk-4.1-dev:arm64
+              libappindicator3-dev:arm64
+              librsvg2-dev:arm64
+              libgobject-introspection-1.0-dev:arm64
+              libcairo2-dev:arm64
+              libpango1.0-dev:arm64
+              libgdk-pixbuf-2.0-dev:arm64
+              libatk1.0-dev:arm64
+            )
+            
+            for package in "${packages_to_install[@]}"; do
+              echo "Attempting to install $package..."
+              sudo apt-get install -y --no-install-recommends "$package" || echo "Failed to install $package, continuing..."
+            done
           fi
       - name: setup java (android only)
         if: matrix.settings.android
@@ -179,6 +185,19 @@ jobs:
         if: contains(matrix.settings.args, 'aarch64-unknown-linux-gnu')
         run: |
           rustup target add aarch64-unknown-linux-gnu
+          
+          # ARM Linux 크로스 컴파일 도구 설치 (오류 무시)
+          sudo apt-get install -y pkg-config-aarch64-linux-gnu || echo "pkg-config-aarch64-linux-gnu not available"
+          
+          # pkg-config wrapper 스크립트 생성 (echo 방법)
+          sudo bash -c 'echo "#!/bin/bash" > /usr/bin/aarch64-linux-gnu-pkg-config'
+          sudo bash -c 'echo "export PKG_CONFIG_PATH=\"/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig\"" >> /usr/bin/aarch64-linux-gnu-pkg-config'
+          sudo bash -c 'echo "export PKG_CONFIG_LIBDIR=\"/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig\"" >> /usr/bin/aarch64-linux-gnu-pkg-config'
+          sudo bash -c 'echo "export PKG_CONFIG_SYSROOT_DIR=\"/usr/aarch64-linux-gnu\"" >> /usr/bin/aarch64-linux-gnu-pkg-config'
+          sudo bash -c 'echo "exec pkg-config \"\$@\"" >> /usr/bin/aarch64-linux-gnu-pkg-config'
+          sudo chmod +x /usr/bin/aarch64-linux-gnu-pkg-config
+          
+          # 환경변수 설정
           echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
           echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> $GITHUB_ENV
           echo "AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar" >> $GITHUB_ENV
@@ -192,6 +211,13 @@ jobs:
           echo "RUSTFLAGS=-L /usr/lib/aarch64-linux-gnu -L /usr/aarch64-linux-gnu/lib" >> $GITHUB_ENV
           echo "BINDGEN_EXTRA_CLANG_ARGS=-I/usr/aarch64-linux-gnu/include" >> $GITHUB_ENV
           echo "PKG_CONFIG_aarch64_unknown_linux_gnu=/usr/bin/aarch64-linux-gnu-pkg-config" >> $GITHUB_ENV
+          
+          # 설치 확인 및 디버그 정보
+          which aarch64-linux-gnu-pkg-config
+          aarch64-linux-gnu-pkg-config --version
+          echo "Testing glib-2.0 detection:"
+          aarch64-linux-gnu-pkg-config --libs --cflags glib-2.0 || echo "glib-2.0 detection failed"
+          ls -la /usr/lib/aarch64-linux-gnu/pkgconfig/ | head -10
       - uses: tauri-apps/tauri-action@v0.5.16
         if: ${{ !matrix.settings.flatpak && !matrix.settings.android }}
         env:
@@ -263,6 +289,7 @@ jobs:
       - name: build flatpak
         if: matrix.settings.flatpak
         run: |
+          # 매니페스트에서 --share=network를 설정했으므로 샌드박스 사용 가능
           flatpak-builder --force-clean --repo=repo --ccache --mirror-screenshots-url=https://dl.flathub.org/media/ --install-deps-from=flathub build-dir co.aiclient.risu.yml
           flatpak build-bundle repo risuai.flatpak co.aiclient.risu
           mkdir -p flatpak-build

@@ -45,18 +45,10 @@ modules:
   - name: risuai
     buildsystem: simple
     build-commands:
-      # pnpm 설치 (Node.js 20에 포함되어 있지 않을 수 있음)
-      - npm install -g pnpm@latest
-      # 네트워크 설정 개선
-      - pnpm config set network-timeout 600000
-      - pnpm config set fetch-retries 5
-      - pnpm config set fetch-retry-factor 10
-      - pnpm config set fetch-retry-mintimeout 10000
-      - pnpm config set fetch-retry-maxtimeout 60000
-      # 의존성 설치 (peer dependency 충돌 해결)
-      - pnpm install --no-frozen-lockfile --legacy-peer-deps
+      # npm 사용 (Flatpak 환경에서 더 안정적)
+      - npm install --legacy-peer-deps
       # Tauri 빌드
-      - pnpm tauri build --target x86_64-unknown-linux-gnu
+      - npm run tauri build -- --target x86_64-unknown-linux-gnu
       # 설치
       - install -Dm755 src-tauri/target/x86_64-unknown-linux-gnu/release/risuai -t /app/bin/
       - install -Dm644 src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/co.aiclient.risu.png
