@@ -418,13 +418,25 @@ jobs:
           
           # 원본 Cargo.toml 백업
           cp src-tauri/Cargo.toml src-tauri/Cargo.toml.backup
+          echo "✅ Original Cargo.toml backed up"
           
           # ARM64용 Cargo.toml로 교체 (updater 제거됨)
           cp src-tauri/Cargo.arm64.toml src-tauri/Cargo.toml
+          echo "✅ ARM64 Cargo.toml applied"
           
-          echo "ARM64 Cargo.toml configuration applied"
-          echo "Checking updater dependencies:"
-          grep -n "updater" src-tauri/Cargo.toml || echo "✅ No updater dependencies found"
+          # 활성화된 updater 의존성만 검사 (주석 제외)
+          echo "=== Checking active updater dependencies (excluding comments) ==="
+          if grep -v "^\s*#" src-tauri/Cargo.toml | grep -q "tauri-plugin-updater"; then
+            echo "❌ Active updater dependency found:"
+            grep -v "^\s*#" src-tauri/Cargo.toml | grep -n "tauri-plugin-updater"
+          else
+            echo "✅ No active updater dependencies found"
+          fi
+          
+          # 파일 교체 확인
+          echo "=== File replacement verification ==="
+          echo "Lines with 'updater' (including comments):"
+          grep -n "updater" src-tauri/Cargo.toml || echo "No 'updater' mentions found"
       - uses: tauri-apps/tauri-action@v0.5.16
         if: ${{ !matrix.settings.flatpak && !matrix.settings.android }}
         env:
