@@ -48,6 +48,28 @@ build-options:
     npm_config_disturl: https://electronjs.org/headers
 
 modules:
+  # WebKit2GTK and JavaScriptCore dependencies for Flatpak
+  - name: webkit2gtk-deps
+    buildsystem: simple
+    build-commands:
+      # JavaScript Core GTK와 WebKit2GTK 개발 라이브러리 설치
+      - echo "Installing WebKit2GTK and JavaScriptCore dependencies..."
+      # Flatpak 환경에서 필요한 패키지 설치
+      - |
+        if command -v dnf >/dev/null 2>&1; then
+          dnf install -y webkit2gtk4.1-devel || dnf install -y webkit2gtk3-devel || echo "Failed to install webkit deps via dnf"
+        elif command -v yum >/dev/null 2>&1; then
+          yum install -y webkit2gtk4.1-devel || yum install -y webkit2gtk3-devel || echo "Failed to install webkit deps via yum"
+        elif command -v apt-get >/dev/null 2>&1; then
+          apt-get update && apt-get install -y libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev || echo "Failed to install webkit deps via apt"
+        else
+          echo "No package manager found, will try to continue without webkit deps"
+        fi
+      # pkg-config 파일 확인
+      - find /usr -name "*javascriptcore*" -type f 2>/dev/null || echo "No JavaScript Core files found"
+      - find /usr -name "*webkit*" -type f 2>/dev/null | head -10 || echo "No WebKit files found"
+      - pkg-config --list-all | grep -E "(javascript|webkit)" || echo "No webkit/js packages in pkg-config"
+    sources: []
   - name: risuai
     buildsystem: simple
     build-commands:

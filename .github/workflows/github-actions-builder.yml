@@ -51,83 +51,83 @@ jobs:
         with:
           version: 9
           run_install: false
-      - name: install dependencies (ubuntu only)
-        if: startsWith(matrix.settings.platform, 'ubuntu') && !matrix.settings.android && !matrix.settings.flatpak
+      - name: install dependencies (ubuntu amd64 only)
+        if: startsWith(matrix.settings.platform, 'ubuntu') && !matrix.settings.android && !matrix.settings.flatpak && !contains(matrix.settings.args, 'aarch64-unknown-linux-gnu')
         run: |
-          # 진단: Ubuntu 버전 및 ARM64 저장소 상태 확인
-          echo "=== Ubuntu Version & Architecture Diagnostic ==="
+          # AMD64 빌드용 의존성 설치
+          echo "=== Ubuntu AMD64 Build Environment ==="
           lsb_release -a
-          uname -a
-          dpkg --print-architecture
-          dpkg --print-foreign-architectures
-          
-          # 진단: 저장소 접근 가능성 테스트
-          echo "=== Repository Access Test ==="
-          UBUNTU_CODENAME=$(lsb_release -cs)
-          curl -I https://security.ubuntu.com/ubuntu/dists/$UBUNTU_CODENAME/main/binary-arm64/Packages || echo "ARM64 security repo failed"
-          curl -I http://ports.ubuntu.com/ubuntu-ports/dists/$UBUNTU_CODENAME/main/binary-arm64/Packages || echo "ARM64 ports repo failed"
           
           sudo apt-get update
-          
-          # 기본 의존성 설치
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: install dependencies (ubuntu arm64 cross-compilation)
+        if: startsWith(matrix.settings.platform, 'ubuntu') && contains(matrix.settings.args, 'aarch64-unknown-linux-gnu')
+        run: |
+          # ARM64 크로스컴파일 환경 설정
+          echo "=== Ubuntu ARM64 Cross-compilation Environment ==="
+          lsb_release -a
           
-          # ARM Linux cross-compilation dependencies (조건부)
-          if [[ "${{ matrix.settings.args }}" == *"aarch64-unknown-linux-gnu"* ]]; then
-            echo "Setting up ARM64 cross-compilation environment..."
-            
-            # 기본 패키지 설치 (패키지 충돌 방지)
-            echo "Installing cross-compilation tools..."
-            echo "Checking for existing pkg-config packages..."
-            if dpkg -l | grep -q "pkg-config"; then
-              echo "Removing existing pkg-config to avoid conflicts..."
-              sudo apt-get remove -y pkg-config pkg-config:arm64 || true
-              sudo apt-get autoremove -y || true
-            fi
-            echo "Installing pkgconf..."
-            sudo apt-get install -y pkgconf
-            
-            # ARM64 아키텍처 추가
-            sudo dpkg --add-architecture arm64
-            
-            # ARM64 패키지 저장소 설정 (security 저장소 제외) - 동적 codename 사용
-            UBUNTU_CODENAME=$(lsb_release -cs)
-            sudo tee /etc/apt/sources.list.d/arm64.list > /dev/null << EOF
-          # ARM64 패키지를 위한 ports 저장소 (security 제외)
+          # 저장소 접근 테스트 (ports.ubuntu.com만)
+          echo "=== Repository Access Test ==="
+          UBUNTU_CODENAME=$(lsb_release -cs)
+          curl -I http://ports.ubuntu.com/ubuntu-ports/dists/$UBUNTU_CODENAME/main/binary-arm64/Packages || echo "ARM64 ports repo test failed"
+          
+          # 패키지 충돌 방지
+          echo "=== Preventing Package Conflicts ==="
+          if dpkg -l | grep -q "pkg-config"; then
+            echo "Removing existing pkg-config to avoid conflicts..."
+            sudo apt-get remove -y pkg-config pkg-config:arm64 || true
+            sudo apt-get autoremove -y || true
+          fi
+          
+          # ARM64 아키텍처 추가
+          sudo dpkg --add-architecture arm64
+          
+          # 기존 저장소를 AMD64/i386로 제한
+          sudo cp /etc/apt/sources.list /etc/apt/sources.list.backup
+          sudo sed -i 's/^deb /deb [arch=amd64,i386] /' /etc/apt/sources.list
+          sudo sed -i 's/^deb-src /deb-src [arch=amd64,i386] /' /etc/apt/sources.list
+          
+          # ARM64 전용 ports 저장소 추가 (security 포함)
+          echo "=== Configuring ARM64 Repositories ==="
+          sudo tee /etc/apt/sources.list.d/arm64-ports.list > /dev/null << EOF
+          # ARM64 전용 ports 저장소 (security 포함)
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $UBUNTU_CODENAME main restricted universe multiverse
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $UBUNTU_CODENAME-updates main restricted universe multiverse
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $UBUNTU_CODENAME-backports main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $UBUNTU_CODENAME-security main restricted universe multiverse
           EOF
-            
-            # 패키지 목록 업데이트
-            echo "Updating package lists for ARM64..."
-            sudo apt-get update
-            
-            # ARM64 라이브러리 설치 시도 (best effort)
-            arm64_packages=(
-              "libglib2.0-dev:arm64"
-              "libgtk-3-dev:arm64"
-              "libwebkit2gtk-4.1-dev:arm64"
-              "libappindicator3-dev:arm64"
-              "librsvg2-dev:arm64"
-              "libgobject-introspection-1.0-dev:arm64"
-              "libcairo2-dev:arm64"
-              "libpango1.0-dev:arm64"
-              "libgdk-pixbuf-2.0-dev:arm64"
-              "libatk1.0-dev:arm64"
-            )
-            
-            for package in "${arm64_packages[@]}"; do
-              echo "Attempting to install $package..."
-              if sudo apt-get install -y --no-install-recommends "$package"; then
-                echo "Successfully installed $package"
-              else
-                echo "Failed to install $package, continuing with available packages..."
-              fi
-            done
-            
-            echo "ARM64 library installation completed"
-          fi
+          
+          echo "ARM64 repository configuration:"
+          cat /etc/apt/sources.list.d/arm64-ports.list
+          
+          # 패키지 목록 업데이트
+          sudo apt-get update
+          
+          # 기본 의존성 설치 (AMD64)
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          
+          # pkgconf 설치
+          sudo apt-get install -y pkgconf
+          
+          # ARM64 라이브러리 설치
+          echo "=== Installing ARM64 Libraries ==="
+          arm64_packages=(
+            "libglib2.0-dev:arm64"
+            "libgtk-3-dev:arm64"
+            "libwebkit2gtk-4.1-dev:arm64"
+            "libappindicator3-dev:arm64"
+            "librsvg2-dev:arm64"
+          )
+          
+          for package in "${arm64_packages[@]}"; do
+            echo "Installing $package..."
+            sudo apt-get install -y --no-install-recommends "$package" || {
+              echo "Failed to install $package, continuing..."
+            }
+          done
+          
+          echo "ARM64 cross-compilation environment setup completed"
       - name: setup java (android only)
         if: matrix.settings.android
         uses: actions/setup-java@v4
