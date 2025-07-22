@@ -18,6 +18,7 @@
       "src-python/*"
     ],
     "targets": ["deb", "rpm"],
+    "createUpdaterArtifacts": false,
     "fileAssociations": [
       {
         "ext": [
