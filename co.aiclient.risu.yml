@@ -56,6 +56,20 @@ modules:
       - echo "SDK Version:" && cat /usr/lib/os-release || echo "No OS release info"
       - echo "Available Rust versions:" && find /usr/lib/sdk -name "*rust*" -type d || echo "No Rust SDKs found"
       - echo "Rust SDK Extension status:" && ls -la /usr/lib/sdk/rust-nightly/ || echo "Rust nightly not found"
+      # 링커 환경 설정 (clang 사용 가능성 확인)
+      - echo "=== Checking Available Compilers ==="
+      - which clang && echo "Clang found: $(clang --version)" || echo "Clang not available"
+      - which gcc && echo "GCC found: $(gcc --version)" || echo "GCC not available"
+      - |
+        if command -v clang >/dev/null 2>&1; then
+          echo "Using clang as configured"
+        else
+          echo "Clang not available, modifying linker configuration to use gcc"
+          export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=gcc
+          export CC_x86_64_unknown_linux_gnu=gcc
+          export CXX_x86_64_unknown_linux_gnu=g++
+          unset CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS
+        fi
       # Node.js 환경 설정
       - export PATH=/usr/lib/sdk/node20/bin:$PATH
       - node --version
@@ -88,9 +102,29 @@ modules:
       - cd src-tauri
       - cargo tree --format "{p} {f}" | grep -E "(base64ct|edition)" || echo "No edition-related dependencies found"
       - cd ..
-      # Tauri 스크립트 확인 및 빌드
+      # Tauri 스크립트 확인 및 빌드 (링커 설정 포함)
       - |
         export PATH=/usr/lib/sdk/rust-nightly/bin:$PATH
+        
+        # 링커 환경변수 재설정 (clang 사용 가능성에 따라)
+        if command -v clang >/dev/null 2>&1; then
+          echo "Using clang as linker"
+          export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=clang
+          export CC_x86_64_unknown_linux_gnu="clang --target=x86_64-unknown-linux-gnu"
+          export CXX_x86_64_unknown_linux_gnu="clang++ --target=x86_64-unknown-linux-gnu"
+          export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C link-arg=--target=x86_64-unknown-linux-gnu"
+        else
+          echo "Fallback to gcc as linker"
+          export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=gcc
+          export CC_x86_64_unknown_linux_gnu=gcc
+          export CXX_x86_64_unknown_linux_gnu=g++
+          export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS=""
+        fi
+        
+        echo "Current linker config:"
+        echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=$CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER"
+        echo "CC_x86_64_unknown_linux_gnu=$CC_x86_64_unknown_linux_gnu"
+        
         if npm run --silent | grep -q "tauri"; then
           echo "Found tauri script, running build..."
           npm run tauri build -- --target x86_64-unknown-linux-gnu
