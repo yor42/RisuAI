@@ -1,0 +1,14 @@
+{
+  "identifier": "desktop-arm-capability",
+  "platforms": [
+    "macOS",
+    "windows",
+    "linux"
+  ],
+  "permissions": [
+    "process:default",
+    "shell:default",
+    "http:default",
+    "deep-link:default"
+  ]
+}
