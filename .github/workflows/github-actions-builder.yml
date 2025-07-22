@@ -27,9 +27,6 @@ jobs:
           - platform: 'ubuntu-latest' # Android build
             args: 'android'
             android: true
-          - platform: 'ubuntu-latest' # Flatpak build
-            args: 'flatpak'
-            flatpak: true
            
     runs-on: ${{ matrix.settings.platform }}
     steps:
@@ -190,26 +187,48 @@ jobs:
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;25.1.8937393"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393" >> $GITHUB_ENV
           echo "NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393" >> $GITHUB_ENV
-      - name: setup flatpak (flatpak only)
-        if: matrix.settings.flatpak
+      - name: setup flatpak (Linux builds)
+        if: startsWith(matrix.settings.platform, 'ubuntu') && !matrix.settings.android
         run: |
           sudo apt-get update
           sudo apt-get install -y flatpak flatpak-builder
+          
+          # ARM64 빌드를 위한 QEMU 설정
+          if [[ "${{ matrix.settings.args }}" == *"aarch64-unknown-linux-gnu"* ]]; then
+            echo "=== Setting up QEMU for ARM64 Flatpak cross-compilation ==="
+            sudo apt-get install -y qemu-user-static binfmt-support
+            sudo systemctl restart systemd-binfmt || true
+            FLATPAK_ARCH="aarch64"
+          else
+            echo "=== Setting up AMD64 Flatpak build ==="
+            FLATPAK_ARCH="x86_64"
+          fi
+          
+          echo "FLATPAK_ARCH=$FLATPAK_ARCH" >> $GITHUB_ENV
+          
+          # Flathub 저장소 추가
           sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          sudo flatpak install -y flathub org.freedesktop.Platform//23.08 org.freedesktop.Sdk//23.08 org.freedesktop.Sdk.Extension.rust-nightly//23.08 org.freedesktop.Sdk.Extension.node20//23.08
-          # DNS 설정 개선 (Flatpak 빌드용)
+          
+          # 아키텍처별 런타임 및 SDK 설치
+          echo "Installing Flatpak runtime and SDK for $FLATPAK_ARCH..."
+          sudo flatpak install -y flathub org.freedesktop.Platform//$FLATPAK_ARCH/23.08 || echo "Platform installation failed, continuing..."
+          sudo flatpak install -y flathub org.freedesktop.Sdk//$FLATPAK_ARCH/23.08 || echo "SDK installation failed, continuing..."
+          sudo flatpak install -y flathub org.freedesktop.Sdk.Extension.rust-nightly//$FLATPAK_ARCH/23.08 || echo "Rust extension installation failed, continuing..."
+          sudo flatpak install -y flathub org.freedesktop.Sdk.Extension.node20//$FLATPAK_ARCH/23.08 || echo "Node extension installation failed, continuing..."
+          
+          # DNS 설정 개선
           echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf
           echo "nameserver 8.8.4.4" | sudo tee -a /etc/resolv.conf
       - name: install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        if: ${{ !matrix.settings.flatpak }}
+        if: ${{ !startsWith(matrix.settings.platform, 'ubuntu') || matrix.settings.android }}
         with:
-          targets: ${{ matrix.settings.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || (matrix.settings.android && 'aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android' || (contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && 'aarch64-unknown-linux-gnu' || '')) }}
-      - name: install Rust nightly (flatpak only)
+          targets: ${{ matrix.settings.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || (matrix.settings.android && 'aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android' || '') }}
+      - name: install Rust nightly (Linux builds for Flatpak compatibility)
         uses: dtolnay/rust-toolchain@nightly
-        if: matrix.settings.flatpak
+        if: startsWith(matrix.settings.platform, 'ubuntu') && !matrix.settings.android
         with:
-          targets: x86_64-unknown-linux-gnu
+          targets: ${{ contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && 'aarch64-unknown-linux-gnu' || 'x86_64-unknown-linux-gnu' }}
       - name: Rust diagnostic
         run: |
           echo "=== Rust Toolchain Diagnostic ==="
@@ -272,7 +291,6 @@ jobs:
           echo "nameserver 8.8.4.4" | sudo tee -a /etc/resolv.conf
           echo "nameserver 1.1.1.1" | sudo tee -a /etc/resolv.conf
       - name: install frontend dependencies
-        if: ${{ !matrix.settings.flatpak }}
         shell: bash
         run: |
           # pnpm 설치 확인
@@ -400,7 +418,7 @@ jobs:
           releaseBody: 'Release of v__VERSION__'
           releaseDraft: true
           prerelease: false
-          args: ${{ matrix.settings.args }}
+          args: ${{ contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && '--target aarch64-unknown-linux-gnu --bundles deb,rpm' || matrix.settings.args }}
           tauriScript: "pnpm tauri"
       - name: build android
         if: matrix.settings.android
@@ -454,17 +472,36 @@ jobs:
         with:
           name: android-apk
           path: android-build/
-      - name: build flatpak
-        if: matrix.settings.flatpak
+      - name: build flatpak (Linux builds)
+        if: startsWith(matrix.settings.platform, 'ubuntu') && !matrix.settings.android
         run: |
-          # Flatpak 매니페스트를 사용하여 빌드
-          flatpak-builder --force-clean --repo=repo --ccache --install-deps-from=flathub build-dir co.aiclient.risu.yml
-          flatpak build-bundle repo risuai.flatpak co.aiclient.risu
+          echo "=== Building Flatpak for $FLATPAK_ARCH architecture ==="
+          
+          # 아키텍처별 빌드 디렉토리 설정
+          BUILD_DIR="build-dir-$FLATPAK_ARCH"
+          REPO_DIR="repo-$FLATPAK_ARCH"
+          OUTPUT_NAME="risuai-$FLATPAK_ARCH.flatpak"
+          
+          # Flatpak 매니페스트를 사용하여 아키텍처별 빌드
+          if [[ "$FLATPAK_ARCH" == "aarch64" ]]; then
+            echo "Building ARM64 Flatpak with cross-compilation..."
+            flatpak-builder --force-clean --repo=$REPO_DIR --ccache --install-deps-from=flathub --arch=aarch64 $BUILD_DIR co.aiclient.risu.yml
+          else
+            echo "Building AMD64 Flatpak..."
+            flatpak-builder --force-clean --repo=$REPO_DIR --ccache --install-deps-from=flathub $BUILD_DIR co.aiclient.risu.yml
+          fi
+          
+          # 번들 생성
+          flatpak build-bundle $REPO_DIR $OUTPUT_NAME co.aiclient.risu $FLATPAK_ARCH
+          
+          # 아티팩트 디렉토리 생성 및 파일 이동
           mkdir -p flatpak-build
-          mv risuai.flatpak flatpak-build/
+          mv $OUTPUT_NAME flatpak-build/
+          
+          echo "Flatpak build completed: flatpak-build/$OUTPUT_NAME"
       - name: upload flatpak artifact
-        if: matrix.settings.flatpak
+        if: startsWith(matrix.settings.platform, 'ubuntu') && !matrix.settings.android
         uses: actions/upload-artifact@v4
         with:
-          name: flatpak
+          name: flatpak-${{ env.FLATPAK_ARCH }}
           path: flatpak-build/
