@@ -157,8 +157,42 @@ jobs:
         run: |
           pnpm tauri android init
           pnpm tauri android build
+      - name: sign android apk
+        if: matrix.settings.android
+        env:
+          KEYSTORE_FILE: ${{ secrets.KEYSTORE_FILE }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          # Create keystore from base64 encoded secret
+          echo "$KEYSTORE_FILE" | base64 -d > keystore.jks
+          
+          # Create output directory
           mkdir -p android-build
-          find src-tauri/gen/android -name "*.apk" -exec cp {} android-build/ \;
+          
+          # Find unsigned APKs and sign them
+          for apk in $(find src-tauri/gen/android -name "*.apk"); do
+            apk_name=$(basename "$apk" .apk)
+            signed_apk="android-build/${apk_name}-signed.apk"
+            
+            # Sign APK using apksigner (recommended over jarsigner)
+            $ANDROID_HOME/build-tools/*/apksigner sign \
+              --ks keystore.jks \
+              --ks-pass pass:$KEYSTORE_PASSWORD \
+              --ks-key-alias $KEY_ALIAS \
+              --key-pass pass:$KEY_PASSWORD \
+              --out "$signed_apk" \
+              "$apk"
+            
+            echo "Signed APK: $signed_apk"
+          done
+          
+          # Clean up keystore file
+          rm -f keystore.jks
+          
+          # Copy any remaining unsigned APKs if signing failed
+          find src-tauri/gen/android -name "*.apk" -exec cp {} android-build/ \; || true
       - name: upload android artifacts
         if: matrix.settings.android
         uses: actions/upload-artifact@v4
