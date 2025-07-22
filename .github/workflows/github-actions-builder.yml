@@ -240,13 +240,36 @@ jobs:
             signed_apk="android-build/${apk_name}-signed.apk"
             
             # Sign APK using apksigner (recommended over jarsigner)
-            $ANDROID_HOME/build-tools/*/apksigner sign \
-              --ks keystore.jks \
-              --ks-pass pass:$KEYSTORE_PASSWORD \
-              --ks-key-alias $KEY_ALIAS \
-              --key-pass pass:$KEY_PASSWORD \
-              --out "$signed_apk" \
-              "$apk"
+            # Use the correct apksigner syntax
+            BUILD_TOOLS_VERSION=$(ls $ANDROID_HOME/build-tools/ | sort -V | tail -n 1)
+            APKSIGNER="$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION/apksigner"
+            
+            # Check if apksigner exists and is executable
+            if [ -f "$APKSIGNER" ] && [ -x "$APKSIGNER" ]; then
+              echo "Using apksigner: $APKSIGNER"
+              $APKSIGNER sign \
+                --ks keystore.jks \
+                --ks-pass pass:"$KEYSTORE_PASSWORD" \
+                --ks-key-alias "$KEY_ALIAS" \
+                --key-pass pass:"$KEY_PASSWORD" \
+                --out "$signed_apk" \
+                "$apk"
+            else
+              # Fallback to jarsigner if apksigner is not available
+              echo "apksigner not found, falling back to jarsigner"
+              jarsigner -verbose -sigalg SHA1withRSA -digestalg SHA1 \
+                -keystore keystore.jks \
+                -storepass "$KEYSTORE_PASSWORD" \
+                -keypass "$KEY_PASSWORD" \
+                "$apk" "$KEY_ALIAS"
+              
+              # Zipalign the signed APK
+              if [ -f "$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION/zipalign" ]; then
+                $ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION/zipalign -v 4 "$apk" "$signed_apk"
+              else
+                cp "$apk" "$signed_apk"
+              fi
+            fi
             
             echo "Signed APK: $signed_apk"
           done
