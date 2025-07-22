@@ -40,12 +40,15 @@ build-options:
     npm_config_nodedir: /usr/lib/sdk/node20
     npm_config_offline: 'false'
     npm_config_prefix: /run/build/risuai/npm-global
+    npm_config_target_platform: linux
+    npm_config_target_arch: x64
+    npm_config_force: 'true'
 
 modules:
   - name: risuai
     buildsystem: simple
     build-commands:
-      # npm 사용 (Flatpak 환경에서 더 안정적)
+      # npm 사용 (환경변수로 플랫폼 설정 오버라이드)
       - npm install --legacy-peer-deps
       # Tauri 빌드
       - npm run tauri build -- --target x86_64-unknown-linux-gnu
