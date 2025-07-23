@@ -117,8 +117,8 @@ jobs:
           # 기본 의존성 설치 (AMD64)
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
           
-          # pkgconf 설치
-          sudo apt-get install -y pkgconf
+          # pkgconf 및 jq 설치
+          sudo apt-get install -y pkgconf jq
           
           # ARM64 라이브러리 설치 (빌드 메시지 추천 패키지 포함)
           echo "=== Installing ARM64 Libraries ==="
@@ -434,10 +434,266 @@ jobs:
           cp src-tauri/tauri.conf.json src-tauri/tauri.conf.json.backup
           echo "✅ Original files backed up"
           
-          # ARM64용 파일들로 교체
-          cp src-tauri/Cargo.arm64.toml src-tauri/Cargo.toml
-          cp src-tauri/tauri.conf.arm64.json src-tauri/tauri.conf.json
-          echo "✅ ARM64 configuration files applied"
+          # ARM64용 파일들이 존재하는지 확인하고 교체
+          if [ -f "src-tauri/Cargo.arm64.toml" ] && [ -f "src-tauri/tauri.conf.arm64.json" ]; then
+            echo "📁 Dedicated ARM64 configuration files found, applying..."
+            cp src-tauri/Cargo.arm64.toml src-tauri/Cargo.toml
+            cp src-tauri/tauri.conf.arm64.json src-tauri/tauri.conf.json
+            echo "✅ ARM64 configuration files applied from dedicated files"
+            
+            # ARM64 capability 파일 생성 (필요한 경우)
+            if [ ! -f "src-tauri/capabilities/desktop-arm.json" ]; then
+              echo "📄 Creating desktop-arm capability file..."
+              mkdir -p src-tauri/capabilities
+              cat > src-tauri/capabilities/desktop-arm.json << 'EOF'
+          {
+            "identifier": "desktop-arm-capability",
+            "platforms": [
+              "macOS",
+              "windows", 
+              "linux"
+            ],
+            "permissions": [
+              "process:default",
+              "shell:default",
+              "http:default",
+              "deep-link:default"
+            ]
+          }
+          EOF
+              echo "✅ Created desktop-arm capability file"
+            fi
+            
+          else
+            echo "⚠️ Dedicated ARM64 configuration files not found, creating them..."
+            
+            # Cargo.toml 생성 (updater 제외)
+            echo "🔧 Creating ARM64-specific Cargo.toml..."
+            cat > src-tauri/Cargo.toml << 'EOF'
+          [package]
+          name = "risuai"
+          version = "0.0.0"
+          description = "A Tauri App"
+          authors = ["you"]
+          license = ""
+          repository = ""
+          edition = "2021"
+          
+          [build-dependencies]
+          tauri-build = { version = "2.2.0", features = [] }
+          
+          [dependencies]
+          tauri = { version = "2.5.1", features = ["protocol-asset"] }
+          serde_json = "1.0"
+          tiktoken-rs = "0.4.0"
+          base64 = "0.21.0"
+          reqwest = { version = "0.11.16", features = ["json", "rustls-tls"], default-features = false }
+          darling = "0.20.3"
+          zip = "0.6.6"
+          tar = "0.4.40"
+          eventsource-client = "0.12.2"
+          futures = "0.3.30"
+          url = "2.2"
+          uuid = { version = "1.9.1", features = [ "v4" ] }
+          tauri-plugin-fs = "2.2.1"
+          tauri-plugin-os = "2.2.1"
+          tauri-plugin-dialog = "2.2.1"
+          tauri-plugin-process = "2.2.1"
+          tauri-plugin-shell = "2.2.1"
+          tauri-plugin-http = "2.4.3"
+          
+          [target."cfg(any(target_os = \"macos\", windows, target_os = \"linux\"))".dependencies]
+          tauri-plugin-deep-link = "2.2.1"
+          
+          [target.'cfg(all(not(any(target_os = "android", target_os = "ios")), not(target_arch = "aarch64")))'.dependencies]
+          tauri-plugin-single-instance = { version = "2.2.3", features = ["deep-link"] }
+          # updater는 non-ARM64에서만 활성화
+          
+          [target.'cfg(all(not(any(target_os = "android", target_os = "ios")), target_arch = "aarch64"))'.dependencies]
+          tauri-plugin-single-instance = { version = "2.2.3", features = ["deep-link"] }
+          # ARM64에서는 updater 제외
+          
+          [features]
+          custom-protocol = ["tauri/custom-protocol"]
+          
+          [lib]
+          name = "risuai"
+          crate-type = ["staticlib", "cdylib", "rlib"]
+          EOF
+            
+            # tauri.conf.json 수정 (기존 파일 기반으로 updater 제거)
+            echo "🔧 Modifying tauri.conf.json for ARM64..."
+            if command -v jq >/dev/null 2>&1; then
+              # jq가 있는 경우 JSON 파싱으로 정확하게 수정
+              echo "Using jq to modify tauri.conf.json..."
+              jq '
+                del(.plugins.updater) |
+                .bundle.createUpdaterArtifacts = false |
+                .build.beforeBuildCommand = "VITE_DISABLE_UPDATER=true pnpm build" |
+                .bundle.targets = ["deb", "rpm"] |
+                .app.security.capabilities = ["desktop-arm-capability", "mobile-capability", "migrated"]
+              ' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp && \
+              mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
+              echo "✅ Used jq to modify tauri.conf.json for ARM64"
+            else
+              # Node.js로 JSON 처리
+              echo "Using Node.js to modify tauri.conf.json..."
+              node -e "
+                const fs = require('fs');
+                const config = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
+                
+                // updater 관련 설정 제거
+                if (config.plugins && config.plugins.updater) {
+                  delete config.plugins.updater;
+                }
+                if (config.tauri && config.tauri.updater) {
+                  delete config.tauri.updater;
+                }
+                
+                // ARM64 전용 설정 적용
+                if (!config.bundle) config.bundle = {};
+                config.bundle.createUpdaterArtifacts = false;
+                config.bundle.targets = ['deb', 'rpm'];
+                
+                if (!config.build) config.build = {};
+                config.build.beforeBuildCommand = 'VITE_DISABLE_UPDATER=true pnpm build';
+                
+                // capabilities 설정
+                if (!config.app) config.app = {};
+                if (!config.app.security) config.app.security = {};
+                config.app.security.capabilities = ['desktop-arm-capability', 'mobile-capability', 'migrated'];
+                
+                fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(config, null, 2));
+                console.log('✅ Successfully modified tauri.conf.json for ARM64');
+              " || echo "⚠️ Node.js JSON modification failed, using original file"
+            fi
+            
+            # Capability 파일들 생성
+            echo "📄 Creating necessary capability files..."
+            mkdir -p src-tauri/capabilities
+            
+            # desktop-arm-capability
+            cat > src-tauri/capabilities/desktop-arm.json << 'EOF'
+          {
+            "identifier": "desktop-arm-capability",
+            "platforms": [
+              "macOS",
+              "windows",
+              "linux"
+            ],
+            "permissions": [
+              "process:default",
+              "shell:default", 
+              "http:default",
+              "deep-link:default"
+            ]
+          }
+          EOF
+            
+            # mobile-capability 
+            cat > src-tauri/capabilities/mobile.json << 'EOF'
+          {
+            "identifier": "mobile-capability",
+            "platforms": [
+              "android",
+              "iOS"
+            ],
+            "permissions": [
+              "core:default",
+              "fs:default",
+              "fs:allow-read-file",
+              "fs:allow-write-file",
+              "fs:allow-read-dir",
+              "fs:allow-copy-file",
+              "fs:allow-mkdir",
+              "fs:allow-remove",
+              "fs:allow-rename",
+              "fs:allow-exists",
+              {
+                "identifier": "fs:scope",
+                "allow": [
+                  "$APPDATA",
+                  "$APPDATA/*",
+                  "$APPDATA/**/*",
+                  "$DOWNLOAD/*",
+                  "/data/**/*",
+                  "$RESOURCE/*"
+                ]
+              },
+              "dialog:default",
+              "dialog:allow-open",
+              "dialog:allow-save",
+              "dialog:allow-message",
+              "dialog:allow-ask",
+              "dialog:allow-confirm",
+              "http:default",
+              {
+                "identifier": "http:default",
+                "allow": [
+                  {
+                    "url": "https://*/*"
+                  },
+                  {
+                    "url": "https://*/**/*"
+                  },
+                  {
+                    "url": "http://*/*"
+                  },
+                  {
+                    "url": "http://*/**/*"
+                  },
+                  {
+                    "url": "http://*:**"
+                  }
+                ]
+              },
+              "os:default",
+              "os:allow-platform",
+              "os:allow-version",
+              "os:allow-os-type",
+              "os:allow-family",
+              "os:allow-arch",
+              "os:allow-exe-extension",
+              "os:allow-locale",
+              "os:allow-hostname",
+              "process:default",
+              "shell:default",
+              "shell:allow-open"
+            ]
+          }
+          EOF
+            
+            echo "✅ ARM64 configuration created from scratch"
+          fi
+          
+          # 설정 적용 확인
+          echo "=== Verifying ARM64 configuration changes ==="
+          echo "📋 Checking Cargo.toml for updater dependencies:"
+          if grep -v "^\s*#" src-tauri/Cargo.toml | grep -q "tauri-plugin-updater"; then
+            echo "❌ Active updater dependencies still found:"
+            grep -v "^\s*#" src-tauri/Cargo.toml | grep -n "tauri-plugin-updater"
+            echo "🔧 This may cause build issues, but continuing..."
+          else
+            echo "✅ No active updater dependencies found in Cargo.toml"
+          fi
+          
+          echo "📋 Checking tauri.conf.json updater settings:"
+          if command -v jq >/dev/null 2>&1; then
+            UPDATER_PLUGIN=$(jq -r '.plugins.updater // "null"' src-tauri/tauri.conf.json)
+            CREATE_ARTIFACTS=$(jq -r '.bundle.createUpdaterArtifacts // "null"' src-tauri/tauri.conf.json)
+            echo "  updater plugin: $UPDATER_PLUGIN"
+            echo "  createUpdaterArtifacts: $CREATE_ARTIFACTS"
+            if [ "$UPDATER_PLUGIN" = "null" ] && [ "$CREATE_ARTIFACTS" = "false" ]; then
+              echo "✅ tauri.conf.json properly configured for ARM64"
+            else
+              echo "⚠️ tauri.conf.json may still have updater settings"
+            fi
+          else
+            echo "  (jq not available for detailed JSON verification)"
+          fi
+          
+          echo "📋 ARM64-specific lines in Cargo.toml:"
+          grep -n -A2 -B2 "aarch64" src-tauri/Cargo.toml || echo "No ARM64-specific configuration found"
           
           # 완전한 의존성 초기화 (ARM Linux 크로스 컴파일용)
           echo "=== Complete dependency cleanup for ARM64 cross-compilation ==="
@@ -477,33 +733,30 @@ jobs:
           echo "=== Pre-fetching ARM64 dependencies ==="
           cargo fetch --target aarch64-unknown-linux-gnu || echo "Pre-fetch completed with warnings"
           
-          # 7. 의존성 상태 확인
-          echo "=== Dependency status verification ==="
+          # 7. 최종 의존성 상태 확인
+          echo "=== Final dependency status verification ==="
           echo "Cargo.lock exists: $(test -f Cargo.lock && echo 'Yes' || echo 'No (will be generated)')"
           echo "Target directory: $(test -d target && echo 'Exists' || echo 'Clean')"
           echo "Generated schemas: $(test -d gen && echo 'Exists' || echo 'Cleaned - will be regenerated')"
           
-          # 8. Cargo.toml 파일 확인
-          echo "=== Checking Cargo.toml file ==="
+          # 8. 최종 Cargo.toml 파일 확인
+          echo "=== Final Cargo.toml verification ==="
           if [ -f "Cargo.toml" ]; then
             echo "✅ Cargo.toml exists"
             # updater 의존성 검사
             if grep -v "^\s*#" Cargo.toml | grep -q "tauri-plugin-updater"; then
-              echo "❌ Active updater dependency found:"
+              echo "❌ Active updater dependency still found!"
               grep -v "^\s*#" Cargo.toml | grep -n "tauri-plugin-updater"
+              echo "🔧 This will cause build failures on ARM64, but continuing..."
             else
-              echo "✅ No active updater dependencies found"
+              echo "✅ No active updater dependencies found - ARM64 build should succeed"
             fi
-            
-            # 파일 교체 확인
-            echo "Lines with 'updater' (including comments):"
-            grep -n "updater" Cargo.toml || echo "No 'updater' mentions found"
           else
             echo "❌ Cargo.toml not found!"
             ls -la
           fi
           
-          echo "✅ Complete dependency cleanup completed"
+          echo "✅ ARM64 dependency cleanup completed"
       # Modified tauri-action step - no longer creates releases
       - uses: tauri-apps/tauri-action@v0.5.16
         if: ${{ !matrix.settings.flatpak && !matrix.settings.android }}
@@ -515,9 +768,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           VITE_DISABLE_UPDATER: ${{ contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && 'true' || 'false' }}
         with:
-          # Remove release creation parameters
-          uploadRelease: false
-          includeRelease: false
+          # Don't include any release-related parameters to prevent release creation
+          includeUpdaterJson: false
           args: ${{ contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && '--target aarch64-unknown-linux-gnu' || matrix.settings.args }}
           tauriScript: "pnpm tauri"
       - name: restore original files
@@ -746,16 +998,51 @@ jobs:
       
       - name: Display downloaded artifacts
         run: |
-          echo "=== Downloaded Artifacts ==="
+          echo "=== Downloaded Artifacts Structure ==="
           find ./artifacts -type f -name "*" | sort
           
-          echo "=== Artifact Summary ==="
+          echo ""
+          echo "=== Detailed Artifact Summary ==="
           for dir in ./artifacts/*/; do
             if [ -d "$dir" ]; then
-              echo "Directory: $(basename "$dir")"
-              find "$dir" -type f -name "*" | wc -l | sed 's/^/  Files: /'
+              echo "📁 Directory: $(basename "$dir")"
+              file_count=$(find "$dir" -type f -name "*" | wc -l)
+              echo "   Files: $file_count"
+              
+              # List specific file types
+              echo "   📦 Package files:"
+              find "$dir" -type f \( -name "*.dmg" -o -name "*.msi" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.flatpak" -o -name "*.apk" \) | while read -r file; do
+                echo "     - $(basename "$file")"
+              done
+              
+              # Check for any other notable files
+              echo "   📄 Other files:"
+              find "$dir" -type f ! \( -name "*.dmg" -o -name "*.msi" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.flatpak" -o -name "*.apk" \) | while read -r file; do
+                echo "     - $(basename "$file")"
+              done | head -5  # Limit to first 5 to avoid spam
+              
+              echo ""
             fi
           done
+          
+          echo "=== Checking for ARM Flatpak specifically ==="
+          if [ -d "./artifacts/flatpak-aarch64" ]; then
+            echo "✅ ARM64 Flatpak artifact directory found"
+            find "./artifacts/flatpak-aarch64" -name "*.flatpak" | while read -r file; do
+              echo "  📦 ARM64 Flatpak: $(basename "$file")"
+            done
+          else
+            echo "❌ ARM64 Flatpak artifact directory not found"
+          fi
+          
+          if [ -d "./artifacts/flatpak-x86_64" ]; then
+            echo "✅ AMD64 Flatpak artifact directory found"
+            find "./artifacts/flatpak-x86_64" -name "*.flatpak" | while read -r file; do
+              echo "  📦 AMD64 Flatpak: $(basename "$file")"
+            done
+          else
+            echo "❌ AMD64 Flatpak artifact directory not found"
+          fi
       
       - name: Organize release assets
         run: |
@@ -772,6 +1059,7 @@ jobs:
               echo "Processing $source_dir for $platform_name ($arch_suffix)"
               
               # Copy various file types with architecture suffix
+              # Also search in bundle subdirectories for .deb and .rpm files
               find "$source_dir" -type f \( -name "*.dmg" -o -name "*.msi" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.flatpak" -o -name "*.apk" \) | while read -r file; do
                 filename=$(basename "$file")
                 extension="${filename##*.}"
@@ -782,6 +1070,41 @@ jobs:
                 
                 echo "  Copying: $filename -> $new_filename"
                 cp "$file" "release-assets/$new_filename"
+              done
+              
+              # Also check bundle directories specifically for Linux packages
+              if [ -d "$source_dir/bundle" ]; then
+                echo "  Checking bundle directory: $source_dir/bundle"
+                find "$source_dir/bundle" -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) | while read -r file; do
+                  filename=$(basename "$file")
+                  extension="${filename##*.}"
+                  basename_no_ext="${filename%.*}"
+                  
+                  # Create new filename with architecture suffix
+                  new_filename="${basename_no_ext}-${arch_suffix}.${extension}"
+                  
+                  echo "  Copying from bundle: $filename -> $new_filename"
+                  cp "$file" "release-assets/$new_filename"
+                done
+              fi
+              
+              # Recursively check all subdirectories for package files
+              find "$source_dir" -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) -not -path "*/release-assets/*" | while read -r file; do
+                # Skip if already processed
+                if [[ "$file" != *"/release-assets/"* ]]; then
+                  filename=$(basename "$file")
+                  extension="${filename##*.}"
+                  basename_no_ext="${filename%.*}"
+                  
+                  # Create new filename with architecture suffix
+                  new_filename="${basename_no_ext}-${arch_suffix}.${extension}"
+                  
+                  # Only copy if not already exists
+                  if [ ! -f "release-assets/$new_filename" ]; then
+                    echo "  Copying from subdirectory: $filename -> $new_filename"
+                    cp "$file" "release-assets/$new_filename"
+                  fi
+                fi
               done
             fi
           }
@@ -805,7 +1128,48 @@ jobs:
           copy_and_rename "./artifacts/android-apk" "android" "Android"
           
           echo "=== Final Release Assets ==="
-          ls -la release-assets/
+          echo "📦 Total files prepared for release: $(find release-assets/ -type f | wc -l)"
+          echo ""
+          echo "📁 Release assets by category:"
+          
+          # macOS files
+          macos_files=$(find release-assets/ -name "*-macos-*" | wc -l)
+          if [ $macos_files -gt 0 ]; then
+            echo "🍎 macOS ($macos_files files):"
+            find release-assets/ -name "*-macos-*" -exec basename {} \; | sort | sed 's/^/   - /'
+          fi
+          
+          # Windows files  
+          windows_files=$(find release-assets/ -name "*-windows-*" | wc -l)
+          if [ $windows_files -gt 0 ]; then
+            echo "🪟 Windows ($windows_files files):"
+            find release-assets/ -name "*-windows-*" -exec basename {} \; | sort | sed 's/^/   - /'
+          fi
+          
+          # Linux files (excluding flatpak)
+          linux_files=$(find release-assets/ -name "*-linux-*" ! -name "*flatpak*" | wc -l)
+          if [ $linux_files -gt 0 ]; then
+            echo "🐧 Linux packages ($linux_files files):"
+            find release-assets/ -name "*-linux-*" ! -name "*flatpak*" -exec basename {} \; | sort | sed 's/^/   - /'
+          fi
+          
+          # Flatpak files
+          flatpak_files=$(find release-assets/ -name "*flatpak*" | wc -l)
+          if [ $flatpak_files -gt 0 ]; then
+            echo "📦 Flatpak ($flatpak_files files):"
+            find release-assets/ -name "*flatpak*" -exec basename {} \; | sort | sed 's/^/   - /'
+          fi
+          
+          # Android files
+          android_files=$(find release-assets/ -name "*-android*" | wc -l)
+          if [ $android_files -gt 0 ]; then
+            echo "🤖 Android ($android_files files):"
+            find release-assets/ -name "*-android*" -exec basename {} \; | sort | sed 's/^/   - /'
+          fi
+          
+          echo ""
+          echo "📋 Complete file list:"
+          ls -la release-assets/ | grep -v "^total" | grep -v "^d" | awk '{print "   📄 " $9 " (" $5 " bytes)"}'
       
       - name: Create pre-release
         uses: softprops/action-gh-release@v1
@@ -824,37 +1188,61 @@ jobs:
             ## Supported Platforms
             
             ### Desktop Applications
-            - **macOS**: ARM64 (Apple Silicon) and Intel (x86_64)
-            - **Windows**: x86_64
-            - **Linux**: AMD64 (x86_64) and ARM64 (aarch64)
+            - **macOS**: ARM64 (Apple Silicon) and Intel (x86_64) - DMG installers
+            - **Windows**: x86_64 - MSI installer
+            - **Linux**: AMD64 (x86_64) and ARM64 (aarch64) - Multiple formats available
             
             ### Linux Package Formats
+            - **AppImage**: Portable Linux application format (x86_64 and aarch64)
+            - **DEB**: Debian/Ubuntu package format (x86_64 and aarch64)
+            - **RPM**: Red Hat/Fedora package format (x86_64 and aarch64)
             - **Flatpak**: Universal Linux packaging format (x86_64 and aarch64)
-            - **AppImage**: Portable Linux application format
-            - **DEB**: Debian/Ubuntu package format
-            - **RPM**: Red Hat/Fedora package format
             
             ### Mobile
-            - **Android**: APK files (signed)
+            - **Android**: APK files (signed and unsigned)
             
             ## Installation Notes
             
-            - For macOS: Download the appropriate DMG file for your architecture
-            - For Windows: Download the MSI installer
-            - For Linux: Choose between AppImage (portable), DEB/RPM (system package), or Flatpak (universal)
-            - For Android: Install the APK file (enable "Unknown sources" if needed)
+            ### macOS
+            - Download the appropriate DMG file for your architecture
+            - `-macos-aarch64.dmg`: For Apple Silicon Macs (M1, M2, M3, etc.)
+            - `-macos-x86_64.dmg`: For Intel Macs
+            
+            ### Windows
+            - Download the MSI installer: `-windows-x86_64.msi`
+            
+            ### Linux
+            Choose the format that works best for your distribution:
+            - **AppImage** (Recommended for most users): Download, make executable, and run
+            - **DEB packages**: For Debian, Ubuntu, and derivatives - `sudo dpkg -i filename.deb`
+            - **RPM packages**: For Red Hat, Fedora, SUSE, and derivatives - `sudo rpm -i filename.rpm`
+            - **Flatpak**: Universal format - `flatpak install filename.flatpak`
+            
+            ### Android
+            - Download the APK file: `-android.apk`
+            - Enable "Unknown sources" in Android settings if needed
+            - Signed APKs are provided for secure installation
             
             ## File Naming Convention
             
-            Files are named with architecture suffixes:
-            - `-macos-aarch64`: macOS Apple Silicon
-            - `-macos-x86_64`: macOS Intel
+            Files are named with architecture suffixes for easy identification:
+            - `-macos-aarch64`: macOS Apple Silicon (ARM64)
+            - `-macos-x86_64`: macOS Intel (x86_64)
             - `-windows-x86_64`: Windows 64-bit
             - `-linux-x86_64`: Linux AMD64
-            - `-linux-aarch64`: Linux ARM64
-            - `-flatpak-x86_64`: Flatpak AMD64
-            - `-flatpak-aarch64`: Flatpak ARM64
+            - `-linux-aarch64`: Linux ARM64 (Raspberry Pi, ARM servers, etc.)
+            - `-flatpak-x86_64`: Flatpak for AMD64 systems
+            - `-flatpak-aarch64`: Flatpak for ARM64 systems
             - `-android`: Android APK
+            
+            ## Architecture Support Summary
+            
+            | Platform | x86_64/AMD64 | ARM64/aarch64 |
+            |----------|--------------|---------------|
+            | macOS    | ✅ DMG       | ✅ DMG        |
+            | Windows  | ✅ MSI       | ❌            |
+            | Linux    | ✅ DEB/RPM/AppImage/Flatpak | ✅ DEB/RPM/AppImage/Flatpak |
+            | Android  | ✅ APK       | ✅ APK        |
           draft: false
           prerelease: true
           files: release-assets/*
