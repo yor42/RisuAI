@@ -715,6 +715,20 @@ jobs:
             echo "No gen directory found"
           fi
           
+          # 추가: 상위 디렉토리에서도 gen 확인 및 제거
+          cd ..
+          if [ -d "src-tauri/gen" ]; then
+            echo "Found gen directory in parent context, removing..."
+            rm -rf src-tauri/gen/
+            echo "Removed gen directory from parent context"
+          fi
+          cd src-tauri
+          
+          # capabilities 스키마 캐시 강제 재생성을 위한 추가 정리
+          echo "=== Clearing capability schema cache ==="
+          find . -name "capabilities.json" -delete 2>/dev/null || echo "No capability cache files found"
+          find . -name "*.schema.json" -delete 2>/dev/null || echo "No schema cache files found"
+          
           # 2. Cargo 빌드 캐시 완전 제거
           echo "=== Cleaning Cargo build cache ==="
           cargo clean --release --target-dir target
