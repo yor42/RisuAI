@@ -48,11 +48,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-plugin-single-instance = { version = "2.2.3", features = ["deep-link"] }
 tauri-plugin-updater = "2.7.1"
 
-# Linux x86_64에서만 updater와 single-instance 플러그인 사용
-[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
+# Linux (모든 아키텍처)에서 updater와 single-instance 플러그인 사용
+[target.'cfg(target_os = "linux")'.dependencies]
 tauri-plugin-single-instance = { version = "2.2.3", features = ["deep-link"] }
 tauri-plugin-updater = "2.7.1"
-
-# Linux ARM64에서는 single-instance만 사용 (updater 제외)
-[target.'cfg(all(target_os = "linux", target_arch = "aarch64"))'.dependencies]
-tauri-plugin-single-instance = { version = "2.2.3", features = ["deep-link"] }
