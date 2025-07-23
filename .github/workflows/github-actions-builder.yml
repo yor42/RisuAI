@@ -429,70 +429,81 @@ jobs:
         run: |
           echo "=== Preparing ARM64 build configuration ==="
           
-          # 원본 Cargo.toml 백업
+          # 원본 파일들 백업
           cp src-tauri/Cargo.toml src-tauri/Cargo.toml.backup
-          echo "✅ Original Cargo.toml backed up"
+          cp src-tauri/tauri.conf.json src-tauri/tauri.conf.json.backup
+          echo "✅ Original files backed up"
           
-          # ARM64용 Cargo.toml로 교체 (updater 제거됨)
+          # ARM64용 파일들로 교체
           cp src-tauri/Cargo.arm64.toml src-tauri/Cargo.toml
-          echo "✅ ARM64 Cargo.toml applied"
-
-          cd src-tauri
+          cp src-tauri/tauri.conf.arm64.json src-tauri/tauri.conf.json
+          echo "✅ ARM64 configuration files applied"
           
           # 완전한 의존성 초기화 (ARM Linux 크로스 컴파일용)
           echo "=== Complete dependency cleanup for ARM64 cross-compilation ==="
           
-          # 1. Cargo 빌드 캐시 완전 제거
+          # 현재 디렉토리 확인
+          echo "Current directory: $(pwd)"
+          echo "Contents: $(ls -la src-tauri/ | head -5)"
+          
+          cd src-tauri
+          echo "Changed to src-tauri directory: $(pwd)"
+          
+          # 1. 생성된 Tauri 파일 완전 제거 (가장 먼저 실행)
+          echo "=== Forcefully cleaning all generated Tauri files ==="
+          if [ -d "gen" ]; then
+            echo "Found gen directory, removing..."
+            rm -rf gen/
+            echo "Removed gen directory"
+          else
+            echo "No gen directory found"
+          fi
+          
+          # 2. Cargo 빌드 캐시 완전 제거
+          echo "=== Cleaning Cargo build cache ==="
           cargo clean --release --target-dir target
           
-          # 2. target 디렉토리 완전 삭제 (혹시 남은 아티팩트 제거)
+          # 3. target 디렉토리 완전 삭제
           rm -rf target/ || echo "target directory already clean"
           
-          # 3. 생성된 Tauri 파일 완전 제거 (ARM64용으로 재생성 필요)
-          echo "=== Cleaning all generated Tauri files for ARM64 ==="
-          rm -rf gen/ || echo "No generated files to clean"
-          
-          # 4. Cargo.lock 파일 제거 (의존성 잠금 해제)
+          # 4. Cargo.lock 파일 제거
           rm -f Cargo.lock || echo "Cargo.lock already removed"
           
-          # 5. Cargo 레지스트리 캐시 정리 (선택적)
-          cargo clean --package "*" || echo "Package cleanup completed"
-          
-          # 6. 새로운 의존성 트리 생성
-          echo "Generating fresh dependency tree for ARM64..."
+          # 5. 새로운 의존성 트리 생성
+          echo "=== Generating fresh dependency tree for ARM64 ==="
           cargo update --verbose
           
-          # 7. ARM64 타겟용 의존성 미리 다운로드 (실패해도 계속)
-          echo "Pre-fetching ARM64 dependencies..."
+          # 6. ARM64 타겟용 의존성 미리 다운로드
+          echo "=== Pre-fetching ARM64 dependencies ==="
           cargo fetch --target aarch64-unknown-linux-gnu || echo "Pre-fetch completed with warnings"
           
-          # 8. ARM64용 capabilities 강제 재생성
-          echo "=== Regenerating capabilities for ARM64 build ==="
-          cd ..
-          pnpm tauri dev --help > /dev/null 2>&1 || echo "Tauri CLI ready"
-          cd src-tauri
-          
-          # 9. 의존성 상태 확인
+          # 7. 의존성 상태 확인
           echo "=== Dependency status verification ==="
           echo "Cargo.lock exists: $(test -f Cargo.lock && echo 'Yes' || echo 'No (will be generated)')"
           echo "Target directory: $(test -d target && echo 'Exists' || echo 'Clean')"
-          echo "Generated schemas: $(test -d gen/schemas && echo 'Exists' || echo 'Will be generated')"
+          echo "Generated schemas: $(test -d gen && echo 'Exists' || echo 'Cleaned - will be regenerated')"
           
-          echo "✅ Complete dependency cleanup completed"
-          
-          # 활성화된 updater 의존성만 검사 (주석 제외)
-          echo "=== Checking active updater dependencies (excluding comments) ==="
-          if grep -v "^\s*#" src-tauri/Cargo.toml | grep -q "tauri-plugin-updater"; then
-            echo "❌ Active updater dependency found:"
-            grep -v "^\s*#" src-tauri/Cargo.toml | grep -n "tauri-plugin-updater"
+          # 8. Cargo.toml 파일 확인
+          echo "=== Checking Cargo.toml file ==="
+          if [ -f "Cargo.toml" ]; then
+            echo "✅ Cargo.toml exists"
+            # updater 의존성 검사
+            if grep -v "^\s*#" Cargo.toml | grep -q "tauri-plugin-updater"; then
+              echo "❌ Active updater dependency found:"
+              grep -v "^\s*#" Cargo.toml | grep -n "tauri-plugin-updater"
+            else
+              echo "✅ No active updater dependencies found"
+            fi
+            
+            # 파일 교체 확인
+            echo "Lines with 'updater' (including comments):"
+            grep -n "updater" Cargo.toml || echo "No 'updater' mentions found"
           else
-            echo "✅ No active updater dependencies found"
+            echo "❌ Cargo.toml not found!"
+            ls -la
           fi
           
-          # 파일 교체 확인
-          echo "=== File replacement verification ==="
-          echo "Lines with 'updater' (including comments):"
-          grep -n "updater" src-tauri/Cargo.toml || echo "No 'updater' mentions found"
+          echo "✅ Complete dependency cleanup completed"
       - uses: tauri-apps/tauri-action@v0.5.16
         if: ${{ !matrix.settings.flatpak && !matrix.settings.android }}
         env:
@@ -508,19 +519,27 @@ jobs:
           releaseBody: 'Pre-release build of RisuAI ${{ env.TAURI_VERSION }} compiled on ${{ env.BUILD_DATE }} at ${{ env.BUILD_TIME }}'
           releaseDraft: false
           prerelease: true
-          args: ${{ contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && '--target aarch64-unknown-linux-gnu --config src-tauri/tauri.conf.arm64.json' || matrix.settings.args }}
+          args: ${{ contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && '--target aarch64-unknown-linux-gnu' || matrix.settings.args }}
           tauriScript: "pnpm tauri"
-      - name: restore original Cargo.toml
+      - name: restore original files
         if: contains(matrix.settings.args, 'aarch64-unknown-linux-gnu')
         run: |
-          echo "=== Restoring original Cargo.toml ==="
+          echo "=== Restoring original configuration files ==="
           
           # 원본 Cargo.toml 복원
           if [ -f "src-tauri/Cargo.toml.backup" ]; then
             mv src-tauri/Cargo.toml.backup src-tauri/Cargo.toml
-            echo "Original Cargo.toml restored"
+            echo "✅ Original Cargo.toml restored"
           else
-            echo "No backup found, keeping current Cargo.toml"
+            echo "❌ No Cargo.toml backup found"
+          fi
+          
+          # 원본 tauri.conf.json 복원
+          if [ -f "src-tauri/tauri.conf.json.backup" ]; then
+            mv src-tauri/tauri.conf.json.backup src-tauri/tauri.conf.json
+            echo "✅ Original tauri.conf.json restored"
+          else
+            echo "❌ No tauri.conf.json backup found"
           fi
       - name: upload build artifacts (non-flatpak, non-android)
         if: ${{ !matrix.settings.flatpak && !matrix.settings.android }}
