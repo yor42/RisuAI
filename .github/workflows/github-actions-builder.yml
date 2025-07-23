@@ -448,24 +448,35 @@ jobs:
           # 2. target 디렉토리 완전 삭제 (혹시 남은 아티팩트 제거)
           rm -rf target/ || echo "target directory already clean"
           
-          # 3. Cargo.lock 파일 제거 (의존성 잠금 해제)
+          # 3. 생성된 Tauri 파일 완전 제거 (ARM64용으로 재생성 필요)
+          echo "=== Cleaning all generated Tauri files for ARM64 ==="
+          rm -rf gen/ || echo "No generated files to clean"
+          
+          # 4. Cargo.lock 파일 제거 (의존성 잠금 해제)
           rm -f Cargo.lock || echo "Cargo.lock already removed"
           
-          # 4. Cargo 레지스트리 캐시 정리 (선택적)
+          # 5. Cargo 레지스트리 캐시 정리 (선택적)
           cargo clean --package "*" || echo "Package cleanup completed"
           
-          # 5. 새로운 의존성 트리 생성
+          # 6. 새로운 의존성 트리 생성
           echo "Generating fresh dependency tree for ARM64..."
           cargo update --verbose
           
-          # 6. ARM64 타겟용 의존성 미리 다운로드 (실패해도 계속)
+          # 7. ARM64 타겟용 의존성 미리 다운로드 (실패해도 계속)
           echo "Pre-fetching ARM64 dependencies..."
           cargo fetch --target aarch64-unknown-linux-gnu || echo "Pre-fetch completed with warnings"
           
-          # 7. 의존성 상태 확인
+          # 8. ARM64용 capabilities 강제 재생성
+          echo "=== Regenerating capabilities for ARM64 build ==="
+          cd ..
+          pnpm tauri dev --help > /dev/null 2>&1 || echo "Tauri CLI ready"
+          cd src-tauri
+          
+          # 9. 의존성 상태 확인
           echo "=== Dependency status verification ==="
           echo "Cargo.lock exists: $(test -f Cargo.lock && echo 'Yes' || echo 'No (will be generated)')"
           echo "Target directory: $(test -d target && echo 'Exists' || echo 'Clean')"
+          echo "Generated schemas: $(test -d gen/schemas && echo 'Exists' || echo 'Will be generated')"
           
           echo "✅ Complete dependency cleanup completed"
           
