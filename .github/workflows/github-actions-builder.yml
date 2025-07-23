@@ -948,7 +948,7 @@ jobs:
           echo "=== Creating Tauri Updater latest.json ==="
           
           # 릴리스 URL 베이스 (GitHub 릴리스 페이지)
-          RELEASE_URL_BASE="https://github.com/kwaroran/RisuAI/releases/download/${{ env.RELEASE_TAG }}"
+          RELEASE_URL_BASE="https://github.com/yor42/RisuAI/releases/download/${{ env.RELEASE_TAG }}"
           
           # latest.json 기본 구조 생성
           cat > latest.json << EOF
