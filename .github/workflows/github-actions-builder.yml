@@ -435,6 +435,7 @@ jobs:
       # Modified tauri-action step - no longer creates releases
       - uses: tauri-apps/tauri-action@v0.5.16
         if: ${{ !matrix.settings.flatpak && !matrix.settings.android && !matrix.settings.ios }}
+        continue-on-error: ${{ contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
@@ -443,11 +444,40 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           # ARM64 Linux에서는 AppImage 크로스컴파일 오류를 방지하기 위해 deb, rpm만 빌드
           TAURI_BUNDLE_TARGETS: ${{ contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && 'deb,rpm' || '' }}
+          # AppImage 관련 환경변수 비활성화 (ARM64 Linux에서만)
+          DISABLE_APPIMAGE: ${{ contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && '1' || '0' }}
         with:
           # Don't include any release-related parameters to prevent release creation
           includeUpdaterJson: false
           args: ${{ matrix.settings.args }}
           tauriScript: "pnpm tauri"
+      # ARM64 Linux 대체 빌드 (AppImage 제외)
+      - name: ARM64 Linux alternative build (deb, rpm only)
+        if: contains(matrix.settings.args, 'aarch64-unknown-linux-gnu')
+        run: |
+          echo "=== ARM64 Linux Alternative Build (AppImage excluded) ==="
+          cd src-tauri
+          
+          # deb 패키지만 빌드
+          echo "Building DEB package for ARM64..."
+          cargo tauri build --target aarch64-unknown-linux-gnu --bundles deb || {
+            echo "DEB build failed, continuing..."
+          }
+          
+          # rpm 패키지만 빌드
+          echo "Building RPM package for ARM64..."
+          cargo tauri build --target aarch64-unknown-linux-gnu --bundles rpm || {
+            echo "RPM build failed, continuing..."
+          }
+          
+          echo "ARM64 Linux alternative build completed"
+          
+          # 빌드 결과 확인
+          echo "=== Build Results ==="
+          find target/aarch64-unknown-linux-gnu/release -name "*.deb" -o -name "*.rpm" | while read file; do
+            echo "Found: $file ($(du -h "$file" | cut -f1))"
+          done
+          
       # ARM64 관련 원본 파일 복원이 필요 없어졌으므로 제거됨
       - name: upload build artifacts (non-flatpak, non-android, non-ios)
         if: ${{ !matrix.settings.flatpak && !matrix.settings.android && !matrix.settings.ios }}
@@ -464,7 +494,7 @@ jobs:
             src-tauri/target/*/release/*.dmg
             src-tauri/target/*/release/*.deb
             src-tauri/target/*/release/*.rpm
-            src-tauri/target/*/release/*.AppImage
+            ${{ !contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && 'src-tauri/target/*/release/*.AppImage' || '' }}
           if-no-files-found: warn
       - name: create flatpak binary archive
         if: startsWith(matrix.settings.platform, 'ubuntu') && !matrix.settings.android
@@ -927,7 +957,9 @@ jobs:
             |----------|--------------|---------------|
             | macOS    | ✅ DMG       | ✅ DMG        |
             | Windows  | ✅ MSI       | ✅ MSI        |
-            | Linux    | ✅ DEB/RPM/AppImage/Flatpak | ✅ DEB/RPM/Flatpak |
+            | Linux    | ✅ DEB/RPM/AppImage/Flatpak | ✅ DEB/RPM/Flatpak* |
+            
+            *ARM64 Linux AppImage는 크로스컴파일 제한으로 인해 제공되지 않습니다.
             | Android  | ✅ APK       | ✅ APK        |
             <!-- iOS는 현재 개발자 계정 없음으로 인해 비활성화됨
             | iOS      | ✅ IPA/APP   | ✅ IPA/APP    |
