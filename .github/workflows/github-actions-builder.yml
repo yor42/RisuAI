@@ -447,8 +447,8 @@ jobs:
           # AppImage 관련 환경변수 비활성화 (ARM64 Linux에서만)
           DISABLE_APPIMAGE: ${{ contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && '1' || '0' }}
         with:
-          # Don't include any release-related parameters to prevent release creation
-          includeUpdaterJson: false
+          # Enable updater JSON generation for Tauri updater functionality
+          includeUpdaterJson: true
           args: ${{ matrix.settings.args }}
           tauriScript: "pnpm tauri"
       # Arch Linux 패키지 생성 (Linux 빌드에서만)
@@ -549,6 +549,8 @@ jobs:
             src-tauri/target/*/release/*.deb
             src-tauri/target/*/release/*.rpm
             ${{ !contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && 'src-tauri/target/*/release/*.AppImage' || '' }}
+            src-tauri/target/*/release/*.sig
+            src-tauri/target/*/release/*.json
             *.pkg.tar.zst
           if-no-files-found: warn
       - name: create flatpak binary archive
@@ -940,6 +942,124 @@ jobs:
           echo ""
           echo "📋 Complete file list:"
           ls -la release-assets/ | grep -v "^total" | grep -v "^d" | awk '{print "   📄 " $9 " (" $5 " bytes)"}'
+      
+      - name: Create Tauri updater latest.json
+        run: |
+          echo "=== Creating Tauri Updater latest.json ==="
+          
+          # 릴리스 URL 베이스 (GitHub 릴리스 페이지)
+          RELEASE_URL_BASE="https://github.com/kwaroran/RisuAI/releases/download/${{ env.RELEASE_TAG }}"
+          
+          # latest.json 기본 구조 생성
+          cat > latest.json << EOF
+          {
+            "version": "${{ env.TAURI_VERSION }}",
+            "notes": "Release of v${{ env.TAURI_VERSION }}",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)",
+            "platforms": {}
+          }
+          EOF
+          
+          # 각 플랫폼별 signature와 URL을 수집하여 JSON에 추가
+          declare -A platform_mapping=(
+            ["darwin-aarch64"]="macos-aarch64"
+            ["darwin-x86_64"]="macos-x86_64"
+            ["windows-x86_64"]="windows-x86_64"
+            ["windows-aarch64"]="windows-aarch64"
+            ["linux-x86_64"]="linux-x86_64"
+            ["linux-aarch64"]="linux-aarch64"
+          )
+          
+          # 플랫폼별 파일 찾기 및 JSON 업데이트
+          for platform_key in "${!platform_mapping[@]}"; do
+            arch_suffix="${platform_mapping[$platform_key]}"
+            echo "Processing platform: $platform_key -> $arch_suffix"
+            
+            # 해당 플랫폼의 signature 파일 찾기
+            sig_file=""
+            main_file=""
+            
+            case "$platform_key" in
+              "darwin-aarch64"|"darwin-x86_64")
+                # macOS의 경우 .dmg 파일과 해당 .sig 파일
+                main_file=$(find release-assets/ -name "*-${arch_suffix}.dmg" | head -1)
+                if [ -n "$main_file" ]; then
+                  sig_file=$(find ./artifacts/ -name "$(basename "$main_file").sig" 2>/dev/null | head -1)
+                fi
+                ;;
+              "windows-x86_64"|"windows-aarch64")
+                # Windows의 경우 .msi 파일과 해당 .sig 파일
+                main_file=$(find release-assets/ -name "*-${arch_suffix}.msi" | head -1)
+                if [ -n "$main_file" ]; then
+                  sig_file=$(find ./artifacts/ -name "$(basename "$main_file").sig" 2>/dev/null | head -1)
+                fi
+                ;;
+              "linux-x86_64")
+                # Linux AMD64의 경우 AppImage 파일과 해당 .sig 파일
+                main_file=$(find release-assets/ -name "*-${arch_suffix}.AppImage" | head -1)
+                if [ -n "$main_file" ]; then
+                  sig_file=$(find ./artifacts/ -name "$(basename "$main_file").sig" 2>/dev/null | head -1)
+                fi
+                ;;
+              "linux-aarch64")
+                # Linux ARM64의 경우 AppImage가 없으므로 DEB 파일 사용
+                main_file=$(find release-assets/ -name "*-${arch_suffix}.deb" | head -1)
+                if [ -n "$main_file" ]; then
+                  sig_file=$(find ./artifacts/ -name "$(basename "$main_file").sig" 2>/dev/null | head -1)
+                fi
+                ;;
+            esac
+            
+            if [ -n "$main_file" ] && [ -f "$main_file" ]; then
+              filename=$(basename "$main_file")
+              file_url="${RELEASE_URL_BASE}/${filename}"
+              
+              # signature 읽기 (파일이 있는 경우)
+              signature=""
+              if [ -n "$sig_file" ] && [ -f "$sig_file" ]; then
+                signature=$(cat "$sig_file" | tr -d '\n\r')
+                echo "Found signature for $platform_key: ${sig_file}"
+              else
+                echo "⚠️  No signature file found for $platform_key ($filename)"
+                signature="WARNING: No signature available"
+              fi
+              
+              # JSON에 플랫폼 정보 추가 (jq 사용)
+              jq --arg platform "$platform_key" \
+                 --arg signature "$signature" \
+                 --arg url "$file_url" \
+                 '.platforms[$platform] = {"signature": $signature, "url": $url}' \
+                 latest.json > latest.json.tmp && mv latest.json.tmp latest.json
+              
+              echo "✅ Added $platform_key: $filename"
+            else
+              echo "❌ No main file found for platform $platform_key with suffix $arch_suffix"
+            fi
+          done
+          
+          # latest.json을 release-assets에 복사 (.sig 파일들도 함께)
+          cp latest.json release-assets/
+          
+          # .sig 파일들을 release-assets에 복사
+          echo "=== Copying .sig files to release assets ==="
+          find ./artifacts/ -name "*.sig" | while read -r sig_file; do
+            if [ -f "$sig_file" ]; then
+              cp "$sig_file" release-assets/
+              echo "Copied signature: $(basename "$sig_file")"
+            fi
+          done
+          
+          echo "=== Generated latest.json content ==="
+          cat latest.json | jq '.'
+          
+          echo "=== Verifying latest.json structure ==="
+          platforms_count=$(jq '.platforms | keys | length' latest.json)
+          echo "Platforms included: $platforms_count"
+          jq -r '.platforms | keys[]' latest.json | while read platform; do
+            has_signature=$(jq -r ".platforms[\"$platform\"].signature" latest.json)
+            has_url=$(jq -r ".platforms[\"$platform\"].url" latest.json)
+            echo "  - $platform: signature=$([ ${#has_signature} -gt 20 ] && echo "✅" || echo "❌"), url=$([ -n "$has_url" ] && echo "✅" || echo "❌")"
+          done
       
       - name: Create pre-release
         uses: softprops/action-gh-release@v1
