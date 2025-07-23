@@ -43,6 +43,19 @@ jobs:
         shell: bash
         run: |
           echo "VERSION_JSON=$(jq -c . < version.json)" >> $GITHUB_ENV
+          
+          # 버전-날짜-시간 형태의 릴리즈 태그 생성
+          TAURI_VERSION=$(jq -r '.version' src-tauri/tauri.conf.json)
+          BUILD_DATE=$(date +'%Y%m%d')
+          BUILD_TIME=$(date +'%H%M%S')
+          RELEASE_TAG="${TAURI_VERSION}-${BUILD_DATE}-${BUILD_TIME}"
+          
+          echo "TAURI_VERSION=$TAURI_VERSION" >> $GITHUB_ENV
+          echo "BUILD_DATE=$BUILD_DATE" >> $GITHUB_ENV
+          echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_ENV
+          echo "RELEASE_TAG=$RELEASE_TAG" >> $GITHUB_ENV
+          
+          echo "Generated release tag: $RELEASE_TAG"
       - name: install pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -425,8 +438,36 @@ jobs:
           echo "✅ ARM64 Cargo.toml applied"
 
           cd src-tauri
-          cargo clean  # 빌드 캐시 제거
-          cargo update
+          
+          # 완전한 의존성 초기화 (ARM Linux 크로스 컴파일용)
+          echo "=== Complete dependency cleanup for ARM64 cross-compilation ==="
+          
+          # 1. Cargo 빌드 캐시 완전 제거
+          cargo clean --release --target-dir target
+          
+          # 2. target 디렉토리 완전 삭제 (혹시 남은 아티팩트 제거)
+          rm -rf target/ || echo "target directory already clean"
+          
+          # 3. Cargo.lock 파일 제거 (의존성 잠금 해제)
+          rm -f Cargo.lock || echo "Cargo.lock already removed"
+          
+          # 4. Cargo 레지스트리 캐시 정리 (선택적)
+          cargo clean --package "*" || echo "Package cleanup completed"
+          
+          # 5. 새로운 의존성 트리 생성
+          echo "Generating fresh dependency tree for ARM64..."
+          cargo update --verbose
+          
+          # 6. ARM64 타겟용 의존성 미리 다운로드 (실패해도 계속)
+          echo "Pre-fetching ARM64 dependencies..."
+          cargo fetch --target aarch64-unknown-linux-gnu || echo "Pre-fetch completed with warnings"
+          
+          # 7. 의존성 상태 확인
+          echo "=== Dependency status verification ==="
+          echo "Cargo.lock exists: $(test -f Cargo.lock && echo 'Yes' || echo 'No (will be generated)')"
+          echo "Target directory: $(test -d target && echo 'Exists' || echo 'Clean')"
+          
+          echo "✅ Complete dependency cleanup completed"
           
           # 활성화된 updater 의존성만 검사 (주석 제외)
           echo "=== Checking active updater dependencies (excluding comments) ==="
@@ -451,11 +492,11 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           VITE_DISABLE_UPDATER: ${{ contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && 'true' || 'false' }}
         with:
-          tagName: 'v__VERSION__'
-          releaseName: 'v__VERSION__'
-          releaseBody: 'Release of v__VERSION__'
-          releaseDraft: true
-          prerelease: false
+          tagName: '${{ env.RELEASE_TAG }}'
+          releaseName: 'RisuAI ${{ env.RELEASE_TAG }}'
+          releaseBody: 'Pre-release build of RisuAI ${{ env.TAURI_VERSION }} compiled on ${{ env.BUILD_DATE }} at ${{ env.BUILD_TIME }}'
+          releaseDraft: false
+          prerelease: true
           args: ${{ contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && '--target aarch64-unknown-linux-gnu --config src-tauri/tauri.conf.arm64.json' || matrix.settings.args }}
           tauriScript: "pnpm tauri"
       - name: restore original Cargo.toml
@@ -470,6 +511,23 @@ jobs:
           else
             echo "No backup found, keeping current Cargo.toml"
           fi
+      - name: upload build artifacts (non-flatpak, non-android)
+        if: ${{ !matrix.settings.flatpak && !matrix.settings.android }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.settings.platform }}-${{ contains(matrix.settings.args, 'aarch64') && 'aarch64' || (contains(matrix.settings.args, 'x86_64') && 'x86_64' || 'universal') }}
+          path: |
+            src-tauri/target/*/release/RisuAI*
+            src-tauri/target/*/release/risuai*
+            src-tauri/target/*/release/bundle/
+            src-tauri/target/*/release/*.exe
+            src-tauri/target/*/release/*.app
+            src-tauri/target/*/release/*.msi
+            src-tauri/target/*/release/*.dmg
+            src-tauri/target/*/release/*.deb
+            src-tauri/target/*/release/*.rpm
+            src-tauri/target/*/release/*.AppImage
+          if-no-files-found: warn
       - name: create flatpak binary archive
         if: startsWith(matrix.settings.platform, 'ubuntu') && !matrix.settings.android
         run: |
