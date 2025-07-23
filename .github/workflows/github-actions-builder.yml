@@ -451,6 +451,87 @@ jobs:
           includeUpdaterJson: false
           args: ${{ matrix.settings.args }}
           tauriScript: "pnpm tauri"
+      # Arch Linux 패키지 생성 (Linux 빌드에서만)
+      - name: create arch linux package (.pkg.tar.zst)
+        if: startsWith(matrix.settings.platform, 'ubuntu') && !matrix.settings.android && !matrix.settings.ios
+        run: |
+          echo "=== Creating Arch Linux Package ==="
+          
+          # 아키텍처별 바이너리 경로 확인
+          if [[ "${{ matrix.settings.args }}" == *"aarch64-unknown-linux-gnu"* ]]; then
+            TARGET_DIR="src-tauri/target/aarch64-unknown-linux-gnu/release"
+            ARCH="aarch64"
+          else
+            TARGET_DIR="src-tauri/target/x86_64-unknown-linux-gnu/release"
+            ARCH="x86_64"
+          fi
+          
+          # 바이너리 파일 확인
+          if [ -f "$TARGET_DIR/RisuAI" ]; then
+            BINARY_NAME="RisuAI"
+          elif [ -f "$TARGET_DIR/risuai" ]; then
+            BINARY_NAME="risuai"
+          else
+            echo "No binary found in $TARGET_DIR, skipping Arch package creation"
+            exit 0
+          fi
+          
+          echo "Found binary: $TARGET_DIR/$BINARY_NAME"
+          
+          # 패키지 정보 가져오기
+          TAURI_VERSION=$(jq -r '.version' src-tauri/tauri.conf.json)
+          
+          # 패키지 디렉토리 생성
+          PKG_DIR="risuai-arch-$ARCH"
+          mkdir -p "$PKG_DIR/usr/bin"
+          mkdir -p "$PKG_DIR/usr/share/applications"
+          mkdir -p "$PKG_DIR/usr/share/icons/hicolor/128x128/apps"
+          
+          # 바이너리 복사
+          cp "$TARGET_DIR/$BINARY_NAME" "$PKG_DIR/usr/bin/risuai"
+          chmod +x "$PKG_DIR/usr/bin/risuai"
+          
+          # 아이콘 복사 (있는 경우)
+          if [ -f "src-tauri/icons/128x128.png" ]; then
+            cp "src-tauri/icons/128x128.png" "$PKG_DIR/usr/share/icons/hicolor/128x128/apps/co.aiclient.risu.png"
+          fi
+          
+          # .desktop 파일 생성
+          cat > "$PKG_DIR/usr/share/applications/co.aiclient.risu.desktop" << EOF
+          [Desktop Entry]
+          Name=RisuAI
+          Comment=AI Chat Application
+          Exec=risuai
+          Icon=co.aiclient.risu
+          Type=Application
+          Categories=Network;Chat;
+          EOF
+          
+          # .PKGINFO 파일 생성
+          cat > "$PKG_DIR/.PKGINFO" << EOF
+          pkgname = risuai
+          pkgver = $TAURI_VERSION-1
+          pkgdesc = AI Chat Application
+          url = https://github.com/kwaroran/RisuAI
+          builddate = $(date +%s)
+          packager = GitHub Actions
+          size = $(du -sb "$PKG_DIR" | cut -f1)
+          arch = $ARCH
+          license = MIT
+          EOF
+          
+          # 패키지 생성 (zstd 압축)
+          cd "$PKG_DIR"
+          sudo apt-get update && sudo apt-get install -y zstd
+          tar -cf - . | zstd -c > "../risuai-$TAURI_VERSION-1-$ARCH.pkg.tar.zst"
+          cd ..
+          
+          echo "Created Arch Linux package: risuai-$TAURI_VERSION-1-$ARCH.pkg.tar.zst"
+          ls -la "risuai-$TAURI_VERSION-1-$ARCH.pkg.tar.zst"
+          
+          # 정리
+          rm -rf "$PKG_DIR"
+          
       # ARM64 관련 원본 파일 복원이 필요 없어졌으므로 제거됨
       - name: upload build artifacts (non-flatpak, non-android, non-ios)
         if: ${{ !matrix.settings.flatpak && !matrix.settings.android && !matrix.settings.ios }}
@@ -468,6 +549,7 @@ jobs:
             src-tauri/target/*/release/*.deb
             src-tauri/target/*/release/*.rpm
             ${{ !contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && 'src-tauri/target/*/release/*.AppImage' || '' }}
+            *.pkg.tar.zst
           if-no-files-found: warn
       - name: create flatpak binary archive
         if: startsWith(matrix.settings.platform, 'ubuntu') && !matrix.settings.android
@@ -634,52 +716,16 @@ jobs:
           mv $OUTPUT_NAME flatpak-build/
           
           echo "Flatpak build completed: flatpak-build/$OUTPUT_NAME"
-      - name: build flatpak (Linux ARM64 builds)
+      - name: skip flatpak for ARM64 (due to GitHub Actions emulation limitations)
         if: startsWith(matrix.settings.platform, 'ubuntu') && !matrix.settings.android && contains(matrix.settings.args, 'aarch64-unknown-linux-gnu')
-        continue-on-error: true
         run: |
-          echo "=== Building ARM64 Flatpak with user permissions ==="
+          echo "=== ARM64 Flatpak Build Skipped ==="
+          echo "ARM64 Flatpak build is disabled due to GitHub Actions ARM64 emulation limitations."
+          echo "ARM64 users can use DEB or RPM packages instead."
           
-          # ARM64 환경에서 사용자 권한으로 Flatpak 런타임 설치
-          echo "Installing Flatpak runtimes with user permissions..."
-          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo || echo "Remote already exists"
-          flatpak install --user -y flathub org.freedesktop.Platform/aarch64/23.08 || echo "Platform installation failed, continuing..."
-          flatpak install --user -y flathub org.freedesktop.Sdk/aarch64/23.08 || echo "SDK installation failed, continuing..."
-          
-          # 아키텍처별 바이너리 아카이브 확인
-          ARCHIVE_NAME="risuai-bin-aarch64.tar.gz"
-          if [ ! -f "flatpak-binaries/$ARCHIVE_NAME" ]; then
-            echo "Binary archive not found: flatpak-binaries/$ARCHIVE_NAME"
-            exit 1
-          fi
-          
-          # 매니페스트에서 참조할 수 있도록 아카이브를 적절한 위치에 복사
-          cp "flatpak-binaries/$ARCHIVE_NAME" "risuai-bin.tar.gz"
-          
-          # 아키텍처별 빌드 디렉토리 설정
-          BUILD_DIR="build-dir-aarch64"
-          REPO_DIR="repo-aarch64"
-          OUTPUT_NAME="risuai-aarch64.flatpak"
-          
-          # ARM64 Flatpak 빌드 (사용자 권한)
-          echo "Building ARM64 Flatpak using pre-built binaries..."
-          flatpak-builder --user --force-clean --repo=$REPO_DIR --ccache --install-deps-from=flathub --arch=aarch64 $BUILD_DIR co.aiclient.risu.yml || {
-            echo "ARM64 Flatpak build failed, but continuing..."
-            exit 0
-          }
-          
-          # 번들 생성
-          echo "=== Creating ARM64 Flatpak bundle ==="
-          flatpak build-bundle --repo-url=flathub $REPO_DIR $OUTPUT_NAME co.aiclient.risu || {
-            echo "ARM64 Flatpak bundle creation failed, but continuing..."
-            exit 0
-          }
-          
-          # 아티팩트 디렉토리 생성 및 파일 이동
+          # 빈 flatpak-build 디렉토리 생성 (업로드 단계 오류 방지)
           mkdir -p flatpak-build
-          mv $OUTPUT_NAME flatpak-build/ || echo "No ARM64 Flatpak to move"
-          
-          echo "ARM64 Flatpak build completed (or skipped due to errors)"
+          echo "ARM64 Flatpak build was skipped due to environment limitations." > flatpak-build/ARM64_FLATPAK_SKIPPED.txt
       - name: upload flatpak artifact
         if: startsWith(matrix.settings.platform, 'ubuntu') && !matrix.settings.android
         uses: actions/upload-artifact@v4
@@ -780,7 +826,7 @@ jobs:
               
               # Copy various file types with architecture suffix
               # Also search in bundle subdirectories for .deb and .rpm files
-              find "$source_dir" -type f \( -name "*.dmg" -o -name "*.msi" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.flatpak" -o -name "*.apk" \) | while read -r file; do
+              find "$source_dir" -type f \( -name "*.dmg" -o -name "*.msi" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.flatpak" -o -name "*.apk" -o -name "*.pkg.tar.zst" \) | while read -r file; do
                 filename=$(basename "$file")
                 extension="${filename##*.}"
                 basename_no_ext="${filename%.*}"
@@ -920,6 +966,7 @@ jobs:
             - **AppImage**: Portable Linux application format (x86_64 and aarch64)
             - **DEB**: Debian/Ubuntu package format (x86_64 and aarch64)
             - **RPM**: Red Hat/Fedora package format (x86_64 and aarch64)
+            - **PKG.TAR.ZST**: Arch Linux package format (x86_64 and aarch64)
             - **Flatpak**: Universal Linux packaging format (x86_64 and aarch64)
             
             ### Mobile
@@ -942,6 +989,7 @@ jobs:
             - **AppImage** (Recommended for most users): Download, make executable, and run
             - **DEB packages**: For Debian, Ubuntu, and derivatives - `sudo dpkg -i filename.deb`
             - **RPM packages**: For Red Hat, Fedora, SUSE, and derivatives - `sudo rpm -i filename.rpm`
+            - **PKG.TAR.ZST packages**: For Arch Linux and derivatives - `sudo pacman -U filename.pkg.tar.zst`
             - **Flatpak**: Universal format - `flatpak install filename.flatpak`
             
             ### Android
@@ -976,10 +1024,10 @@ jobs:
             |----------|--------------|---------------|
             | macOS    | ✅ DMG       | ✅ DMG        |
             | Windows  | ✅ MSI       | ✅ MSI        |
-            | Linux    | ✅ DEB/RPM/AppImage/Flatpak | ✅ DEB/RPM/Flatpak* |
-            
-            *ARM64 Linux AppImage는 크로스컴파일 제한으로 인해 제공되지 않습니다.
+            | Linux    | ✅ DEB/RPM/PKG.TAR.ZST/AppImage/Flatpak | ✅ DEB/RPM/PKG.TAR.ZST* |
             | Android  | ✅ APK       | ✅ APK        |
+            
+            *ARM64 Linux does not provide AppImage and Flatpak due to GitHub Actions environment limitations. Please use DEB, RPM, or PKG.TAR.ZST packages instead.
             <!-- iOS는 현재 개발자 계정 없음으로 인해 비활성화됨
             | iOS      | ✅ IPA/APP   | ✅ IPA/APP    |
             -->
