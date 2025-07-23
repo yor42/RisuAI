@@ -24,9 +24,14 @@ jobs:
             args: '--target aarch64-unknown-linux-gnu'
           - platform: 'windows-latest'
             args: '--target x86_64-pc-windows-msvc'
+          - platform: 'windows-latest'
+            args: '--target aarch64-pc-windows-msvc'
           - platform: 'ubuntu-latest' # Android build
             args: 'android'
             android: true
+          - platform: 'macos-latest' # iOS build
+            args: 'ios'
+            ios: true
 
     runs-on: ${{ matrix.settings.platform }}
     steps:
@@ -243,7 +248,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         if: ${{ !startsWith(matrix.settings.platform, 'ubuntu') || matrix.settings.android }}
         with:
-          targets: ${{ matrix.settings.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || (matrix.settings.android && 'aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android' || '') }}
+          targets: ${{ matrix.settings.platform == 'macos-latest' && (matrix.settings.ios && 'aarch64-apple-ios,x86_64-apple-ios,aarch64-apple-ios-sim' || 'aarch64-apple-darwin,x86_64-apple-darwin') || (matrix.settings.platform == 'windows-latest' && 'aarch64-pc-windows-msvc,x86_64-pc-windows-msvc' || (matrix.settings.android && 'aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android' || '')) }}
       - name: install Rust nightly (Linux builds for Flatpak compatibility)
         uses: dtolnay/rust-toolchain@nightly
         if: startsWith(matrix.settings.platform, 'ubuntu') && !matrix.settings.android
@@ -877,6 +882,11 @@ jobs:
         run: |
           pnpm tauri android init
           pnpm tauri android build
+      - name: build ios
+        if: matrix.settings.ios
+        run: |
+          pnpm tauri ios init
+          pnpm tauri ios build
       - name: sign android apk
         if: matrix.settings.android
         env:
@@ -924,6 +934,15 @@ jobs:
         with:
           name: android-apk
           path: android-build/
+      - name: upload ios artifacts
+        if: matrix.settings.ios
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: |
+            src-tauri/gen/ios/**/*.ipa
+            src-tauri/gen/ios/**/*.app
+          if-no-files-found: warn
       - name: build flatpak (Linux builds)
         if: startsWith(matrix.settings.platform, 'ubuntu') && !matrix.settings.android
         run: |
@@ -1128,7 +1147,8 @@ jobs:
           copy_and_rename "./artifacts/build-macos-latest-x86_64" "macos-x86_64" "macOS Intel"
           
           # Process Windows builds
-          copy_and_rename "./artifacts/build-windows-latest-x86_64" "windows-x86_64" "Windows"
+          copy_and_rename "./artifacts/build-windows-latest-x86_64" "windows-x86_64" "Windows AMD64"
+          copy_and_rename "./artifacts/build-windows-latest-aarch64" "windows-aarch64" "Windows ARM64"
           
           # Process Linux builds
           copy_and_rename "./artifacts/build-ubuntu-latest-x86_64" "linux-x86_64" "Linux AMD64"
@@ -1140,6 +1160,9 @@ jobs:
           
           # Process Android builds
           copy_and_rename "./artifacts/android-apk" "android" "Android"
+          
+          # Process iOS builds
+          copy_and_rename "./artifacts/ios-ipa" "ios" "iOS"
           
           echo "=== Final Release Assets ==="
           echo "📦 Total files prepared for release: $(find release-assets/ -type f | wc -l)"
@@ -1203,7 +1226,7 @@ jobs:
             
             ### Desktop Applications
             - **macOS**: ARM64 (Apple Silicon) and Intel (x86_64) - DMG installers
-            - **Windows**: x86_64 - MSI installer
+            - **Windows**: x86_64 and ARM64 - MSI installers
             - **Linux**: AMD64 (x86_64) and ARM64 (aarch64) - Multiple formats available
             
             ### Linux Package Formats
@@ -1214,6 +1237,7 @@ jobs:
             
             ### Mobile
             - **Android**: APK files (signed and unsigned)
+            - **iOS**: IPA files for App Store distribution and .app bundles for development
             
             ## Installation Notes
             
@@ -1237,26 +1261,34 @@ jobs:
             - Enable "Unknown sources" in Android settings if needed
             - Signed APKs are provided for secure installation
             
+            ### iOS
+            - Download the IPA file: `-ios.ipa`
+            - Install via Xcode, TestFlight, or enterprise distribution
+            - .app bundles are available for development/testing purposes
+            
             ## File Naming Convention
             
             Files are named with architecture suffixes for easy identification:
             - `-macos-aarch64`: macOS Apple Silicon (ARM64)
             - `-macos-x86_64`: macOS Intel (x86_64)
-            - `-windows-x86_64`: Windows 64-bit
+            - `-windows-x86_64`: Windows 64-bit (Intel/AMD)
+            - `-windows-aarch64`: Windows ARM64
             - `-linux-x86_64`: Linux AMD64
             - `-linux-aarch64`: Linux ARM64 (Raspberry Pi, ARM servers, etc.)
             - `-flatpak-x86_64`: Flatpak for AMD64 systems
             - `-flatpak-aarch64`: Flatpak for ARM64 systems
             - `-android`: Android APK
+            - `-ios`: iOS IPA/APP bundle
             
             ## Architecture Support Summary
             
             | Platform | x86_64/AMD64 | ARM64/aarch64 |
             |----------|--------------|---------------|
             | macOS    | ✅ DMG       | ✅ DMG        |
-            | Windows  | ✅ MSI       | ❌            |
+            | Windows  | ✅ MSI       | ✅ MSI        |
             | Linux    | ✅ DEB/RPM/AppImage/Flatpak | ✅ DEB/RPM/AppImage/Flatpak |
             | Android  | ✅ APK       | ✅ APK        |
+            | iOS      | ✅ IPA/APP   | ✅ IPA/APP    |
           draft: false
           prerelease: true
           files: release-assets/*
