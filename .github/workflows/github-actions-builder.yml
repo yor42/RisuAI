@@ -960,6 +960,46 @@ jobs:
           }
           EOF
           
+          # 릴리스 파일명에서 아키텍처 suffix를 제거하여 원본 파일명을 찾는 함수
+          get_original_filename() {
+            local release_filename="$1"
+            local original_filename=""
+            
+            # 아키텍처 suffix 제거 패턴
+            case "$release_filename" in
+              *-macos-aarch64.dmg)
+                # RisuAI_164.1.2_aarch64-macos-aarch64.dmg -> RisuAI_164.1.2_aarch64.dmg
+                original_filename="${release_filename%-macos-aarch64.dmg}.dmg"
+                ;;
+              *-macos-x86_64.dmg)
+                # RisuAI_164.1.2_x64-macos-x86_64.dmg -> RisuAI_164.1.2_x64.dmg
+                original_filename="${release_filename%-macos-x86_64.dmg}.dmg"
+                ;;
+              *-windows-aarch64.msi)
+                # RisuAI_164.1.2_arm64_en-US-windows-aarch64.msi -> RisuAI_164.1.2_arm64_en-US.msi
+                original_filename="${release_filename%-windows-aarch64.msi}.msi"
+                ;;
+              *-windows-x86_64.msi)
+                # RisuAI_164.1.2_x64_en-US-windows-x86_64.msi -> RisuAI_164.1.2_x64_en-US.msi
+                original_filename="${release_filename%-windows-x86_64.msi}.msi"
+                ;;
+              *-linux-x86_64.AppImage)
+                # RisuAI_164.1.2_amd64-linux-x86_64.AppImage -> RisuAI_164.1.2_amd64.AppImage
+                original_filename="${release_filename%-linux-x86_64.AppImage}.AppImage"
+                ;;
+              *-linux-aarch64.deb)
+                # RisuAI_164.1.2_arm64-linux-aarch64.deb -> RisuAI_164.1.2_arm64.deb
+                original_filename="${release_filename%-linux-aarch64.deb}.deb"
+                ;;
+              *)
+                # 매칭되지 않는 경우 원본 파일명 반환
+                original_filename="$release_filename"
+                ;;
+            esac
+            
+            echo "$original_filename"
+          }
+          
           # 각 플랫폼별 signature와 URL을 수집하여 JSON에 추가
           declare -A platform_mapping=(
             ["darwin-aarch64"]="macos-aarch64"
@@ -983,30 +1023,18 @@ jobs:
               "darwin-aarch64"|"darwin-x86_64")
                 # macOS의 경우 .dmg 파일과 해당 .sig 파일
                 main_file=$(find release-assets/ -name "*-${arch_suffix}.dmg" | head -1)
-                if [ -n "$main_file" ]; then
-                  sig_file=$(find ./artifacts/ -name "$(basename "$main_file").sig" 2>/dev/null | head -1)
-                fi
                 ;;
               "windows-x86_64"|"windows-aarch64")
                 # Windows의 경우 .msi 파일과 해당 .sig 파일
                 main_file=$(find release-assets/ -name "*-${arch_suffix}.msi" | head -1)
-                if [ -n "$main_file" ]; then
-                  sig_file=$(find ./artifacts/ -name "$(basename "$main_file").sig" 2>/dev/null | head -1)
-                fi
                 ;;
               "linux-x86_64")
                 # Linux AMD64의 경우 AppImage 파일과 해당 .sig 파일
                 main_file=$(find release-assets/ -name "*-${arch_suffix}.AppImage" | head -1)
-                if [ -n "$main_file" ]; then
-                  sig_file=$(find ./artifacts/ -name "$(basename "$main_file").sig" 2>/dev/null | head -1)
-                fi
                 ;;
               "linux-aarch64")
                 # Linux ARM64의 경우 AppImage가 없으므로 DEB 파일 사용
                 main_file=$(find release-assets/ -name "*-${arch_suffix}.deb" | head -1)
-                if [ -n "$main_file" ]; then
-                  sig_file=$(find ./artifacts/ -name "$(basename "$main_file").sig" 2>/dev/null | head -1)
-                fi
                 ;;
             esac
             
@@ -1014,14 +1042,37 @@ jobs:
               filename=$(basename "$main_file")
               file_url="${RELEASE_URL_BASE}/${filename}"
               
+              # 원본 파일명으로 변환하여 signature 파일 찾기
+              original_filename=$(get_original_filename "$filename")
+              sig_file=$(find ./artifacts/ -name "${original_filename}.sig" 2>/dev/null | head -1)
+              
+              echo "  Release file: $filename"
+              echo "  Original file: $original_filename"
+              echo "  Looking for signature: ${original_filename}.sig"
+              
               # signature 읽기 (파일이 있는 경우)
               signature=""
               if [ -n "$sig_file" ] && [ -f "$sig_file" ]; then
                 signature=$(cat "$sig_file" | tr -d '\n\r')
-                echo "Found signature for $platform_key: ${sig_file}"
+                echo "✅ Found signature for $platform_key: ${sig_file}"
               else
-                echo "⚠️  No signature file found for $platform_key ($filename)"
-                signature="WARNING: No signature available"
+                echo "⚠️  No signature file found for $platform_key"
+                # 추가 패턴으로 시도해보기
+                echo "  Trying additional patterns..."
+                
+                # 더 넓은 범위에서 찾기
+                potential_sigs=$(find ./artifacts/ -name "*.sig" | grep -E "($(echo $original_filename | sed 's/\.[^.]*$//' | sed 's/_[^_]*$//'))")
+                if [ -n "$potential_sigs" ]; then
+                  sig_file=$(echo "$potential_sigs" | head -1)
+                  if [ -f "$sig_file" ]; then
+                    signature=$(cat "$sig_file" | tr -d '\n\r')
+                    echo "✅ Found signature via pattern match: $sig_file"
+                  fi
+                fi
+                
+                if [ -z "$signature" ]; then
+                  signature="WARNING: No signature available"
+                fi
               fi
               
               # JSON에 플랫폼 정보 추가 (jq 사용)
