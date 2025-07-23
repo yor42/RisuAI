@@ -423,6 +423,10 @@ jobs:
           # ARM64용 Cargo.toml로 교체 (updater 제거됨)
           cp src-tauri/Cargo.arm64.toml src-tauri/Cargo.toml
           echo "✅ ARM64 Cargo.toml applied"
+
+          cd src-tauri
+          cargo clean  # 빌드 캐시 제거
+          cargo update
           
           # 활성화된 updater 의존성만 검사 (주석 제외)
           echo "=== Checking active updater dependencies (excluding comments) ==="
