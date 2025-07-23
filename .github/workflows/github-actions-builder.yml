@@ -526,8 +526,8 @@ jobs:
           crate-type = ["staticlib", "cdylib", "rlib"]
           EOF
             
-            # tauri.conf.json 수정 (기존 파일 기반으로 updater 제거)
-            echo "🔧 Modifying tauri.conf.json for ARM64..."
+            # tauri.conf.json 수정 (Linux ARM64의 경우만 updater 제거)
+            echo "🔧 Modifying tauri.conf.json for Linux ARM64..."
             if command -v jq >/dev/null 2>&1; then
               # jq가 있는 경우 JSON 파싱으로 정확하게 수정
               echo "Using jq to modify tauri.conf.json..."
@@ -536,10 +536,10 @@ jobs:
                 .bundle.createUpdaterArtifacts = false |
                 .build.beforeBuildCommand = "VITE_DISABLE_UPDATER=true pnpm build" |
                 .bundle.targets = ["deb", "rpm"] |
-                .app.security.capabilities = ["desktop-arm-capability", "mobile-capability", "migrated"]
+                .app.security.capabilities = ["desktop-linux-arm-capability", "mobile-capability", "migrated"]
               ' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp && \
               mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
-              echo "✅ Used jq to modify tauri.conf.json for ARM64"
+              echo "✅ Used jq to modify tauri.conf.json for Linux ARM64"
             else
               # Node.js로 JSON 처리
               echo "Using Node.js to modify tauri.conf.json..."
@@ -547,7 +547,7 @@ jobs:
                 const fs = require('fs');
                 const config = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
                 
-                // updater 관련 설정 제거
+                // updater 관련 설정 제거 (Linux ARM64에서만)
                 if (config.plugins && config.plugins.updater) {
                   delete config.plugins.updater;
                 }
@@ -555,7 +555,7 @@ jobs:
                   delete config.tauri.updater;
                 }
                 
-                // ARM64 전용 설정 적용
+                // Linux ARM64 전용 설정 적용
                 if (!config.bundle) config.bundle = {};
                 config.bundle.createUpdaterArtifacts = false;
                 config.bundle.targets = ['deb', 'rpm'];
@@ -563,32 +563,30 @@ jobs:
                 if (!config.build) config.build = {};
                 config.build.beforeBuildCommand = 'VITE_DISABLE_UPDATER=true pnpm build';
                 
-                // capabilities 설정
+                // Linux ARM64용 capabilities 설정
                 if (!config.app) config.app = {};
                 if (!config.app.security) config.app.security = {};
-                config.app.security.capabilities = ['desktop-arm-capability', 'mobile-capability', 'migrated'];
+                config.app.security.capabilities = ['desktop-linux-arm-capability', 'mobile-capability', 'migrated'];
                 
                 fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(config, null, 2));
-                console.log('✅ Successfully modified tauri.conf.json for ARM64');
+                console.log('✅ Successfully modified tauri.conf.json for Linux ARM64');
               " || echo "⚠️ Node.js JSON modification failed, using original file"
             fi
             
-            # Capability 파일들 생성
-            echo "📄 Creating necessary capability files..."
+            # Linux ARM64용 Capability 파일 생성
+            echo "📄 Creating Linux ARM64 capability file..."
             mkdir -p src-tauri/capabilities
             
-            # desktop-arm-capability
-            cat > src-tauri/capabilities/desktop-arm.json << 'EOF'
+            # desktop-linux-arm-capability (updater 제외)
+            cat > src-tauri/capabilities/desktop-linux-arm.json << 'EOF'
           {
-            "identifier": "desktop-arm-capability",
+            "identifier": "desktop-linux-arm-capability",
             "platforms": [
-              "macOS",
-              "windows",
               "linux"
             ],
             "permissions": [
               "process:default",
-              "shell:default", 
+              "shell:default",
               "http:default",
               "deep-link:default"
             ]

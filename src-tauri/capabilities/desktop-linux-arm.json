@@ -1,0 +1,12 @@
+{
+  "identifier": "desktop-linux-arm-capability",
+  "platforms": [
+    "linux"
+  ],
+  "permissions": [
+    "process:default",
+    "shell:default",
+    "http:default",
+    "deep-link:default"
+  ]
+}
