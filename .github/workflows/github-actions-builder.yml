@@ -29,9 +29,10 @@ jobs:
           - platform: 'ubuntu-latest' # Android build
             args: 'android'
             android: true
-          - platform: 'macos-latest' # iOS build
-            args: 'ios'
-            ios: true
+          # iOS build - 개발자 계정 없음으로 인해 일시적으로 비활성화
+          # - platform: 'macos-latest' # iOS build
+          #   args: 'ios'
+          #   ios: true
 
     runs-on: ${{ matrix.settings.platform }}
     steps:
@@ -440,7 +441,8 @@ jobs:
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
-          # ARM64에서도 이제 updater 사용하므로 VITE_DISABLE_UPDATER 제거
+          # ARM64 Linux에서는 AppImage 크로스컴파일 오류를 방지하기 위해 deb, rpm만 빌드
+          TAURI_BUNDLE_TARGETS: ${{ contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && 'deb,rpm' || '' }}
         with:
           # Don't include any release-related parameters to prevent release creation
           includeUpdaterJson: false
@@ -797,8 +799,8 @@ jobs:
           # Process Android builds
           copy_and_rename "./artifacts/android-apk" "android" "Android"
           
-          # Process iOS builds
-          copy_and_rename "./artifacts/ios-ipa" "ios" "iOS"
+          # iOS 빌드는 현재 비활성화됨
+          # copy_and_rename "./artifacts/ios-ipa" "ios" "iOS"
           
           echo "=== Final Release Assets ==="
           echo "📦 Total files prepared for release: $(find release-assets/ -type f | wc -l)"
@@ -873,7 +875,8 @@ jobs:
             
             ### Mobile
             - **Android**: APK files (signed and unsigned)
-            - **iOS**: IPA files for App Store distribution and .app bundles for development
+            <!-- iOS 빌드는 현재 개발자 계정 없음으로 인해 비활성화됨 -->
+            <!-- - **iOS**: IPA files for App Store distribution and .app bundles for development -->
             
             ## Installation Notes
             
@@ -897,10 +900,12 @@ jobs:
             - Enable "Unknown sources" in Android settings if needed
             - Signed APKs are provided for secure installation
             
+            <!-- iOS는 현재 개발자 계정 없음으로 인해 비활성화됨
             ### iOS
             - Download the IPA file: `-ios.ipa`
             - Install via Xcode, TestFlight, or enterprise distribution
             - .app bundles are available for development/testing purposes
+            -->
             
             ## File Naming Convention
             
@@ -914,7 +919,7 @@ jobs:
             - `-flatpak-x86_64`: Flatpak for AMD64 systems
             - `-flatpak-aarch64`: Flatpak for ARM64 systems
             - `-android`: Android APK
-            - `-ios`: iOS IPA/APP bundle
+            <!-- iOS는 현재 비활성화됨: - `-ios`: iOS IPA/APP bundle -->
             
             ## Architecture Support Summary
             
@@ -922,9 +927,11 @@ jobs:
             |----------|--------------|---------------|
             | macOS    | ✅ DMG       | ✅ DMG        |
             | Windows  | ✅ MSI       | ✅ MSI        |
-            | Linux    | ✅ DEB/RPM/AppImage/Flatpak | ✅ DEB/RPM/AppImage/Flatpak |
+            | Linux    | ✅ DEB/RPM/AppImage/Flatpak | ✅ DEB/RPM/Flatpak |
             | Android  | ✅ APK       | ✅ APK        |
+            <!-- iOS는 현재 개발자 계정 없음으로 인해 비활성화됨
             | iOS      | ✅ IPA/APP   | ✅ IPA/APP    |
+            -->
           draft: false
           prerelease: true
           files: release-assets/*
