@@ -596,8 +596,21 @@ jobs:
             flatpak-builder --force-clean --repo=$REPO_DIR --ccache --install-deps-from=flathub $BUILD_DIR co.aiclient.risu.yml
           fi
           
-          # 번들 생성
-          flatpak build-bundle $REPO_DIR $OUTPUT_NAME co.aiclient.risu $FLATPAK_ARCH
+          # 저장소 상태 확인 및 디버깅
+          echo "=== Repository verification ==="
+          echo "Repository directory: $REPO_DIR"
+          echo "Output name: $OUTPUT_NAME"
+          echo "Architecture: $FLATPAK_ARCH"
+          
+          # 저장소에서 사용 가능한 앱 목록 확인
+          flatpak --repo=$REPO_DIR list || echo "Failed to list repository contents"
+          
+          # 저장소에서 사용 가능한 브랜치 확인
+          flatpak --repo=$REPO_DIR list --app --columns=name,branch,arch || echo "Failed to list app details"
+          
+          # 번들 생성 (브랜치 매개변수 제거 - 기본 브랜치 사용)
+          echo "=== Creating Flatpak bundle ==="
+          flatpak build-bundle $REPO_DIR $OUTPUT_NAME co.aiclient.risu
           
           # 아티팩트 디렉토리 생성 및 파일 이동
           mkdir -p flatpak-build
