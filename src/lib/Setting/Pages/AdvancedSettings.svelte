@@ -117,6 +117,15 @@
     <OptionInput value="lvh">LVH</OptionInput>
 </SelectInput>
 
+{#if !isNodeServer && !isTauri}
+    <span class="text-textcolor mt-4">{language.requestLocation}</span>
+    <SelectInput bind:value={DBState.db.requestLocation}>
+        <OptionInput value="">Default</OptionInput>
+        <OptionInput value="eu">EU (GDPR)</OptionInput>
+        <OptionInput value="fedramp">US (FedRAMP)</OptionInput>
+    </SelectInput>
+{/if}
+
 <div class="flex items-center mt-4">
     <Check bind:check={DBState.db.useSayNothing} name={language.sayNothing}> <Help key="sayNothing"/></Check>
 </div>
@@ -149,6 +158,9 @@
 </div>
 <div class="flex items-center mt-4">
     <Check bind:check={DBState.db.noWaitForTranslate} name={language.noWaitForTranslate}/>
+</div>
+<div class="flex items-center mt-4">
+    <Check bind:check={DBState.db.newImageHandlingBeta} name={language.newImageHandlingBeta}/>
 </div>
 <div class="flex items-center mt-4">
     <Check bind:check={DBState.db.allowAllExtentionFiles} name="Allow all in file select"/>
