@@ -35,7 +35,7 @@
   } from "../../ts/characters";
     import CharConfig from "./CharConfig.svelte";
     import { language } from "../../lang";
-    import { onDestroy } from "svelte";
+    import { onDestroy, onMount } from "svelte";
     import { isEqual } from "lodash";
     import SidebarAvatar from "./SidebarAvatar.svelte";
     import BaseRoundedButton from "../UI/BaseRoundedButton.svelte";
@@ -49,6 +49,7 @@
   import { sideBarSize } from "src/ts/gui/guisize";
   import DevTool from "./DevTool.svelte";
     import QuickSettingsGui from "../Others/QuickSettingsGUI.svelte";
+    import VirtualScroll from "../UI/VirtualScroll.svelte";
   let sideBarMode = $state(0);
   let editMode = $state(false);
   let menuMode = $state(0);
@@ -67,7 +68,131 @@
   let charImages: sortType[] = $state([]);
   let IconRounded = $state(false)
   let openFolders:string[] = $state([])
-  let currentDrag: DragData = $state(null)
+  let currentDrag: DragData | null = $state(null)
+  
+  // Virtual Scrolling 관련 타입 정의
+  interface VirtualScrollItem {
+    type: 'normal' | 'folder' | 'folder-item' | 'spacer';
+    originalItem?: sortType | sortTypeNormal;
+    originalIndex?: number;
+    folderInfo?: {
+      folderId: string;
+      folderIndex: number;
+      itemIndex: number;
+    };
+    spacerInfo?: {
+      insertIndex: number;
+      folderId?: string;
+    };
+    height: number;
+  }
+  
+  // 아이템 높이 상수
+  const ITEM_HEIGHT = 72; // 아바타 + 여백
+  const SPACER_HEIGHT = 16; // 드래그 드롭용 빈 공간
+  
+  // 스크롤 컨테이너 관련
+  let scrollContainer = $state<HTMLDivElement>();
+  let scrollContainerHeight = $state(400);
+  
+  // 컨테이너 높이 자동 계산
+  $effect(() => {
+    if (scrollContainer) {
+      const updateHeight = () => {
+        const rect = scrollContainer.getBoundingClientRect();
+        scrollContainerHeight = Math.max(200, rect.height - 80); // 최소 200px, 버튼 영역 제외
+      };
+      
+      updateHeight();
+      
+      const resizeObserver = new ResizeObserver(updateHeight);
+      resizeObserver.observe(scrollContainer);
+      
+      return () => resizeObserver.disconnect();
+    }
+  });
+
+  // 안전한 $derived.by() 방식으로 virtualItems 생성 - 증분 업데이트 없음
+  let virtualItems: VirtualScrollItem[] = $derived.by(() => {
+    const items: VirtualScrollItem[] = [];
+    
+    try {
+      // 맨 위 spacer 추가
+      items.push({
+        type: 'spacer',
+        spacerInfo: { insertIndex: 0 },
+        height: SPACER_HEIGHT
+      });
+      
+      for (let ind = 0; ind < charImages.length; ind++) {
+        const char = charImages[ind];
+        
+        if (char.type === 'normal') {
+          items.push({
+            type: 'normal',
+            originalItem: char,
+            originalIndex: ind,
+            height: ITEM_HEIGHT
+          });
+        } else if (char.type === 'folder') {
+          items.push({
+            type: 'folder',
+            originalItem: char,
+            originalIndex: ind,
+            height: ITEM_HEIGHT
+          });
+          
+          // 폴더가 열려있으면 내부 아이템들 추가
+          if (openFolders.includes(char.id)) {
+            // 폴더 내부 첫 번째 spacer
+            items.push({
+              type: 'spacer',
+              spacerInfo: { insertIndex: 0, folderId: char.id },
+              height: SPACER_HEIGHT
+            });
+            
+            char.folder.forEach((folderChar, folderInd) => {
+              items.push({
+                type: 'folder-item',
+                originalItem: folderChar,
+                originalIndex: ind,
+                folderInfo: {
+                  folderId: char.id,
+                  folderIndex: ind,
+                  itemIndex: folderInd
+                },
+                height: ITEM_HEIGHT
+              });
+              
+              // 폴더 아이템 뒤 spacer
+              items.push({
+                type: 'spacer',
+                spacerInfo: { insertIndex: folderInd + 1, folderId: char.id },
+                height: SPACER_HEIGHT
+              });
+            });
+          }
+        }
+        
+        // 메인 아이템 뒤 spacer
+        items.push({
+          type: 'spacer',
+          spacerInfo: { insertIndex: ind + 1 },
+          height: SPACER_HEIGHT
+        });
+      }
+      
+      return items;
+    } catch (error) {
+      console.error('[SIDEBAR ERROR] virtualItems 생성 실패:', error);
+      // 안전장치: 최소한의 spacer만 반환
+      return [{
+        type: 'spacer',
+        spacerInfo: { insertIndex: 0 },
+        height: SPACER_HEIGHT
+      }];
+    }
+  });
   interface Props {
     openGrid?: any;
     hidden?: boolean;
@@ -77,7 +202,8 @@
 
   sideBarClosing.set(false)
 
-  $effect(() => {
+  // charImages 업데이트 함수 분리
+  function updateCharImages() {
     let newCharImages: sortType[] = [];
     const idObject = getCharacterIndexObject()
     for (const id of DBState.db.characterOrder) {
@@ -118,16 +244,21 @@
         });
       }
     }
-    if (!isEqual(charImages, newCharImages)) {
-      charImages = newCharImages;
-    }
+    // 강제 업데이트 - isEqual 체크 없이 바로 반영
+    charImages = newCharImages;
+    
     if(IconRounded !== DBState.db.roundIcons){
       IconRounded = DBState.db.roundIcons
     }
+  }
+
+  // 자동 감지 effect
+  $effect(() => {
+    updateCharImages()
   })
 
 
-  const inserter = (mainIndex:DragData, targetIndex:DragData) => {
+  const inserter = (mainIndex: Exclude<DragData, null>, targetIndex: Exclude<DragData, null>) => {
     if(mainIndex.index === targetIndex.index && mainIndex.folder === targetIndex.folder){
       return
     }
@@ -144,7 +275,7 @@
       const da = db.characterOrder[mainIndex.index]
       if(typeof(da) !== 'string'){
         mainId = da.id
-        movingFolder = safeStructuredClone($state.snapshot(da))
+        movingFolder = structuredClone($state.snapshot(da))
         if(targetIndex.folder){
           return
         }
@@ -206,9 +337,12 @@
 
     DBState.db.characterOrder = db.characterOrder
     checkCharOrder()
+    
+    // 캐릭터 순서 변경 후 즉시 charImages 업데이트 강제 실행
+    updateCharImages()
   }
 
-  function getFolderIndex(id:string){
+  function getFolderIndex(id: string): number {
     for(let i=0;i<DBState.db.characterOrder.length;i++){
       const data = DBState.db.characterOrder[i]
       if(typeof(data) !== 'string' && data.id === id){
@@ -218,7 +352,7 @@
     return -1
   }
 
-  const createFolder = (mainIndex:DragData, targetIndex:DragData) => {
+  const createFolder = (mainIndex: Exclude<DragData, null>, targetIndex: Exclude<DragData, null>) => {
     if(mainIndex.index === targetIndex.index && mainIndex.folder === targetIndex.folder){
       return
     }
@@ -260,21 +394,46 @@
       }
     }
     setDatabase(db)
+    
+    // 폴더 생성 후 즉시 charImages 업데이트 강제 실행
+    updateCharImages()
   }
 
   type DragEv = DragEvent & {
     currentTarget: EventTarget & HTMLDivElement;
   }
   type DragData = {
-    index:number,
-    folder?:string
-  }
-  const avatarDragStart = (ind:DragData, e:DragEv) => {
+    index: number,
+    folder?: string
+  } | null
+  const avatarDragStart = (ind: Exclude<DragData, null>, e: DragEv) => {
+    console.log('[SIDEBAR DEBUG VALIDATION] Drag start:', {
+      dragData: ind,
+      activeTooltips: document.querySelectorAll('[data-tippy-root]').length,
+      scrollDisabled: true,
+      virtualItemsCount: virtualItems.length,
+      currentDragBefore: currentDrag,
+      targetElement: e.currentTarget.getAttribute('data-index'),
+      timestamp: Date.now()
+    });
+    
     e.dataTransfer.setData('text/plain', '');
     currentDrag = ind
+    
+    console.log('[SIDEBAR DEBUG VALIDATION] currentDrag 상태 변경 완료:', {
+      newCurrentDrag: currentDrag,
+      shouldDisableScroll: currentDrag !== null,
+      timestamp: Date.now()
+    });
+    
     const avatar = e.currentTarget.querySelector('.avatar')
     if(avatar){
       e.dataTransfer.setDragImage(avatar, 10, 10);
+    } else {
+      console.warn('[SIDEBAR DEBUG VALIDATION] 아바타 요소를 찾을 수 없음:', {
+        targetElement: e.currentTarget,
+        querySelector: e.currentTarget.querySelector('.avatar')
+      });
     }
   }
 
@@ -283,16 +442,133 @@
     e.dataTransfer.dropEffect = 'move'
   }
 
-  const avatarDrop = (ind:DragData, e:DragEv) => {
+  const avatarDrop = (ind: Exclude<DragData, null>, e: DragEv) => {
     e.preventDefault()
+    
+    console.log('[SIDEBAR DEBUG VALIDATION] Drag drop 시작:', {
+      sourceData: currentDrag,
+      targetData: ind,
+      activeTooltipsBefore: document.querySelectorAll('[data-tippy-root]').length,
+      virtualItemsCountBefore: virtualItems.length,
+      isValidDrop: currentDrag !== null && currentDrag !== ind,
+      timestamp: Date.now()
+    });
+    
     try {
       if(currentDrag){
+        console.log('[SIDEBAR DEBUG VALIDATION] createFolder 호출 전:', {
+          sourceData: currentDrag,
+          targetData: ind,
+          characterOrderLength: DBState.db.characterOrder.length
+        });
+        
         createFolder(currentDrag,ind)
+        
+        console.log('[SIDEBAR DEBUG VALIDATION] createFolder 호출 완료:', {
+          characterOrderLengthAfter: DBState.db.characterOrder.length,
+          timestamp: Date.now()
+        });
+        
+        // Check tooltips and virtual items after folder creation
+        setTimeout(() => {
+          console.log('[SIDEBAR DEBUG VALIDATION] Post-drop 상태 검사:', {
+            activeTooltipsAfter: document.querySelectorAll('[data-tippy-root]').length,
+            virtualItemsCountAfter: virtualItems.length,
+            openFoldersAfter: [...openFolders],
+            timestamp: Date.now()
+          });
+        }, 100);
+      } else {
+        console.warn('[SIDEBAR DEBUG VALIDATION] currentDrag가 null이어서 drop 처리 생략');
       }
-    } catch (error) {}
+    } catch (error) {
+      console.error('[SIDEBAR ERROR VALIDATION] 드래그 앤 드롭 실패:', error);
+      // 사용자에게 알림 표시 (optional)
+      if (error instanceof Error) {
+        console.error('[SIDEBAR ERROR VALIDATION] 에러 세부사항:', {
+          message: error.message,
+          stack: error.stack,
+          sourceData: currentDrag,
+          targetData: ind,
+          virtualItemsCount: virtualItems.length,
+          timestamp: Date.now()
+        });
+      }
+    } finally {
+      // 드래그 상태를 안전하게 초기화하여 스크롤 재활성화
+      const oldCurrentDrag = currentDrag;
+      currentDrag = null
+      console.log('[SIDEBAR DEBUG VALIDATION] Drag state cleared:', {
+        oldCurrentDrag,
+        newCurrentDrag: currentDrag,
+        scrollShouldBeEnabled: currentDrag === null,
+        timestamp: Date.now()
+      });
+    }
   }
 
-  const preventAll = (e:Event) => {
+  const avatarDragEnd = (e:DragEv) => {
+    console.log('[SIDEBAR DEBUG VALIDATION] Drag end:', {
+      dragData: currentDrag,
+      scrollDisabled: false,
+      virtualItemsCount: virtualItems.length,
+      timestamp: Date.now()
+    });
+    
+    // 드래그 종료 시 스크롤 재활성화
+    const oldCurrentDrag = currentDrag;
+    currentDrag = null
+    
+    console.log('[SIDEBAR DEBUG VALIDATION] Drag end 상태 정리 완료:', {
+      oldCurrentDrag,
+      newCurrentDrag: currentDrag,
+      scrollShouldBeEnabled: true,
+      timestamp: Date.now()
+    });
+  }
+
+  // 전역 드래그 종료 이벤트 리스너로 안전장치 제공
+  let globalDragEndCleanup: (() => void) | null = null
+
+  onMount(() => {
+    const handleGlobalDragEnd = () => {
+      if (currentDrag !== null) {
+        console.log('[SIDEBAR DEBUG] Global drag end cleanup triggered');
+        currentDrag = null
+      }
+    }
+    
+    const handleGlobalDragLeave = (e: DragEvent) => {
+      // 브라우저 창을 벗어날 때 드래그 상태 정리
+      if (!e.relatedTarget) {
+        console.log('[SIDEBAR DEBUG] Drag left browser window, cleaning up');
+        currentDrag = null
+      }
+    }
+
+    document.addEventListener('dragend', handleGlobalDragEnd)
+    document.addEventListener('dragleave', handleGlobalDragLeave)
+    
+    globalDragEndCleanup = () => {
+      document.removeEventListener('dragend', handleGlobalDragEnd)
+      document.removeEventListener('dragleave', handleGlobalDragLeave)
+    }
+  })
+
+  onDestroy(() => {
+    // 컴포넌트 정리 시 드래그 상태 초기화 및 이벤트 리스너 정리
+    if (currentDrag !== null) {
+      console.log('[SIDEBAR DEBUG] Component destroyed, cleaning up drag state');
+      currentDrag = null
+    }
+    
+    if (globalDragEndCleanup) {
+      globalDragEndCleanup()
+      globalDragEndCleanup = null
+    }
+  })
+
+  const preventAll = (e: Event) => {
     e.preventDefault()
     e.stopPropagation()
     return false
@@ -429,179 +705,269 @@
     </div>
     {/if}
   </div>
-  <div class="flex flex-grow w-full flex-col items-center overflow-x-hidden overflow-y-auto pr-0">
-    <div class="h-4 min-h-4 w-14" role="listitem" ondragover={(e) => {
-      e.preventDefault()
-      e.dataTransfer.dropEffect = 'move'
-      e.currentTarget.classList.add('bg-green-500')
-    }} ondragleave={(e) => {
-      e.currentTarget.classList.remove('bg-green-500')
-    }} ondrop={(e) => {
-      e.preventDefault()
-      e.currentTarget.classList.remove('bg-green-500')
-      const da = currentDrag
-      if(da){
-        inserter(da,{index:0})
-      }
-    }} ondragenter={preventAll}></div>
-    {#each charImages as char, ind}
-      <div class="group relative flex items-center px-2"
-        role="listitem"
-        draggable="true"
-        ondragstart={(e) => {avatarDragStart({index:ind}, e)}}
-        ondragover={avatarDragOver}
-        ondrop={(e) => {avatarDrop({index:ind}, e)}}
-        ondragenter={preventAll}
-      >
-        <SidebarIndicator
-          isActive={char.type === 'normal' && $selectedCharID === char.index && sideBarMode !== 1}
-        />
-        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-        <div
-            role="button" tabindex="0"
-            onclick={() => {
-              if(char.type === "normal"){
-                changeChar(char.index, {reseter});
-              }
+  <div class="flex flex-grow w-full flex-col items-center overflow-x-hidden overflow-y-hidden pr-0" bind:this={scrollContainer}>
+    <VirtualScroll
+      items={virtualItems}
+      itemHeight={ITEM_HEIGHT}
+      containerHeight={scrollContainerHeight}
+      className="w-full"
+      scrollDisabled={currentDrag !== null}
+    >
+      {#snippet children(item: VirtualScrollItem, index: number)}
+        {#if item.type === 'spacer'}
+          <div
+            class="h-4 min-h-4 w-14"
+            role="listitem"
+            ondragover={(e) => {
+              e.preventDefault()
+              e.dataTransfer.dropEffect = 'move'
+              e.currentTarget.classList.add('bg-green-500')
             }}
-            onkeydown={(e) => {
-              if (e.key === "Enter") {
-                if(char.type === "normal"){
-                  changeChar(char.index, {reseter});
+            ondragleave={(e) => {
+              e.currentTarget.classList.remove('bg-green-500')
+            }}
+            ondrop={(e) => {
+              e.preventDefault()
+              e.currentTarget.classList.remove('bg-green-500')
+              const da = currentDrag
+              if(da && item.spacerInfo){
+                if(item.spacerInfo.folderId){
+                  inserter(da, {index: item.spacerInfo.insertIndex, folder: item.spacerInfo.folderId})
+                } else {
+                  inserter(da, {index: item.spacerInfo.insertIndex})
                 }
               }
             }}
+            ondragenter={preventAll}
+          ></div>
+        {:else if item.type === 'normal' || item.type === 'folder'}
+          {@const char = item.originalItem}
+          {@const ind = item.originalIndex}
+          <div class="group relative flex items-center px-2"
+            role="listitem"
+            draggable="true"
+            ondragstart={(e) => {avatarDragStart({index: ind}, e)}}
+            ondragend={(e) => {avatarDragEnd(e)}}
+            ondragover={avatarDragOver}
+            ondrop={(e) => {avatarDrop({index: ind}, e)}}
+            ondragenter={preventAll}
           >
-          {#if char.type === 'normal'}
-            <SidebarAvatar src={char.img ? getCharImage(char.img, "plain") : "/none.webp"} size="56" rounded={IconRounded} name={char.name} />
-          {:else if char.type === "folder"}
-            {#key char.color}
-            {#key char.name}
-              <SidebarAvatar src="slot" size="56" rounded={IconRounded} bordered name={char.name} color={char.color} backgroundimg={char.img ? getCharImage(char.img, "plain") : ""}
-              oncontextmenu={async (e) => {
-                e.preventDefault()
-                const sel = parseInt(await alertSelect([language.renameFolder,language.changeFolderColor,language.changeFolderImage,language.cancel]))
-                if(sel === 0){
-                  const v = await alertInput(language.changeFolderName)
-                  const db = DBState.db
-                  if(v){
-                    const oder = db.characterOrder[ind]
-                    if(typeof(oder) === 'string'){
-                      return
+            <SidebarIndicator
+              isActive={char.type === 'normal' && $selectedCharID === char.index && sideBarMode !== 1}
+            />
+            <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+            <div
+                role="button" tabindex="0"
+                onclick={() => {
+                  if(char.type === "normal"){
+                    changeChar(char.index, {reseter});
+                  } else if(char.type === "folder"){
+                    const wasOpen = openFolders.includes(char.id);
+                    
+                    console.log('[SIDEBAR DEBUG VALIDATION] Folder click 시작:', {
+                      folderId: char.id,
+                      folderName: char.name,
+                      wasOpen,
+                      willBeOpen: !wasOpen,
+                      folderItemsCount: char.folder.length,
+                      activeTooltipsBefore: document.querySelectorAll('[data-tippy-root]').length,
+                      currentOpenFolders: [...openFolders],
+                      virtualItemsCountBefore: virtualItems.length,
+                      timestamp: Date.now()
+                    });
+                    
+                    if(wasOpen){
+                      const removeIndex = openFolders.indexOf(char.id);
+                      console.log('[SIDEBAR DEBUG VALIDATION] 폴더 닫기:', {
+                        folderId: char.id,
+                        removeIndex,
+                        openFoldersBefore: [...openFolders]
+                      });
+                      openFolders.splice(removeIndex, 1)
                     }
-                    oder.name = v
-                    db.characterOrder[ind] = oder
-                    setDatabase(db)
+                    else{
+                      console.log('[SIDEBAR DEBUG VALIDATION] 폴더 열기:', {
+                        folderId: char.id,
+                        openFoldersBefore: [...openFolders]
+                      });
+                      openFolders.push(char.id)
+                    }
+                    openFolders = openFolders
+                    
+                    console.log('[SIDEBAR DEBUG VALIDATION] openFolders 상태 변경 완료:', {
+                      folderId: char.id,
+                      newOpenFolders: [...openFolders],
+                      shouldTriggerEffect: true,
+                      timestamp: Date.now()
+                    });
+                    
+                    // Check tooltip state after DOM update
+                    setTimeout(() => {
+                      console.log('[SIDEBAR DEBUG VALIDATION] Post-folder-toggle 상태 검사:', {
+                        folderId: char.id,
+                        isNowOpen: openFolders.includes(char.id),
+                        activeTooltipsAfter: document.querySelectorAll('[data-tippy-root]').length,
+                        virtualItemsCountAfter: virtualItems.length,
+                        expectedChange: wasOpen ? '감소' : '증가',
+                        actualChange: virtualItems.length,
+                        timestamp: Date.now()
+                      });
+                    }, 100);
                   }
-                }
-                else if(sel === 1){
-                  const colors = ["red","green","blue","yellow","indigo","purple","pink","default"]
-                  const sel = parseInt(await alertSelect(colors))
-                  const db = DBState.db
-                  const oder = db.characterOrder[ind]
-                  if(typeof(oder) === 'string'){
-                    return
+                }}
+                onkeydown={(e) => {
+                  if (e.key === "Enter") {
+                    if(char.type === "normal"){
+                      changeChar(char.index, {reseter});
+                    } else if(char.type === "folder"){
+                      const wasOpen = openFolders.includes(char.id);
+                      
+                      console.log('[SIDEBAR DEBUG] Folder keydown (Enter):', {
+                        folderId: char.id,
+                        folderName: char.name,
+                        wasOpen,
+                        willBeOpen: !wasOpen,
+                        activeTooltipsBefore: document.querySelectorAll('[data-tippy-root]').length,
+                        timestamp: Date.now()
+                      });
+                      
+                      if(wasOpen){
+                        openFolders.splice(openFolders.indexOf(char.id), 1)
+                      }
+                      else{
+                        openFolders.push(char.id)
+                      }
+                      openFolders = openFolders
+                      
+                      // Check tooltip state after DOM update
+                      setTimeout(() => {
+                        console.log('[SIDEBAR DEBUG] Post-keydown-folder-toggle tooltip state:', {
+                          folderId: char.id,
+                          isNowOpen: openFolders.includes(char.id),
+                          activeTooltipsAfter: document.querySelectorAll('[data-tippy-root]').length,
+                          timestamp: Date.now()
+                        });
+                      }, 100);
+                    }
                   }
-                  oder.color = colors[sel].toLocaleLowerCase()
-                  db.characterOrder[ind] = oder
-                  setDatabase(db)
-                }
-                else if(sel === 2) {
-                  const sel = parseInt(await alertSelect(['Reset to Default Image', 'Select Image File']))
-                  const db = DBState.db
-                  const oder = db.characterOrder[ind]
-                  if(typeof(oder) === 'string'){
-                    return
-                  }
-
-                  switch (sel) {
-                    case 0:
-                      oder.imgFile = null
-                      oder.img = ''
-                      break;
-                  
-                    case 1:
-                      const folderImage = await selectSingleFile([
-                        'png',
-                        'jpg',
-                        'webp',
-                      ])
-
-                      if(!folderImage) {
+                }}
+              >
+              {#if char.type === 'normal'}
+                <SidebarAvatar src={char.img ? getCharImage(char.img, "plain") : "/none.webp"} size="56" rounded={IconRounded} name={char.name} />
+              {:else if char.type === "folder"}
+                {#key char.color}
+                {#key char.name}
+                  <SidebarAvatar src="slot" size="56" rounded={IconRounded} bordered name={char.name} color={char.color} backgroundimg={char.img ? getCharImage(char.img, "plain") : ""}
+                  oncontextmenu={async (e) => {
+                    e.preventDefault()
+                    const sel = parseInt(await alertSelect([language.renameFolder,language.changeFolderColor,language.changeFolderImage,language.cancel]))
+                    if(sel === 0){
+                      const v = await alertInput(language.changeFolderName)
+                      const db = DBState.db
+                      if(v){
+                        const oder = db.characterOrder[ind]
+                        if(typeof(oder) === 'string'){
+                          return
+                        }
+                        oder.name = v
+                        db.characterOrder[ind] = oder
+                        setDatabase(db)
+                      }
+                    }
+                    else if(sel === 1){
+                      const colors = ["red","green","blue","yellow","indigo","purple","pink","default"]
+                      const sel = parseInt(await alertSelect(colors))
+                      const db = DBState.db
+                      const oder = db.characterOrder[ind]
+                      if(typeof(oder) === 'string'){
+                        return
+                      }
+                      oder.color = colors[sel].toLocaleLowerCase()
+                      db.characterOrder[ind] = oder
+                      setDatabase(db)
+                    }
+                    else if(sel === 2) {
+                      const sel = parseInt(await alertSelect(['Reset to Default Image', 'Select Image File']))
+                      const db = DBState.db
+                      const oder = db.characterOrder[ind]
+                      if(typeof(oder) === 'string'){
                         return
                       }
 
-                      const folderImageData = await saveAsset(folderImage.data)
+                      switch (sel) {
+                        case 0:
+                          oder.imgFile = null
+                          oder.img = ''
+                          break;
+                      
+                        case 1:
+                          const folderImage = await selectSingleFile([
+                            'png',
+                            'jpg',
+                            'webp',
+                          ])
 
-                      oder.imgFile = folderImageData
-                      oder.img = await getFileSrc(folderImageData)
-                      db.characterOrder[ind] = oder
-                      setDatabase(db)
-                      break;
-                  }
-                }
-              }}
-              onClick={() => {
-                if(char.type !== 'folder'){
-                  return
-                }
-                if(openFolders.includes(char.id)){
-                  openFolders.splice(openFolders.indexOf(char.id), 1)
-                }
-                else{
-                  openFolders.push(char.id)
-                }
-                openFolders = openFolders
-              }}>
-                {#if DBState.db.showFolderName}
-                  <div class="h-full w-full flex justify-center items-center">
-                    <span class="hyphens-auto truncate font-bold">{char.name}</span>
-                  </div>
-                {:else if openFolders.includes(char.id)}
-                  <FolderOpenIcon />
-                {:else}
-                  <FolderIcon />
-                {/if}
-              </SidebarAvatar>
-            {/key}
-            {/key}
-          {/if}
-        </div>
-      </div>
-      {#if char.type === 'folder' && openFolders.includes(char.id)}
-        {#key char.color}
-        <div class="p-1 flex flex-col items-center py-1 mt-1 rounded-lg relative">
-          <div class="absolute top-0 left-1  border border-selected w-full h-full rounded-lg z-0 bg-opacity-20"
-          class:bg-darkbg={char.color === 'default' || char.color === ''}
-          class:bg-red-700={char.color === 'red'}
-          class:bg-yellow-700={char.color === 'yellow'}
-          class:bg-green-700={char.color === 'green'}
-          class:bg-blue-700={char.color === 'blue'}
-          class:bg-indigo-700={char.color === 'indigo'}
-          class:bg-purple-700={char.color === 'purple'}
-          class:bg-pink-700={char.color === 'pink'}></div>
-          <div class="h-4 min-h-4 w-14 relative z-10" role="listitem" ondragover={(e) => {
-            e.preventDefault()
-            e.dataTransfer.dropEffect = 'move'
-            e.currentTarget.classList.add('bg-green-500')
-          }} ondragleave={(e) => {
-            e.currentTarget.classList.remove('bg-green-500')
-          }} ondrop={(e) => {
-            e.preventDefault()
-            e.currentTarget.classList.remove('bg-green-500')
-            const da = currentDrag
-            if(da && char.type === 'folder'){
-              inserter(da,{index:0,folder:char.id})
-            }
-          }} ondragenter={preventAll}></div>
-          {#each char.folder as char2, ind}
-              <div class="group relative flex items-center px-2 z-10"
+                          if(!folderImage) {
+                            return
+                          }
+
+                          const folderImageData = await saveAsset(folderImage.data)
+
+                          oder.imgFile = folderImageData
+                          oder.img = await getFileSrc(folderImageData)
+                          db.characterOrder[ind] = oder
+                          setDatabase(db)
+                          break;
+                      }
+                    }
+                  }}>
+                    {#if DBState.db.showFolderName}
+                      <div class="h-full w-full flex justify-center items-center">
+                        <span class="hyphens-auto truncate font-bold">{char.name}</span>
+                      </div>
+                    {:else if openFolders.includes(char.id)}
+                      <FolderOpenIcon />
+                    {:else}
+                      <FolderIcon />
+                    {/if}
+                  </SidebarAvatar>
+                {/key}
+                {/key}
+              {/if}
+            </div>
+          </div>
+        {:else if item.type === 'folder-item'}
+          {@const char2 = item.originalItem}
+          {@const folderInfo = item.folderInfo}
+          {@const folderChar = charImages[folderInfo.folderIndex]}
+          {#if char2 && char2.type === 'normal' && folderChar && folderChar.type === 'folder'}
+            <div class="group relative flex items-center px-2 z-10"
               role="listitem"
               draggable="true"
-              ondragstart={(e) => {if(char.type === 'folder'){avatarDragStart({index: ind, folder:char.id}, e)}}}
+              ondragstart={(e) => {avatarDragStart({index: folderInfo.itemIndex, folder: folderInfo.folderId}, e)}}
+              ondragend={(e) => {avatarDragEnd(e)}}
               ondragover={avatarDragOver}
-              ondrop={(e) => {if(char.type === 'folder'){avatarDrop({index: ind, folder:char.id}, e)}}}
+              ondrop={(e) => {avatarDrop({index: folderInfo.itemIndex, folder: folderInfo.folderId}, e)}}
               ondragenter={preventAll}
+              style="background: linear-gradient(90deg, transparent 0%, {
+                folderChar.color === 'default' || folderChar.color === '' ? 'rgba(55, 65, 81, 0.2)' :
+                folderChar.color === 'red' ? 'rgba(185, 28, 28, 0.2)' :
+                folderChar.color === 'yellow' ? 'rgba(161, 98, 7, 0.2)' :
+                folderChar.color === 'green' ? 'rgba(21, 128, 61, 0.2)' :
+                folderChar.color === 'blue' ? 'rgba(29, 78, 216, 0.2)' :
+                folderChar.color === 'indigo' ? 'rgba(67, 56, 202, 0.2)' :
+                folderChar.color === 'purple' ? 'rgba(126, 34, 206, 0.2)' :
+                folderChar.color === 'pink' ? 'rgba(190, 24, 93, 0.2)' : 'rgba(55, 65, 81, 0.2)'
+              } 20%, transparent 100%); border-left: 2px solid {
+                folderChar.color === 'default' || folderChar.color === '' ? 'rgb(75, 85, 99)' :
+                folderChar.color === 'red' ? 'rgb(185, 28, 28)' :
+                folderChar.color === 'yellow' ? 'rgb(161, 98, 7)' :
+                folderChar.color === 'green' ? 'rgb(21, 128, 61)' :
+                folderChar.color === 'blue' ? 'rgb(29, 78, 216)' :
+                folderChar.color === 'indigo' ? 'rgb(67, 56, 202)' :
+                folderChar.color === 'purple' ? 'rgb(126, 34, 206)' :
+                folderChar.color === 'pink' ? 'rgb(190, 24, 93)' : 'rgb(75, 85, 99)'
+              }; margin-left: 4px; border-radius: 0px 8px 8px 0px;"
             >
               <SidebarIndicator
                 isActive={$selectedCharID === char2.index && sideBarMode !== 1}
@@ -625,43 +991,14 @@
                 <SidebarAvatar src={char2.img ? getCharImage(char2.img, "plain") : "/none.webp"} size="56" rounded={IconRounded} name={char2.name}/>
               </div>
             </div>
-            <div class="h-4 min-h-4 w-14 relative z-20" role="listitem" ondragover={(e) => {
-              e.preventDefault()
-              e.dataTransfer.dropEffect = 'move'
-              e.currentTarget.classList.add('bg-green-500')
-            }} ondragleave={(e) => {
-              e.currentTarget.classList.remove('bg-green-500')
-            }} ondrop={(e) => {
-              e.preventDefault()
-              e.currentTarget.classList.remove('bg-green-500')
-              const da = currentDrag
-              if(da && char.type === 'folder'){
-                inserter(da,{index:ind+1,folder:char.id})
-              }
-            }} ondragenter={preventAll}></div>
-          {/each}
-        </div>
-        {/key}
-      {/if}
-      <div class="h-4 min-h-4 w-14" role="listitem" ondragover={((e) => {
-        e.preventDefault()
-        e.dataTransfer.dropEffect = 'move'
-        e.currentTarget.classList.add('bg-green-500')
-      })} ondragleave={(e) => {
-        e.currentTarget.classList.remove('bg-green-500')
-      }} ondrop={(e) => {
-        e.preventDefault()
-        e.currentTarget.classList.remove('bg-green-500')
-        const da = currentDrag
-        if(da){
-          inserter(da,{index:ind+1})
-        }
-      }} ondragenter={preventAll}></div>
-    {/each}
-    <div class="flex flex-col items-center space-y-2 px-2">
+          {/if}
+        {/if}
+      {/snippet}
+    </VirtualScroll>
+    <div class="flex flex-col items-center space-y-2 px-2 mt-4">
       <BaseRoundedButton
         onClick={async () => {
-          addCharacter({reseter}) 
+          addCharacter({reseter})
         }}
         ><svg viewBox="0 0 24 24" width="1.2em" height="1.2em"
           ><path
