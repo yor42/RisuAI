@@ -446,6 +446,8 @@ jobs:
           TAURI_BUNDLE_TARGETS: ${{ contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && 'deb,rpm' || '' }}
           # AppImage 관련 환경변수 비활성화 (ARM64 Linux에서만)
           DISABLE_APPIMAGE: ${{ contains(matrix.settings.args, 'aarch64-unknown-linux-gnu') && '1' || '0' }}
+          # Cross-platform NODE_OPTIONS 설정 (Windows 호환성)
+          NODE_OPTIONS: '--max-old-space-size=4096'
         with:
           # Enable updater JSON generation for Tauri updater functionality
           includeUpdaterJson: true
