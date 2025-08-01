@@ -176,48 +176,52 @@ const reverseProxyFunc_get = async (req, res, next) => {
   }
 };
 
-async function hubProxyFunc(req, res, next) {
-  try {
-    const pathAndQuery = req.originalUrl.replace(/^\/hub-proxy/, "");
-    const externalURL = hubURL + pathAndQuery;
+async function hubProxyFunc(req, res) {
 
-    const headersToSend = { ...req.headers };
-    delete headersToSend.host;
-    delete headersToSend.connection;
-
-    const response = await fetch(externalURL, {
-      method: req.method,
-      headers: headersToSend,
-      body: req.body,
-      redirect: "manual",
-      duplex: "half",
-      compress: false,
-    });
-
-    const responseHeaders = new Headers(response.headers);
-    responseHeaders.delete("Content-Encoding");
-    responseHeaders.delete("content-security-policy");
-    responseHeaders.delete("content-security-policy-report-only");
-    responseHeaders.delete("clear-site-data");
-
-    for (const [key, value] of responseHeaders.entries()) {
-      res.setHeader(key, value);
-    }
-
-    res.status(response.status);
-
-    if (response.status >= 300 && response.status < 400) {
-      const redirectUrl = response.headers.get("location");
-      if (redirectUrl) {
-        if (redirectUrl.startsWith("http")) {
-          if (redirectUrl.startsWith(hubURL)) {
-            const newPath = redirectUrl.replace(hubURL, "/hub-proxy");
-            res.setHeader("location", newPath);
-          }
-        } else if (redirectUrl.startsWith("/")) {
-          res.setHeader("location", `/hub-proxy${redirectUrl}`);
+    try {
+        const pathAndQuery = req.originalUrl.replace(/^\/hub-proxy/, '');
+        const externalURL = hubURL + pathAndQuery;
+        
+        const headersToSend = { ...req.headers };
+        delete headersToSend.host;
+        delete headersToSend.connection;
+        
+        const response = await fetch(externalURL, {
+            method: req.method,
+            headers: headersToSend,
+            body: req.method !== 'GET' && req.method !== 'HEAD' ? req : undefined,
+            redirect: 'manual',
+            duplex: 'half'
+        });
+        
+        for (const [key, value] of response.headers.entries()) {
+            // Skip encoding-related headers to prevent double decoding
+            if (key.toLowerCase() === 'content-encoding' || 
+                key.toLowerCase() === 'content-length' ||
+                key.toLowerCase() === 'transfer-encoding') {
+                continue;
+            }
+            res.setHeader(key, value);
         }
-      }
+        res.status(response.status);
+        
+        if (response.status >= 300 && response.status < 400) {
+            // Redirect handling (due to ‘/redirect/docs/lua’)
+            const redirectUrl = response.headers.get('location');
+            if (redirectUrl) {
+                
+                if (redirectUrl.startsWith('http')) {
+                    
+                    if (redirectUrl.startsWith(hubURL)) {
+                        const newPath = redirectUrl.replace(hubURL, '/hub-proxy');
+                        res.setHeader('location', newPath);
+                    }
+                    
+                } else if (redirectUrl.startsWith('/')) {
+                    
+                    res.setHeader('location', `/hub-proxy${redirectUrl}`);
+                }
+            }
 
       return res.end();
     }
