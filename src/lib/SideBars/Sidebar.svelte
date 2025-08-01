@@ -70,6 +70,12 @@
   let openFolders:string[] = $state([])
   let currentDrag: DragData | null = $state(null)
   
+  // VirtualScroll 인스턴스 참조
+  let virtualScrollRef: any = $state()
+  
+  // 드래그 중 마우스 이벤트 처리를 위한 상태
+  let dragMouseMoveHandler: ((e: MouseEvent) => void) | null = $state(null)
+  
   // Virtual Scrolling 관련 타입 정의
   interface VirtualScrollItem {
     type: 'normal' | 'folder' | 'folder-item' | 'spacer';
@@ -95,20 +101,80 @@
   let scrollContainer = $state<HTMLDivElement>();
   let scrollContainerHeight = $state(400);
   
-  // 컨테이너 높이 자동 계산
+  // 컨테이너 높이 자동 계산 - ResizeObserver loop 방지 개선
   $effect(() => {
     if (scrollContainer) {
+      let rafId: number | null = null;
+      let lastHeight = scrollContainerHeight;
+      
       const updateHeight = () => {
-        const rect = scrollContainer.getBoundingClientRect();
-        scrollContainerHeight = Math.max(200, rect.height - 80); // 최소 200px, 버튼 영역 제외
+        try {
+          // null 체크 및 DOM 연결 상태 확인
+          if (!scrollContainer || !scrollContainer.isConnected) {
+            return;
+          }
+          
+          const rect = scrollContainer.getBoundingClientRect();
+          
+          // rect 유효성 검사 - 크기가 0이면 아직 렌더링되지 않은 상태이므로 스킵
+          if (!rect || rect.width <= 0 || rect.height <= 0) {
+            return;
+          }
+          
+          const newHeight = Math.max(200, rect.height - 80); // 최소 200px, 버튼 영역 제외
+          
+          // 높이가 실제로 변경된 경우에만 업데이트 (ResizeObserver loop 방지)
+          if (Math.abs(newHeight - lastHeight) > 1) { // 1px 이상 차이날 때만 업데이트
+            lastHeight = newHeight;
+            scrollContainerHeight = newHeight;
+          }
+        } catch (error) {
+          console.error('[SIDEBAR HEIGHT ERROR] updateHeight 실패:', error.message);
+        }
       };
       
-      updateHeight();
+      // 초기 높이 설정 - requestAnimationFrame으로 지연
+      requestAnimationFrame(() => {
+        updateHeight();
+      });
       
-      const resizeObserver = new ResizeObserver(updateHeight);
-      resizeObserver.observe(scrollContainer);
+      const resizeObserver = new ResizeObserver((entries) => {
+        try {
+          // ResizeObserver loop 방지: requestAnimationFrame으로 다음 프레임에서 실행
+          if (rafId) {
+            cancelAnimationFrame(rafId);
+          }
+          
+          rafId = requestAnimationFrame(() => {
+            if (!entries || entries.length === 0) {
+              return;
+            }
+            
+            updateHeight();
+            rafId = null;
+          });
+        } catch (error) {
+          console.error('[SIDEBAR HEIGHT ERROR] ResizeObserver 콜백 실패:', error.message);
+        }
+      });
       
-      return () => resizeObserver.disconnect();
+      try {
+        resizeObserver.observe(scrollContainer);
+      } catch (error) {
+        console.error('[SIDEBAR HEIGHT ERROR] ResizeObserver 시작 실패:', error.message);
+      }
+      
+      return () => {
+        try {
+          if (rafId) {
+            cancelAnimationFrame(rafId);
+            rafId = null;
+          }
+          resizeObserver.disconnect();
+        } catch (error) {
+          console.error('[SIDEBAR HEIGHT ERROR] ResizeObserver 정리 실패:', error.message);
+        }
+      };
     }
   });
 
@@ -407,33 +473,27 @@
     folder?: string
   } | null
   const avatarDragStart = (ind: Exclude<DragData, null>, e: DragEv) => {
-    console.log('[SIDEBAR DEBUG VALIDATION] Drag start:', {
-      dragData: ind,
-      activeTooltips: document.querySelectorAll('[data-tippy-root]').length,
-      scrollDisabled: true,
-      virtualItemsCount: virtualItems.length,
-      currentDragBefore: currentDrag,
-      targetElement: e.currentTarget.getAttribute('data-index'),
-      timestamp: Date.now()
-    });
-    
     e.dataTransfer.setData('text/plain', '');
     currentDrag = ind
     
-    console.log('[SIDEBAR DEBUG VALIDATION] currentDrag 상태 변경 완료:', {
-      newCurrentDrag: currentDrag,
-      shouldDisableScroll: currentDrag !== null,
-      timestamp: Date.now()
-    });
+    // VirtualScroll의 setDragging 함수 호출
+    if (virtualScrollRef?.setDragging) {
+      virtualScrollRef.setDragging(true);
+    }
+    
+    // 드래그 중 마우스 이벤트 처리를 위한 핸들러 추가
+    const handleDragMouseMove = (e: MouseEvent) => {
+      if (virtualScrollRef?.handleDragAutoScroll) {
+        virtualScrollRef.handleDragAutoScroll(e);
+      }
+    };
+    
+    dragMouseMoveHandler = handleDragMouseMove;
+    document.addEventListener('mousemove', handleDragMouseMove);
     
     const avatar = e.currentTarget.querySelector('.avatar')
     if(avatar){
       e.dataTransfer.setDragImage(avatar, 10, 10);
-    } else {
-      console.warn('[SIDEBAR DEBUG VALIDATION] 아바타 요소를 찾을 수 없음:', {
-        targetElement: e.currentTarget,
-        querySelector: e.currentTarget.querySelector('.avatar')
-      });
     }
   }
 
@@ -445,86 +505,43 @@
   const avatarDrop = (ind: Exclude<DragData, null>, e: DragEv) => {
     e.preventDefault()
     
-    console.log('[SIDEBAR DEBUG VALIDATION] Drag drop 시작:', {
-      sourceData: currentDrag,
-      targetData: ind,
-      activeTooltipsBefore: document.querySelectorAll('[data-tippy-root]').length,
-      virtualItemsCountBefore: virtualItems.length,
-      isValidDrop: currentDrag !== null && currentDrag !== ind,
-      timestamp: Date.now()
-    });
-    
     try {
       if(currentDrag){
-        console.log('[SIDEBAR DEBUG VALIDATION] createFolder 호출 전:', {
-          sourceData: currentDrag,
-          targetData: ind,
-          characterOrderLength: DBState.db.characterOrder.length
-        });
-        
         createFolder(currentDrag,ind)
-        
-        console.log('[SIDEBAR DEBUG VALIDATION] createFolder 호출 완료:', {
-          characterOrderLengthAfter: DBState.db.characterOrder.length,
-          timestamp: Date.now()
-        });
-        
-        // Check tooltips and virtual items after folder creation
-        setTimeout(() => {
-          console.log('[SIDEBAR DEBUG VALIDATION] Post-drop 상태 검사:', {
-            activeTooltipsAfter: document.querySelectorAll('[data-tippy-root]').length,
-            virtualItemsCountAfter: virtualItems.length,
-            openFoldersAfter: [...openFolders],
-            timestamp: Date.now()
-          });
-        }, 100);
-      } else {
-        console.warn('[SIDEBAR DEBUG VALIDATION] currentDrag가 null이어서 drop 처리 생략');
       }
     } catch (error) {
-      console.error('[SIDEBAR ERROR VALIDATION] 드래그 앤 드롭 실패:', error);
-      // 사용자에게 알림 표시 (optional)
-      if (error instanceof Error) {
-        console.error('[SIDEBAR ERROR VALIDATION] 에러 세부사항:', {
-          message: error.message,
-          stack: error.stack,
-          sourceData: currentDrag,
-          targetData: ind,
-          virtualItemsCount: virtualItems.length,
-          timestamp: Date.now()
-        });
-      }
+      console.error('[SIDEBAR ERROR] 드래그 앤 드롭 실패:', error);
     } finally {
       // 드래그 상태를 안전하게 초기화하여 스크롤 재활성화
-      const oldCurrentDrag = currentDrag;
-      currentDrag = null
-      console.log('[SIDEBAR DEBUG VALIDATION] Drag state cleared:', {
-        oldCurrentDrag,
-        newCurrentDrag: currentDrag,
-        scrollShouldBeEnabled: currentDrag === null,
-        timestamp: Date.now()
-      });
+      currentDrag = null;
+      
+      // VirtualScroll의 setDragging 함수 호출
+      if (virtualScrollRef?.setDragging) {
+        virtualScrollRef.setDragging(false);
+      }
+      
+      // 마우스 이벤트 리스너 제거
+      if (dragMouseMoveHandler) {
+        document.removeEventListener('mousemove', dragMouseMoveHandler);
+        dragMouseMoveHandler = null;
+      }
     }
   }
 
   const avatarDragEnd = (e:DragEv) => {
-    console.log('[SIDEBAR DEBUG VALIDATION] Drag end:', {
-      dragData: currentDrag,
-      scrollDisabled: false,
-      virtualItemsCount: virtualItems.length,
-      timestamp: Date.now()
-    });
-    
     // 드래그 종료 시 스크롤 재활성화
-    const oldCurrentDrag = currentDrag;
-    currentDrag = null
+    currentDrag = null;
     
-    console.log('[SIDEBAR DEBUG VALIDATION] Drag end 상태 정리 완료:', {
-      oldCurrentDrag,
-      newCurrentDrag: currentDrag,
-      scrollShouldBeEnabled: true,
-      timestamp: Date.now()
-    });
+    // VirtualScroll의 setDragging 함수 호출
+    if (virtualScrollRef?.setDragging) {
+      virtualScrollRef.setDragging(false);
+    }
+    
+    // 마우스 이벤트 리스너 제거
+    if (dragMouseMoveHandler) {
+      document.removeEventListener('mousemove', dragMouseMoveHandler);
+      dragMouseMoveHandler = null;
+    }
   }
 
   // 전역 드래그 종료 이벤트 리스너로 안전장치 제공
@@ -533,16 +550,36 @@
   onMount(() => {
     const handleGlobalDragEnd = () => {
       if (currentDrag !== null) {
-        console.log('[SIDEBAR DEBUG] Global drag end cleanup triggered');
-        currentDrag = null
+        currentDrag = null;
+        
+        // VirtualScroll의 setDragging 함수 호출
+        if (virtualScrollRef?.setDragging) {
+          virtualScrollRef.setDragging(false);
+        }
+        
+        // 마우스 이벤트 리스너 제거
+        if (dragMouseMoveHandler) {
+          document.removeEventListener('mousemove', dragMouseMoveHandler);
+          dragMouseMoveHandler = null;
+        }
       }
     }
     
     const handleGlobalDragLeave = (e: DragEvent) => {
       // 브라우저 창을 벗어날 때 드래그 상태 정리
       if (!e.relatedTarget) {
-        console.log('[SIDEBAR DEBUG] Drag left browser window, cleaning up');
-        currentDrag = null
+        currentDrag = null;
+        
+        // VirtualScroll의 setDragging 함수 호출
+        if (virtualScrollRef?.setDragging) {
+          virtualScrollRef.setDragging(false);
+        }
+        
+        // 마우스 이벤트 리스너 제거
+        if (dragMouseMoveHandler) {
+          document.removeEventListener('mousemove', dragMouseMoveHandler);
+          dragMouseMoveHandler = null;
+        }
       }
     }
 
@@ -558,8 +595,18 @@
   onDestroy(() => {
     // 컴포넌트 정리 시 드래그 상태 초기화 및 이벤트 리스너 정리
     if (currentDrag !== null) {
-      console.log('[SIDEBAR DEBUG] Component destroyed, cleaning up drag state');
-      currentDrag = null
+      currentDrag = null;
+      
+      // VirtualScroll의 setDragging 함수 호출
+      if (virtualScrollRef?.setDragging) {
+        virtualScrollRef.setDragging(false);
+      }
+    }
+    
+    // 마우스 이벤트 리스너 제거
+    if (dragMouseMoveHandler) {
+      document.removeEventListener('mousemove', dragMouseMoveHandler);
+      dragMouseMoveHandler = null;
     }
     
     if (globalDragEndCleanup) {
@@ -707,11 +754,14 @@
   </div>
   <div class="flex flex-grow w-full flex-col items-center overflow-x-hidden overflow-y-hidden pr-0" bind:this={scrollContainer}>
     <VirtualScroll
+      bind:this={virtualScrollRef}
       items={virtualItems}
       itemHeight={ITEM_HEIGHT}
       containerHeight={scrollContainerHeight}
       className="w-full"
-      scrollDisabled={currentDrag !== null}
+      scrollDisabled={false}
+      allowDragScroll={true}
+      dragScrollZone={30}
     >
       {#snippet children(item: VirtualScrollItem, index: number)}
         {#if item.type === 'spacer'}
@@ -764,55 +814,14 @@
                   } else if(char.type === "folder"){
                     const wasOpen = openFolders.includes(char.id);
                     
-                    console.log('[SIDEBAR DEBUG VALIDATION] Folder click 시작:', {
-                      folderId: char.id,
-                      folderName: char.name,
-                      wasOpen,
-                      willBeOpen: !wasOpen,
-                      folderItemsCount: char.folder.length,
-                      activeTooltipsBefore: document.querySelectorAll('[data-tippy-root]').length,
-                      currentOpenFolders: [...openFolders],
-                      virtualItemsCountBefore: virtualItems.length,
-                      timestamp: Date.now()
-                    });
-                    
                     if(wasOpen){
                       const removeIndex = openFolders.indexOf(char.id);
-                      console.log('[SIDEBAR DEBUG VALIDATION] 폴더 닫기:', {
-                        folderId: char.id,
-                        removeIndex,
-                        openFoldersBefore: [...openFolders]
-                      });
                       openFolders.splice(removeIndex, 1)
                     }
                     else{
-                      console.log('[SIDEBAR DEBUG VALIDATION] 폴더 열기:', {
-                        folderId: char.id,
-                        openFoldersBefore: [...openFolders]
-                      });
                       openFolders.push(char.id)
                     }
                     openFolders = openFolders
-                    
-                    console.log('[SIDEBAR DEBUG VALIDATION] openFolders 상태 변경 완료:', {
-                      folderId: char.id,
-                      newOpenFolders: [...openFolders],
-                      shouldTriggerEffect: true,
-                      timestamp: Date.now()
-                    });
-                    
-                    // Check tooltip state after DOM update
-                    setTimeout(() => {
-                      console.log('[SIDEBAR DEBUG VALIDATION] Post-folder-toggle 상태 검사:', {
-                        folderId: char.id,
-                        isNowOpen: openFolders.includes(char.id),
-                        activeTooltipsAfter: document.querySelectorAll('[data-tippy-root]').length,
-                        virtualItemsCountAfter: virtualItems.length,
-                        expectedChange: wasOpen ? '감소' : '증가',
-                        actualChange: virtualItems.length,
-                        timestamp: Date.now()
-                      });
-                    }, 100);
                   }
                 }}
                 onkeydown={(e) => {
@@ -822,15 +831,6 @@
                     } else if(char.type === "folder"){
                       const wasOpen = openFolders.includes(char.id);
                       
-                      console.log('[SIDEBAR DEBUG] Folder keydown (Enter):', {
-                        folderId: char.id,
-                        folderName: char.name,
-                        wasOpen,
-                        willBeOpen: !wasOpen,
-                        activeTooltipsBefore: document.querySelectorAll('[data-tippy-root]').length,
-                        timestamp: Date.now()
-                      });
-                      
                       if(wasOpen){
                         openFolders.splice(openFolders.indexOf(char.id), 1)
                       }
@@ -838,16 +838,6 @@
                         openFolders.push(char.id)
                       }
                       openFolders = openFolders
-                      
-                      // Check tooltip state after DOM update
-                      setTimeout(() => {
-                        console.log('[SIDEBAR DEBUG] Post-keydown-folder-toggle tooltip state:', {
-                          folderId: char.id,
-                          isNowOpen: openFolders.includes(char.id),
-                          activeTooltipsAfter: document.querySelectorAll('[data-tippy-root]').length,
-                          timestamp: Date.now()
-                        });
-                      }, 100);
                     }
                   }
                 }}

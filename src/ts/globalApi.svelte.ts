@@ -718,10 +718,36 @@ export async function getFetchData(id: string) {
  */
 function updateErrorHandling() {
   const errorHandler = (event: ErrorEvent) => {
+    console.log('[DEBUG] Error event caught:', {
+      error: event.error,
+      message: event.message,
+      filename: event.filename,
+      lineno: event.lineno,
+      colno: event.colno,
+      type: event.type
+    });
+    
+    // null 체크 추가
+    if (event.error === null || event.error === undefined) {
+      console.warn('[DEBUG] event.error is null/undefined, skipping alertError');
+      return;
+    }
+    
     console.error(event.error);
     alertError(event.error);
   };
   const rejectHandler = (event: PromiseRejectionEvent) => {
+    console.log('[DEBUG] Promise rejection caught:', {
+      reason: event.reason,
+      type: event.type
+    });
+    
+    // null 체크 추가
+    if (event.reason === null || event.reason === undefined) {
+      console.warn('[DEBUG] event.reason is null/undefined, skipping alertError');
+      return;
+    }
+    
     console.error(event.reason);
     alertError(event.reason);
   };
