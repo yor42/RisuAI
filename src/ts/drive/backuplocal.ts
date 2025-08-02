@@ -130,8 +130,8 @@ export async function SaveLocalBackup(){
         const dataSizeMB = (new Blob([jsonData]).size / 1024 / 1024);
         console.log(`[SaveLocalBackup] Database size: ${dataSizeMB.toFixed(2)} MB`);
         
-        // Skip backup check if data is large (>4GB) to avoid 413 Content Too Large and CORS issues
-        if (dataSizeMB > 4096) {
+        // Skip backup check if data is large (>50MB) to avoid 413 Content Too Large and CORS issues
+        if (dataSizeMB > 50) {
             console.log(`[SaveLocalBackup] Skipping backup check - data too large (${dataSizeMB.toFixed(2)}MB)`);
             alertWait(`Saving local backup... (Skipping validation for large data: ${dataSizeMB.toFixed(2)}MB)`);
             await sleep(1000);
