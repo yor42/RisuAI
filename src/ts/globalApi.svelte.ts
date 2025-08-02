@@ -14,6 +14,7 @@ import { appDataDir, join } from "@tauri-apps/api/path";
 import { get } from "svelte/store";
 import {open} from '@tauri-apps/plugin-shell'
 import { setDatabase, type Database, defaultSdDataFunc, getDatabase, type character } from "./storage/database.svelte";
+import { encodeRisuSaveEnhanced, decodeRisuSaveEnhanced, createChunkingController } from "./storage/risuSaveEnhanced";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { checkRisuUpdate } from "./update";
 import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState } from "./stores.svelte";
@@ -41,6 +42,7 @@ import { fetch as TauriHTTPFetch } from '@tauri-apps/plugin-http';
 import { moduleUpdate } from "./process/modules";
 import type { AccountStorage } from "./storage/accountStorage";
 import { makeColdData } from "./process/coldstorage.svelte";
+import { testChunkingSystem, compareMemoryEfficiency } from "./storage/testChunking";
 
 //@ts-ignore
 export const isTauri = !!window.__TAURI_INTERNALS__
@@ -402,7 +404,18 @@ export async function saveDb(){
                     await forageStorage.setItem(`database/dbbackup-${(Date.now()/100).toFixed()}.bin`, dbData)
                 }
                 if(forageStorage.isAccount){
-                    const dbData = await encodeRisuSave(db)
+                    let dbData: Uint8Array;
+                    try {
+                        // 메모리 효율적인 청킹 인코딩 시도
+                        dbData = await encodeRisuSaveEnhanced(db, (progress, stage) => {
+                            console.log(`[Auto-save] ${stage}: ${progress.toFixed(1)}%`);
+                        });
+                        console.log(`[Auto-save] Enhanced encoding completed: ${(dbData.length / 1024 / 1024).toFixed(2)}MB`);
+                    } catch (error) {
+                        console.warn('[Auto-save] Enhanced encoding failed, using legacy method:', error);
+                        dbData = await encodeRisuSave(db);
+                        console.log(`[Auto-save] Legacy encoding completed: ${(dbData.length / 1024 / 1024).toFixed(2)}MB`);
+                    }
                     
                     if(lastDbData.length === dbData.length){
                         let same = true
@@ -411,7 +424,7 @@ export async function saveDb(){
                                 same = false
                                 break
                             }
-                        }   
+                        }
 
                         if(same){
                             await sleep(500)
@@ -420,7 +433,20 @@ export async function saveDb(){
                     }
 
                     lastDbData = dbData
-                    const z:Database = await decodeRisuSave(dbData)
+                    
+                    let z: Database;
+                    try {
+                        // 메모리 효율적인 청킹 디코딩으로 무결성 검증
+                        z = await decodeRisuSaveEnhanced(dbData, (progress, stage) => {
+                            console.log(`[Auto-save] Verification ${stage}: ${progress.toFixed(1)}%`);
+                        });
+                        console.log('[Auto-save] Enhanced verification completed');
+                    } catch (error) {
+                        console.warn('[Auto-save] Enhanced verification failed, using legacy method:', error);
+                        z = await decodeRisuSave(dbData);
+                        console.log('[Auto-save] Legacy verification completed');
+                    }
+                    
                     if(z.formatversion){
                         await forageStorage.setItem('database/database.bin', dbData)
                     }
@@ -494,14 +520,18 @@ async function getDbBackups() {
 
 let usingSw = false
 
+let loadDataController: ReturnType<typeof createChunkingController> | null = null;
+
 /**
  * Loads the application data.
- * 
+ *
  * @returns {Promise<void>} - A promise that resolves when the data has been loaded.
  */
 export async function loadData() {
     const loaded = get(loadedStore)
     if(!loaded){
+        // 데이터 로딩 중단 컨트롤러 생성
+        loadDataController = createChunkingController();
         try {
             if(isTauri){
                 LoadingStatusState.text = "Checking Files..."
@@ -524,7 +554,26 @@ export async function loadData() {
                     LoadingStatusState.text = "Cleaning Unnecessary Files..."
                     getDbBackups() //this also cleans the backups
                     LoadingStatusState.text = "Decoding Save File..."
-                    const decoded = await decodeRisuSave(readed)
+                    
+                    let decoded: Database;
+                    try {
+                        // 메모리 효율적인 청킹 디코딩 시도 (중단 지원)
+                        decoded = await decodeRisuSaveEnhanced(readed, (progress, stage) => {
+                            LoadingStatusState.text = `Decoding Save File... (${stage}: ${progress.toFixed(1)}%)`;
+                        }, loadDataController);
+                        console.log('[LoadData] Enhanced decoding completed');
+                    } catch (error) {
+                        if (error.message?.includes('aborted')) {
+                            console.log('[LoadData] Data loading was cancelled by user');
+                            loadDataController = null;
+                            return;
+                        }
+                        console.warn('[LoadData] Enhanced decoding failed, using legacy method:', error);
+                        LoadingStatusState.text = "Decoding Save File... (fallback mode)";
+                        decoded = await decodeRisuSave(readed);
+                        console.log('[LoadData] Legacy decoding completed');
+                    }
+                    
                     setDatabase(decoded)
                 } catch (error) {
                     LoadingStatusState.text = "Reading Backup Files..."
@@ -535,9 +584,22 @@ export async function loadData() {
                             try {
                                 LoadingStatusState.text = `Reading Backup File ${backup}...`
                                 const backupData = await readFile(`database/dbbackup-${backup}.bin`, {baseDir: BaseDirectory.AppData})
-                                setDatabase(
-                                  await decodeRisuSave(backupData)
-                                )
+                                
+                                let decodedBackup: Database;
+                                try {
+                                    // 메모리 효율적인 청킹 디코딩 시도
+                                    decodedBackup = await decodeRisuSaveEnhanced(backupData, (progress, stage) => {
+                                        LoadingStatusState.text = `Reading Backup File ${backup}... (${stage}: ${progress.toFixed(1)}%)`;
+                                    });
+                                    console.log(`[LoadData] Enhanced backup decoding completed: ${backup}`);
+                                } catch (error) {
+                                    console.warn(`[LoadData] Enhanced backup decoding failed for ${backup}, using legacy method:`, error);
+                                    LoadingStatusState.text = `Reading Backup File ${backup}... (fallback mode)`;
+                                    decodedBackup = await decodeRisuSave(backupData);
+                                    console.log(`[LoadData] Legacy backup decoding completed: ${backup}`);
+                                }
+                                
+                                setDatabase(decodedBackup);
                                 backupLoaded = true
                             } catch (error) {
                                 console.error(error)
@@ -564,7 +626,20 @@ export async function loadData() {
                     await forageStorage.setItem('database/database.bin', gotStorage)
                 }
                 try {
-                    const decoded = await decodeRisuSave(gotStorage)
+                    let decoded: Database;
+                    try {
+                        // 메모리 효율적인 청킹 디코딩 시도
+                        decoded = await decodeRisuSaveEnhanced(gotStorage, (progress, stage) => {
+                            LoadingStatusState.text = `Decoding Local Save File... (${stage}: ${progress.toFixed(1)}%)`;
+                        });
+                        console.log('[LoadData] Enhanced local decoding completed');
+                    } catch (error) {
+                        console.warn('[LoadData] Enhanced local decoding failed, using legacy method:', error);
+                        LoadingStatusState.text = "Decoding Local Save File... (fallback mode)";
+                        decoded = await decodeRisuSave(gotStorage);
+                        console.log('[LoadData] Legacy local decoding completed');
+                    }
+                    
                     console.log(decoded)
                     setDatabase(decoded)
                 } catch (error) {
@@ -575,9 +650,22 @@ export async function loadData() {
                         try {
                             LoadingStatusState.text = `Reading Backup File ${backup}...`
                             const backupData:Uint8Array = await forageStorage.getItem(`database/dbbackup-${backup}.bin`) as unknown as Uint8Array
-                            setDatabase(
-                                await decodeRisuSave(backupData)
-                            )
+                            
+                            let decodedBackup: Database;
+                            try {
+                                // 메모리 효율적인 청킹 디코딩 시도
+                                decodedBackup = await decodeRisuSaveEnhanced(backupData, (progress, stage) => {
+                                    LoadingStatusState.text = `Reading Backup File ${backup}... (${stage}: ${progress.toFixed(1)}%)`;
+                                });
+                                console.log(`[LoadData] Enhanced local backup decoding completed: ${backup}`);
+                            } catch (error) {
+                                console.warn(`[LoadData] Enhanced local backup decoding failed for ${backup}, using legacy method:`, error);
+                                LoadingStatusState.text = `Reading Backup File ${backup}... (fallback mode)`;
+                                decodedBackup = await decodeRisuSave(backupData);
+                                console.log(`[LoadData] Legacy local backup decoding completed: ${backup}`);
+                            }
+                            
+                            setDatabase(decodedBackup);
                             backupLoaded = true
                         } catch (error) {}
                     }
@@ -596,9 +684,21 @@ export async function loadData() {
                         await forageStorage.setItem('database/database.bin', gotStorage)
                     }
                     try {
-                        setDatabase(
-                            await decodeRisuSave(gotStorage)
-                        )
+                        let decodedRemote: Database;
+                        try {
+                            // 메모리 효율적인 청킹 디코딩 시도
+                            decodedRemote = await decodeRisuSaveEnhanced(gotStorage, (progress, stage) => {
+                                LoadingStatusState.text = `Decoding Remote Save File... (${stage}: ${progress.toFixed(1)}%)`;
+                            });
+                            console.log('[LoadData] Enhanced remote decoding completed');
+                        } catch (error) {
+                            console.warn('[LoadData] Enhanced remote decoding failed, using legacy method:', error);
+                            LoadingStatusState.text = "Decoding Remote Save File... (fallback mode)";
+                            decodedRemote = await decodeRisuSave(gotStorage);
+                            console.log('[LoadData] Legacy remote decoding completed');
+                        }
+                        
+                        setDatabase(decodedRemote);
                     } catch (error) {
                         const backups = await getDbBackups()
                         let backupLoaded = false
@@ -606,9 +706,22 @@ export async function loadData() {
                             try {
                                 LoadingStatusState.text = `Reading Backup File ${backup}...`
                                 const backupData:Uint8Array = await forageStorage.getItem(`database/dbbackup-${backup}.bin`) as unknown as Uint8Array
-                                setDatabase(
-                                    await decodeRisuSave(backupData)
-                                )
+                                
+                                let decodedRemoteBackup: Database;
+                                try {
+                                    // 메모리 효율적인 청킹 디코딩 시도
+                                    decodedRemoteBackup = await decodeRisuSaveEnhanced(backupData, (progress, stage) => {
+                                        LoadingStatusState.text = `Reading Backup File ${backup}... (${stage}: ${progress.toFixed(1)}%)`;
+                                    });
+                                    console.log(`[LoadData] Enhanced remote backup decoding completed: ${backup}`);
+                                } catch (error) {
+                                    console.warn(`[LoadData] Enhanced remote backup decoding failed for ${backup}, using legacy method:`, error);
+                                    LoadingStatusState.text = `Reading Backup File ${backup}... (fallback mode)`;
+                                    decodedRemoteBackup = await decodeRisuSave(backupData);
+                                    console.log(`[LoadData] Legacy remote backup decoding completed: ${backup}`);
+                                }
+                                
+                                setDatabase(decodedRemoteBackup);
                                 backupLoaded = true
                             } catch (error) {}
                         }
@@ -693,8 +806,24 @@ export async function loadData() {
                 })
             }
         } catch (error) {
+            if (error.message?.includes('aborted')) {
+                console.log('[LoadData] Application loading was cancelled by user');
+                return;
+            }
             alertError(`${error}`)
+        } finally {
+            loadDataController = null;
         }
+    }
+}
+
+/**
+ * 데이터 로딩 작업 중단
+ */
+export function cancelDataLoading() {
+    if (loadDataController) {
+        console.log('[LoadData] Cancelling data loading operation...');
+        loadDataController.abort();
     }
 }
 
@@ -1622,18 +1751,140 @@ export class LocalWriter {
 
     /**
      * Writes backup data to the file.
-     * 
+     *
      * @param {string} name - The name of the backup.
      * @param {Uint8Array} data - The data to write.
      */
     async writeBackup(name: string, data: Uint8Array): Promise<void> {
+        // 메모리 사용량 진단
+        const memoryBefore = (performance as any).memory ? (performance as any).memory.usedJSHeapSize / 1024 / 1024 : 0;
+        const dataSize = data.byteLength / 1024 / 1024;
+        console.log(`[LocalWriter.writeBackup] Writing ${name}: ${dataSize.toFixed(2)}MB, Memory before: ${memoryBefore.toFixed(2)}MB`);
+        
         const encodedName = new TextEncoder().encode(getBasename(name))
         const nameLength = new Uint32Array([encodedName.byteLength])
+        
+        // 🚨 문제점: 전체 데이터를 한 번에 메모리에 보관하고 처리
         await this.writer.write(new Uint8Array(nameLength.buffer))
         await this.writer.write(encodedName)
         const dataLength = new Uint32Array([data.byteLength])
         await this.writer.write(new Uint8Array(dataLength.buffer))
+        
+        // 🚨 문제점: 큰 파일의 경우 여기서 OOM 발생 가능
         await this.writer.write(data)
+        
+        const memoryAfter = (performance as any).memory ? (performance as any).memory.usedJSHeapSize / 1024 / 1024 : 0;
+        console.log(`[LocalWriter.writeBackup] Completed ${name}, Memory after: ${memoryAfter.toFixed(2)}MB (diff: +${(memoryAfter - memoryBefore).toFixed(2)}MB)`);
+    }
+
+    /**
+     * Writes backup data to the file using streaming approach to avoid memory issues.
+     *
+     * @param {string} name - The name of the backup.
+     * @param {number} totalSize - The total size of the data to be written.
+     * @returns {Promise<WritableStreamDefaultWriter<any>>} - A writer stream for chunked data writing.
+     */
+    async writeBackupStreamStart(name: string, totalSize: number): Promise<WritableStreamDefaultWriter<any> | null> {
+        try {
+            const memoryBefore = (performance as any).memory ? (performance as any).memory.usedJSHeapSize / 1024 / 1024 : 0;
+            const dataSizeMB = totalSize / 1024 / 1024;
+            console.log(`[LocalWriter.writeBackupStreamStart] Starting stream for ${name}: ${dataSizeMB.toFixed(2)}MB, Memory: ${memoryBefore.toFixed(2)}MB`);
+            
+            // Write header information
+            const encodedName = new TextEncoder().encode(getBasename(name));
+            const nameLength = new Uint32Array([encodedName.byteLength]);
+            await this.writer.write(new Uint8Array(nameLength.buffer));
+            await this.writer.write(encodedName);
+            
+            const dataLength = new Uint32Array([totalSize]);
+            await this.writer.write(new Uint8Array(dataLength.buffer));
+            
+            // Return a custom writer for streaming chunks
+            return {
+                write: async (chunk: Uint8Array) => {
+                    await this.writer.write(chunk);
+                },
+                close: async () => {
+                    // Stream writing completed - no need to close the main writer
+                    const memoryAfter = (performance as any).memory ? (performance as any).memory.usedJSHeapSize / 1024 / 1024 : 0;
+                    console.log(`[LocalWriter.writeBackupStreamStart] Stream completed for ${name}, Memory: ${memoryAfter.toFixed(2)}MB`);
+                }
+            } as WritableStreamDefaultWriter<any>;
+        } catch (error) {
+            console.error(`[LocalWriter.writeBackupStreamStart] Error starting stream for ${name}:`, error);
+            return null;
+        }
+    }
+
+    /**
+     * Writes backup data using a streaming approach with chunking support.
+     * This method processes data in chunks to avoid loading large files entirely into memory.
+     *
+     * @param {string} name - The name of the backup file.
+     * @param {() => Promise<ReadableStream<Uint8Array>>} dataStreamFactory - A factory function that returns a readable stream of the data.
+     * @param {number} totalSize - The total size of the data.
+     * @param {(progress: number) => void} [onProgress] - Optional progress callback.
+     */
+    async writeBackupStream(
+        name: string,
+        dataStreamFactory: () => Promise<ReadableStream<Uint8Array>>,
+        totalSize: number,
+        onProgress?: (progress: number) => void
+    ): Promise<void> {
+        const memoryBefore = (performance as any).memory ? (performance as any).memory.usedJSHeapSize / 1024 / 1024 : 0;
+        const dataSizeMB = totalSize / 1024 / 1024;
+        console.log(`[LocalWriter.writeBackupStream] Starting streaming backup for ${name}: ${dataSizeMB.toFixed(2)}MB, Memory: ${memoryBefore.toFixed(2)}MB`);
+        
+        try {
+            // Write header information
+            const encodedName = new TextEncoder().encode(getBasename(name));
+            const nameLength = new Uint32Array([encodedName.byteLength]);
+            await this.writer.write(new Uint8Array(nameLength.buffer));
+            await this.writer.write(encodedName);
+            
+            const dataLength = new Uint32Array([totalSize]);
+            await this.writer.write(new Uint8Array(dataLength.buffer));
+            
+            // Create and process the data stream
+            const dataStream = await dataStreamFactory();
+            const reader = dataStream.getReader();
+            
+            let bytesWritten = 0;
+            let chunkCount = 0;
+            
+            try {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    // Write chunk to output
+                    await this.writer.write(value);
+                    bytesWritten += value.length;
+                    chunkCount++;
+                    
+                    // Progress callback
+                    if (onProgress && totalSize > 0) {
+                        const progress = (bytesWritten / totalSize) * 100;
+                        onProgress(progress);
+                    }
+                    
+                    // Memory monitoring every 50 chunks
+                    if (chunkCount % 50 === 0) {
+                        const memoryDuring = (performance as any).memory ? (performance as any).memory.usedJSHeapSize / 1024 / 1024 : 0;
+                        console.log(`[LocalWriter.writeBackupStream] ${name} - Written ${chunkCount} chunks (${(bytesWritten / 1024 / 1024).toFixed(2)}MB/${dataSizeMB.toFixed(2)}MB), Memory: ${memoryDuring.toFixed(2)}MB`);
+                    }
+                }
+            } finally {
+                reader.releaseLock();
+            }
+            
+            const memoryAfter = (performance as any).memory ? (performance as any).memory.usedJSHeapSize / 1024 / 1024 : 0;
+            console.log(`[LocalWriter.writeBackupStream] Completed streaming backup for ${name}: ${chunkCount} chunks, ${(bytesWritten / 1024 / 1024).toFixed(2)}MB, Memory: ${memoryAfter.toFixed(2)}MB (diff: +${(memoryAfter - memoryBefore).toFixed(2)}MB)`);
+            
+        } catch (error) {
+            console.error(`[LocalWriter.writeBackupStream] Error during streaming backup for ${name}:`, error);
+            throw error;
+        }
     }
 
     /**
@@ -2321,3 +2572,11 @@ export function getLanguageCodes(){
 
     return languageCodes
 }
+
+/**
+ * 청킹 시스템 테스트 (개발자 콘솔에서 사용)
+ */
+// @ts-ignore
+globalThis.testChunkingSystem = testChunkingSystem;
+// @ts-ignore
+globalThis.compareMemoryEfficiency = compareMemoryEfficiency;
