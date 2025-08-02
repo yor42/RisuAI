@@ -1,7 +1,9 @@
 <!-- Virtual Scrolling Component for Svelte 5 with Enhanced Features -->
-<div 
+<div
     bind:this={containerElement}
     class="virtual-scroll-container {className}"
+    class:touch-drag-enabled={supportTouchDrag}
+    class:touch-dragging={touchDragData?.isDragging}
     style="height: {containerHeight}px; overflow: auto; position: relative;"
     onscroll={handleScroll}
     onmousemove={allowDragScroll ? handleDragAutoScroll : undefined}
@@ -52,6 +54,12 @@
         scrollDisabled?: boolean;
         allowDragScroll?: boolean;
         dragScrollZone?: number;
+        // 터치 드래그 관련 속성들
+        supportTouchDrag?: boolean;
+        longPressDelay?: number;
+        onTouchDragStart?: (data: any, element: HTMLElement) => void;
+        onTouchDragMove?: (data: any, x: number, y: number) => void;
+        onTouchDrop?: (sourceData: any, targetData: any) => void;
     }
 
     let {
@@ -64,7 +72,13 @@
         onScroll,
         scrollDisabled = false,
         allowDragScroll = false,
-        dragScrollZone = 30
+        dragScrollZone = 30,
+        // 터치 드래그 관련 속성들
+        supportTouchDrag = true,
+        longPressDelay = 500,
+        onTouchDragStart,
+        onTouchDragMove,
+        onTouchDrop
     }: Props = $props();
 
     // Reactive state using Svelte 5 runes
@@ -82,6 +96,20 @@
     let scrollThrottleTimer: NodeJS.Timeout | undefined = $state();
     let isDragging = $state(false);
     let dragAutoScrollTimer: NodeJS.Timeout | undefined = $state();
+
+    // 터치 드래그 관련 상태 변수들
+    let touchDragData: {
+        element: HTMLElement;
+        data: any;
+        startX: number;
+        startY: number;
+        currentX: number;
+        currentY: number;
+        isDragging: boolean;
+    } | null = $state(null);
+    let touchPreviewElement: HTMLElement | null = $state(null);
+    let longPressTimeout: NodeJS.Timeout | undefined = $state();
+    let touchScrollDisabled = $state(false);
 
     // Track previous items to detect changes
     let previousItems: any[] = $state([]);
@@ -166,7 +194,7 @@
     // Handle scroll events with optimized performance
     function handleScroll(event: Event) {
         // 드래그 중일 때 사용자 스크롤 차단 (자동 스크롤은 허용)
-        if (scrollDisabled && !isDragging) {
+        if ((scrollDisabled && !isDragging) || touchScrollDisabled) {
             event.preventDefault();
             event.stopPropagation();
             return;
@@ -201,9 +229,21 @@
             // Set scrolling to false after scroll ends
             scrollTimeout = setTimeout(() => {
                 isScrolling = false;
-                // 스크롤 완료 후에만 위치 재계산 실행
-                if (!isRecalculating) {
+                // 🔧 스크롤 리셋 방지: 스크롤 위치 보존 후 measureItems 실행
+                if (!isRecalculating && containerElement) {
+                    const preservedScroll = containerElement.scrollTop;
                     measureItems();
+                    // 측정 후 스크롤 위치가 변경되었다면 복원
+                    requestAnimationFrame(() => {
+                        if (containerElement && Math.abs(containerElement.scrollTop - preservedScroll) > 5) {
+                            console.log('🔧 [SCROLL RESET FIX] 스크롤 위치 복원:', {
+                                preserved: preservedScroll,
+                                current: containerElement.scrollTop,
+                                direction: direction
+                            });
+                            containerElement.scrollTop = preservedScroll;
+                        }
+                    });
                 }
             }, 150);
             
@@ -212,8 +252,8 @@
         }, 8); // 120fps for smooth scrolling
     }
 
-    // Handle drag auto scroll
-    function handleDragAutoScroll(event: MouseEvent) {
+    // Handle drag auto scroll - exported for external use
+    export function handleDragAutoScroll(event: MouseEvent) {
         if (!allowDragScroll || !isDragging || !containerElement) return;
 
         const rect = containerElement.getBoundingClientRect();
@@ -246,6 +286,276 @@
         }
     }
 
+    // 터치 이벤트 핸들러들 - non-passive 모드로 등록
+    function handleTouchStart(event: TouchEvent, itemData?: any) {
+        console.log('🔍 [VIRTUAL SCROLL TOUCH] Touch start 이벤트 발생');
+        
+        if (!supportTouchDrag || touchDragData) return;
+
+        const touch = event.touches[0];
+        const target = event.currentTarget as HTMLElement;
+        
+        // 터치 데이터 초기화
+        touchDragData = {
+            element: target,
+            data: itemData,
+            startX: touch.clientX,
+            startY: touch.clientY,
+            currentX: touch.clientX,
+            currentY: touch.clientY,
+            isDragging: false
+        };
+
+        // 길게 터치 타이머 시작
+        if (longPressTimeout) {
+            clearTimeout(longPressTimeout);
+        }
+        
+        longPressTimeout = setTimeout(() => {
+            if (touchDragData && !touchDragData.isDragging) {
+                startTouchDrag();
+                // 햅틱 피드백 (가능한 경우)
+                if (navigator.vibrate) {
+                    navigator.vibrate(50);
+                }
+            }
+        }, longPressDelay);
+
+        // 다른 터치 이벤트 방지 - non-passive에서만 작동
+        try {
+            event.preventDefault();
+            console.log('🔍 [VIRTUAL SCROLL TOUCH] preventDefault 성공 (Touch Start)');
+        } catch (error) {
+            console.error('🔍 [VIRTUAL SCROLL TOUCH] preventDefault 실패 (Touch Start):', error);
+        }
+    }
+
+    function handleTouchMove(event: TouchEvent) {
+        console.log('🔍 [VIRTUAL SCROLL TOUCH] Touch move 이벤트 발생');
+        
+        if (!touchDragData) return;
+
+        const touch = event.touches[0];
+        const moveThreshold = 10; // 픽셀 단위 이동 임계값
+
+        // 터치 위치 업데이트
+        touchDragData.currentX = touch.clientX;
+        touchDragData.currentY = touch.clientY;
+
+        // 이동 거리 계산
+        const deltaX = Math.abs(touch.clientX - touchDragData.startX);
+        const deltaY = Math.abs(touch.clientY - touchDragData.startY);
+
+        // 이동 임계값을 초과하면 길게 터치 타이머 취소
+        if ((deltaX > moveThreshold || deltaY > moveThreshold) && longPressTimeout) {
+            clearTimeout(longPressTimeout);
+            longPressTimeout = undefined;
+        }
+
+        // 드래그 중이면 미리보기 위치 업데이트
+        if (touchDragData.isDragging) {
+            updateTouchPreview(touch.clientX, touch.clientY);
+            
+            // 자동 스크롤 처리
+            handleTouchAutoScroll(touch.clientY);
+            
+            // 콜백 호출
+            onTouchDragMove?.(touchDragData.data, touch.clientX, touch.clientY);
+            
+            console.log('🔍 [VIRTUAL SCROLL TOUCH] 드래그 중 - 미리보기 업데이트 완료');
+        }
+
+        // 브라우저 기본 터치 동작 방지 - non-passive에서만 작동
+        try {
+            event.preventDefault();
+            console.log('🔍 [VIRTUAL SCROLL TOUCH] preventDefault 성공 (Touch Move)');
+        } catch (error) {
+            console.error('🔍 [VIRTUAL SCROLL TOUCH] preventDefault 실패 (Touch Move):', error);
+        }
+    }
+
+    function handleTouchEnd(event: TouchEvent) {
+        console.log('🔍 [VIRTUAL SCROLL TOUCH] Touch end 이벤트 발생');
+        
+        if (!touchDragData) return;
+
+        // 길게 터치 타이머 정리
+        if (longPressTimeout) {
+            clearTimeout(longPressTimeout);
+            longPressTimeout = undefined;
+        }
+
+        if (touchDragData.isDragging) {
+            // 드롭 처리
+            const touch = event.changedTouches[0];
+            handleTouchDrop(touch.clientX, touch.clientY);
+            console.log('🔍 [VIRTUAL SCROLL TOUCH] 터치 드롭 처리 완료');
+        }
+
+        // 터치 드래그 상태 정리
+        cleanupTouchDrag();
+        
+        try {
+            event.preventDefault();
+            console.log('🔍 [VIRTUAL SCROLL TOUCH] preventDefault 성공 (Touch End)');
+        } catch (error) {
+            console.error('🔍 [VIRTUAL SCROLL TOUCH] preventDefault 실패 (Touch End):', error);
+        }
+    }
+
+    function handleTouchCancel(event: TouchEvent) {
+        console.log('🔍 [VIRTUAL SCROLL TOUCH] Touch cancel 이벤트 발생');
+        
+        // 길게 터치 타이머 정리
+        if (longPressTimeout) {
+            clearTimeout(longPressTimeout);
+            longPressTimeout = undefined;
+        }
+
+        // 터치 드래그 상태 정리
+        cleanupTouchDrag();
+        
+        try {
+            event.preventDefault();
+            console.log('🔍 [VIRTUAL SCROLL TOUCH] preventDefault 성공 (Touch Cancel)');
+        } catch (error) {
+            console.error('🔍 [VIRTUAL SCROLL TOUCH] preventDefault 실패 (Touch Cancel):', error);
+        }
+    }
+
+    // 터치 드래그 시작
+    function startTouchDrag() {
+        if (!touchDragData) return;
+
+        touchDragData.isDragging = true;
+        isDragging = true;
+        touchScrollDisabled = true;
+
+        // 드래그 미리보기 생성
+        createTouchPreview();
+        
+        // 콜백 호출
+        onTouchDragStart?.(touchDragData.data, touchDragData.element);
+    }
+
+    // 터치 드래그 미리보기 생성
+    function createTouchPreview() {
+        if (!touchDragData || touchPreviewElement) return;
+
+        const originalElement = touchDragData.element;
+        const clone = originalElement.cloneNode(true) as HTMLElement;
+        
+        // 미리보기 스타일 설정
+        clone.style.position = 'fixed';
+        clone.style.zIndex = '9999';
+        clone.style.pointerEvents = 'none';
+        clone.style.opacity = '0.8';
+        clone.style.transform = 'scale(1.05)';
+        clone.style.transition = 'none';
+        clone.style.backgroundColor = 'rgba(59, 130, 246, 0.1)';
+        clone.style.border = '2px solid rgba(59, 130, 246, 0.5)';
+        clone.style.borderRadius = '8px';
+        clone.classList.add('touch-drag-preview');
+        
+        // 초기 위치 설정
+        updateTouchPreviewPosition(clone, touchDragData.currentX, touchDragData.currentY);
+        
+        // DOM에 추가
+        document.body.appendChild(clone);
+        touchPreviewElement = clone;
+    }
+
+    // 터치 미리보기 위치 업데이트
+    function updateTouchPreview(x: number, y: number) {
+        if (touchPreviewElement) {
+            updateTouchPreviewPosition(touchPreviewElement, x, y);
+        }
+    }
+
+    function updateTouchPreviewPosition(element: HTMLElement, x: number, y: number) {
+        const rect = element.getBoundingClientRect();
+        element.style.left = `${x - rect.width / 2}px`;
+        element.style.top = `${y - rect.height / 2}px`;
+    }
+
+    // 터치 자동 스크롤 처리
+    function handleTouchAutoScroll(clientY: number) {
+        if (!allowDragScroll || !containerElement) return;
+
+        const rect = containerElement.getBoundingClientRect();
+        const relativeY = clientY - rect.top;
+        const scrollSpeed = 5;
+
+        // 자동 스크롤 영역 체크
+        if (relativeY < dragScrollZone) {
+            // 위로 스크롤
+            containerElement.scrollTop = Math.max(0, containerElement.scrollTop - scrollSpeed);
+        } else if (relativeY > containerHeight - dragScrollZone) {
+            // 아래로 스크롤
+            const maxScroll = totalHeight - containerHeight;
+            containerElement.scrollTop = Math.min(maxScroll, containerElement.scrollTop + scrollSpeed);
+        }
+    }
+
+    // 터치 드롭 처리
+    function handleTouchDrop(x: number, y: number) {
+        if (!touchDragData) return;
+
+        // elementFromPoint로 드롭 대상 찾기
+        const elementsBelow = document.elementsFromPoint(x, y);
+        let dropTarget: HTMLElement | null = null;
+        let dropData: any = null;
+
+        // 드롭 가능한 요소 찾기 (spacer 또는 다른 드래그 가능 요소)
+        for (const element of elementsBelow) {
+            const htmlElement = element as HTMLElement;
+            
+            // 자신은 제외
+            if (htmlElement === touchDragData.element || htmlElement === touchPreviewElement) {
+                continue;
+            }
+
+            // 스페이서 또는 가상 스크롤 아이템 찾기
+            if (htmlElement.classList.contains('virtual-scroll-item') ||
+                htmlElement.dataset.index !== undefined ||
+                htmlElement.dataset.virtualIndex !== undefined) {
+                dropTarget = htmlElement;
+                // 데이터 추출 로직 (Sidebar.svelte의 패턴 참조)
+                const index = htmlElement.dataset.index;
+                const virtualIndex = htmlElement.dataset.virtualIndex;
+                if (index !== undefined) {
+                    dropData = { index: parseInt(index) };
+                }
+                break;
+            }
+        }
+
+        // 드롭 콜백 호출
+        if (dropTarget && dropData) {
+            onTouchDrop?.(touchDragData.data, dropData);
+        }
+    }
+
+    // 터치 드래그 상태 정리
+    function cleanupTouchDrag() {
+        // 미리보기 요소 제거
+        if (touchPreviewElement) {
+            touchPreviewElement.remove();
+            touchPreviewElement = null;
+        }
+
+        // 상태 초기화
+        touchDragData = null;
+        isDragging = false;
+        touchScrollDisabled = false;
+
+        // 타이머 정리
+        if (longPressTimeout) {
+            clearTimeout(longPressTimeout);
+            longPressTimeout = undefined;
+        }
+    }
+
     // Measure item heights for variable height support
     function measureItems() {
         if (!containerElement || isRecalculating) return;
@@ -275,15 +585,30 @@
         isRecalculating = false;
     }
 
-    // Recalculate item positions
+    // Recalculate item positions - 스크롤 리셋 방지 강화
     function recalculatePositions() {
-        if (isScrolling) return; // 스크롤 중일 때는 재계산하지 않음
+        if (isScrolling) {
+            console.log('🔧 [RECALC SKIP] 스크롤 중이므로 위치 재계산 스킵');
+            return; // 스크롤 중일 때는 재계산하지 않음
+        }
+        
+        console.log('🔧 [RECALC START] 아이템 위치 재계산 시작:', {
+            itemsLength: items.length,
+            currentScrollTop: containerElement?.scrollTop,
+            isScrolling,
+            isRecalculating
+        });
         
         let currentTop = 0;
         for (let i = 0; i < items.length; i++) {
             itemTops.set(i, currentTop);
             currentTop += itemHeights.get(i) || itemHeight;
         }
+        
+        console.log('🔧 [RECALC END] 아이템 위치 재계산 완료:', {
+            totalHeight: currentTop,
+            scrollTopAfter: containerElement?.scrollTop
+        });
     }
 
     // Preserve scroll position when items change
@@ -344,16 +669,32 @@
         }
     });
 
-    // Container height change handling
+    // Container height change handling - 스크롤 리셋 방지 개선
     $effect(() => {
         if (containerElement && containerHeight > 0) {
             const currentScroll = containerElement.scrollTop;
+            const isUserScrolling = isScrolling; // 사용자가 스크롤 중인지 확인
+            
             requestAnimationFrame(() => {
-                if (!isRecalculating) {
+                if (!isRecalculating && !isUserScrolling) {
+                    console.log('🔧 [CONTAINER HEIGHT] 컨테이너 높이 변경으로 measureItems 실행:', {
+                        currentScroll,
+                        containerHeight,
+                        isScrolling: isUserScrolling
+                    });
                     measureItems();
                 }
-                if (containerElement) {
-                    containerElement.scrollTop = currentScroll;
+                
+                // 🔧 사용자 스크롤 중이 아닐 때만 위치 복원
+                if (containerElement && !isUserScrolling) {
+                    const newScroll = containerElement.scrollTop;
+                    if (Math.abs(newScroll - currentScroll) > 5) {
+                        console.log('🔧 [CONTAINER HEIGHT] 스크롤 위치 복원:', {
+                            previous: currentScroll,
+                            current: newScroll
+                        });
+                        containerElement.scrollTop = currentScroll;
+                    }
                 }
             });
         }
@@ -439,10 +780,65 @@
         return isDragging;
     }
 
+
+    // 터치 드래그 관련 export 함수들
+    export function getTouchDragging() {
+        return touchDragData?.isDragging || false;
+    }
+
+    export function cancelTouchDrag() {
+        cleanupTouchDrag();
+    }
+
+    export function setTouchDragSupport(enabled: boolean) {
+        supportTouchDrag = enabled;
+    }
+
+    // 터치 이벤트 핸들러들을 외부에서 사용할 수 있도록 export
+    export function getTouchHandlers() {
+        return {
+            handleTouchStart,
+            handleTouchMove,
+            handleTouchEnd,
+            handleTouchCancel
+        };
+    }
+
+    // Non-passive 터치 이벤트 리스너 등록을 위한 $effect
+    $effect(() => {
+        if (!containerElement || !supportTouchDrag) return;
+
+        console.log('🔍 [VIRTUAL SCROLL SETUP] Non-passive 터치 이벤트 리스너 등록');
+
+        // Non-passive 터치 이벤트 리스너 등록
+        const touchStartHandler = (event: TouchEvent) => handleTouchStart(event);
+        const touchMoveHandler = (event: TouchEvent) => handleTouchMove(event);
+        const touchEndHandler = (event: TouchEvent) => handleTouchEnd(event);
+        const touchCancelHandler = (event: TouchEvent) => handleTouchCancel(event);
+
+        // passive: false로 명시적으로 non-passive 모드 설정
+        containerElement.addEventListener('touchstart', touchStartHandler, { passive: false });
+        containerElement.addEventListener('touchmove', touchMoveHandler, { passive: false });
+        containerElement.addEventListener('touchend', touchEndHandler, { passive: false });
+        containerElement.addEventListener('touchcancel', touchCancelHandler, { passive: false });
+
+        console.log('🔍 [VIRTUAL SCROLL SETUP] Non-passive 터치 이벤트 리스너 등록 완료');
+
+        // 정리 함수
+        return () => {
+            console.log('🔍 [VIRTUAL SCROLL SETUP] 터치 이벤트 리스너 정리');
+            containerElement?.removeEventListener('touchstart', touchStartHandler);
+            containerElement?.removeEventListener('touchmove', touchMoveHandler);
+            containerElement?.removeEventListener('touchend', touchEndHandler);
+            containerElement?.removeEventListener('touchcancel', touchCancelHandler);
+        };
+    });
+
     // Component cleanup
     $effect(() => {
         return () => {
             cleanupOrphanedTooltips();
+            cleanupTouchDrag(); // 터치 드래그 상태 정리 추가
             if (scrollTimeout) clearTimeout(scrollTimeout);
             if (scrollThrottleTimer) clearTimeout(scrollThrottleTimer);
             if (dragAutoScrollTimer) clearTimeout(dragAutoScrollTimer);
@@ -559,5 +955,87 @@
     /* 재계산 중일 때 시각적 피드백 */
     .virtual-scroll-container.recalculating {
         opacity: 0.95;
+    }
+
+    /* 터치 드래그 관련 스타일 */
+    .virtual-scroll-container.touch-drag-enabled {
+        touch-action: none; /* 터치 제스처 방지 */
+    }
+
+    .virtual-scroll-container.touch-dragging {
+        overflow: hidden; /* 드래그 중 스크롤 방지 */
+        user-select: none; /* 텍스트 선택 방지 */
+    }
+
+    /* 터치 드래그 미리보기 스타일 */
+    :global(.touch-drag-preview) {
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+        filter: brightness(1.1);
+        transform-origin: center;
+        transition: transform 0.1s ease-out, opacity 0.1s ease-out;
+    }
+
+    /* 터치 드래그 중인 원본 요소 스타일 */
+    .virtual-scroll-container.touch-dragging .virtual-scroll-item {
+        transition: opacity 0.2s ease-out;
+    }
+
+    /* 터치 드래그 활성화 시 아이템 호버 효과 */
+    .virtual-scroll-container.touch-drag-enabled .virtual-scroll-item:active {
+        background-color: rgba(59, 130, 246, 0.05);
+        transform: scale(0.98);
+        transition: all 0.1s ease-out;
+    }
+
+    /* 터치 드래그 활성화 표시 */
+    .virtual-scroll-container.touch-drag-enabled::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        pointer-events: none;
+        z-index: -1;
+        background: linear-gradient(
+            135deg,
+            rgba(59, 130, 246, 0.02) 0%,
+            transparent 50%,
+            rgba(59, 130, 246, 0.02) 100%
+        );
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+
+    .virtual-scroll-container.touch-drag-enabled:hover::after {
+        opacity: 1;
+    }
+
+    /* 모바일 최적화 */
+    @media (hover: none) and (pointer: coarse) {
+        .virtual-scroll-container.touch-drag-enabled {
+            -webkit-overflow-scrolling: auto; /* iOS 스크롤 최적화 해제 */
+        }
+        
+        .virtual-scroll-container.touch-drag-enabled .virtual-scroll-item {
+            -webkit-touch-callout: none; /* iOS 길게 누르기 메뉴 방지 */
+            -webkit-user-select: none;
+        }
+    }
+
+    /* 드래그 가능 영역 시각적 피드백 (디버그용) */
+    .virtual-scroll-container.touch-drag-enabled.debug-mode .virtual-scroll-item {
+        border: 1px dashed rgba(59, 130, 246, 0.2);
+        position: relative;
+    }
+
+    .virtual-scroll-container.touch-drag-enabled.debug-mode .virtual-scroll-item::before {
+        content: '👆';
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        font-size: 12px;
+        opacity: 0.5;
+        pointer-events: none;
     }
 </style>

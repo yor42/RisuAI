@@ -32,17 +32,68 @@
 </script>
 
 <main class="flex bg-bg w-full h-full max-w-100vw text-textcolor" ondragover={(e) => {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'link'
+    // 🔍 [DRAG DIAGNOSIS] 드래그 소스 확인을 위한 진단 로그
+    console.log('🔍 [APP DRAGOVER] 전역 드래그오버 이벤트:', {
+        dataTransferTypes: Array.from(e.dataTransfer.types),
+        effectAllowed: e.dataTransfer.effectAllowed,
+        dropEffect: e.dataTransfer.dropEffect,
+        files: e.dataTransfer.files.length,
+        target: e.target,
+        relatedTarget: e.relatedTarget
+    });
+
+    // 🚫 내부 캐릭터 드래그인 경우 완전히 무시 (Sidebar에서 처리)
+    if (e.dataTransfer.types.includes('application/x-risuai-character')) {
+        console.log('🔍 [APP DRAGOVER] 내부 캐릭터 드래그 감지, App 레벨에서 무시');
+        return; // preventDefault() 호출하지 않음 - Sidebar에서 처리
+    }
+    
+    // 외부 파일 드래그인 경우에만 처리
+    if (e.dataTransfer.files.length > 0 || e.dataTransfer.types.includes('Files')) {
+        console.log('🔍 [APP DRAGOVER] 외부 파일 드래그 감지, 드롭 허용');
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'link';
+    }
 }} ondrop={async (e) => {
-    e.preventDefault()
-    const file = e.dataTransfer.files[0]
+    // 🔍 [DRAG DIAGNOSIS] 드롭 이벤트 진단 로그
+    console.log('🔍 [APP DROP] 전역 드롭 이벤트:', {
+        dataTransferTypes: Array.from(e.dataTransfer.types),
+        effectAllowed: e.dataTransfer.effectAllowed,
+        dropEffect: e.dataTransfer.dropEffect,
+        files: e.dataTransfer.files.length,
+        target: e.target,
+        relatedTarget: e.relatedTarget,
+        hasFiles: e.dataTransfer.files.length > 0
+    });
+
+    // 🚫 내부 캐릭터 드래그인 경우 완전히 무시 (Sidebar에서 처리)
+    if (e.dataTransfer.types.includes('application/x-risuai-character')) {
+        console.log('🔍 [APP DROP] 내부 캐릭터 드래그 감지, App 레벨에서 무시');
+        return; // Sidebar에서 처리하도록 함
+    }
+
+    // 외부 파일 드롭인 경우에만 처리
+    const file = e.dataTransfer.files[0];
+    console.log('🔍 [APP DROP] 파일 드롭 처리:', {
+        hasFile: !!file,
+        fileName: file?.name,
+        fileSize: file?.size,
+        fileType: file?.type
+    });
+
     if (file) {
-        await importCharacterProcess({
-            name: file.name,
-            data: file
-        })
-        checkCharOrder()
+        e.preventDefault();
+        try {
+            console.log('🔍 [APP DROP] 파일 import 시작');
+            await importCharacterProcess({
+                name: file.name,
+                data: file
+            });
+            checkCharOrder();
+            console.log('🔍 [APP DROP] 파일 import 성공');
+        } catch (error) {
+            console.error('🔍 [APP DROP] 파일 import 실패:', error);
+        }
     }
 }}>
     {#if aprilFools}
