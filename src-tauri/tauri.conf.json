@@ -49,10 +49,6 @@
   },
   "app": {
     "withGlobalTauri": false,
-    "splash": {
-      "light": "icons/splash.png",
-      "dark": "icons/splash-dark.png"
-    },
     "windows": [
       {
         "fullscreen": false,
