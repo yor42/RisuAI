@@ -27,8 +27,23 @@ export const alertStore = {
 }
 
 export function alertError(msg: string | Error) {
-    console.error(msg)
+    console.error('[DEBUG] alertError called with:', msg)
+    
+    // null 체크 및 디버그 로그 추가
+    if (msg === null || msg === undefined) {
+        console.error('[DEBUG] alertError: msg is null or undefined')
+        return // null/undefined 메시지는 무시
+    }
+    
     const db = getDatabase()
+    
+    // getDatabase null 체크 및 디버그 로그
+    if (!db) {
+        console.error('[DEBUG] alertError: getDatabase() returned null/undefined')
+        return // 데이터베이스가 초기화되지 않은 경우 무시
+    }
+    
+    console.log('[DEBUG] alertError: db loaded successfully')
 
     if (typeof(msg) !== 'string') {
         try{
