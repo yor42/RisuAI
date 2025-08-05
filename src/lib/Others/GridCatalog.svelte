@@ -1,8 +1,8 @@
 <script lang="ts">
-    import { characterFormatUpdate, getCharImage, removeChar } from "../../ts/characters";
+    import { characterFormatUpdate, removeChar } from "../../ts/characters";
     import { type Database } from "../../ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
-    import BarIcon from "../SideBars/BarIcon.svelte";
+    import LazyAvatar from "./LazyAvatar.svelte";
     import { ArrowLeft, User, Users, Inspect, TrashIcon, Undo2Icon } from "lucide-svelte";
     import { selectedCharID } from "../../ts/stores.svelte";
     import TextInput from "../UI/GUI/TextInput.svelte";
@@ -19,41 +19,64 @@
     let search = $state('')
     let selected = $state(3)
 
-    // Grid 모드 전용 상태 변수들
+    // 상수 정의
+    const CONSTANTS = {
+        AVATAR_SIZE: 56,
+        AVATAR_MARGIN: 8,
+        AVATAR_WIDTH: 64, // 56 + 8
+        ROW_HEIGHT: 72, // 56 + 16
+        LIST_ITEM_HEIGHT: 120,
+        DEFAULT_ITEMS_PER_ROW: 6,
+        DEFAULT_CONTAINER_HEIGHT: 600,
+        CONTAINER_PADDING: 16,
+        GRID_GAP: 8,
+        SCROLL_THROTTLE: 16,
+        TOUCH_THROTTLE: 8,
+        TOUCH_END_DELAY: 50,
+        STABILIZE_DELAY: 20,
+        BUFFER_RATIO: 0.3,
+        MIN_BUFFER: 1,
+        MAX_BUFFER: 3,
+        HEIGHT_CHANGE_THRESHOLD: 5,
+        RESIZE_THRESHOLD: 1
+    };
+
+    // 스크롤 컨테이너들
     let gridScrollContainer: HTMLElement;
-    let gridContainerHeight = $state(600);
+    let listScrollContainer: HTMLElement;
+    let trashScrollContainer: HTMLElement;
+    
+    // Grid 모드 상태
+    let gridContainerHeight = $state(CONSTANTS.DEFAULT_CONTAINER_HEIGHT);
     let gridScrollTop = $state(0);
-    let gridRowHeight = $state(72); // 56px 아바타 + 16px 여백
-    let actualRowHeight = $state(72); // 실제 측정된 Row 높이
-    let actualAvatarWidth = $state(56); // 실제 측정된 Avatar 너비 (56x56)
-    let itemsPerRow = $state(6);
+    let actualRowHeight = $state(CONSTANTS.ROW_HEIGHT);
+    let actualAvatarWidth = $state(CONSTANTS.AVATAR_WIDTH);
+    let itemsPerRow = $state(CONSTANTS.DEFAULT_ITEMS_PER_ROW);
     let gridStartRow = $state(0);
     let gridEndRow = $state(0);
     let gridStartIndex = $state(0);
     let gridEndIndex = $state(0);
     let gridTotalHeight = $state(0);
     
-    // List/Trash 모드 전용 상태 변수들
-    let listScrollContainer: HTMLElement;
-    let trashScrollContainer: HTMLElement;
-    let listContainerHeight = $state(600);
+    // List 모드 상태
+    let listContainerHeight = $state(CONSTANTS.DEFAULT_CONTAINER_HEIGHT);
     let listScrollTop = $state(0);
-    let listItemHeight = $state(120);
+    let listItemHeight = $state(CONSTANTS.LIST_ITEM_HEIGHT);
     let listVisibleCount = $state(0);
     let listStartIndex = $state(0);
     let listEndIndex = $state(0);
     let listTotalHeight = $state(0);
     
-    // 성능 최적화를 위한 변수들
-    let throttleTimer: ReturnType<typeof setTimeout> | null = null;
+    // 캐시 및 성능 최적화
     let cachedChars: any[] = [];
     let lastSearch = '';
     let lastSelected = -1;
     let lastDbState: any = null;
     
-    // 터치 스크롤링 관련 변수들
-    let isTouching = $state(false);
+    // 이벤트 처리
+    let throttleTimer: ReturnType<typeof setTimeout> | null = null;
     let touchScrollTimer: ReturnType<typeof setTimeout> | null = null;
+    let isTouching = $state(false);
     let lastTouchScrollTime = 0;
 
     function changeChar(index = -1){
@@ -129,39 +152,26 @@
 
     // Avatar 크기 고정 (측정 기반 불안정성 제거)
     function setFixedAvatarDimensions() {
-        // 고정값 사용으로 안정성 확보 (56px + 약간의 여백)
-        actualAvatarWidth = 64; // 56px Avatar + 8px 여백
+        actualAvatarWidth = CONSTANTS.AVATAR_WIDTH;
     }
 
     // Grid 모드 전용 함수들 - 고정 크기 기반
     function calculateGridItemsPerRow() {
         if (gridScrollContainer && gridScrollContainer.clientWidth > 0) {
-            // 고정 Avatar 크기 사용
             setFixedAvatarDimensions();
             
             const containerWidth = gridScrollContainer.clientWidth;
-            const gap = 8; // gap-2 = 0.5rem = 8px
-            const paddingX = 16; // 좌우 여백
-            const availableWidth = containerWidth - paddingX;
-            
-            // 고정된 Avatar 너비 사용 (64px = 56px Avatar + 여백)
+            const availableWidth = containerWidth - CONSTANTS.CONTAINER_PADDING;
             const calculatedItems = Math.floor(availableWidth / actualAvatarWidth);
-            const newItemsPerRow = Math.max(1, calculatedItems); // 최소 1개, 최대 제한 없음
             
-            // 디버그 로그 추가
-            console.log(`[DEBUG] calculateGridItemsPerRow: containerWidth=${containerWidth}, availableWidth=${availableWidth}, actualAvatarWidth=${actualAvatarWidth}, calculatedItems=${calculatedItems}, newItemsPerRow=${newItemsPerRow}`);
-            
-            return newItemsPerRow;
+            return Math.max(1, calculatedItems);
         } else {
-            console.log(`[DEBUG] calculateGridItemsPerRow: container not ready, returning default 6`);
-            return 6;
+            return CONSTANTS.DEFAULT_ITEMS_PER_ROW;
         }
     }
 
     // 레이아웃 완전 리셋 함수
     function resetGridLayout() {
-        console.log(`[DEBUG] resetGridLayout: resetting all virtual scrolling state`);
-        
         // Virtual Scrolling 상태 완전 리셋
         gridScrollTop = 0;
         gridStartRow = 0;
@@ -178,8 +188,6 @@
         cachedChars = [];
         lastSearch = '';
         lastSelected = -1;
-        
-        console.log(`[DEBUG] resetGridLayout: layout reset complete`);
     }
 
     // itemsPerRow 업데이트 - 간단하고 효율적인 방식
@@ -187,79 +195,51 @@
         const newItemsPerRow = calculateGridItemsPerRow();
         const oldItemsPerRow = itemsPerRow;
         
-        console.log(`[DEBUG] updateItemsPerRowAndRecalculate: oldItemsPerRow=${oldItemsPerRow}, newItemsPerRow=${newItemsPerRow}`);
-        
         // Row당 아바타 수가 실제로 변경된 경우에만 처리
         if (oldItemsPerRow !== newItemsPerRow) {
             itemsPerRow = newItemsPerRow;
-            console.log(`[DEBUG] itemsPerRow CHANGED: ${oldItemsPerRow} -> ${newItemsPerRow}, will trigger reset via $effect`);
-        } else {
-            console.log(`[DEBUG] itemsPerRow unchanged: ${oldItemsPerRow}, no action needed`);
         }
     }
 
     // Row 높이를 고정값으로 안정화 (Jittering 방지)
     function stabilizeRowHeight() {
-        // 56px Avatar + 16px 여백으로 고정 (Jittering 방지)
-        const stableRowHeight = 72;
-        if (actualRowHeight !== stableRowHeight) {
-            actualRowHeight = stableRowHeight;
-            gridRowHeight = actualRowHeight;
+        if (actualRowHeight !== CONSTANTS.ROW_HEIGHT) {
+            actualRowHeight = CONSTANTS.ROW_HEIGHT;
         }
     }
 
     // 컨테이너 크기 변경 감지 및 재계산
     function handleContainerResize() {
-        console.log(`[DEBUG] handleContainerResize called: gridScrollContainer exists=${!!gridScrollContainer}, selected=${selected}`);
-        
         if (gridScrollContainer) {
-            // 컨테이너 높이 업데이트
             const rect = gridScrollContainer.getBoundingClientRect();
-            console.log(`[DEBUG] handleContainerResize: rect.width=${rect.width}, rect.height=${rect.height}, current gridContainerHeight=${gridContainerHeight}`);
-            console.log(`[DEBUG] gridScrollContainer clientWidth=${gridScrollContainer.clientWidth}, scrollTop=${gridScrollContainer.scrollTop}`);
             
-            if (rect.height > 0 && Math.abs(gridContainerHeight - rect.height) > 5) {
-                console.log(`[DEBUG] updating gridContainerHeight from ${gridContainerHeight} to ${rect.height}`);
+            if (rect.height > 0 && Math.abs(gridContainerHeight - rect.height) > CONSTANTS.HEIGHT_CHANGE_THRESHOLD) {
                 gridContainerHeight = rect.height;
             }
             
-            // itemsPerRow 업데이트 및 완전 재계산
             updateItemsPerRowAndRecalculate();
             
-            // Row 높이 안정화
             setTimeout(() => {
                 stabilizeRowHeight();
-            }, 20);
-        } else {
-            console.log(`[DEBUG] handleContainerResize: gridScrollContainer is null/undefined - this is the root cause!`);
+            }, CONSTANTS.STABILIZE_DELAY);
         }
     }
 
     function updateGridVirtualScrolling(chars: any[]) {
-        console.log(`[DEBUG] updateGridVirtualScrolling: chars.length=${chars.length}, itemsPerRow=${itemsPerRow}, gridScrollTop=${gridScrollTop}`);
-        
         if (itemsPerRow <= 0 || chars.length === 0) {
-            console.log(`[DEBUG] early return: itemsPerRow=${itemsPerRow}, chars.length=${chars.length}`);
             gridTotalHeight = gridContainerHeight;
-            gridStartRow = 0;
-            gridEndRow = 0;
-            gridStartIndex = 0;
-            gridEndIndex = 0;
+            resetGridIndices();
             return;
         }
         
         const totalRows = Math.ceil(chars.length / itemsPerRow);
-        
-        // 화면 높이와 Row 높이에 따라 완전히 다이나믹하게 계산
         const exactVisibleRows = gridContainerHeight / actualRowHeight;
         const baseVisibleRows = Math.ceil(exactVisibleRows);
-        const dynamicBuffer = Math.max(1, Math.min(3, Math.ceil(exactVisibleRows * 0.3))); // 30% 버퍼, 최소 1개, 최대 3개
+        const dynamicBuffer = Math.max(
+            CONSTANTS.MIN_BUFFER,
+            Math.min(CONSTANTS.MAX_BUFFER, Math.ceil(exactVisibleRows * CONSTANTS.BUFFER_RATIO))
+        );
         const totalVisibleRows = baseVisibleRows + dynamicBuffer;
-        
-        const oldStartRow = gridStartRow;
-        const oldEndRow = gridEndRow;
-        const oldStartIndex = gridStartIndex;
-        const oldEndIndex = gridEndIndex;
         
         gridStartRow = Math.max(0, Math.floor(gridScrollTop / actualRowHeight));
         gridEndRow = Math.min(gridStartRow + totalVisibleRows, totalRows);
@@ -270,25 +250,31 @@
         gridTotalHeight = totalRows * actualRowHeight;
         
         // 경계값 검증
+        validateGridBounds(totalRows, chars.length);
+    }
+
+    function resetGridIndices() {
+        gridStartRow = 0;
+        gridEndRow = 0;
+        gridStartIndex = 0;
+        gridEndIndex = 0;
+    }
+
+    function validateGridBounds(totalRows: number, charsLength: number) {
         gridStartRow = Math.max(0, Math.min(gridStartRow, totalRows));
         gridEndRow = Math.max(gridStartRow, Math.min(gridEndRow, totalRows));
-        gridStartIndex = Math.max(0, Math.min(gridStartIndex, chars.length));
-        gridEndIndex = Math.max(gridStartIndex, Math.min(gridEndIndex, chars.length));
-        
-        console.log(`[DEBUG] Virtual Scrolling calculated: totalRows=${totalRows}, gridStartRow=${gridStartRow} (was ${oldStartRow}), gridEndRow=${gridEndRow} (was ${oldEndRow}), gridStartIndex=${gridStartIndex} (was ${oldStartIndex}), gridEndIndex=${gridEndIndex} (was ${oldEndIndex}), totalHeight=${gridTotalHeight}`);
+        gridStartIndex = Math.max(0, Math.min(gridStartIndex, charsLength));
+        gridEndIndex = Math.max(gridStartIndex, Math.min(gridEndIndex, charsLength));
     }
 
     // Row 단위 데이터 생성 함수 - 안전성 강화
     function getVisibleGridRows(chars: any[]) {
         const rows = [];
-        console.log(`[DEBUG] getVisibleGridRows: generating rows from ${gridStartRow} to ${gridEndRow}, itemsPerRow=${itemsPerRow}, chars.length=${chars.length}`);
         
         // 경계값 재검증
         const safeStartRow = Math.max(0, gridStartRow);
         const totalRows = Math.ceil(chars.length / Math.max(1, itemsPerRow));
         const safeEndRow = Math.min(gridEndRow, totalRows);
-        
-        console.log(`[DEBUG] getVisibleGridRows: safe bounds - startRow=${safeStartRow}, endRow=${safeEndRow}, totalRows=${totalRows}`);
         
         for (let rowIndex = safeStartRow; rowIndex < safeEndRow; rowIndex++) {
             const startIdx = rowIndex * itemsPerRow;
@@ -297,7 +283,6 @@
             // 유효한 인덱스 범위 확인
             if (startIdx < chars.length && startIdx >= 0) {
                 const rowItems = chars.slice(startIdx, endIdx);
-                console.log(`[DEBUG] Row ${rowIndex}: startIdx=${startIdx}, endIdx=${endIdx}, items=${rowItems.length}, item names=[${rowItems.map(item => item.name).join(', ')}]`);
                 
                 if (rowItems.length > 0) {
                     rows.push({
@@ -306,12 +291,9 @@
                         yPosition: rowIndex * actualRowHeight
                     });
                 }
-            } else {
-                console.warn(`[DEBUG] Row ${rowIndex}: invalid startIdx=${startIdx}, skipping`);
             }
         }
         
-        console.log(`[DEBUG] getVisibleGridRows: generated ${rows.length} rows with total ${rows.reduce((sum, row) => sum + row.items.length, 0)} items`);
         return rows;
     }
 
@@ -319,41 +301,47 @@
     function updateListVirtualScrolling(chars: any[]) {
         if (chars.length === 0) {
             listTotalHeight = listContainerHeight;
-            listStartIndex = 0;
-            listEndIndex = 0;
+            resetListIndices();
             return;
         }
         
         listVisibleCount = Math.ceil(listContainerHeight / listItemHeight) + 2;
-        
         listStartIndex = Math.max(0, Math.floor(listScrollTop / listItemHeight));
         listEndIndex = Math.min(listStartIndex + listVisibleCount, chars.length);
-        
         listTotalHeight = chars.length * listItemHeight;
         
+        validateListBounds(chars.length);
+    }
+
+    function resetListIndices() {
+        listStartIndex = 0;
+        listEndIndex = 0;
+    }
+
+    function validateListBounds(charsLength: number) {
         listStartIndex = Math.max(0, listStartIndex);
-        listEndIndex = Math.max(listStartIndex, listEndIndex);
+        listEndIndex = Math.max(listStartIndex, Math.min(listEndIndex, charsLength));
     }
 
 
-    // Grid 모드 터치 이벤트 핸들러들
-    function handleGridTouchStart(event: TouchEvent) {
+    // 통합된 터치 및 스크롤 이벤트 핸들러들
+    function handleTouchStart(event: TouchEvent) {
         isTouching = true;
         lastTouchScrollTime = Date.now();
     }
 
-    function handleGridTouchMove(event: TouchEvent) {
-        if (!isTouching || !gridScrollContainer) return;
+    function handleTouchMove(event: TouchEvent) {
+        if (!isTouching) return;
         
         const currentTime = Date.now();
-        if (currentTime - lastTouchScrollTime > 8) {
-            gridScrollTop = gridScrollContainer.scrollTop;
-            updateGridVirtualScrollingImmediate();
+        if (currentTime - lastTouchScrollTime > CONSTANTS.TOUCH_THROTTLE) {
+            updateCurrentScrollPosition();
+            updateCurrentVirtualScrolling();
             lastTouchScrollTime = currentTime;
         }
     }
 
-    function handleGridTouchEnd(event: TouchEvent) {
+    function handleTouchEnd(event: TouchEvent) {
         isTouching = false;
         
         if (touchScrollTimer) {
@@ -361,25 +349,23 @@
         }
         
         touchScrollTimer = setTimeout(() => {
-            if (gridScrollContainer) {
-                gridScrollTop = gridScrollContainer.scrollTop;
-                updateGridVirtualScrollingImmediate();
-            }
+            updateCurrentScrollPosition();
+            updateCurrentVirtualScrolling();
             touchScrollTimer = null;
-        }, 50);
+        }, CONSTANTS.TOUCH_END_DELAY);
     }
 
-    function updateGridVirtualScrollingImmediate() {
-        const chars = getCachedChars(search, DBState.db);
-        updateGridVirtualScrolling(chars);
-    }
-
-    function handleGridScroll(event: Event) {
+    function handleScroll(event: Event) {
         const target = event.target as HTMLElement;
-        gridScrollTop = target.scrollTop;
+        
+        if (selected === 0) {
+            gridScrollTop = target.scrollTop;
+        } else {
+            listScrollTop = target.scrollTop;
+        }
         
         if (isTouching) {
-            updateGridVirtualScrollingImmediate();
+            updateCurrentVirtualScrolling();
             return;
         }
         
@@ -388,81 +374,43 @@
         }
         
         throttleTimer = setTimeout(() => {
-            updateGridVirtualScrollingImmediate();
+            updateCurrentVirtualScrolling();
             throttleTimer = null;
-        }, 16);
+        }, CONSTANTS.SCROLL_THROTTLE);
     }
 
-    // List 모드 터치 이벤트 핸들러들
-    function handleListTouchStart(event: TouchEvent) {
-        isTouching = true;
-        lastTouchScrollTime = Date.now();
-    }
-
-    function handleListTouchMove(event: TouchEvent) {
-        const currentContainer = selected === 1 ? listScrollContainer : trashScrollContainer;
-        if (!isTouching || !currentContainer) return;
+    // 현재 모드에 따른 스크롤 위치 업데이트
+    function updateCurrentScrollPosition() {
+        const container = getCurrentScrollContainer();
+        if (!container) return;
         
-        const currentTime = Date.now();
-        if (currentTime - lastTouchScrollTime > 8) {
-            listScrollTop = currentContainer.scrollTop;
-            updateListVirtualScrollingImmediate();
-            lastTouchScrollTime = currentTime;
+        if (selected === 0) {
+            gridScrollTop = container.scrollTop;
+        } else {
+            listScrollTop = container.scrollTop;
         }
     }
 
-    function handleListTouchEnd(event: TouchEvent) {
-        isTouching = false;
-        
-        if (touchScrollTimer) {
-            clearTimeout(touchScrollTimer);
+    // 현재 모드에 따른 Virtual Scrolling 업데이트
+    function updateCurrentVirtualScrolling() {
+        if (selected === 0) {
+            const chars = getCachedChars(search, DBState.db);
+            updateGridVirtualScrolling(chars);
+        } else {
+            const chars = selected === 2 ?
+                getCachedChars(search, DBState.db, true) :
+                getCachedChars(search, DBState.db);
+            updateListVirtualScrolling(chars);
         }
-        
-        touchScrollTimer = setTimeout(() => {
-            const currentContainer = selected === 1 ? listScrollContainer : trashScrollContainer;
-            if (currentContainer) {
-                listScrollTop = currentContainer.scrollTop;
-                updateListVirtualScrollingImmediate();
-            }
-            touchScrollTimer = null;
-        }, 50);
-    }
-
-    function updateListVirtualScrollingImmediate() {
-        const chars = selected === 2 ?
-            getCachedChars(search, DBState.db, true) :
-            getCachedChars(search, DBState.db);
-        updateListVirtualScrolling(chars);
-    }
-
-    function handleListScroll(event: Event) {
-        const target = event.target as HTMLElement;
-        listScrollTop = target.scrollTop;
-        
-        if (isTouching) {
-            updateListVirtualScrollingImmediate();
-            return;
-        }
-        
-        if (throttleTimer !== null) {
-            clearTimeout(throttleTimer);
-        }
-        
-        throttleTimer = setTimeout(() => {
-            updateListVirtualScrollingImmediate();
-            throttleTimer = null;
-        }, 16);
     }
 
 
     // 현재 모드에 따른 스크롤 컨테이너 반환
     function getCurrentScrollContainer() {
-        const container = selected === 0 ? gridScrollContainer :
-                         selected === 1 ? listScrollContainer :
-                         selected === 2 ? trashScrollContainer :
-                         null;
-        console.log(`[DEBUG] getCurrentScrollContainer: selected=${selected}, container exists=${!!container}`);
-        return container;
+        return selected === 0 ? gridScrollContainer :
+               selected === 1 ? listScrollContainer :
+               selected === 2 ? trashScrollContainer :
+               null;
     }
 
     // 현재 모드에 따른 컨테이너 높이 반환
@@ -564,45 +512,32 @@
         }
         
         if (currentContainer) {
-            console.log(`[DEBUG] Setting up ResizeObserver for container, selected=${selected}`);
             currentResizeObserver = new ResizeObserver((entries) => {
-                console.log(`[DEBUG] ResizeObserver triggered with ${entries.length} entries, selected=${selected}`);
                 for (const entry of entries) {
                     const newWidth = entry.contentRect.width;
                     const newHeight = entry.contentRect.height;
                     const currentHeight = getCurrentContainerHeight();
-                    
-                    console.log(`[DEBUG] ResizeObserver: newWidth=${newWidth}, newHeight=${newHeight}, currentHeight=${currentHeight}, selected=${selected}`);
 
                     // Height 변화 처리
-                    if (newHeight > 0 && Math.abs(currentHeight - newHeight) > 1) {
-                        console.log(`[DEBUG] ResizeObserver: updating container height from ${currentHeight} to ${newHeight}`);
+                    if (newHeight > 0 && Math.abs(currentHeight - newHeight) > CONSTANTS.RESIZE_THRESHOLD) {
                         setCurrentContainerHeight(newHeight);
                     }
                     
                     // Grid 모드에서 Width 변화를 감지해서 itemsPerRow 재계산
                     if (selected === 0 && newWidth > 0) {
-                        console.log(`[DEBUG] ResizeObserver: Grid container width detected=${newWidth}, forcing itemsPerRow recalculation`);
-                        
                         // 즉시 및 requestAnimationFrame 이중 처리로 완전한 리셋까지 수행
                         const forceCalculationAndReset = () => {
                             if (selected === 0 && gridScrollContainer) {
-                                console.log(`[DEBUG] ResizeObserver: calling calculateGridItemsPerRow for width=${gridScrollContainer.clientWidth}`);
                                 const newItemsPerRow = calculateGridItemsPerRow();
                                 const oldItemsPerRow = itemsPerRow;
                                 
                                 if (newItemsPerRow !== oldItemsPerRow) {
-                                    console.log(`[DEBUG] ResizeObserver: itemsPerRow changing ${oldItemsPerRow} -> ${newItemsPerRow}, performing complete reset`);
                                     itemsPerRow = newItemsPerRow;
                                     
                                     // 바로 리셋 및 재계산 수행 (중복 처리 방지)
                                     resetGridLayout();
                                     const chars = getCachedChars(search, DBState.db);
                                     updateGridVirtualScrolling(chars);
-                                    
-                                    console.log(`[DEBUG] ResizeObserver: complete reset finished for itemsPerRow=${newItemsPerRow}`);
-                                } else {
-                                    console.log(`[DEBUG] ResizeObserver: itemsPerRow unchanged ${oldItemsPerRow}, no reset needed`);
                                 }
                             }
                         };
@@ -617,9 +552,6 @@
             });
             
             currentResizeObserver.observe(currentContainer);
-            console.log(`[DEBUG] ResizeObserver set up successfully`);
-        } else {
-            console.log(`[DEBUG] No current container to observe, selected=${selected}`);
         }
         
         return () => {
@@ -679,10 +611,10 @@
             <div
                 class="flex-1 overflow-y-auto min-h-0"
                 bind:this={gridScrollContainer}
-                onscroll={handleGridScroll}
-                ontouchstart={handleGridTouchStart}
-                ontouchmove={handleGridTouchMove}
-                ontouchend={handleGridTouchEnd}
+                onscroll={handleScroll}
+                ontouchstart={handleTouchStart}
+                ontouchmove={handleTouchMove}
+                ontouchend={handleTouchEnd}
                 style="touch-action: pan-y; -webkit-overflow-scrolling: touch; height: 100%;"
             >
                 <div style="height: {gridTotalHeight}px; position: relative; min-height: 100%;">
@@ -692,19 +624,16 @@
                             style="transform: translateY({row.yPosition}px); height: {actualRowHeight}px;"
                         >
                             <div class="flex flex-wrap gap-2 w-full justify-center items-center h-full px-2">
-                                {#each row.items as char}
+                                {#each row.items as char, itemIndex}
                                     <div class="flex items-center text-textcolor">
-                                        {#if char.image}
-                                            <BarIcon onClick={() => {changeChar(char.index)}} additionalStyle={getCharImage(char.image, 'css')}></BarIcon>
-                                        {:else}
-                                            <BarIcon onClick={() => {changeChar(char.index)}} additionalStyle={char.index === $selectedCharID ? 'background:var(--risu-theme-selected)' : ''}>
-                                                {#if char.type === 'group'}
-                                                    <Users />
-                                                {:else}
-                                                    <User/>
-                                                {/if}
-                                            </BarIcon>
-                                        {/if}
+                                        <LazyAvatar
+                                            image={char.image}
+                                            index={char.index}
+                                            onClick={() => {changeChar(char.index)}}
+                                            size={CONSTANTS.AVATAR_SIZE}
+                                            isSelected={char.index === $selectedCharID}
+                                            type={char.type}
+                                        />
                                     </div>
                                 {/each}
                             </div>
@@ -717,17 +646,24 @@
             <div
                 class="flex-1 overflow-y-auto"
                 bind:this={listScrollContainer}
-                onscroll={handleListScroll}
-                ontouchstart={handleListTouchStart}
-                ontouchmove={handleListTouchMove}
-                ontouchend={handleListTouchEnd}
+                onscroll={handleScroll}
+                ontouchstart={handleTouchStart}
+                ontouchmove={handleTouchMove}
+                ontouchend={handleTouchEnd}
                 style="touch-action: pan-y; -webkit-overflow-scrolling: touch;"
             >
                 <div style="height: {listTotalHeight}px; position: relative;">
                     <div style="transform: translateY({listStartIndex * listItemHeight}px);">
-                        {#each getCachedChars(search, DBState.db).slice(listStartIndex, listEndIndex) as char}
+                        {#each getCachedChars(search, DBState.db).slice(listStartIndex, listEndIndex) as char, listItemIndex}
                             <div class="flex p-2 border border-darkborderc rounded-md mb-2" style="min-height: {listItemHeight - 8}px;">
-                                <BarIcon onClick={() => {changeChar(char.index)}} additionalStyle={getCharImage(char.image, 'css')}></BarIcon>
+                                <LazyAvatar
+                                    image={char.image}
+                                    index={char.index}
+                                    onClick={() => {changeChar(char.index)}}
+                                    size={CONSTANTS.AVATAR_SIZE}
+                                    isSelected={char.index === $selectedCharID}
+                                    type={char.type}
+                                />
                                 <div class="flex-1 flex flex-col ml-2 overflow-hidden">
                                     <h4 class="text-textcolor font-bold text-lg mb-1 truncate">{char.name || "Unnamed"}</h4>
                                     <span class="text-textcolor2 text-sm line-clamp-2 flex-1">{parseMultilangString(char.desc)['en'] || parseMultilangString(char.desc)['xx'] || 'No description'}</span>
@@ -755,17 +691,24 @@
             <div
                 class="flex-1 overflow-y-auto"
                 bind:this={trashScrollContainer}
-                onscroll={handleListScroll}
-                ontouchstart={handleListTouchStart}
-                ontouchmove={handleListTouchMove}
-                ontouchend={handleListTouchEnd}
+                onscroll={handleScroll}
+                ontouchstart={handleTouchStart}
+                ontouchmove={handleTouchMove}
+                ontouchend={handleTouchEnd}
                 style="touch-action: pan-y; -webkit-overflow-scrolling: touch;"
             >
                 <div style="height: {listTotalHeight}px; position: relative;">
                     <div style="transform: translateY({listStartIndex * listItemHeight}px);">
-                        {#each getCachedChars(search, DBState.db, true).slice(listStartIndex, listEndIndex) as char}
+                        {#each getCachedChars(search, DBState.db, true).slice(listStartIndex, listEndIndex) as char, trashItemIndex}
                             <div class="flex p-2 border border-darkborderc rounded-md mb-2" style="min-height: {listItemHeight - 8}px;">
-                                <BarIcon onClick={() => {changeChar(char.index)}} additionalStyle={getCharImage(char.image, 'css')}></BarIcon>
+                                <LazyAvatar
+                                    image={char.image}
+                                    index={char.index}
+                                    onClick={() => {changeChar(char.index)}}
+                                    size={CONSTANTS.AVATAR_SIZE}
+                                    isSelected={char.index === $selectedCharID}
+                                    type={char.type}
+                                />
                                 <div class="flex-1 flex flex-col ml-2 overflow-hidden">
                                     <h4 class="text-textcolor font-bold text-lg mb-1 truncate">{char.name || "Unnamed"}</h4>
                                     <span class="text-textcolor2 text-sm line-clamp-2 flex-1">{parseMultilangString(char.desc)['en'] || parseMultilangString(char.desc)['xx'] || 'No description'}</span>
