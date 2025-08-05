@@ -472,7 +472,18 @@ export async function saveDb(){
                     await forageStorage.setItem(`database/dbbackup-${(Date.now()/100).toFixed()}.bin`, dbData)
                 }
                 if(forageStorage.isAccount){
-                    const dbData = await encodeRisuSave(db)
+                    let dbData: Uint8Array;
+                    try {
+                        // 메모리 효율적인 청킹 인코딩 시도
+                        dbData = await encodeRisuSaveEnhanced(db, (progress, stage) => {
+                            console.log(`[Auto-save] ${stage}: ${progress.toFixed(1)}%`);
+                        });
+                        console.log(`[Auto-save] Enhanced encoding completed: ${(dbData.length / 1024 / 1024).toFixed(2)}MB`);
+                    } catch (error) {
+                        console.warn('[Auto-save] Enhanced encoding failed, using legacy method:', error);
+                        dbData = await encodeRisuSaveLegacy(db);
+                        console.log(`[Auto-save] Legacy encoding completed: ${(dbData.length / 1024 / 1024).toFixed(2)}MB`);
+                    }
                     
                     if(lastDbData.length === dbData.length){
                         let same = true
@@ -481,7 +492,7 @@ export async function saveDb(){
                                 same = false
                                 break
                             }
-                        }   
+                        }
 
                         if(same){
                             await sleep(500)
@@ -490,7 +501,20 @@ export async function saveDb(){
                     }
 
                     lastDbData = dbData
-                    const z:Database = await decodeRisuSave(dbData)
+                    
+                    let z: Database;
+                    try {
+                        // 메모리 효율적인 청킹 디코딩으로 무결성 검증
+                        z = await decodeRisuSaveEnhanced(dbData, (progress, stage) => {
+                            console.log(`[Auto-save] Verification ${stage}: ${progress.toFixed(1)}%`);
+                        });
+                        console.log('[Auto-save] Enhanced verification completed');
+                    } catch (error) {
+                        console.warn('[Auto-save] Enhanced verification failed, using legacy method:', error);
+                        z = await decodeRisuSave(dbData);
+                        console.log('[Auto-save] Legacy verification completed');
+                    }
+                    
                     if(z.formatversion){
                         await forageStorage.setItem('database/database.bin', dbData)
                     }
