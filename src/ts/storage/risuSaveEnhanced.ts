@@ -1,6 +1,6 @@
 import { Packr, Unpackr } from "msgpackr";
 import { AppendableBuffer } from "../globalApi.svelte";
-import { decodeRisuSave as originalDecodeRisuSave, encodeRisuSave as originalEncodeRisuSave } from "./risuSave";
+import { decodeRisuSave as originalDecodeRisuSave, encodeRisuSaveCompressionStream as originalEncodeRisuSave } from "./risuSave";
 
 /**
  * 청킹 작업 중단을 위한 인터페이스
