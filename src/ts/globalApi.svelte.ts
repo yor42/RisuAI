@@ -25,11 +25,13 @@ import { hasher } from "./parser.svelte";
 import { characterURLImport, hubURL } from "./characterCards";
 import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from "./storage/defaultPrompts";
 import { loadRisuAccountData } from "./drive/accounter";
-import { decodeRisuSave, encodeRisuSave, encodeRisuSaveLegacy } from "./storage/risuSave";
+import { decodeRisuSave, encodeRisuSaveCompressionStream, encodeRisuSaveLegacy, RisuSaveEncoder, type toSaveType } from "./storage/risuSave";
 import { AutoStorage } from "./storage/autoStorage";
 import { updateAnimationSpeed } from "./gui/animation";
 import { updateColorScheme, updateTextThemeAndCSS } from "./gui/colorscheme";
-import { saveDbKei } from "./kei/backup";
+import { autoServerBackup, saveDbKei } from "./kei/backup";
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
+import * as CapFS from '@capacitor/filesystem'
 import { save } from "@tauri-apps/plugin-dialog";
 import { listen } from '@tauri-apps/api/event'
 import { language } from "src/lang";
@@ -321,6 +323,9 @@ export let saving = $state({
  * 
  * @returns {Promise<void>} - A promise that resolves when the database has been saved.
  */
+export let requiresFullEncoderReload = $state({
+    state: false
+})
 export async function saveDb(){
     let changed = false
     syncDrive()
@@ -344,25 +349,73 @@ export async function saveDb(){
         }
     }
 
+    const changeTracker:toSaveType = {
+        character: [],
+        chat: [],
+        botPreset: false,
+        modules: false
+    }
+
+    let encoder = new RisuSaveEncoder()
+    await encoder.init(getDatabase(), {
+        compression: forageStorage.isAccount
+    })
 
     $effect.root(() => {
 
         let selIdState = $state(0)
-        let oldSaveHash = ''
+
+        const debounceTime = 500; // 500 milliseconds
+        let saveTimeout: ReturnType<typeof setTimeout> | null = null;
 
         selectedCharID.subscribe((v) => {
             selIdState = v
         })
 
+        function saveTimeoutExecute() {
+            if (saveTimeout) {
+                clearTimeout(saveTimeout);
+            }
+            saveTimeout = setTimeout(() => {
+                changed = true;
+            }, debounceTime);
+        }
+
         $effect(() => {
-            $state.snapshot(DBState?.db?.characters?.[selIdState])
+            DBState.db.botPresetsId
+            DBState.db.botPresets.length
+            changeTracker.botPreset = true
+            saveTimeoutExecute()
+        })
+        $effect(() => {
+            $state.snapshot(DBState.db.modules)
+            changeTracker.modules = true
+            saveTimeoutExecute()
+        })
+        $effect(() => {
             for(const key in DBState.db){
-                if(key !== 'characters'){
+                if(key !== 'characters' && key !== 'botPresets' && key !== 'modules'){
                     $state.snapshot(DBState.db[key])
                 }
             }
-
-            changed = true
+            if(DBState?.db?.characters?.[selIdState]){
+                for(const key in DBState.db.characters[selIdState]){
+                    if(key !== 'chats'){
+                        $state.snapshot(DBState.db.characters[selIdState][key])
+                    }
+                }
+                $state.snapshot(DBState.db.characters[selIdState].chats)
+                if(changeTracker.character[0] !== DBState.db.characters[selIdState]?.chaId){
+                    changeTracker.character.unshift(DBState.db.characters[selIdState]?.chaId)
+                }
+                if(
+                    changeTracker.chat[0]?.[0] !== DBState.db.characters[selIdState]?.chaId ||
+                    changeTracker.chat[0]?.[1] !== DBState.db.characters[selIdState]?.chats[DBState.db.characters[selIdState]?.chatPage].id
+                ){
+                    changeTracker.chat.unshift([DBState.db.characters[selIdState]?.chaId, DBState.db.characters[selIdState]?.chats[DBState.db.characters[selIdState]?.chatPage].id])
+                }
+            }
+            saveTimeoutExecute()
         })
     })
 
@@ -377,8 +430,21 @@ export async function saveDb(){
 
         saving.state = true
         changed = false
-
         try {
+
+            if(requiresFullEncoderReload.state){
+                encoder = new RisuSaveEncoder()
+                await encoder.init(getDatabase(), {
+                    compression: forageStorage.isAccount
+                })
+                requiresFullEncoderReload.state = false
+            }
+
+            let toSave = safeStructuredClone(changeTracker)
+            changeTracker.character = changeTracker.character.length === 0 ? [] : [changeTracker.character[0]]
+            changeTracker.chat = changeTracker.chat.length === 0 ? [] : [changeTracker.chat[0]]
+            changeTracker.botPreset = false
+            changeTracker.modules = false
             if(gotChannel){
                 //Data is saved in other tab
                 await sleep(1000)
@@ -392,15 +458,19 @@ export async function saveDb(){
                 await sleep(1000)
                 continue
             }
+
+
             if(isTauri){
-                const dbData = encodeRisuSaveLegacy(db)
+                await encoder.set(db, toSave)
+                const dbData = new Uint8Array(encoder.encode())
                 await writeFile('database/database.bin', dbData, {baseDir: BaseDirectory.AppData});
                 await writeFile(`database/dbbackup-${(Date.now()/100).toFixed()}.bin`, dbData, {baseDir: BaseDirectory.AppData});
             }
             else{
+                await encoder.set(db, toSave)
+                const dbData = new Uint8Array(encoder.encode())
+                await forageStorage.setItem('database/database.bin', dbData)
                 if(!forageStorage.isAccount){
-                    const dbData = encodeRisuSaveLegacy(db)
-                    await forageStorage.setItem('database/database.bin', dbData)
                     await forageStorage.setItem(`database/dbbackup-${(Date.now()/100).toFixed()}.bin`, dbData)
                 }
                 if(forageStorage.isAccount){
@@ -457,8 +527,7 @@ export async function saveDb(){
             if(!forageStorage.isAccount){
                 await getDbBackups()
             }
-            savetrys = 0
-            
+            savetrys = 0            
             await saveDbKei()
             await sleep(500)
         } catch (error) {
@@ -670,7 +739,7 @@ export async function loadData() {
                         } catch (error) {}
                     }
                     if(!backupLoaded){
-                        throw "Your save file is corrupted"
+                        throw "Forage: Your save file is corrupted"
                     }
                 }
 
@@ -726,7 +795,9 @@ export async function loadData() {
                             } catch (error) {}
                         }
                         if(!backupLoaded){
-                            throw "Your save file is corrupted"
+                            // throw "Your save file is corrupted"
+                            await autoServerBackup()
+                            await sleep(10000)
                         }
                     }
                 }
@@ -795,6 +866,7 @@ export async function loadData() {
             loadedStore.set(true)
             selectedCharID.set(-1)
             startObserveDom()
+            assignIds()
             makeColdData()
             saveDb()
             moduleUpdate()
@@ -1435,6 +1507,12 @@ async function checkNewFormat(): Promise<void> {
         //migration removed due to issues
         db.formatversion = 4;
     }
+    if(db.formatversion < 5){
+        if(db.loreBookToken < 8000){
+            db.loreBookToken = 8000;
+        }
+        db.formatversion = 5;
+    }
     if (!db.characterOrder) {
         db.characterOrder = [];
     }
@@ -1616,6 +1694,37 @@ function formDataToString(formData: FormData): string {
     }
   
     return params.join('&');
+}
+
+//Assigns unique IDs to chara and chat
+function assignIds(){
+    if(!DBState?.db?.characters){
+        return
+    }
+    const assignedIds = new Set<string>()
+    for(let i=0;i<DBState.db.characters.length;i++){
+        const cha = DBState.db.characters[i]
+        if(!cha.chaId){
+            cha.chaId = uuidv4()
+        }
+        if(assignedIds.has(cha.chaId)){
+            console.warn(`Duplicate chaId found: ${cha.chaId}. Assigning new ID.`);
+            cha.chaId = uuidv4();
+        }
+        assignedIds.add(cha.chaId)
+        for(let i2=0;i2<cha.chats.length;i2++){
+            const chat = cha.chats[i2]
+            if(!chat.id){
+                chat.id = uuidv4()
+            }
+            if(assignedIds.has(chat.id)){
+                console.warn(`Duplicate chat ID found: ${chat.id}. Assigning new ID.`);
+                chat.id = uuidv4();
+            }
+            assignedIds.add(chat.id)
+        }
+    }
+
 }
 
 /**

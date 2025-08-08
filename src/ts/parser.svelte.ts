@@ -680,9 +680,11 @@ export async function postTranslationParse(data:string){
     return data
 }
 
-export function parseMarkdownSafe(data:string) {
+export function parseMarkdownSafe(data:string, arg:{
+    forbidTags?: string[],
+} = {}) {
     return DOMPurify.sanitize(renderMarkdown(md, data), {
-        FORBID_TAGS: ["a", "style"],
+        FORBID_TAGS: ["a", "style", ...(arg.forbidTags || [])],
         FORBID_ATTR: ["style", "href", "class"]
     })
 }
@@ -946,6 +948,10 @@ function matcher (p1:string,matcherArg:matcherArg,vars:{[key:string]:string}|nul
     initMatcher()
 
     try {
+        if(p1.startsWith('? ')){
+            const substring = p1.substring(2)
+            return calcString(substring).toString()
+        }
         const colonIndex = p1.indexOf(':')
         let splited: string[]
         if(colonIndex !== -1 && p1[colonIndex + 1] === ':'){
