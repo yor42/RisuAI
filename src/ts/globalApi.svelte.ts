@@ -14,7 +14,7 @@ import { appDataDir, join } from "@tauri-apps/api/path";
 import { get } from "svelte/store";
 import {open} from '@tauri-apps/plugin-shell'
 import { setDatabase, type Database, defaultSdDataFunc, getDatabase, type character } from "./storage/database.svelte";
-import { encodeRisuSaveEnhanced, decodeRisuSaveEnhanced, createChunkingController } from "./storage/risuSaveEnhanced";
+import { decodeRisuSaveEnhanced, createChunkingController } from "./storage/risuSaveEnhanced";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { checkRisuUpdate } from "./update";
 import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState } from "./stores.svelte";
@@ -30,8 +30,6 @@ import { AutoStorage } from "./storage/autoStorage";
 import { updateAnimationSpeed } from "./gui/animation";
 import { updateColorScheme, updateTextThemeAndCSS } from "./gui/colorscheme";
 import { autoServerBackup, saveDbKei } from "./kei/backup";
-import { Capacitor, CapacitorHttp } from '@capacitor/core';
-import * as CapFS from '@capacitor/filesystem'
 import { save } from "@tauri-apps/plugin-dialog";
 import { listen } from '@tauri-apps/api/event'
 import { language } from "src/lang";
@@ -474,53 +472,6 @@ export async function saveDb(){
                     await forageStorage.setItem(`database/dbbackup-${(Date.now()/100).toFixed()}.bin`, dbData)
                 }
                 if(forageStorage.isAccount){
-                    let dbData: Uint8Array;
-                    try {
-                        // 메모리 효율적인 청킹 인코딩 시도
-                        dbData = await encodeRisuSaveEnhanced(db, (progress, stage) => {
-                            console.log(`[Auto-save] ${stage}: ${progress.toFixed(1)}%`);
-                        });
-                        console.log(`[Auto-save] Enhanced encoding completed: ${(dbData.length / 1024 / 1024).toFixed(2)}MB`);
-                    } catch (error) {
-                        console.warn('[Auto-save] Enhanced encoding failed, using legacy method:', error);
-                        dbData = await encodeRisuSave(db);
-                        console.log(`[Auto-save] Legacy encoding completed: ${(dbData.length / 1024 / 1024).toFixed(2)}MB`);
-                    }
-                    
-                    if(lastDbData.length === dbData.length){
-                        let same = true
-                        for(let i = 20; i < dbData.length; i++){
-                            if(dbData[i] !== lastDbData[i]){
-                                same = false
-                                break
-                            }
-                        }
-
-                        if(same){
-                            await sleep(500)
-                            continue
-                        }
-                    }
-
-                    lastDbData = dbData
-                    
-                    let z: Database;
-                    try {
-                        // 메모리 효율적인 청킹 디코딩으로 무결성 검증
-                        z = await decodeRisuSaveEnhanced(dbData, (progress, stage) => {
-                            console.log(`[Auto-save] Verification ${stage}: ${progress.toFixed(1)}%`);
-                        });
-                        console.log('[Auto-save] Enhanced verification completed');
-                    } catch (error) {
-                        console.warn('[Auto-save] Enhanced verification failed, using legacy method:', error);
-                        z = await decodeRisuSave(dbData);
-                        console.log('[Auto-save] Legacy verification completed');
-                    }
-                    
-                    if(z.formatversion){
-                        await forageStorage.setItem('database/database.bin', dbData)
-                    }
-
                     await sleep(3000)
                 }
             }
