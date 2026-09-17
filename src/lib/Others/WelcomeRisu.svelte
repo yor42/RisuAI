@@ -73,7 +73,7 @@
     $effect.pre(() => {
         if(step === 10){
             setTimeout(() => {
-                setPreset(DBState.db, prebuiltPresets.OAI2)
+                DBState.db = setPreset(DBState.db, prebuiltPresets.OAI2)
                 DBState.db.textTheme = 'highcontrast'
                 updateTextThemeAndCSS()
 
@@ -101,8 +101,8 @@
                 }
 
                 if(provider === 'claude'){
-                    DBState.db.aiModel = 'claude-3-5-sonnet-20241022'
-                    DBState.db.subModel = 'claude-3-5-sonnet-20241022'
+                    DBState.db.aiModel = 'claude-sonnet-4-6'
+                    DBState.db.subModel = 'claude-sonnet-4-6'
                 }
 
                 if(provider === 'openai'){
