@@ -2,10 +2,31 @@ import { language } from "src/lang"
 import { alertError, alertInput, waitAlert } from "../alert"
 import { base64url, getKeypairStore, saveKeypairStore } from "../util"
 
+/**
+ * Thrown by NodeStorage.setItem() when the self-hosted Node server rejects a
+ * write because the revision it was based on has moved (HTTP 409) — i.e.
+ * another writer has saved this key since this client last read it. Distinct
+ * from the generic "setItem Error" thrown for any other failure so callers
+ * (saveDb()) can react differently: a conflict is an expected, recoverable
+ * state, not a transient I/O failure worth blindly retrying the same write.
+ */
+export class NodeStorageConflictError extends Error {
+    constructor(public readonly currentRevision: number | undefined) {
+        super('NodeStorage write rejected: local revision is out of date with the server.')
+        this.name = 'NodeStorageConflictError'
+    }
+}
 
 export class NodeStorage{
 
     authChecked = false
+    // Last revision this instance observed for each key, from either a
+    // getItem() read or a setItem() write's own response. Sent back as
+    // if-match-revision on the NEXT setItem() for that key, so the server can
+    // tell whether this client's view is still current. Deliberately never
+    // updated from a 409 response's reported currentRevision — see setItem()
+    // below for why blindly adopting it would defeat the whole check.
+    private knownRevisions = new Map<string, number>()
     JSONStringlifyAndbase64Url(obj:any){
         return base64url(Buffer.from(JSON.stringify(obj), 'utf-8'))
     }
@@ -71,21 +92,42 @@ export class NodeStorage{
 
     async setItem(key:string, value:Uint8Array) {
         await this.checkAuth()
+        const headers: Record<string, string> = {
+            'content-type': 'application/octet-stream',
+            'file-path': Buffer.from(key, 'utf-8').toString('hex'),
+            'risu-auth': await this.createAuth()
+        }
+        const knownRevision = this.knownRevisions.get(key)
+        if(knownRevision !== undefined){
+            headers['if-match-revision'] = String(knownRevision)
+        }
         const da = await fetch('/api/write', {
             method: "POST",
             body: value as any,
-            headers: {
-                'content-type': 'application/octet-stream',
-                'file-path': Buffer.from(key, 'utf-8').toString('hex'),
-                'risu-auth': await this.createAuth()
-            }
+            headers
         })
+        if(da.status === 409){
+            const data = await da.json().catch(() => ({}))
+            // Deliberately NOT updating knownRevisions to data.currentRevision
+            // here: doing so would make the NEXT setItem() attempt for this
+            // key send a now-matching if-match-revision header with this
+            // SAME (still-stale) content, and the server would accept it —
+            // silently overwriting whatever the other writer just saved,
+            // exactly the last-write-wins outcome this check exists to
+            // prevent. Leaving it stale means every retry keeps correctly
+            // failing until a fresh getItem() (e.g. after the user reloads)
+            // establishes a real up-to-date revision.
+            throw new NodeStorageConflictError(data?.currentRevision)
+        }
         if(da.status < 200 || da.status >= 300){
             throw "setItem Error"
         }
         const data = await da.json()
         if(data.error){
             throw data.error
+        }
+        if(typeof data.revision === 'number'){
+            this.knownRevisions.set(key, data.revision)
         }
     }
     async getItem(key:string):Promise<Buffer> {
@@ -99,6 +141,14 @@ export class NodeStorage{
         })
         if(da.status < 200 || da.status >= 300){
             throw "getItem Error"
+        }
+
+        const revisionHeader = da.headers.get('x-risu-revision')
+        if(revisionHeader !== null){
+            const revision = parseInt(revisionHeader, 10)
+            if(Number.isFinite(revision)){
+                this.knownRevisions.set(key, revision)
+            }
         }
 
         const data = Buffer.from(await da.arrayBuffer())
@@ -132,23 +182,64 @@ export class NodeStorage{
         // the server's header.split('$$') (which runs before any hex-decoding) would
         // never actually find a separator and would treat the entire multi-key
         // request as one nonexistent composite path.
-        const filePath = Array.isArray(key)
-            ? key.map(k => Buffer.from(k, 'utf-8').toString('hex')).join('$$')
-            : Buffer.from(key, 'utf-8').toString('hex')
+        const keys = Array.isArray(key) ? key : [key]
+        const filePath = keys.map(k => Buffer.from(k, 'utf-8').toString('hex')).join('$$')
+        // Positionally aligned with filePath's '$$' segments — an empty entry
+        // means "no known revision for this key," which the server treats as
+        // an unconditional delete for that one key (same back-compat
+        // reasoning as setItem() omitting if-match-revision entirely). Server
+        // rejects the whole batch with 409 if any key's revision has moved
+        // since this client last observed it, rather than silently deleting
+        // content it never actually read (e.g. someone else's newer write).
+        const revisionHeader = keys
+            .map((k) => this.knownRevisions.get(k))
+            .map((rev) => rev === undefined ? '' : String(rev))
+            .join('$$')
         const da = await fetch('/api/remove', {
             method: "GET",
             headers: {
                 'file-path': filePath,
+                'if-match-revision': revisionHeader,
                 'risu-auth': await this.createAuth()
             }
         })
+        // The server keeps advancing each key's revision counter even after
+        // deletion (a "tombstone" revision) — NOT forgetting it matters: if
+        // this client (or any other) later recreates the same key via
+        // setItem(), it needs to present that tombstone as its
+        // if-match-revision, or that write would fall back to unconditional
+        // and could silently overwrite a DIFFERENT client's own recreation of
+        // the key in the meantime. Applied both on success AND on a partial
+        // I/O failure after commit (see below) — the server attaches whatever
+        // revisions it already committed to that error response too, since
+        // leaving the client with no way to learn they moved would strand it
+        // presenting stale values indefinitely.
+        const applyKnownRevisions = (revisionsByHexKey: Record<string, number> | undefined) => {
+            if(!revisionsByHexKey){
+                return
+            }
+            for(const k of keys){
+                const hexKey = Buffer.from(k, 'utf-8').toString('hex')
+                const revision = revisionsByHexKey[hexKey]
+                if(typeof revision === 'number'){
+                    this.knownRevisions.set(k, revision)
+                }
+            }
+        }
+        if(da.status === 409){
+            const data = await da.json().catch(() => ({}))
+            throw new NodeStorageConflictError(data?.currentRevision)
+        }
         if(da.status < 200 || da.status >= 300){
-            throw "removeItem Error"
+            const data = await da.json().catch(() => ({}))
+            applyKnownRevisions(data?.revisions)
+            throw data?.error ?? "removeItem Error"
         }
         const data = await da.json()
         if(data.error){
             throw data.error
         }
+        applyKnownRevisions(data.revisions)
     }
 
     private async checkAuth(){

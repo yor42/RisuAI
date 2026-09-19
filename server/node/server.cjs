@@ -41,6 +41,120 @@ if(existsSync(knownPublicKeysPath)){
     knownPublicKeysHashes = JSON.parse(knownPublicKeysRaw);
 }
 
+// Per-file revision counters backing /api/write's optimistic-concurrency
+// check (Agents/Roadmap.md Phase 1.5 Tier B, Stage 1). Loaded synchronously
+// at startup like the other small config files above; kept as a single
+// in-memory object mutated in place and persisted back to disk (atomically,
+// via saveRevisions() below) after every successful write. This is
+// single-process-only: it assumes one Node process owns `savePath`, same
+// assumption the rest of this file already makes (no clustering support
+// anywhere else in server.cjs either).
+const revisionsPath = path.join(process.cwd(), 'save', '__revisions.json')
+let revisions = {}
+if(existsSync(revisionsPath)){
+    try {
+        revisions = JSON.parse(readFileSync(revisionsPath, 'utf-8'));
+    } catch (error) {
+        console.error('Failed to parse __revisions.json, starting with an empty revision store:', error);
+        revisions = {};
+    }
+}
+
+// Writes `revisions` to __revisions.json atomically (temp file + rename).
+// Does NOT queue itself — callers must already be serialized via
+// withRevisionTransaction() below. It used to queue its own calls, but that
+// only serialized the DISK WRITE, not the "read current value, validate,
+// mutate in memory" step that happens before it — which meant one request's
+// queued save could pick up and durably persist a DIFFERENT, concurrent
+// request's in-memory mutation before that second request's own save had
+// confirmed anything, since saveRevisions() always serializes whatever the
+// live `revisions` object looks like at the moment its turn runs, not a
+// snapshot tied to any one caller. If that second request's own save then
+// failed and it rolled back its in-memory entry, the rollback would be a
+// lie — the value was already durable via the first request's write.
+async function saveRevisions(){
+    const tempPath = path.join(process.cwd(), 'save', `__revisions.json.tmp-${crypto.randomBytes(8).toString('hex')}`);
+    try {
+        await fs.writeFile(tempPath, JSON.stringify(revisions));
+        await fs.rename(tempPath, revisionsPath);
+    } catch (error) {
+        await fs.unlink(tempPath).catch(() => {});
+        throw error;
+    }
+}
+
+// Every read-current-revision → validate-precondition → mutate-in-memory →
+// persist-to-disk(-or-roll-back) sequence, for ANY key, goes through this
+// single global queue — not just the final disk write. This is what
+// actually closes the gap above: since the full mutate+persist step for one
+// request can never overlap with another's, there is no window left where
+// an uncommitted mutation from one request could be captured by a
+// different, concurrent request's own save. This is intentionally a
+// separate, coarser-grained lock than the per-key `fileWriteQueues` below
+// (which still lets unrelated keys' actual file I/O run concurrently) —
+// only the comparatively cheap revision bookkeeping itself is globally
+// serialized, not full-batches's content writes/removals.
+let revisionTransactionQueue = Promise.resolve();
+function withRevisionTransaction(fn){
+    const result = revisionTransactionQueue.then(fn, fn);
+    revisionTransactionQueue = result.then(() => undefined, () => undefined);
+    return result;
+}
+
+// Per-key critical section for /api/write: a plain sequential "read current
+// revision, compare, write, bump revision" is NOT safe on its own — two
+// concurrent requests for the same key could each read the same revision,
+// each pass the comparison, and both proceed to write, since the read and
+// the write aren't one atomic operation just because they're sequential
+// `await`s in the same async function (Node's event loop yields control
+// between them). Queuing each key's whole check-and-write sequence behind
+// the previous one for that same key is what actually closes that race.
+const fileWriteQueues = new Map();
+function withFileWriteLock(key, fn){
+    const previous = fileWriteQueues.get(key) || Promise.resolve();
+    const result = previous.then(fn, fn);
+    // Store a queue tail that always resolves (never rejects), so one
+    // request's failure doesn't permanently wedge later requests for the
+    // same key behind a rejected promise.
+    const settled = result.then(() => undefined, () => undefined);
+    fileWriteQueues.set(key, settled);
+    // Reclaim the entry once this tail drains — otherwise every distinct key
+    // ever written/deleted permanently occupies a Map slot for the life of
+    // the process. Guarded by identity: only remove it if nothing newer has
+    // queued behind this one in the meantime (i.e. this is still the current
+    // tail for `key`), so a fast-arriving next request's own tail is never
+    // wrongly deleted out from under it.
+    settled.then(() => {
+        if(fileWriteQueues.get(key) === settled){
+            fileWriteQueues.delete(key);
+        }
+    });
+    return result;
+}
+
+// Acquires per-key locks for MULTIPLE keys at once (batch delete), nested in
+// a fixed order — every distinct key in `keys`, deduplicated and sorted —
+// rather than acquired in whatever order the caller happened to list them.
+// This is what makes it safe: two concurrent multi-key requests that share
+// some keys but list them in different orders can never deadlock waiting on
+// each other, because both always acquire in the same (sorted) order.
+// `fn` runs only once every lock in the batch is held, so it can validate
+// every key's precondition and then commit every key's mutation as one
+// effectively-atomic unit from the perspective of any other request — no
+// other request touching any of these keys can observe a partially-applied
+// state, since none of their locks release until `fn` (and therefore the
+// whole batch) is done.
+async function withFileWriteLocks(keys, fn){
+    const sortedKeys = [...new Set(keys)].sort();
+    async function acquireNext(index){
+        if(index >= sortedKeys.length){
+            return await fn();
+        }
+        return await withFileWriteLock(sortedKeys[index], () => acquireNext(index + 1));
+    }
+    return await acquireNext(0);
+}
+
 const authCodePath = path.join(process.cwd(), 'save', '__authcode')
 const hexRegex = /^[0-9a-fA-F]+$/;
 const PROXY_STREAM_DEFAULT_TIMEOUT_MS = 600000;
@@ -1184,7 +1298,7 @@ app.get('/api/read', authenticatedRouteLimiter, async (req, res, next) => {
     if(!await checkAuth(req, res)){
         return;
     }
-    const filePath = req.headers['file-path'];
+    let filePath = req.headers['file-path'];
     if (!filePath) {
         console.log('no path')
         res.status(400).send({
@@ -1199,13 +1313,50 @@ app.get('/api/read', authenticatedRouteLimiter, async (req, res, next) => {
         });
         return;
     }
+    // Canonicalize to lowercase — hex is case-insensitive, but a case-variant
+    // of the same key (e.g. "aa" vs "AA") would otherwise be tracked as a
+    // DIFFERENT entry in `revisions`/`fileWriteQueues` while addressing the
+    // SAME physical file on a case-insensitive filesystem (Windows, and
+    // macOS by default) — splitting one file's revision identity in two.
+    filePath = filePath.toLowerCase();
     try {
-        if(!existsSync(path.join(savePath, filePath))){
+        // Reading the revision header and the file content must happen as one
+        // atomic pair, under the SAME per-key lock /api/write and /api/remove
+        // use — without this, a reader could land in the gap those handlers'
+        // crash-safe ordering deliberately creates (revision persisted before
+        // content is actually replaced/removed) and walk away with a revision
+        // number that doesn't actually correspond to the content it just
+        // read. That mismatched pair is dangerous specifically because a
+        // later conditional write presenting that revision would PASS the
+        // check (the revision genuinely is current) while having never
+        // actually observed the write or removal that produced it — silently
+        // overwriting content it was never actually consistent with.
+        //
+        // The lock is held only long enough to capture a consistent
+        // (revision, content) snapshot into memory — NOT for the duration of
+        // actually sending it to the client. Streaming the response from
+        // inside the lock (an earlier version of this fix did, via
+        // res.sendFile()) ties the lock's hold time to the client's download
+        // speed: a connected client that simply stops reading (deliberately
+        // or not) would hold this key's lock open indefinitely, since
+        // nothing here previously bounded that wait — blocking every write
+        // or removal for that key for as long as the stalled download
+        // lasted, an availability hazard with no timeout to end it.
+        let currentRevision = 0;
+        let content = null;
+        await withFileWriteLock(filePath, async () => {
+            currentRevision = revisions[filePath] ?? 0;
+            const fullPath = path.join(savePath, filePath);
+            if(existsSync(fullPath)){
+                content = await fs.readFile(fullPath);
+            }
+        });
+        res.setHeader('x-risu-revision', String(currentRevision));
+        if(content === null){
             res.send();
-        }
-        else{
+        } else {
             res.setHeader('Content-Type','application/octet-stream');
-            res.sendFile(path.join(savePath, filePath));
+            res.send(content);
         }
     } catch (error) {
         next(error);
@@ -1216,7 +1367,24 @@ app.get('/api/remove', authenticatedRouteLimiter, async (req, res, next) => {
     if(!await checkAuth(req, res)){
         return;
     }
-    const filePaths = req.headers['file-path']?.split('$$') || []
+    // Canonicalized to lowercase (see /api/read's comment on the same
+    // pattern) — done here, before duplicate-checking, locking, revision
+    // lookup, or filesystem access, so a case-variant of an already-listed
+    // key is actually caught as the duplicate it physically is.
+    const filePaths = (req.headers['file-path']?.split('$$') || []).map((p) => p.toLowerCase())
+    // Optional, positionally aligned with filePaths (same '$$' join). An
+    // empty segment means "no check for this specific key" — unconditional
+    // delete for that one key. The header being absent ENTIRELY means "no
+    // check for any key" — today's behavior, for back-compat with clients
+    // that don't send it at all. If the header IS present, though, it must
+    // fully align with file-path (same segment count, every non-empty
+    // segment a valid revision number) — silently tolerating a short or
+    // malformed header would downgrade whichever keys it doesn't properly
+    // cover to unconditional deletes without the caller ever finding out.
+    const ifMatchRevisionHeaderPresent = req.headers['if-match-revision'] !== undefined;
+    const ifMatchRevisions = ifMatchRevisionHeaderPresent
+        ? req.headers['if-match-revision'].split('$$')
+        : [];
 
     for(const filePath of filePaths){
         if (!filePath) {
@@ -1233,29 +1401,165 @@ app.get('/api/remove', authenticatedRouteLimiter, async (req, res, next) => {
         }
     }
 
-    // Aggregate one response after processing every path, instead of calling
-    // res.send() per iteration — sending more than one response for a single
-    // request throws (ERR_HTTP_HEADERS_SENT) and silently masks whether files
-    // after the first were actually removed.
-    const errors = [];
-    for(const filePath of filePaths){
-        try {
-            await fs.rm(path.join(savePath, filePath));
-        } catch (error) {
-            errors.push({ filePath, error: error?.message ?? String(error) });
-        }
-    }
-
-    if(errors.length > 0){
-        res.status(500).send({
-            success: false,
-            errors,
+    // A key repeated within one batch would otherwise get its revision
+    // bumped and persisted twice (once per occurrence in the commit loop
+    // below) and, on the RIGOROUS reading of "return every key's new
+    // revision," a genuinely ambiguous response — reject outright rather
+    // than define subtle double-counting semantics nothing actually needs.
+    if(new Set(filePaths).size !== filePaths.length){
+        res.status(400).send({
+            error: 'Duplicate file-path entries are not allowed in one request'
         });
         return;
     }
-    res.send({
-        success: true,
-    });
+
+    if(ifMatchRevisionHeaderPresent){
+        if(ifMatchRevisions.length !== filePaths.length){
+            res.status(400).send({
+                error: 'if-match-revision segment count must match file-path'
+            });
+            return;
+        }
+        for(const segment of ifMatchRevisions){
+            if(segment !== '' && !/^\d+$/.test(segment)){
+                res.status(400).send({
+                    error: 'Invalid if-match-revision segment'
+                });
+                return;
+            }
+        }
+    }
+
+    try {
+        // All locks for every key in this batch are held for the ENTIRE
+        // operation below — every precondition is checked first, and only
+        // if every single one passes does any file actually get removed.
+        // Without this, a batch that conflicts partway through (key 2 of 3,
+        // say) would otherwise have already deleted key 1 by the time the
+        // conflict is discovered, leaving the caller told "409, failed" while
+        // some of the deletion had, in fact, already silently committed.
+        const committedRevisions = await withFileWriteLocks(filePaths, async () => {
+            // Precondition validation, revision bump, and persistence (with
+            // rollback on a save failure) all happen inside
+            // withRevisionTransaction — the same global queue /api/write uses
+            // — not just the per-key locks withFileWriteLocks already holds.
+            // See its own comment for why: without this, one request's
+            // in-memory revision bump could be durably persisted by a
+            // DIFFERENT, concurrent request's own save (for different keys,
+            // so not blocked by the per-key locks) before this request's own
+            // saveRevisions() call — and therefore its rollback-on-failure —
+            // ever runs, making that rollback a lie.
+            const newRevisions = await withRevisionTransaction(async () => {
+                const currentRevisions = {};
+                for(let i = 0; i < filePaths.length; i++){
+                    const filePath = filePaths[i];
+                    const currentRevision = revisions[filePath] ?? 0;
+                    currentRevisions[filePath] = currentRevision;
+
+                    const expectedRevisionRaw = ifMatchRevisions[i];
+                    if(expectedRevisionRaw){
+                        const expectedRevision = parseInt(expectedRevisionRaw, 10);
+                        if(expectedRevision !== currentRevision){
+                            const conflict = new Error('Revision conflict');
+                            conflict.isRevisionConflict = true;
+                            conflict.filePath = filePath;
+                            conflict.currentRevision = currentRevision;
+                            throw conflict;
+                        }
+                    }
+                    // Without this check, a client that read this key at an
+                    // old revision could still issue an unconditional delete
+                    // after a DIFFERENT, newer write had already landed —
+                    // fully serialized by the lock, but still silently
+                    // destroying content the deleting client never actually
+                    // observed.
+                }
+
+                // Every precondition above passed — commit. Revisions are
+                // bumped (and persisted) for every key BEFORE any file is
+                // actually removed, same "safe crash direction" reasoning as
+                // /api/write: if the process dies partway through this loop,
+                // some files may still be physically present with an
+                // already-advanced revision, which just means the next access
+                // to them needs a fresh read — never the reverse (a file gone
+                // but its revision not yet moved, which is what would let a
+                // stale holder of the old revision treat an already-deleted
+                // key as if it had observed its disappearance).
+                const bumped = {};
+                for(const filePath of filePaths){
+                    bumped[filePath] = currentRevisions[filePath] + 1;
+                    revisions[filePath] = bumped[filePath];
+                }
+                try {
+                    await saveRevisions();
+                } catch (saveError) {
+                    // Persistence itself failed — roll back every key's
+                    // in-memory bump from this batch (not just one), safe to
+                    // do unconditionally since nothing else could have
+                    // mutated these entries in between (globally serialized
+                    // by this same queue). Nothing in this batch actually
+                    // committed, so — unlike the fs.rm failure case below —
+                    // no committedRevisions is attached here; the client's
+                    // existing knownRevisions are still correct.
+                    for(const filePath of filePaths){
+                        revisions[filePath] = currentRevisions[filePath];
+                    }
+                    throw saveError;
+                }
+                return bumped;
+            });
+
+            try {
+                for(const filePath of filePaths){
+                    // { force: true } makes removing an already-absent file a
+                    // no-op instead of throwing ENOENT — without this, deleting
+                    // the same key twice (or a key another request already
+                    // removed) would throw here AFTER this key's revision was
+                    // already bumped and persisted above, turning a harmless
+                    // repeat delete into a request the caller is told failed.
+                    await fs.rm(path.join(savePath, filePath), { force: true });
+                }
+            } catch (rmError) {
+                // Some OTHER I/O failure (permissions, disk error, ...) — the
+                // revisions above are already committed regardless, so attach
+                // them to the error the caller sees instead of leaving the
+                // client with no way to learn they moved.
+                rmError.committedRevisions = newRevisions;
+                throw rmError;
+            }
+            return newRevisions;
+        });
+
+        res.send({
+            success: true,
+            revisions: committedRevisions,
+        });
+    } catch (error) {
+        // If this is a genuine I/O failure (not a precondition conflict, which
+        // never reaches this far), it happened after revisions had already
+        // been bumped and persisted for this whole batch — attaching them to
+        // the error response lets the client reconcile its own knownRevisions
+        // to match reality instead of being stuck presenting stale values it
+        // has no way to learn have moved.
+        if(!error?.isRevisionConflict && error?.committedRevisions){
+            res.status(500).send({
+                success: false,
+                error: error.message ?? String(error),
+                revisions: error.committedRevisions,
+            });
+            return;
+        }
+        if(error?.isRevisionConflict){
+            res.status(409).send({
+                success: false,
+                error: 'Revision conflict',
+                filePath: error.filePath,
+                currentRevision: error.currentRevision,
+            });
+            return;
+        }
+        next(error);
+    }
 });
 
 app.get('/api/list', authenticatedRouteLimiter, async (req, res, next) => {
@@ -1279,7 +1583,7 @@ app.post('/api/write', authenticatedRouteLimiter, async (req, res, next) => {
     if(!await checkAuth(req, res)){
         return;
     }
-    const filePath = req.headers['file-path'];
+    let filePath = req.headers['file-path'];
     const fileContent = req.body
     if (!filePath || !fileContent) {
         res.status(400).send({
@@ -1293,26 +1597,107 @@ app.post('/api/write', authenticatedRouteLimiter, async (req, res, next) => {
         });
         return;
     }
+    // Canonicalize to lowercase — see /api/read's comment on the same
+    // pattern; keeps this key's revision/lock identity consistent with
+    // /api/read and /api/remove regardless of the case a given client
+    // happens to send its hex encoding in.
+    filePath = filePath.toLowerCase();
+
+    // Optional: when the client sends this, it's asserting "I last read this
+    // key at revision N" and wants the write rejected if that's gone stale —
+    // an older client that never sends it gets today's unconditional-write
+    // behavior unchanged (back-compat).
+    const ifMatchRevisionHeader = req.headers['if-match-revision'];
 
     try {
-        // Write to a unique temp file in the same directory, then atomically
-        // rename it over the real path. A plain writeFile() to an existing path
-        // is not atomic — two concurrent writers to the same key (e.g. two
-        // devices/browsers pointed at this server) could otherwise interleave
-        // or leave a torn file; rename() within the same filesystem is atomic.
-        const finalPath = path.join(savePath, filePath);
-        const tempPath = path.join(savePath, `${filePath}.tmp-${crypto.randomBytes(8).toString('hex')}`);
-        try {
-            await fs.writeFile(tempPath, fileContent);
-            await fs.rename(tempPath, finalPath);
-        } catch (error) {
-            await fs.unlink(tempPath).catch(() => {});
-            throw error;
-        }
-        res.send({
-            success: true
+        await withFileWriteLock(filePath, async () => {
+            // Revision is committed BEFORE content, not after — these are two
+            // separate files (this one's own content, and the shared
+            // __revisions.json), so there's no way to rename both atomically
+            // as one transaction. Ordering still matters: if the process
+            // crashes between the two, "revision bumped, content not yet
+            // replaced" is the SAFE direction to fail in — a later reader
+            // sees the new revision paired with the OLD (still valid, never
+            // torn) content, and any writer whose own if-match-revision no
+            // longer matches gets correctly rejected and must re-read before
+            // trying again. The other order ("content replaced, revision not
+            // yet bumped") would instead let a writer who is still holding
+            // the OLD revision pass the check and silently overwrite content
+            // they never actually observed — the exact failure this whole
+            // mechanism exists to prevent.
+            //
+            // The precondition-check + bump + persist sequence runs inside
+            // withRevisionTransaction (a separate, GLOBAL queue from this
+            // per-key lock) — see its own comment for why: without it, this
+            // request's in-memory bump could be durably persisted by a
+            // DIFFERENT concurrent request's own save before this one's own
+            // saveRevisions() call (and therefore its rollback-on-failure)
+            // ever runs, making that rollback a lie.
+            const newRevision = await withRevisionTransaction(async () => {
+                const currentRevision = revisions[filePath] ?? 0;
+
+                if(ifMatchRevisionHeader !== undefined){
+                    const expectedRevision = parseInt(ifMatchRevisionHeader, 10);
+                    if(!Number.isFinite(expectedRevision) || expectedRevision !== currentRevision){
+                        const conflict = new Error('Revision conflict');
+                        conflict.isRevisionConflict = true;
+                        conflict.currentRevision = currentRevision;
+                        throw conflict;
+                    }
+                }
+
+                const bumped = currentRevision + 1;
+                revisions[filePath] = bumped;
+                try {
+                    await saveRevisions();
+                } catch (saveError) {
+                    // Persistence itself failed — roll back the in-memory bump
+                    // so it doesn't silently diverge from what's actually
+                    // durable on disk. Safe to do unconditionally here (unlike
+                    // if this ran outside the transaction queue): nothing else
+                    // could have mutated `revisions[filePath]` in between,
+                    // since the whole read-validate-mutate-persist sequence for
+                    // every key is globally serialized by this same queue.
+                    revisions[filePath] = currentRevision;
+                    throw saveError;
+                }
+                return bumped;
+            });
+
+            // Write to a unique temp file in the same directory, then atomically
+            // rename it over the real path. A plain writeFile() to an existing path
+            // is not atomic — two concurrent writers to the same key (e.g. two
+            // devices/browsers pointed at this server) could otherwise interleave
+            // or leave a torn file; rename() within the same filesystem is atomic.
+            const finalPath = path.join(savePath, filePath);
+            const tempPath = path.join(savePath, `${filePath}.tmp-${crypto.randomBytes(8).toString('hex')}`);
+            try {
+                await fs.writeFile(tempPath, fileContent);
+                await fs.rename(tempPath, finalPath);
+            } catch (error) {
+                await fs.unlink(tempPath).catch(() => {});
+                // The revision was already bumped above. Leaving it bumped
+                // (not rolling back) is intentional and still safe, for the
+                // same reason as the crash case in the comment above — it
+                // just means the NEXT read/write for this key needs a fresh
+                // if-match-revision, which will correctly reflect that this
+                // attempt's content never actually landed.
+                throw error;
+            }
+
+            res.send({
+                success: true,
+                revision: newRevision
+            });
         });
     } catch (error) {
+        if(error?.isRevisionConflict){
+            res.status(409).send({
+                error: 'Revision conflict',
+                currentRevision: error.currentRevision
+            });
+            return;
+        }
         next(error);
     }
 });

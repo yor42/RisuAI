@@ -44,7 +44,7 @@ import { getColdStorageItem, makeColdData } from "./process/coldstorage.svelte";
 import { isTauri, isNodeServer } from "./platform";
 import { isLocalNetworkUrl } from "./network/localNetwork";
 import { decodeProxyJobWsChunk, formatProxyStreamErrorMessage, parseProxyJobWsEvent } from "./network/proxyJobWs";
-import { getNodeServerProxyAuth } from "./storage/nodeStorage";
+import { getNodeServerProxyAuth, NodeStorageConflictError } from "./storage/nodeStorage";
 
 export const forageStorage = new AutoStorage()
 
@@ -683,6 +683,12 @@ export async function saveDb() {
     let savetrys = 0
     let lastDbData = new Uint8Array(0)
     let quotaWarningShown = false
+    // Shown once per ongoing conflict episode, not once per retry — a
+    // NodeStorageConflictError keeps recurring every attempt until the user
+    // reloads (see the catch block below), so without this the toast would
+    // otherwise repeat every ~1s forever. Reset back to false on a
+    // successful write, so a LATER, separate conflict episode still alerts.
+    let conflictAlertShown = false
     await sleep(1000)
     while (true) {
         if (!changed) {
@@ -794,6 +800,7 @@ export async function saveDb() {
             }
 
             savetrys = 0
+            conflictAlertShown = false
             await saveDbKei()
             await sleep(500)
         } catch (error) {
@@ -807,7 +814,28 @@ export async function saveDb() {
                 mergeUnsavedChanges(toSave)
             }
             changed = true
-            if (isQuotaExceededError(error)) {
+            if (error instanceof NodeStorageConflictError) {
+                // This device's local data is out of date with the self-hosted
+                // Node server — another writer has saved this key since this
+                // device last read it. Deliberately not treated as a transient
+                // failure worth blindly retrying: encoding and writing the same
+                // (still-stale) local state again would just resend the same
+                // if-match-revision the server already rejected once, and it will
+                // keep rejecting it every subsequent attempt too — that's the
+                // correct, expected behavior (protecting the other writer's
+                // newer data), not a bug to route around. The only real
+                // resolution today is reloading (picking up the server's current
+                // data fresh), which this alert says explicitly, since silently
+                // "queuing" the failed edit and reloading would discard it — see
+                // Agents/Reports/06-conflict-resolution-design-feasibility.md.
+                if (!conflictAlertShown) {
+                    conflictAlertShown = true
+                    alertToast('Your local data conflicts with a newer version on the self-hosted server — your latest changes could not be saved. Reload the app to get the current data (unsynced local changes will be lost).')
+                }
+                console.error(error)
+                await sleep(2000)
+            }
+            else if (isQuotaExceededError(error)) {
                 // A distinct, actionable message instead of the generic retry path —
                 // "retrying" is misleading here, since retrying the exact same write
                 // won't succeed until the user actually frees up space.
