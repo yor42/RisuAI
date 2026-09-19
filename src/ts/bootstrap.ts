@@ -15,7 +15,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { checkRisuUpdate } from "./update";
 import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
-import { alertError, alertMd, alertTOS, waitAlert, alertConfirm, alertInput } from "./alert";
+import { alertError, alertMd, alertTOS, waitAlert, alertConfirm, alertInput, alertToast } from "./alert";
 import { checkDriverInit } from "./drive/drive";
 import { characterURLImport } from "./characterCards";
 import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from "./storage/defaultPrompts";
@@ -548,7 +548,15 @@ async function cleanChunks(options:{
 } = {}) {
     const cleanColdStorage = options.cleanColdStorage ?? false
     const db = getDatabase()
-    if (db.account?.useSync) {
+    // Gate on the actual runtime-selected backend (forageStorage.isAccount),
+    // not just the persisted user-intent flag (db.account?.useSync) — these
+    // can diverge (AutoStorage.Init() decides account-sync from
+    // localStorage['accountst'], independent of this flag), and this
+    // function's own asset-GC sweep plus the sampled cache-integrity check
+    // below are both meaningless (or worse, misleading) against an
+    // account-sync backend. Keep the persisted flag as an extra guard too,
+    // since it can only make this MORE conservative, never less.
+    if (db.account?.useSync || forageStorage.isAccount) {
         return
     }
     if(db.coldstorage && !cleanColdStorage){
@@ -674,8 +682,13 @@ async function cleanChunks(options:{
         // in-use assets against their own content-addressed filename on every
         // boot, rather than every cached asset (which would mean re-hashing
         // the whole library, exactly the cost a "lightweight" signal is meant
-        // to avoid). Read-only — logs a mismatch, doesn't attempt to repair
-        // it; a full on-demand sweep is Phase 1 item 7's job, not this one.
+        // to avoid). Always logs a mismatch to the console; also surfaces a
+        // user-visible toast when `db.checkCorruption` is enabled (Phase 1
+        // item 7's settings toggle, FilesSettings.svelte) — silent by default
+        // since a small sample turning up nothing proves little on its own
+        // and would just be alert noise for most users. Read-only either way
+        // — doesn't attempt to repair anything; that's the explicit "verify
+        // assets" action in the same settings section.
         const sampleTargets = Array.from(uncleanable)
             .sort(() => Math.random() - 0.5)
             .slice(0, 3)
@@ -684,6 +697,9 @@ async function cleanChunks(options:{
                 const result = await verifyAssetCacheEntry('assets/' + target)
                 if (result.status === 'mismatch') {
                     console.error(`Asset cache integrity check failed for assets/${target}: expected content hash ${result.expectedHash}, cached copy hashes to ${result.actualHash}`)
+                    if (db.checkCorruption) {
+                        alertToast(`Possible asset corruption detected (${target}). Check Settings → Files → Asset Cache Integrity.`)
+                    }
                 }
             } catch (error) {
                 console.error('Asset cache integrity check errored for', target, error)

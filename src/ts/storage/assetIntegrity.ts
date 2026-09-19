@@ -56,3 +56,94 @@ export async function verifyAssetCacheEntry(loc: string): Promise<AssetVerifyRes
     }
     return { status: 'mismatch', expectedHash, actualHash: actualHash.toLowerCase() }
 }
+
+export interface AssetIntegrityScanSummary {
+    checked: number
+    mismatches: { basename: string, expectedHash: string, actualHash: string }[]
+    notCached: number
+    notContentAddressed: number
+    unsupported: boolean
+}
+
+/**
+ * Runs verifyAssetCacheEntry() across every given asset basename (e.g. the
+ * output of getUncleanablesSync()/getUncleanables() — every asset currently
+ * referenced somewhere in the database) and summarizes the results. This is
+ * the full, on-demand counterpart to bootstrap.ts's small boot-time sample —
+ * checking everything is the whole point of an explicit "verify" action, so
+ * unlike the boot-time sample this intentionally does not cap how much it
+ * checks; callers driving a UI should report progress via `onProgress`
+ * rather than expect this to be instant for a large asset library.
+ */
+export async function scanAssetCacheIntegrity(
+    basenames: string[],
+    onProgress?: (done: number, total: number) => void
+): Promise<AssetIntegrityScanSummary> {
+    const summary: AssetIntegrityScanSummary = {
+        checked: 0,
+        mismatches: [],
+        notCached: 0,
+        notContentAddressed: 0,
+        unsupported: false
+    }
+    if (typeof caches === 'undefined') {
+        summary.unsupported = true
+        return summary
+    }
+    for (let i = 0; i < basenames.length; i++) {
+        const basename = basenames[i]
+        const result = await verifyAssetCacheEntry('assets/' + basename)
+        switch (result.status) {
+            case 'ok':
+                summary.checked++
+                break
+            case 'mismatch':
+                summary.checked++
+                summary.mismatches.push({ basename, expectedHash: result.expectedHash, actualHash: result.actualHash })
+                break
+            case 'not-cached':
+                summary.checked++
+                summary.notCached++
+                break
+            case 'not-content-addressed':
+                summary.checked++
+                summary.notContentAddressed++
+                break
+            case 'unsupported':
+                // Practically unreachable here given the guard above (caches
+                // existing at call time won't disappear mid-loop), kept only
+                // for switch exhaustiveness over AssetVerifyResult's variants.
+                summary.unsupported = true
+                break
+        }
+        onProgress?.(i + 1, basenames.length)
+    }
+    return summary
+}
+
+/**
+ * Evicts the given assets' entries from the service-worker's cache only —
+ * never touches the source-of-truth storage backend. Safe to call on any
+ * asset, but meant for ones scanAssetCacheIntegrity() already found to be
+ * corrupted: getFileSrc() (src/ts/globalApi.svelte.ts) already re-registers
+ * a fresh copy from local storage automatically on a cache miss, so evicting
+ * a known-bad entry is enough for it to self-heal — no separate "rebuild"
+ * step needed — but only on a FRESH page load. A tab that already resolved
+ * this asset this session has it memoized in its own in-memory `fileCache`
+ * (status 'done') and won't re-check `/sw/check/` at all until reloaded, so
+ * the caller should tell the user a reload is needed to see the fix.
+ */
+export async function evictAssetCacheEntries(basenames: string[]): Promise<number> {
+    if (typeof caches === 'undefined') {
+        return 0
+    }
+    const cache = await caches.open('risuCache')
+    let evicted = 0
+    for (const basename of basenames) {
+        const encoded = Buffer.from('assets/' + basename, 'utf-8').toString('hex')
+        if (await cache.delete('/sw/img/' + encoded)) {
+            evicted++
+        }
+    }
+    return evicted
+}
