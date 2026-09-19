@@ -162,17 +162,18 @@ You can safely apply Tailwind's opacity modifiers directly to these custom theme
 
 ### Testing
 
-- Basic test file in `src/test/runTest.ts`
-- Run `pnpm check` for type checking
-- No comprehensive test suite; relies on TypeScript for type safety
+- Unit tests use Vitest (`pnpm test` runs `vitest run`); there are ~20+ `*.test.ts` files spread across `src/lib`, `src/ts/parser`, `src/ts/process`, `src/ts/storage`, `src/ts/translator`, and elsewhere — not exhaustive coverage, but a real and growing suite, not just a placeholder.
+- Run `pnpm check` for type checking (svelte-check).
+- Test coverage is uneven: some areas (e.g. `src/ts/storage/remoteSaveCleanup.test.ts`) only exercise Tauri/Node-specific code paths and say nothing about the pure web build's behavior in that area. Don't assume a file has tests nearby means that exact runtime path is covered — check what the test actually exercises.
 
 ## Key Architectural Patterns
 
 ### Data Layer
 
-- Database abstraction with multiple storage backends:
-  - Tauri FS, LocalForage, Mobile, Node, OPFS
-- Save file format: `.bin` files with encryption support
+- Database abstraction (`src/ts/storage/autoStorage.ts`) selects a backend at runtime, in priority order: account-sync (HTTP, `accountStorage.ts`) → Node server (HTTP, `nodeStorage.ts`) → OPFS (`opfsStorage.ts`) → LocalForage (fallback).
+- **OPFS is currently dead code for the main database on the web build**: `AutoStorage` only selects it when `localStorage['opfs_flag!'] === "able"`, and nothing in the codebase ever sets that flag. In practice, plain web/browser profiles fall through to LocalForage for `database/database.bin`. Cold storage (`src/ts/process/coldstorage.svelte.ts`) *does* use OPFS directly and does work — it's specifically the main-database path where OPFS is unreachable. Don't assume "OPFS" in a file name means it's live in production; check the `opfs_flag!` gate first.
+- Tauri desktop bypasses this whole abstraction for the primary database write and calls `@tauri-apps/plugin-fs`'s `writeFile` directly (see `src/ts/globalApi.svelte.ts`'s `saveDb()`), including for "remote" character blocks — `AutoStorage`'s remote-block path is only actually exercised by the Node-server backend, not Tauri.
+- Save file format: `.bin` files with encryption support, structured as a block/chunk format (`RisuSaveType` in `src/ts/storage/risuSave.ts`) — a root block plus one block per character/module/preset/etc., only-changed-blocks-re-encoded incrementally.
 - Character cards: Import/export in various formats (.risum, .risup, .charx)
 
 ### Processing Pipeline
@@ -253,9 +254,20 @@ Language files are located in `/src/lang/`.
 | `server/hono/README.md` | Hono server documentation |
 | `server/node/readme.md` | Node server documentation |
 
+## AI Coding Agent Requirements
+
+Any AI coding agent (Claude Code subagent, Codex, or similar) that produces or modifies application code, or writes an investigative/analysis report intended to inform code changes, **must pass that work through an independent adversarial review before it is treated as final.**
+
+- Use the Codex CLI's adversarial-review command (`/codex:adversarial-review` when available as a slash command, or the equivalent `codex-companion.mjs adversarial-review` invocation) to get a review from a model that did not produce the original work and has no memory of how it was derived.
+- This applies to code diffs (the command's default target) and to investigative reports/findings (scope the review with explicit focus text naming the exact file and claims to verify, and instruct it to ignore unrelated files in the working tree).
+- Do not treat a report or diff as authoritative, or act on its recommendations, until the adversarial-review pass has run and any confirmed corrections have been folded back in. Mark corrected passages inline (e.g. `[corrected]`) rather than silently rewriting, so the correction trail stays visible.
+- If Codex is not installed/authenticated in the current session, say so explicitly and ask before proceeding without this step — don't silently skip it.
+- See `Agents/Reports/`, `Agents/CodexReviews/`, `Agents/Summary.md`, and `Agents/Roadmap.md` for a worked example of this workflow (four investigation reports, each independently cross-validated, corrections applied in place).
+
 ## Contribution Guidelines
 
 1. Follow the existing coding style and conventions
 2. Run `pnpm check` before submitting a pull request
 3. Ensure your code is well-tested
 4. Format code with Prettier before committing
+5. Any AI-agent-authored code change or investigative report must go through the adversarial-review process above before being considered complete
