@@ -33,6 +33,7 @@ import { moduleUpdate } from "./process/modules";
 import type { AccountStorage } from "./storage/accountStorage";
 import { AccountSyncCacheMismatchError } from "./storage/accountStorage";
 import { makeColdData } from "./process/coldstorage.svelte";
+import { verifyAssetCacheEntry } from "./storage/assetIntegrity";
 import { getRemoteSaveCleanupAction, getRemoteSavePayloadName } from "./storage/remoteSaveCleanup";
 import {
     forageStorage,
@@ -666,6 +667,26 @@ async function cleanChunks(options:{
                         await forageStorage.removeItem(asset)
                     }
                 }
+            }
+        }
+
+        // Cheap, sampled integrity spot-check: verify a handful of currently
+        // in-use assets against their own content-addressed filename on every
+        // boot, rather than every cached asset (which would mean re-hashing
+        // the whole library, exactly the cost a "lightweight" signal is meant
+        // to avoid). Read-only — logs a mismatch, doesn't attempt to repair
+        // it; a full on-demand sweep is Phase 1 item 7's job, not this one.
+        const sampleTargets = Array.from(uncleanable)
+            .sort(() => Math.random() - 0.5)
+            .slice(0, 3)
+        for (const target of sampleTargets) {
+            try {
+                const result = await verifyAssetCacheEntry('assets/' + target)
+                if (result.status === 'mismatch') {
+                    console.error(`Asset cache integrity check failed for assets/${target}: expected content hash ${result.expectedHash}, cached copy hashes to ${result.actualHash}`)
+                }
+            } catch (error) {
+                console.error('Asset cache integrity check errored for', target, error)
             }
         }
     }
