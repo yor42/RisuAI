@@ -1295,7 +1295,20 @@ app.post('/api/write', authenticatedRouteLimiter, async (req, res, next) => {
     }
 
     try {
-        await fs.writeFile(path.join(savePath, filePath), fileContent);
+        // Write to a unique temp file in the same directory, then atomically
+        // rename it over the real path. A plain writeFile() to an existing path
+        // is not atomic — two concurrent writers to the same key (e.g. two
+        // devices/browsers pointed at this server) could otherwise interleave
+        // or leave a torn file; rename() within the same filesystem is atomic.
+        const finalPath = path.join(savePath, filePath);
+        const tempPath = path.join(savePath, `${filePath}.tmp-${crypto.randomBytes(8).toString('hex')}`);
+        try {
+            await fs.writeFile(tempPath, fileContent);
+            await fs.rename(tempPath, finalPath);
+        } catch (error) {
+            await fs.unlink(tempPath).catch(() => {});
+            throw error;
+        }
         res.send({
             success: true
         });

@@ -4,7 +4,7 @@ import { alertError, alertNormal, alertStore, alertWait, alertMd, alertConfirm }
 import { LocalWriter, forageStorage, requiresFullEncoderReload } from "../globalApi.svelte";
 import { isTauri } from "src/ts/platform"
 import { decodeRisuSave, encodeRisuSaveLegacy } from "../storage/risuSave";
-import { getDatabase, setDatabaseLite } from "../storage/database.svelte";
+import { getDatabase, setDatabase } from "../storage/database.svelte";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { decryptBuffer, encryptBuffer, sleep } from "../util";
 import { hubURL } from "../characterCards";
@@ -538,7 +538,13 @@ export function LoadLocalBackup(){
                 }
                 catch (e) {
                     console.error('Failed to decrypt database backup:', e)
-                    alertError('Failed to decrypt database backup, will attempt to load it without decryption.')
+                    // Do not fall through to decoding the still-encrypted `db` bytes as
+                    // if they were plaintext — a failed decrypt previously left `db`
+                    // unchanged (still ciphertext), and decodeRisuSave() on that data can
+                    // in the worst case produce plausible-looking garbage that then gets
+                    // written over the live save file instead of throwing outright.
+                    alertError('Failed to decrypt database backup. Restore aborted — your current data has not been modified.')
+                    return
                 }
             }
             const dbData = await decodeRisuSave(db);
@@ -556,7 +562,7 @@ export function LoadLocalBackup(){
                 return
             }
 
-            setDatabaseLite(dbData);
+            setDatabase(dbData);
             requiresFullEncoderReload.state = true;
             if (isTauri) {
                 await writeFile('database/database.bin', db, { baseDir: BaseDirectory.AppData });

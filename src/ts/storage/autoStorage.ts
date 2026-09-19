@@ -1,5 +1,5 @@
 import localforage from "localforage"
-import { replaceDbResources } from "../globalApi.svelte"
+import { replaceDbResources, tabPresenceLockAcquired } from "../globalApi.svelte"
 import { isNodeServer } from "src/ts/platform"
 import { NodeStorage } from "./nodeStorage"
 import { OpfsStorage } from "./opfsStorage"
@@ -164,6 +164,13 @@ export class AutoStorage{
 
     async Init(){
         if(!this.realStorage){
+            // Waits for this tab's own shared cross-tab presence lock to actually
+            // be granted first — while a storage-backend migration is in progress
+            // (holding the same lock exclusively, see globalApi.svelte.ts), a new
+            // tab must not start reading/writing any backend at all, since the
+            // migration could still be copying data out from under it or the
+            // active backend could change out from under it mid-init.
+            await tabPresenceLockAcquired
             if(localStorage.getItem('accountst') === 'able'){
                 this.realStorage = new AccountStorage()
                 this.isAccount = true

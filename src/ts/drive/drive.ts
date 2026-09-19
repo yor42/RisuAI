@@ -1,6 +1,6 @@
 import { alertError, alertInput, alertNormal, alertSelect, alertStore } from "../alert";
 import { getDatabase, type Database } from "../storage/database.svelte";
-import { forageStorage, getUncleanables, openURL } from "../globalApi.svelte";
+import { dbWriteLock, forageStorage, getUncleanables, openURL } from "../globalApi.svelte";
 import { isTauri } from "src/ts/platform"
 import { BaseDirectory, exists, readFile, readDir, writeFile } from "@tauri-apps/plugin-fs";
 import { language } from "../../lang";
@@ -362,25 +362,42 @@ async function loadDrive(ACCESS_TOKEN:string, mode: 'backup'|'sync'):Promise<voi
         db.didFirstSetup = true
         const dbData = encodeRisuSaveLegacy(db, 'compression')
 
-        if(isTauri){
-            await writeFile('database/database.bin', dbData, {baseDir: BaseDirectory.AppData})
-            lastSaved = Date.now()
-            localStorage.setItem('risu_lastsaved', `${lastSaved}`)
-            relaunch()
-            alertStore.set({
-                type: "wait",
-                msg: "Success, Refreshing your app."
-            })
-        }
-        else{
-            await forageStorage.setItem('database/database.bin', dbData)
-            lastSaved = Date.now()
-            localStorage.setItem('risu_lastsaved', `${lastSaved}`)
-            location.search = ''
-            alertStore.set({
-                type: "wait",
-                msg: "Success, Refreshing your app."
-            })
+        // Acquire the same write lock saveDb()'s autosave loop uses for this key —
+        // not just a checked-then-acted flag, which can't prevent an autosave that's
+        // already mid-write from landing after this one. Deliberately NOT released
+        // on success: a reload/relaunch follows immediately below, and nothing from
+        // this now-stale JS context (still holding the pre-restore in-memory database)
+        // must ever write this key again. It IS released on failure, since then no
+        // reload happens and permanently blocking the autosave loop would be worse.
+        const releaseWriteLock = await dbWriteLock.acquire()
+        let restoreWriteSucceeded = false
+        try {
+            if(isTauri){
+                await writeFile('database/database.bin', dbData, {baseDir: BaseDirectory.AppData})
+                lastSaved = Date.now()
+                localStorage.setItem('risu_lastsaved', `${lastSaved}`)
+                restoreWriteSucceeded = true
+                relaunch()
+                alertStore.set({
+                    type: "wait",
+                    msg: "Success, Refreshing your app."
+                })
+            }
+            else{
+                await forageStorage.setItem('database/database.bin', dbData)
+                lastSaved = Date.now()
+                localStorage.setItem('risu_lastsaved', `${lastSaved}`)
+                restoreWriteSucceeded = true
+                location.search = ''
+                alertStore.set({
+                    type: "wait",
+                    msg: "Success, Refreshing your app."
+                })
+            }
+        } finally {
+            if (!restoreWriteSucceeded) {
+                releaseWriteLock()
+            }
         }
     }
     else if(mode === 'backup'){

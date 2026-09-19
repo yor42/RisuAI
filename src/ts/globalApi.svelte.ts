@@ -364,9 +364,21 @@ export async function loadAsset(id: string) {
 }
 
 let lastSave = ''
+let lastBackupWriteTime = 0
+// Every autosave writes the full database again anyway; writing a full extra
+// numbered backup copy on every single cycle too (autosave debounces at
+// 500ms) accelerates quota exhaustion on web for little added safety-net
+// value over a much lower write rate. This only throttles how often a NEW
+// backup snapshot is taken — the primary database.bin write is unaffected.
+const DB_BACKUP_MIN_INTERVAL_MS = 5 * 60 * 1000
 export let saving = $state({
     state: false
 })
+
+function isQuotaExceededError(error: unknown): boolean {
+    return error instanceof DOMException &&
+        (error.name === 'QuotaExceededError' || (error as any).code === 22 || (error as any).code === 1014)
+}
 
 /**
  * Saves the current state of the database.
@@ -376,6 +388,162 @@ export let saving = $state({
 export let requiresFullEncoderReload = $state({
     state: false
 })
+/**
+ * A minimal async mutex serializing writes to the shared `database/database.bin`
+ * key between saveDb()'s autosave loop and any other direct writer (currently
+ * loadDrive()'s backup/sync restore). A boolean "is someone else writing"
+ * flag checked once before encoding is NOT sufficient — the flag can flip
+ * true after the check but before the write actually lands, letting a stale
+ * autosave clobber a just-completed restore. Acquiring this lock actually
+ * blocks a second acquirer until the first releases, so ordering is always
+ * correct regardless of the exact interleaving. Not releasing after a
+ * successful acquire (as loadDrive() deliberately does not, for its restore
+ * write) permanently blocks every later acquirer — the desired behavior once
+ * a restore has committed and a reload/relaunch is imminent: nothing from
+ * this now-stale JS context should ever write this key again.
+ */
+class AsyncMutex {
+    private queue: Promise<void> = Promise.resolve()
+    async acquire(): Promise<() => void> {
+        let release: () => void
+        const willRelease = new Promise<void>((resolve) => { release = resolve })
+        const previous = this.queue
+        this.queue = this.queue.then(() => willRelease)
+        await previous
+        return release
+    }
+}
+export const dbWriteLock = new AsyncMutex()
+
+/**
+ * Real cross-tab mutual exclusion for the storage-backend migration below,
+ * built on the browser's Web Locks API (navigator.locks) rather than a
+ * ping-and-wait heartbeat — a timeout-based liveness check can never be a
+ * genuine guarantee (a backgrounded/suspended tab may simply not get to run
+ * its event loop in time, and nothing stops a brand new tab from opening in
+ * the gap between "checked, looked clear" and "migration actually finished").
+ *
+ * Every tab acquires this lock in SHARED mode for its entire lifetime — the
+ * request's callback holds it open via a promise that only resolves on tab
+ * unload/release, so the lock's continued existence itself is what
+ * "announces this tab is alive" (no heartbeat, no timeout to miss). A
+ * migration acquires the SAME lock in EXCLUSIVE mode; the browser guarantees
+ * that request cannot be granted while any shared holder exists, and holding
+ * it through the whole migration (not just a point-in-time check) also
+ * blocks any NEW tab's shared acquisition from succeeding until the
+ * migration finishes and releases — closing both the "suspended peer missed
+ * the ping" and "new tab opened mid-copy" gaps a heartbeat approach cannot.
+ */
+const STORAGE_TAB_LOCK_NAME = 'risu-storage-tab-presence'
+
+// Release function for THIS tab's own shared presence hold, or null while
+// none is currently held (e.g. mid-migration-attempt — see
+// acquireExclusiveStorageMigrationLock below).
+let releaseOwnSharedPresenceLock: (() => void) | null = null
+
+function acquireOwnSharedPresenceLock(): Promise<void> {
+    if (typeof navigator === 'undefined' || !navigator.locks) {
+        return Promise.resolve()
+    }
+    return new Promise<void>((resolveAcquired) => {
+        navigator.locks.request(STORAGE_TAB_LOCK_NAME, { mode: 'shared' }, () => {
+            return new Promise<void>((resolveHeld) => {
+                // Deliberately not resolved here — this callback (and therefore the
+                // shared lock) stays held until releaseOwnSharedPresenceLock() is
+                // called, which normally only happens right before requesting the
+                // exclusive lock below (never on ordinary tab lifetime — the lock is
+                // released implicitly when the tab/document goes away).
+                releaseOwnSharedPresenceLock = () => {
+                    releaseOwnSharedPresenceLock = null
+                    resolveHeld()
+                }
+                resolveAcquired()
+            })
+        }).catch(() => resolveAcquired())
+    })
+}
+
+/** Resolves once this tab's own shared presence lock has actually been granted. */
+export const tabPresenceLockAcquired: Promise<void> = acquireOwnSharedPresenceLock()
+
+/**
+ * Attempts to acquire the same lock in EXCLUSIVE mode, for a storage-backend
+ * migration. Resolves to a release function once granted (call it when the
+ * migration — including the reload that should immediately follow — is
+ * fully done), or `null` if it couldn't be granted within `timeoutMs`
+ * (meaning at least one other tab is currently alive) or Web Locks isn't
+ * supported in this browser at all. Internally also acquires `dbWriteLock` —
+ * callers must NOT separately acquire it themselves.
+ *
+ * Ordering here is load-bearing, worked out over several rounds of review:
+ *
+ * 1. `dbWriteLock` is acquired FIRST, before this tab even attempts the
+ *    cross-tab exclusive lock. A tab that has only QUEUED for the exclusive
+ *    lock (not yet been granted it) is otherwise still a fully active writer
+ *    for however long it waits — if a DIFFERENT tab wins that race and starts
+ *    migrating, the still-queued tab's autosave loop could write the old
+ *    backend concurrently with that migration, silently losing data. Every
+ *    tab that even attempts a migration must stop writing immediately, win or
+ *    lose the race for the exclusive lock.
+ * 2. The exclusive request is queued (the `navigator.locks.request()` call
+ *    made) BEFORE releasing this tab's own shared presence hold, not after —
+ *    releasing first would leave a window where this tab holds no shared lock
+ *    AND has no exclusive request queued yet (invisible to the lock
+ *    entirely), during which a concurrent attempt from another tab could slip
+ *    in unaccounted-for. Queuing first means this request's position
+ *    correctly reflects every other tab's shared hold that exists at the
+ *    moment it's queued.
+ * 3. Web Locks aren't reentrant and have no shared→exclusive upgrade, so this
+ *    tab's own permanent shared hold must be released at all — otherwise step
+ *    2's request would deadlock against itself even with zero other tabs
+ *    open.
+ */
+export async function acquireExclusiveStorageMigrationLock(timeoutMs = 5000): Promise<(() => Promise<void>) | null> {
+    if (typeof navigator === 'undefined' || !navigator.locks) {
+        return null
+    }
+
+    const releaseWriteLock = await dbWriteLock.acquire()
+
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    const exclusiveRequest = new Promise<() => void>((resolveOuter, rejectOuter) => {
+        navigator.locks.request(STORAGE_TAB_LOCK_NAME, { mode: 'exclusive', signal: controller.signal }, () => {
+            return new Promise<void>((resolveHeld) => {
+                resolveOuter(() => resolveHeld())
+            })
+        }).catch(rejectOuter)
+    })
+    // Queued above; only now release our own shared hold — see doc comment.
+    releaseOwnSharedPresenceLock?.()
+
+    let granted: (() => void) | null = null
+    try {
+        granted = await exclusiveRequest
+    } catch (error) {
+        granted = null
+    } finally {
+        clearTimeout(timer)
+    }
+
+    if (!granted) {
+        // Didn't get it (another tab is alive, or the wait timed out) — resume
+        // correctly announcing this tab as present, THEN let it write again.
+        await acquireOwnSharedPresenceLock()
+        releaseWriteLock()
+        return null
+    }
+    return async () => {
+        granted()
+        // Only meaningful if the caller is recovering from a failed migration
+        // without reloading (see disableOpfs()'s catch path) — on the success
+        // path the tab reloads immediately after, making this moot (dbWriteLock
+        // stays held until then, same as loadDrive()'s restore write).
+        await acquireOwnSharedPresenceLock()
+        releaseWriteLock()
+    }
+}
+
 export async function saveDb() {
     let changed = false
     syncDrive()
@@ -514,6 +682,7 @@ export async function saveDb() {
 
     let savetrys = 0
     let lastDbData = new Uint8Array(0)
+    let quotaWarningShown = false
     await sleep(1000)
     while (true) {
         if (!changed) {
@@ -577,15 +746,44 @@ export async function saveDb() {
                 continue
             }
             const dbData = new Uint8Array(encoded)
+            // Best-effort, non-blocking heads-up before storage actually fills up —
+            // browser storage has no other quota signal until a write starts failing.
+            if (!isTauri && !quotaWarningShown && navigator.storage?.estimate) {
+                try {
+                    const { quota, usage } = await navigator.storage.estimate()
+                    if (quota && (quota - (usage ?? 0)) < dbData.byteLength * 2) {
+                        quotaWarningShown = true
+                        alertToast('Your browser storage is running low — saves may start failing soon. Consider freeing up space (delete old chats/characters or old backups).')
+                    }
+                } catch (error) {
+                    // estimate() is best-effort only; a failure here must not block saving.
+                }
+            }
+            const shouldWriteBackup = (Date.now() - lastBackupWriteTime) > DB_BACKUP_MIN_INTERVAL_MS
+            // Acquired before the write and held through it (not just checked-then-acted
+            // on) so a concurrent direct writer to this same key (loadDrive()'s restore)
+            // can never interleave with this write — see AsyncMutex/dbWriteLock above.
+            const releaseWriteLock = await dbWriteLock.acquire()
+            try {
+                if (isTauri) {
+                    await writeFile('database/database.bin', dbData, { baseDir: BaseDirectory.AppData });
+                }
+                else {
+                    await forageStorage.setItem('database/database.bin', dbData)
+                }
+            } finally {
+                releaseWriteLock()
+            }
             if (isTauri) {
-                await writeFile('database/database.bin', dbData, { baseDir: BaseDirectory.AppData });
-                await writeFile(`database/dbbackup-${(Date.now() / 100).toFixed()}.bin`, dbData, { baseDir: BaseDirectory.AppData });
+                if (shouldWriteBackup) {
+                    await writeFile(`database/dbbackup-${(Date.now() / 100).toFixed()}.bin`, dbData, { baseDir: BaseDirectory.AppData });
+                    lastBackupWriteTime = Date.now()
+                }
             }
             else {
-
-                await forageStorage.setItem('database/database.bin', dbData)
-                if (!forageStorage.isAccount) {
+                if (!forageStorage.isAccount && shouldWriteBackup) {
                     await forageStorage.setItem(`database/dbbackup-${(Date.now() / 100).toFixed()}.bin`, dbData)
+                    lastBackupWriteTime = Date.now()
                 }
                 if (forageStorage.isAccount) {
                     await sleep(3000)
@@ -609,16 +807,26 @@ export async function saveDb() {
                 mergeUnsavedChanges(toSave)
             }
             changed = true
-            if (savetrys === 1) {
-                alertToast('Failed to save data, retrying…')
-            }
-            if (savetrys > 4) {
-                alertError(error)
+            if (isQuotaExceededError(error)) {
+                // A distinct, actionable message instead of the generic retry path —
+                // "retrying" is misleading here, since retrying the exact same write
+                // won't succeed until the user actually frees up space.
+                alertToast('Your browser storage is full — free up space (delete old chats, characters, or backups) and try again. Your latest edits could not be saved.')
+                console.error(error)
+                await sleep(5000)
             }
             else {
-                console.error(error)
+                if (savetrys === 1) {
+                    alertToast('Failed to save data, retrying…')
+                }
+                if (savetrys > 4) {
+                    alertError(error)
+                }
+                else {
+                    console.error(error)
+                }
+                await sleep(1000)
             }
-            await sleep(1000)
         }
 
         saving.state = false
@@ -1093,6 +1301,14 @@ export function getUncleanablesSync(db: Database, uptype: 'basename' | 'pure' = 
 
     addUncleanable(db.customBackground);
     addUncleanable(db.userIcon);
+    // These are asset-path fields (populated by saveAsset()), not the adjacent
+    // base64 fields — see Agents/Roadmap.md Phase 1, item 1. NAIImgConfig's
+    // `reference_image_multiple` is deliberately not included here: nothing
+    // currently populates it via saveAsset(), so it holds no asset reference
+    // to protect.
+    addUncleanable(db.NAIImgConfig?.image);
+    addUncleanable(db.NAIImgConfig?.character_image);
+    addUncleanable(db.wavespeedImage?.reference_image);
     const chars = options?.chars ?? db.characters
 
     for (let cha of chars) {
@@ -1122,6 +1338,12 @@ export function getUncleanablesSync(db: Database, uptype: 'basename' | 'pure' = 
                 addUncleanable(vit);
             }
         }
+        // TTS reads this asset back directly with no fallback (src/ts/process/tts.ts),
+        // so its deletion is real functional data loss, not just a stale preview.
+        // Present on both `character` and `groupChat` (the latter typed `any`, same
+        // "lazy hack for typechecking" category as vits/additionalAssets above), so
+        // protected unconditionally for the same reason those are.
+        addUncleanable(cha.gptSoVitsConfig?.ref_audio_data?.assetId);
         if (cha.type !== 'group') {
             if (cha.ccAssets) {
                 for (const asset of cha.ccAssets) {
