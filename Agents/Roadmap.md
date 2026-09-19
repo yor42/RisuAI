@@ -1,10 +1,12 @@
 # Fix &amp; Expansion Roadmap
 
-Derived from [`Summary.md`](Summary.md), the four round-1 reports and four round-2 deep-dive reports in [`Reports/`](Reports/), each cross-validated by an independent Codex adversarial-review pass (see [`CodexReviews/`](CodexReviews/)). Each item cites its source report for full detail before implementation begins.
+Derived from [`Summary.md`](Summary.md), the four round-1 reports, four round-2 deep-dive reports, and the standalone multi-instance-conflict report (05) in [`Reports/`](Reports/), each cross-validated by an independent Codex adversarial-review pass (see [`CodexReviews/`](CodexReviews/)). Each item cites its source report for full detail before implementation begins.
 
 Ordering principle: **fix data-loss and correctness first (cheap, high-trust-impact), then the shared architectural root cause (expensive, unlocks everything downstream), then platform breadth.** Android is deliberately the last phase, gated behind Phase 2.
 
 **Status:** Phase 0 (`e39df101`) and Phase 0.5 are implemented on `investigation/perf-persistence-assets-platform-baseline`. Every fix in both phases was verified by at least one Codex adversarial-review pass and is clean under `svelte-check`; Phase 0.5 specifically took three review rounds — the first caught three real async/race bugs (an unbounded KEI-backup hang, a `fileCache` waiter/eviction race, and a stale-`ended`-listener bgm bug) introduced while implementing the fixes, the second caught one more edge case (unbounded cache growth under many simultaneous stalled loads), and the third approved the final rework. See `Agents/CodexReviews/phase0.5/` for all three rounds. Everything from Phase 1 onward below is still unimplemented planning.
+
+A fifth, standalone investigation (topic 05, `Reports/05-multi-instance-conflict.md`) was run after Phase 0.5, into multi-tab/multi-device/multi-writer data loss — a distinct problem class from the single-instance save races Phase 0/0.5 already fixed. It found one **confirmed, standalone bug** (account-sync bootstrap silently blanking the remote database on a stale-cache read — see Phase 1.5 below) plus a broader **last-write-wins architecture gap** across every backend, with the account-sync backend's actual severity unverified pending the remote hub's source. See `Agents/CodexReviews/topic05/05-multi-instance-conflict.codexreview.md` for the Codex review and correction trail (three claims were corrected: account-sync conflict behavior downgraded from "confirmed" to "unverified/hub-dependent"; the 303/null bootstrap bug promoted from "open question" to "confirmed"; and the per-character blast-radius mitigation corrected to "opt-in, off by default" rather than automatic on Tauri/Node-server). No fixes for this topic have been implemented yet — investigation only, per explicit instruction to hold further changes until this pass completed.
 
 ---
 
@@ -70,6 +72,22 @@ Builds on Phase 0's fixes; addresses the remaining, slightly-larger-effort corre
 
 ---
 
+## Phase 1.5 — Multi-writer conflict hardening (new, from topic 05)
+
+Two tiers here: a small, isolated, high-confidence bug fix that can ship independently like Phase 0/0.5 items, and a genuine architectural/product decision that needs to be made deliberately before implementing anything broader. **Nothing in this phase is implemented yet — awaiting go-ahead.**
+
+**Tier A — isolated, quick fix (same risk profile as Phase 0/0.5):**
+
+1. **Fix account-sync bootstrap's `303`/`match:false` null-handling** so a stale-cache signal from the server is never treated as "no database exists." `AccountStorage.getItem` returning `null` for this case should trigger a fresh (non-cached) re-fetch, not an unconditional empty-database write. Currently `src/ts/bootstrap.ts:157-163` will silently overwrite a real remote database with an empty one on an ordinary load if this signal fires. **This is the single highest-severity confirmed finding in the whole investigation to date** — it requires no second writer, no race, no multi-device setup, just one unlucky read. *(Report 05, section 7 / scenario 2 — Low-Medium effort; needs a decision on what "fresh re-fetch" should look like — cache-bust the request, or fall back to an explicit "retry read" state — before implementing.)*
+
+**Tier B — needs a product/architecture decision before scoping:**
+
+2. **Decide how much of the BroadcastChannel over-aggressiveness to fix now vs. defer.** It currently force-reloads any other open tab on literally the first save, not on an actual conflict — this is itself a data-loss bug (discards unsaved edits in the losing tab with no save-first prompt), but tightening it (e.g. only warn on an actual overlapping edit, or save-then-reload instead of discard-then-reload) is nontrivial without also addressing the deeper last-write-wins gap it's papering over. *(Report 05, section 1.)*
+3. **Decide on a target design for cross-device/cross-backend conflict handling.** Report 05 sketches four options at a conceptual level — revision/ETag optimistic concurrency, per-chat granular sync with independent revisions, CRDT-style operation-log merge, or a hard single-writer lock with explicit takeover UI. These have very different effort/UX/architecture tradeoffs (see the report's "Design options" section) and the right choice depends on product judgment (how common is genuine simultaneous multi-device editing for this app's actual users?) as much as engineering cost. **Recommend resolving the account-sync hub's actual server-side behavior first** (Report 05's biggest open question) since it changes whether this is "add protection" or "the protection already exists and needs the client wired up to respect it."
+4. **If Tier B's chosen design benefits from per-character/per-chat granularity**, revisit making `db.enableRemoteSaving`'s remote-block storage the default (or exposing it as an opt-out) for Tauri/Node-server, since it's currently opt-in and off by default — most users get none of its blast-radius reduction today. *(Report 05, section 5.)*
+
+---
+
 ## Phase 2 — RAM/architecture rework (the shared root cause; highest leverage, highest effort)
 
 This phase is the load-bearing one: it's what Phase 4 (Android) is gated behind, and it's the most consequential thing found in any of the four investigations. Sequence sub-items by risk — start with the isolated component-level fix, end with the DB-wide architectural change.
@@ -118,9 +136,13 @@ Phase 0 ✅ done ──> Phase 0.5 (round-2 quick fixes, any order) ──┬─
                                                                   │
                                                                   └──> Phase 3 (ARM Linux / Windows ARM CI) — independent, parallelizable
 
-Phase 1 ──> Phase 2 (RAM/architecture rework) ──> Phase 4 (Android)
+Phase 1 ──┬──> Phase 1.5 Tier A (bootstrap null-overwrite fix — quick, isolated, can ship anytime after decided)
+          │
+          └──> Phase 2 (RAM/architecture rework) ──> Phase 4 (Android)
+
+Phase 1.5 Tier B (conflict-handling design) — needs a product decision; not yet scheduled into a phase, no hard ordering dependency on Phase 2 but likely easier to design once Phase 2's per-character decomposition work (item 5) exists, since that's the same kind of granular-slice thinking a per-chat conflict design would reuse.
 ```
 
-Phase 0.5's Android compile-blocker fix (`#[cfg(desktop)]` on the two plugin registrations) is cheap enough that it has no real ordering dependency on anything — do it whenever convenient. Phase 3 (desktop ARM) has no dependency on Phase 2 and can proceed in parallel with Phases 0.5-2 if resourced separately. Phase 4 (Android) must not start before Phase 2's exit criterion is met — this is the one hard ordering constraint in this roadmap.
+Phase 0.5's Android compile-blocker fix (`#[cfg(desktop)]` on the two plugin registrations) is cheap enough that it has no real ordering dependency on anything — do it whenever convenient. Phase 1.5 Tier A (the confirmed bootstrap bug) is similarly low-risk and could be pulled forward ahead of the rest of Phase 1 if desired, since it's a one-file, no-architecture-dependency fix — flagged here rather than pre-ordered, since the user asked to hold all further changes until this investigation pass was reviewed. Phase 3 (desktop ARM) has no dependency on Phase 2 and can proceed in parallel with Phases 0.5-2 if resourced separately. Phase 4 (Android) must not start before Phase 2's exit criterion is met — this is the one hard ordering constraint in this roadmap.
 
 **Should there be a Round 3?** Both deep-dive rounds surfaced genuinely new, previously-undocumented bugs — round 2 was not a diminishing-returns exercise. Whether a third open-ended pass is worth running is a judgment call for the project owner: the highest-value remaining unknowns are probably not in these four subsystems anymore (two rounds of hypothesis-free hunting have covered them reasonably thoroughly) but in areas this investigation hasn't touched at all yet (the request/provider-abstraction layer, the memory/summarization systems' correctness beyond RAM footprint, the plugin API v3 sandbox's security boundary, i18n/translation correctness). Recommend deciding this after Phase 0.5 ships and its Codex reviews land, not before.
