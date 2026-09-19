@@ -74,11 +74,13 @@ Builds on Phase 0's fixes; addresses the remaining, slightly-larger-effort corre
 
 ## Phase 1.5 — Multi-writer conflict hardening (new, from topic 05)
 
-Two tiers here: a small, isolated, high-confidence bug fix that can ship independently like Phase 0/0.5 items, and a genuine architectural/product decision that needs to be made deliberately before implementing anything broader. **Nothing in this phase is implemented yet — awaiting go-ahead.**
+**Naming note:** "1.5" reflects topical proximity to Phase 1 (persistence hardening), not an ordering dependency — neither tier below depends on anything in Phase 1, and Tier A shipped out of sequence, the same way Phase 0.5's Android compile-blocker fix jumped ahead of its own numbering. Treat both tiers as independently schedulable, same as Phase 0/0.5 items.
 
-**Tier A — isolated, quick fix (same risk profile as Phase 0/0.5):**
+Two tiers here: a small, isolated, high-confidence bug fix that can ship independently like Phase 0/0.5 items, and a genuine architectural/product decision that needs to be made deliberately before implementing anything broader.
 
-1. **Fix account-sync bootstrap's `303`/`match:false` null-handling** so a stale-cache signal from the server is never treated as "no database exists." `AccountStorage.getItem` returning `null` for this case should trigger a fresh (non-cached) re-fetch, not an unconditional empty-database write. Currently `src/ts/bootstrap.ts:157-163` will silently overwrite a real remote database with an empty one on an ordinary load if this signal fires. **This is the single highest-severity confirmed finding in the whole investigation to date** — it requires no second writer, no race, no multi-device setup, just one unlucky read. *(Report 05, section 7 / scenario 2 — Low-Medium effort; needs a decision on what "fresh re-fetch" should look like — cache-bust the request, or fall back to an explicit "retry read" state — before implementing.)*
+**Tier A — isolated, quick fix (same risk profile as Phase 0/0.5) ✅ DONE:**
+
+1. **Fixed account-sync bootstrap's `303`/`match:false` null-handling** so a stale-cache signal from the server is never treated as "no database exists." `AccountStorage.getItem` (`src/ts/storage/accountStorage.ts`) now throws a dedicated `AccountSyncCacheMismatchError` on this signal instead of returning `null`; `src/ts/bootstrap.ts` retries up to 3 times (1s apart) on that specific error before finally surfacing a clear, non-destructive error to the user — it no longer falls through to writing an empty database over a real one. `checkNullish()`'s empty-database-creation branch is now only reachable via a genuine 204 "no content" response, the one legitimate "no data" signal. `src/ts/storage/autoStorage.ts`'s `checkAccountSync()` (a second call site for the same read) needed no change — its existing try/catch already aborts safely on any thrown error. Verified by Codex adversarial-review, see `Agents/CodexReviews/topic05-fix/bootstrap-fix.codexreview.md`. *(Report 05, section 7 / scenario 2 — was the single highest-severity confirmed finding in the whole investigation: it required no second writer, no race, no multi-device setup, just one unlucky read.)*
 
 **Tier B — needs a product/architecture decision before scoping:**
 

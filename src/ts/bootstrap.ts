@@ -31,6 +31,7 @@ import { updateLorebooks } from "./characters";
 import { initMobileGesture } from "./hotkey";
 import { moduleUpdate } from "./process/modules";
 import type { AccountStorage } from "./storage/accountStorage";
+import { AccountSyncCacheMismatchError } from "./storage/accountStorage";
 import { makeColdData } from "./process/coldstorage.svelte";
 import { getRemoteSaveCleanupAction, getRemoteSavePayloadName } from "./storage/remoteSaveCleanup";
 import {
@@ -48,6 +49,33 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { appDataDir, join } from "@tauri-apps/api/path";
 
 const appWindow = isTauri ? getCurrentWebviewWindow() : null
+
+/**
+ * Reads the account-sync database, retrying on a cache-mismatch response
+ * instead of ever treating it as "no data." A mismatch means the server
+ * reports our locally-cached copy is stale, not that no remote database
+ * exists — silently falling through to an empty database on this signal
+ * previously caused real remote data to be overwritten with nothing.
+ */
+async function readAccountDatabaseWithRetry(storage: AccountStorage): Promise<Uint8Array> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+            return await storage.getItem('database/database.bin', (v) => {
+                LoadingStatusState.text = `Loading Remote Save File ${(v * 100).toFixed(2)}%`
+            })
+        } catch (error) {
+            if (!(error instanceof AccountSyncCacheMismatchError)) {
+                throw error
+            }
+            console.error(error)
+            if (attempt === 2) {
+                throw "Failed to verify your account's save data is up to date after multiple attempts. Please check your connection and reload — your data has not been modified."
+            }
+            LoadingStatusState.text = "Account sync cache mismatch, retrying..."
+            await sleep(1000)
+        }
+    }
+}
 
 /**
  * Loads the application data.
@@ -123,7 +151,15 @@ export async function loadData() {
                 await forageStorage.Init()
 
                 LoadingStatusState.text = "Loading Local Save File..."
-                let gotStorage: Uint8Array = await forageStorage.getItem('database/database.bin') as unknown as Uint8Array
+                // An already-enabled account-sync profile has realStorage set to
+                // AccountStorage by Init() above, so this "local" read is actually
+                // the account-sync read for most returning account-sync users —
+                // route it through the same cache-mismatch retry as the dedicated
+                // account-sync read below, instead of letting a transient mismatch
+                // abort startup with zero retries.
+                let gotStorage: Uint8Array = forageStorage.isAccount
+                    ? await readAccountDatabaseWithRetry(forageStorage.realStorage as AccountStorage)
+                    : await forageStorage.getItem('database/database.bin') as unknown as Uint8Array
                 LoadingStatusState.text = "Decoding Local Save File..."
                 if (checkNullish(gotStorage)) {
                     gotStorage = encodeRisuSaveLegacy({})
@@ -154,9 +190,7 @@ export async function loadData() {
 
                 if (await forageStorage.checkAccountSync()) {
                     LoadingStatusState.text = "Checking Account Sync..."
-                    let gotStorage: Uint8Array = await (forageStorage.realStorage as AccountStorage).getItem('database/database.bin', (v) => {
-                        LoadingStatusState.text = `Loading Remote Save File ${(v * 100).toFixed(2)}%`
-                    })
+                    let gotStorage: Uint8Array = await readAccountDatabaseWithRetry(forageStorage.realStorage as AccountStorage)
                     if (checkNullish(gotStorage)) {
                         gotStorage = encodeRisuSaveLegacy({})
                         await forageStorage.setItem('database/database.bin', gotStorage)

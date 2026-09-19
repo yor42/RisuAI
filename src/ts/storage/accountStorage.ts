@@ -15,6 +15,18 @@ const cachedForage = localforage.createInstance({name: "risuaiAccountCached"})
 
 let seenWarnings:string[] = []
 
+// Thrown by AccountStorage.getItem when the server reports our locally-cached
+// copy is stale (HTTP 303, match:false) without actually returning fresh
+// content. This is NOT the same as "no data exists" (that's a genuine 204) —
+// conflating the two previously caused callers to treat a stale-cache signal
+// as an empty account and silently overwrite real remote data with nothing.
+export class AccountSyncCacheMismatchError extends Error {
+    constructor(key: string) {
+        super(`Account sync: server reports a newer copy of "${key}" exists but did not return it (cache mismatch). This must not be treated as an empty account.`)
+        this.name = 'AccountSyncCacheMismatchError'
+    }
+}
+
 export class AccountStorage{
     auth:string
     usingSync:boolean
@@ -130,7 +142,7 @@ export class AccountStorage{
                 return c
             }
             else{
-                return null
+                throw new AccountSyncCacheMismatchError(key)
             }
         }
 
