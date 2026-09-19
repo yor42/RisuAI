@@ -1,12 +1,14 @@
 # Fix &amp; Expansion Roadmap
 
-Derived from [`Summary.md`](Summary.md) and the four reports in [`Reports/`](Reports/), each cross-validated by an independent Codex adversarial-review pass (see [`CodexReviews/`](CodexReviews/)). Nothing in this roadmap has been implemented — it is a sequencing plan for future work. Each item cites its source report for full detail before implementation begins. This revision incorporates the corrections from cross-validation (updated retry/failure semantics, a new Module-create duplicate-insertion fix, corrected Windows-on-ARM control flow, and severity nuances for the asset-corruption GC-omission finding).
+Derived from [`Summary.md`](Summary.md), the four round-1 reports and four round-2 deep-dive reports in [`Reports/`](Reports/), each cross-validated by an independent Codex adversarial-review pass (see [`CodexReviews/`](CodexReviews/)). Each item cites its source report for full detail before implementation begins.
 
 Ordering principle: **fix data-loss and correctness first (cheap, high-trust-impact), then the shared architectural root cause (expensive, unlocks everything downstream), then platform breadth.** Android is deliberately the last phase, gated behind Phase 2.
 
+**Status:** Phase 0 is implemented and committed (`e39df101` on `investigation/perf-persistence-assets-platform-baseline`), each fix verified by a Codex adversarial-review pass and clean under `svelte-check`. Everything else below is still unimplemented planning.
+
 ---
 
-## Phase 0 — Quick, low-risk fixes (ship independently, any order, no architectural risk)
+## Phase 0 — Quick, low-risk fixes ✅ **DONE** (ship independently, any order, no architectural risk)
 
 These are all small, localized, high-confidence fixes identified across the reports. None depend on each other. Good first-PR candidates.
 
@@ -26,6 +28,30 @@ These are all small, localized, high-confidence fixes identified across the repo
 
 ---
 
+## Phase 0.5 — Deep-dive quick fixes (round 2 findings; not yet implemented)
+
+A second, open-ended bug-hunting pass (one per Phase-0-era topic, explicitly scoped to find *new* bugs rather than re-verify round 1) surfaced these additional small, independently-scoped fixes. Same "ship independently, any order" character as Phase 0. Full detail in `Reports/*-deepdive.md` and their Codex reviews.
+
+| Fix | File(s) | Report | Effort |
+|---|---|---|---|
+| **[Android compile blocker — do this first]** Wrap `tauri_plugin_deep_link::init()` and `tauri_plugin_updater::Builder::new().build()` registrations in `#[cfg(desktop)]`, matching the existing pattern already used for `tauri_plugin_single_instance` | `src-tauri/src/main.rs:582, 585, 570-578` | 04-deepdive | Trivial |
+| Namespace module assets separately from character assets (or give character assets precedence) so a name+extension collision no longer silently blends an unrelated module's asset in — this is a live bug with no opt-in gate | `src/ts/parser/parser.svelte.ts:410-421, 451-461` | 03-deepdive | Low |
+| Fix the `.charx` import size-gate operator-precedence bug: `if((file.originalSize ?? 0) < MAX_ASSET_SIZE_BYTES)` | `src/ts/process/processzip.ts:342` | 03-deepdive | Low |
+| Fix `saveDbKei()` to actually `await` and handle its fetch; only advance the rate-limit timestamp on confirmed success | `src/ts/kei/backup.ts:83-104` | 02-deepdive | Low |
+| Fix `bgm` playback to react to a changed `risu-ctrl` src instead of gating solely on `!bgmElement` | `src/ts/observer.svelte.ts:60-72` | 03-deepdive | Low |
+| Invalidate/re-key `CharEmotion` on emotion edit/removal instead of caching the resolved path by value | `src/ts/characters.ts:183-189` (`rmCharEmotion`), `src/ts/util.ts:336-348`, `src/ts/process/scripts.ts:184-206` | 03-deepdive | Low |
+| Wrap plugin-unload callback execution in try/catch and move `host.terminate()` into a `finally`, so a throwing callback can no longer skip cleanup | `src/ts/plugins/apiV3/v3.svelte.ts` (`unloadV3Plugin`, around line 538/550) | 01-deepdive | Low |
+| Reset `changeTracker.loadouts`/`.plugins`/`.pluginCustomStorage` after a successful write, mirroring the existing `botPreset`/`modules` handling | `src/ts/globalApi.svelte.ts:435-448` (`mergeUnsavedChanges`), pre-write trim around `:483-486` | 02-deepdive | Low |
+| Await the Node-server batch-remove call so its existing `try/catch` can actually catch failures | `src/ts/process/coldstorage.svelte.ts:287` | 02-deepdive | Low |
+| Fix the Node-server batch-delete path on both ends: client should hex-encode each key separately (or send a JSON array) instead of one `$$`-joined blob; server should hex-decode the header before splitting on `$$`. Also stop sending `res.send()` per loop iteration — aggregate one response after the loop | `src/ts/storage/nodeStorage.ts:127-142`, `server/node/server.cjs:1215-1245` | 02-deepdive | Low-Medium |
+| Cap/evict `fileCache` (the unbounded raw-asset-bytes cache) — an LRU with a byte-size or entry-count ceiling; this is the single most broadly-reproducible new RAM finding in this investigation | `src/ts/globalApi.svelte.ts:99-104, 199-219` | 01-deepdive | Low-Medium |
+| Cap/evict the in-memory translation cache | `src/ts/translator.ts:22-25` | 01-deepdive | Low-Medium |
+
+**Needs a decision before fixing, not just a code change:**
+- **Group-chat GC exclusion** (`src/ts/globalApi.svelte.ts:1039-1057`) — `groupChat` objects do have `vits`/`additionalAssets` fields on their type (contrary to what the deep-dive originally concluded), so excluding `type === 'group'` from those two allowlist checks *could* be a live data-loss bug — but it's unknown whether anything actually populates those fields on a real group chat, or whether they're purely a typing artifact ("lazy hack for typechecking" per an existing code comment). Determine this first (grep for writes to `groupChat.additionalAssets`/`.vits`, or just test manually) before deciding whether to remove the exclusion. Removing the exclusion is cheap and low-risk either way, so if the investigation is inconclusive, doing it defensively is reasonable. *(Report 03-deepdive, Lead 4.)*
+
+---
+
 ## Phase 1 — Persistence & asset-integrity hardening (correctness, no architecture change)
 
 Builds on Phase 0's fixes; addresses the remaining, slightly-larger-effort correctness gaps before touching the shared RAM architecture in Phase 2.
@@ -37,6 +63,10 @@ Builds on Phase 0's fixes; addresses the remaining, slightly-larger-effort corre
 5. **Decide OPFS's fate deliberately** — either wire up a real settings path to enable it (now that its atomicity bug is fixed in Phase 0) so web gets its better durability story, or remove the dead code path. Update `AGENTS.md`'s storage description to match whichever is chosen. *(Report 02, item 8.)*
 6. **Add a lightweight cache-freshness signal** for service-worker asset entries (content hash or source marker) so drift between cache and source-of-truth can be cheaply detected without a full byte-for-byte fetch — a first-party, cheaper version of the community plugin's `verify()`. *(Report 03, item 5 — Medium effort.)*
 7. **Surface an explicit "asset integrity" feature in-app** (settings/debug action running the equivalent of the plugin's scan/verify/fingerprint), wired to the already-existing but inert `checkCorruption` flag (`database.svelte.ts:610`/`1151`). This is the first-party replacement for the community plugin and should ship once items 1 and 6 above land, since it depends on both a correct GC allowlist and a freshness signal to report anything meaningful. *(Report 03, item 7 — Medium effort.)*
+8. **[from round 2] Fix `backuplocal.ts`'s `LoadLocalBackup()` to abort on decrypt failure instead of falling through to decode ciphertext, and route restore paths through `setDatabase()` (or an explicit shape check) instead of the unvalidated `setDatabaseLite()`.** Currently the most concrete "import corrupts live state" path found across both investigation rounds — a failed decrypt can, in the worst case, get decoded into plausible-looking garbage and immediately overwrite the real save file. *(Report 02-deepdive, Lead 3 — Medium effort.)*
+9. **[from round 2] Add write-then-rename atomicity to `server/node/server.cjs`'s `/api/write`.** Self-hosted Node-server users currently get a plain in-place `fs.writeFile` with no atomicity and no locking — the same class of gap Phase-0-era work already closed for the OPFS/browser path, but for the server backend the first investigation round never reached. *(Report 02-deepdive, Lead 2 — Medium effort.)*
+10. **[from round 2] Wire up automatic inlay-asset garbage collection** — hook `removeInlayAsset` into message/chat/character deletion, or add a periodic orphan sweep. Chat attachments currently accumulate in IndexedDB forever with zero automatic cleanup in either direction. *(Report 02-deepdive / 03-deepdive, both flagged this independently — Medium effort.)*
+11. **[from round 2, low priority] Add a lightweight per-block checksum to the `RisuSave` block format** so the decoder can distinguish "parsed fine and correct" from "parsed fine but corrupted" (a bit-flip inside a JSON value currently parses successfully into silently-wrong data with nothing to catch it). *(Report 02-deepdive, Lead 5 — Medium effort, lower priority than items 8-10.)*
 
 ---
 
@@ -49,6 +79,8 @@ This phase is the load-bearing one: it's what Phase 4 (Android) is gated behind,
 3. **Add real virtual scrolling to the chat message list** (`DefaultChatScreen.svelte`), keeping the existing incremental-load-on-scroll-up behavior for fetching history but unmounting off-screen messages so peak DOM/component count is bounded. This is the most Android-relevant fix in the whole roadmap. *(Report 01, recommendation 4 — Medium-High effort.)*
 4. **Extend cold storage to size-based (not just idle-time-based) compaction**, so very long *active* chats also get relief, reducing the size of whatever remains to be cloned/stringified by items 1-2. **Note (corrected):** cold storage already offloads old, stale chats belonging to an active character today — this item specifically targets the gap that remains: a chat that's long but still *recent* (not idle 10+ days), which today gets no relief regardless of size. *(Report 01, recommendation 5 — Low-Medium effort.)*
 5. **(Architectural, largest item — stage last, after 1-4 prove the pattern) Split `DBState.db.characters` into per-character reactive slices** so only the active character is a "hot" proxy and editing one character cannot force reactivity traversal touching others. Large surface area — every read/write site of `DBState.db.characters[i]` across `src/ts` and `src/lib` — should be scoped deliberately and probably split into its own sub-project once items 1-4 are proven. *(Report 01, recommendation 3 — High effort.)*
+6. **[from round 2] Apply the same "give it a real draft copy" fix to the LoreBook entry editor and the Regex/Script editor**, which round 2 confirmed have the same live-`DBState`-binding pattern as the Module editor (item 1 above). Whether they carry the same *clone-cost* severity as the Module editor wasn't established — round 2 found direct binding is actually widespread (Persona/CharConfig too) — so profile each before assuming it needs the same fix; fix the ones that demonstrably clone something expensive on every keystroke. *(Report 01-deepdive, Lead 1 — Medium effort, sequence after item 1 proves the pattern.)*
+7. **[from round 2] Add real virtual scrolling (or at minimum a cap) to the other uncapped `{#each}` lists found**: LoreBook/WorldInfo entries, scripts, triggers, characters, personas, modules. Round 2 found these lack any windowing but could not establish real-world cardinality/impact — treat as lower priority than the chat list (item 3) unless a specific list is reported as a problem in practice. *(Report 01-deepdive, Lead 3 — Low-Medium effort, investigate-before-implementing.)*
 
 **Exit criterion for this phase** (relevant to Phase 4/Android gating): a long chat session with a large module set no longer shows the reported keystroke stutter, and peak memory for an active long conversation is bounded rather than growing monotonically with scroll-back depth.
 
@@ -75,17 +107,20 @@ Once Phase 2 has landed:
 4. Author an Android/mobile `capabilities/*.json` file (none exists today — `desktop.json` explicitly lists only `["macOS", "windows", "linux"]`).
 5. Make an explicit product decision to **disable, not silently break**, the `src-python`/llama.cpp local-inference feature on Android — there is no realistic path to on-device GGUF inference without a substantial from-source NDK cross-compile of `llama-cpp-python`, which is out of scope unless separately justified.
 6. Leverage existing `src/lib/Mobile/` components and the storage layer's existing "Mobile" adapter concept as a starting point for the Android UI/storage story — noted as promising but unverified for Tauri-Android-readiness as-is; needs its own validation pass once this phase actually starts.
+7. **[from round 2] Introduce an `isDesktop` (`isTauri && !isMobile`) flag in `src/ts/platform.ts`** and switch the four confirmed `isTauri`-conflated-with-desktop call sites to it: window maximize/fullscreen and the update-checker in `bootstrap.ts`'s startup path, and MCP's stdio transport (arbitrary local-process spawning, fundamentally incompatible with Android's sandbox regardless of gating). Cheap to do now, ahead of when it would otherwise block Android bring-up — could reasonably be pulled forward into Phase 0.5 rather than waiting for this phase, since it doesn't depend on Phase 2. *(Report 04-deepdive, Lead 3 — Low-Medium effort.)* The one-line `#[cfg(desktop)]` compile-blocker fix for the same two plugins at the Rust level is already in Phase 0.5, not repeated here.
 
 ---
 
 ## Sequencing Summary
 
 ```
-Phase 0 (quick fixes, any order) ──┬──> Phase 1 (persistence/integrity hardening)
-                                    │
-                                    └──> Phase 3 (ARM Linux / Windows ARM CI) — independent, parallelizable
+Phase 0 ✅ done ──> Phase 0.5 (round-2 quick fixes, any order) ──┬──> Phase 1 (persistence/integrity hardening)
+                                                                  │
+                                                                  └──> Phase 3 (ARM Linux / Windows ARM CI) — independent, parallelizable
 
 Phase 1 ──> Phase 2 (RAM/architecture rework) ──> Phase 4 (Android)
 ```
 
-Phase 3 (desktop ARM) has no dependency on Phase 2 and can proceed in parallel with Phases 1-2 if resourced separately. Phase 4 (Android) must not start before Phase 2's exit criterion is met — this is the one hard ordering constraint in this roadmap.
+Phase 0.5's Android compile-blocker fix (`#[cfg(desktop)]` on the two plugin registrations) is cheap enough that it has no real ordering dependency on anything — do it whenever convenient. Phase 3 (desktop ARM) has no dependency on Phase 2 and can proceed in parallel with Phases 0.5-2 if resourced separately. Phase 4 (Android) must not start before Phase 2's exit criterion is met — this is the one hard ordering constraint in this roadmap.
+
+**Should there be a Round 3?** Both deep-dive rounds surfaced genuinely new, previously-undocumented bugs — round 2 was not a diminishing-returns exercise. Whether a third open-ended pass is worth running is a judgment call for the project owner: the highest-value remaining unknowns are probably not in these four subsystems anymore (two rounds of hypothesis-free hunting have covered them reasonably thoroughly) but in areas this investigation hasn't touched at all yet (the request/provider-abstraction layer, the memory/summarization systems' correctness beyond RAM footprint, the plugin API v3 sandbox's security boundary, i18n/translation correctness). Recommend deciding this after Phase 0.5 ships and its Codex reviews land, not before.
