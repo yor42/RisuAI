@@ -7,7 +7,7 @@ import {
     readDir,
     remove
 } from "@tauri-apps/plugin-fs"
-import { changeFullscreen, checkNullish, sleep } from "./util"
+import { changeFullscreen, checkNullish, sleep, sleepForever } from "./util"
 import { convertFileSrc, invoke } from "@tauri-apps/api/core"
 import { v4 as uuidv4, v4 } from 'uuid';
 import { appDataDir, join } from "@tauri-apps/api/path";
@@ -45,6 +45,7 @@ import { isTauri, isNodeServer } from "./platform";
 import { isLocalNetworkUrl } from "./network/localNetwork";
 import { decodeProxyJobWsChunk, formatProxyStreamErrorMessage, parseProxyJobWsEvent } from "./network/proxyJobWs";
 import { getNodeServerProxyAuth, NodeStorageConflictError } from "./storage/nodeStorage";
+import { AccountSyncConflictError } from "./storage/accountStorage";
 
 export const forageStorage = new AutoStorage()
 
@@ -833,7 +834,36 @@ export async function saveDb() {
                     alertToast('Your local data conflicts with a newer version on the self-hosted server — your latest changes could not be saved. Reload the app to get the current data (unsynced local changes will be lost).')
                 }
                 console.error(error)
-                await sleep(2000)
+                // Actually stop retrying, not just stop re-alerting: a short
+                // sleep-then-loop here would re-encode and resend the exact
+                // same rejected state on every iteration forever (Codex
+                // review caught this — the comment above already claimed
+                // this wasn't "blindly retrying," but the code did exactly
+                // that). Reload is the only real resolution today, so park
+                // this loop indefinitely instead. Deliberately `sleepForever()`,
+                // not `sleep(hugeNumber)` — a first attempt at this used
+                // `sleep(100000000)` on the mistaken assumption it meant
+                // "forever" (copying accountStorage.ts's reloadSession
+                // handling, which has the same bug), but that's milliseconds,
+                // so it only blocks for ~27.8 hours before silently resuming
+                // and resending the known-stale write. `sleepForever()` never
+                // resolves at all, so only a reload (which discards this
+                // pending await along with all other JS state) can end it.
+                saving.state = false
+                await sleepForever()
+            }
+            else if (error instanceof AccountSyncConflictError) {
+                // Same reasoning as the NodeStorageConflictError branch above,
+                // for the account-sync backend: whether the hub actually
+                // enforces this today is unverified, but if it does, blindly
+                // retrying the same stale write is wrong for the same reason.
+                if (!conflictAlertShown) {
+                    conflictAlertShown = true
+                    alertToast('Your local data conflicts with a newer version on your account — your latest changes could not be saved. Reload the app to get the current data (unsynced local changes will be lost).')
+                }
+                console.error(error)
+                saving.state = false
+                await sleepForever()
             }
             else if (isQuotaExceededError(error)) {
                 // A distinct, actionable message instead of the generic retry path —

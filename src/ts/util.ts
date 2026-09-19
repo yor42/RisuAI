@@ -41,6 +41,16 @@ export function sleep(ms: number) {
     return new Promise( resolve => setTimeout(resolve, ms) );
 }
 
+// A genuinely never-resolving promise, for parking a loop/task until a
+// reload (which discards all JS state, including this pending await)
+// resolves it externally. `sleep(hugeNumber)` looks like it means the same
+// thing but doesn't: `setTimeout`'s delay is milliseconds, so even a number
+// like 100000000 is only ~27.8 hours, not "forever" — a long-lived session
+// crossing that threshold would silently resume whatever it was blocked on.
+export function sleepForever(): Promise<never> {
+    return new Promise(() => {});
+}
+
 export function checkNullish(data:any){
     return data === undefined || data === null
 }

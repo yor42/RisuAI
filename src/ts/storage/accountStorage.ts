@@ -6,7 +6,7 @@ import { forageStorage, getUncleanables, getUncleanablesSync } from "../globalAp
 import { encodeRisuSaveLegacy } from "./risuSave"
 import { v4 } from "uuid"
 import { language } from "src/lang"
-import { sleep } from "../util"
+import { sleepForever } from "../util"
 import { fetchProtectedResource } from "../sionyw"
 
 export const AccountWarning = writable('')
@@ -27,6 +27,20 @@ export class AccountSyncCacheMismatchError extends Error {
     }
 }
 
+// Thrown by AccountStorage.setItem when the hub rejects a write as a
+// revision conflict (409/412) rather than a generic error — distinguishes
+// "another writer got here first, don't retry the same stale write" from a
+// transient I/O failure. Whether the hub actually sends one of these codes
+// today is unverified (its source isn't in this repo); this exists so the
+// client behaves correctly the moment it does, instead of retrying a write
+// the hub will keep rejecting. See Agents/Reports/06-conflict-resolution-design-feasibility.md.
+export class AccountSyncConflictError extends Error {
+    constructor(key: string) {
+        super(`Account sync: server rejected the write to "${key}" because a newer version already exists on the server (revision conflict).`)
+        this.name = 'AccountSyncConflictError'
+    }
+}
+
 export class AccountStorage{
     auth:string
     usingSync:boolean
@@ -44,9 +58,28 @@ export class AccountStorage{
         }
 
 
+        let saveDate:string
+
+        // Only commits the just-written value into the local cache once the
+        // server has actually confirmed it (2xx, or 304 meaning "already
+        // matches") — never speculatively ahead of that check. Previously
+        // this ran unconditionally right after the fetch resolved, so a
+        // rejected write (a 409/412 conflict, or any other non-2xx status)
+        // would still have overwritten the local cache with the stale
+        // content a later getItem()'s 303/match:true fast path could then
+        // serve back as if it had been accepted. See
+        // Agents/Reports/06-conflict-resolution-design-feasibility.md,
+        // Option 1's account-sync correction.
+        const commitCache = async () => {
+            if(key === 'database/database.bin'){
+                await cachedForage.setItem(key, value)
+                await cachedForage.setItem(key + '__date', saveDate)
+            }
+        }
+
         while((!da) || da.status === 403){
 
-            const saveDate = Date.now().toFixed(0)
+            saveDate = Date.now().toFixed(0)
 
             if(risuSession === ''){
                 da = await fetchProtectedResource('/api/account/getsessionnumber', {
@@ -68,11 +101,6 @@ export class AccountStorage{
                     'x-risu-save-date': saveDate
                 }
             })
-            if(key === 'database/database.bin'){
-                cachedForage.setItem(key, value).then(() => {
-                    cachedForage.setItem(key + '__date', saveDate)
-                })
-            }
 
             if(da.headers.get('Content-Type') === 'application/json'){
                 const json = JSON.parse(await getDaText())
@@ -86,13 +114,28 @@ export class AccountStorage{
                     alertNormalWait(language.activeTabChange).then(() => {
                         location.reload()
                     })
-                    await sleep(100000000) // wait forever
+                    // Genuinely never-resolving, not `sleep(hugeNumber)` — that
+                    // reads as "wait forever" but isn't: setTimeout's delay is
+                    // milliseconds, so even 100000000 is only ~27.8 hours, after
+                    // which this would silently resume and resend against a
+                    // session the server already told us to reload away from.
+                    await sleepForever()
                     return
                 }
             }
 
             if(da.status === 304){
+                await commitCache()
                 return key
+            }
+            // The hub's actual conflict semantics aren't verifiable from this
+            // repo (its source isn't here), but if it ever does send a 409/412
+            // revision-conflict status, the client must not blind-retry the
+            // same stale write into it forever — surface a typed error
+            // instead, same shape as NodeStorageConflictError for the
+            // self-hosted server.
+            if(da.status === 409 || da.status === 412){
+                throw new AccountSyncConflictError(key)
             }
             if(da.status === 403){
                 if(da.headers.get('x-risu-status') === 'warn'){
@@ -105,6 +148,7 @@ export class AccountStorage{
         if(da.status < 200 || da.status >= 300){
             throw await getDaText()
         }
+        await commitCache()
         if(key.startsWith('assets/')){
             await localforage.setItem(key, new Uint8Array(value).buffer)
         }
