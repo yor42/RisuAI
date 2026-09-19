@@ -339,7 +339,7 @@ export class CharXImporter{
         file.ondata = (_err, dat, final) => this.#handleFileData(assetIndex, dat, final)
 
         // Only process files smaller than MAX_ASSET_SIZE_BYTES (50MB)
-        if(file.originalSize ?? 0 < MAX_ASSET_SIZE_BYTES){
+        if((file.originalSize ?? 0) < MAX_ASSET_SIZE_BYTES){
             file.start()
         }
     }

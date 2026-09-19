@@ -575,14 +575,19 @@ fn main() {
                 .expect("no main window")
                 .set_focus();
         }));
+        // tauri-plugin-deep-link and tauri-plugin-updater are excluded for Android/iOS
+        // at the Cargo.toml dependency level (`cfg(not(any(target_os = "android", target_os = "ios")))`
+        // / the macos/windows/linux-only cfg on deep-link) — registering them unconditionally
+        // below would fail to compile on those targets, since the crates aren't even pulled in.
+        builder = builder
+            .plugin(tauri_plugin_deep_link::init())
+            .plugin(tauri_plugin_updater::Builder::new().build());
     }
 
     builder
         .plugin(tauri_plugin_http::init())
-        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_fs::init())

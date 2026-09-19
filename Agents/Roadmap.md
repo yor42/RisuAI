@@ -4,7 +4,7 @@ Derived from [`Summary.md`](Summary.md), the four round-1 reports and four round
 
 Ordering principle: **fix data-loss and correctness first (cheap, high-trust-impact), then the shared architectural root cause (expensive, unlocks everything downstream), then platform breadth.** Android is deliberately the last phase, gated behind Phase 2.
 
-**Status:** Phase 0 is implemented and committed (`e39df101` on `investigation/perf-persistence-assets-platform-baseline`), each fix verified by a Codex adversarial-review pass and clean under `svelte-check`. Everything else below is still unimplemented planning.
+**Status:** Phase 0 (`e39df101`) and Phase 0.5 are implemented on `investigation/perf-persistence-assets-platform-baseline`. Every fix in both phases was verified by at least one Codex adversarial-review pass and is clean under `svelte-check`; Phase 0.5 specifically took three review rounds — the first caught three real async/race bugs (an unbounded KEI-backup hang, a `fileCache` waiter/eviction race, and a stale-`ended`-listener bgm bug) introduced while implementing the fixes, the second caught one more edge case (unbounded cache growth under many simultaneous stalled loads), and the third approved the final rework. See `Agents/CodexReviews/phase0.5/` for all three rounds. Everything from Phase 1 onward below is still unimplemented planning.
 
 ---
 
@@ -28,7 +28,7 @@ These are all small, localized, high-confidence fixes identified across the repo
 
 ---
 
-## Phase 0.5 — Deep-dive quick fixes (round 2 findings; not yet implemented)
+## Phase 0.5 — Deep-dive quick fixes (round 2 findings) ✅ **DONE**
 
 A second, open-ended bug-hunting pass (one per Phase-0-era topic, explicitly scoped to find *new* bugs rather than re-verify round 1) surfaced these additional small, independently-scoped fixes. Same "ship independently, any order" character as Phase 0. Full detail in `Reports/*-deepdive.md` and their Codex reviews.
 
@@ -47,8 +47,8 @@ A second, open-ended bug-hunting pass (one per Phase-0-era topic, explicitly sco
 | Cap/evict `fileCache` (the unbounded raw-asset-bytes cache) — an LRU with a byte-size or entry-count ceiling; this is the single most broadly-reproducible new RAM finding in this investigation | `src/ts/globalApi.svelte.ts:99-104, 199-219` | 01-deepdive | Low-Medium |
 | Cap/evict the in-memory translation cache | `src/ts/translator.ts:22-25` | 01-deepdive | Low-Medium |
 
-**Needs a decision before fixing, not just a code change:**
-- **Group-chat GC exclusion** (`src/ts/globalApi.svelte.ts:1039-1057`) — `groupChat` objects do have `vits`/`additionalAssets` fields on their type (contrary to what the deep-dive originally concluded), so excluding `type === 'group'` from those two allowlist checks *could* be a live data-loss bug — but it's unknown whether anything actually populates those fields on a real group chat, or whether they're purely a typing artifact ("lazy hack for typechecking" per an existing code comment). Determine this first (grep for writes to `groupChat.additionalAssets`/`.vits`, or just test manually) before deciding whether to remove the exclusion. Removing the exclusion is cheap and low-risk either way, so if the investigation is inconclusive, doing it defensively is reasonable. *(Report 03-deepdive, Lead 4.)*
+**Resolved during implementation:**
+- **Group-chat GC exclusion** (`src/ts/globalApi.svelte.ts`, `getUncleanablesSync`) — investigated before fixing: grepped every UI and character-import write path for `additionalAssets`/`.vits` and found all of them already gated behind `type === 'character'` checks, so nothing currently populates those fields on a real `groupChat` object; they appear to be inert "lazy hack for typechecking" artifacts on the type. Since a defensive fix was cheap and low-risk regardless, applied it anyway: `additionalAssets`/`.vits` collection now runs unconditionally for every character or group-chat entry (only `ccAssets`, which genuinely doesn't exist on `groupChat`, stays inside the `type !== 'group'` narrowing). Closes the risk class entirely, including for any future code path that might populate these fields without remembering to update this allowlist too. ✅ Done, part of Phase 0.5.
 
 ---
 

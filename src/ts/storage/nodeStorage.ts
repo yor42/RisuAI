@@ -126,10 +126,19 @@ export class NodeStorage{
     }
     async removeItem(key:string|string[]){
         await this.checkAuth()
+        // Each key must be hex-encoded individually, then joined with the plain-text
+        // '$$' separator — not the other way around. Hex-encoding the whole joined
+        // string produces a single hex blob with no literal '$' characters in it, so
+        // the server's header.split('$$') (which runs before any hex-decoding) would
+        // never actually find a separator and would treat the entire multi-key
+        // request as one nonexistent composite path.
+        const filePath = Array.isArray(key)
+            ? key.map(k => Buffer.from(k, 'utf-8').toString('hex')).join('$$')
+            : Buffer.from(key, 'utf-8').toString('hex')
         const da = await fetch('/api/remove', {
             method: "GET",
             headers: {
-                'file-path': Buffer.from(Array.isArray(key) ? key.join('$$') : key, 'utf-8').toString('hex'),
+                'file-path': filePath,
                 'risu-auth': await this.createAuth()
             }
         })

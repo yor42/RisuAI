@@ -531,25 +531,35 @@ const unloadV3Plugin = async (pluginName: string) => {
             v3PluginInstances.splice(index, 1);
         }
     }
-    if(callbacks){
-        pluginUnloadCallbacks.delete(pluginName); 
-        let promises: Promise<void>[] = [];
-        for(const callback of callbacks){
-            const result = callback();
-            if(result instanceof Promise){
-                promises.push(result);
-            }
-        }
-
-        await Promise.any([
-            Promise.all(promises),
-            sleep(1000) //timeout after 1 second
-        ])
-    }
     try {
-        instance?.host?.terminate();        
-    } catch (error) {
-        console.error(`Error terminating plugin ${pluginName}:`, error);
+        if(callbacks){
+            pluginUnloadCallbacks.delete(pluginName);
+            let promises: Promise<void>[] = [];
+            for(const callback of callbacks){
+                // A synchronously-throwing callback must not abort this function before
+                // termination below runs — that would leave the plugin's iframe/host
+                // registration alive with no cleanup.
+                try {
+                    const result = callback();
+                    if(result instanceof Promise){
+                        promises.push(result);
+                    }
+                } catch (error) {
+                    console.error(`Error in unload callback for plugin ${pluginName}:`, error);
+                }
+            }
+
+            await Promise.any([
+                Promise.all(promises),
+                sleep(1000) //timeout after 1 second
+            ])
+        }
+    } finally {
+        try {
+            instance?.host?.terminate();
+        } catch (error) {
+            console.error(`Error terminating plugin ${pluginName}:`, error);
+        }
     }
 }
 

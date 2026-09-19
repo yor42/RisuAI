@@ -5,7 +5,7 @@ import { language } from "../lang";
 import { checkNullish, findCharacterbyId, findCharacterIndexbyId, getUserName, selectMultipleFile, selectSingleFile } from "./util";
 import { v4 as uuidv4, v4 } from 'uuid';
 import { getImageType } from "./media";
-import { DBState, MobileGUIStack, OpenRealmStore, selectedCharID } from "./stores.svelte";
+import { CharEmotion, DBState, MobileGUIStack, OpenRealmStore, selectedCharID } from "./stores.svelte";
 import { AppendableBuffer, changeChatTo, checkCharOrder, downloadFile, getFileSrc, requiresFullEncoderReload } from "./globalApi.svelte";
 import { updateInlayScreen } from "./process/inlayScreen";
 import { parseMarkdownSafe } from "./parser/parser.svelte";
@@ -185,6 +185,15 @@ export function rmCharEmotion(charId:number, emotionId:number) {
     if(dbChar.type !== 'group'){
         dbChar.emotionImages.splice(emotionId, 1)
         DBState.db.characters[charId] = dbChar
+        // CharEmotion caches the *resolved path* of the last-triggered emotion, not
+        // its name — removing an emotion image doesn't otherwise invalidate that
+        // cache, so the emotion box could keep rendering the now-removed image until
+        // the next @@emo trigger. Drop this character's cached entry so it falls back
+        // to the default emotion instead.
+        CharEmotion.update((charemotions) => {
+            delete charemotions[dbChar.chaId]
+            return charemotions
+        })
     }
 }
 

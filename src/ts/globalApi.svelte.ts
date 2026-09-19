@@ -96,11 +96,61 @@ export async function downloadFile(name: string, dat: Uint8Array | ArrayBuffer |
     }
 }
 
-let fileCache: {
-    origin: string[], res: (Uint8Array | 'loading' | 'done' | 'missing')[]
-} = {
-    origin: [],
-    res: []
+type FileCacheEntry = {
+    status: 'loading' | 'done' | 'missing'
+    data?: Uint8Array
+    // Set only while status === 'loading'. All callers that find an in-flight entry
+    // await this SAME promise object directly rather than polling the Map — polling
+    // is what let a concurrent waiter observe a stale/evicted entry after the
+    // producer finished. Awaiting the promise sidesteps the Map entirely for the
+    // result itself; the Map is only touched afterward, for caching/eviction.
+    promise?: Promise<FileCacheEntry>
+}
+
+// Bounded LRU cache, keyed by asset location. On the non-Tauri/non-service-worker
+// path this holds the full raw bytes of every asset resolved via getFileSrc, which
+// used to accumulate forever for the life of the session — capped here to keep
+// long sessions from holding an unbounded amount of decoded asset data in memory.
+const FILE_CACHE_MAX_ENTRIES = 200
+const fileCache = new Map<string, FileCacheEntry>()
+
+function touchFileCache(loc: string, entry: FileCacheEntry) {
+    // Map iteration order is insertion order; delete-then-set moves this key to the
+    // end, which doubles as a cheap recency marker for the LRU eviction below.
+    fileCache.delete(loc)
+    fileCache.set(loc, entry)
+    if (fileCache.size <= FILE_CACHE_MAX_ENTRIES) {
+        return
+    }
+    // Walk oldest-to-newest and evict the oldest entries that aren't still
+    // in-flight. A single slow/stuck load must not block eviction of everything
+    // behind it, so this scans past 'loading' entries instead of stopping at the
+    // first one.
+    for (const [key, candidate] of fileCache) {
+        if (fileCache.size <= FILE_CACHE_MAX_ENTRIES) {
+            break
+        }
+        if (candidate.status === 'loading') {
+            continue
+        }
+        fileCache.delete(key)
+    }
+    // If every remaining entry is still 'loading' (e.g. many stalled requests at
+    // once), the pass above evicts nothing and the cache would otherwise grow
+    // without bound. Fall back to evicting the oldest in-flight entries too — this
+    // is safe because every caller already awaits its entry's `promise` directly
+    // (see getFileSrc), not a Map lookup, so removing the Map slot doesn't affect
+    // anyone already waiting on it. It only means a brand-new caller for that same
+    // key won't find this attempt and will start a fresh one instead of joining
+    // it — which is exactly why the completion side below only ever commits a
+    // result back into the Map if its own entry is still the one present, so an
+    // orphaned old attempt can never clobber a newer retry.
+    for (const key of fileCache.keys()) {
+        if (fileCache.size <= FILE_CACHE_MAX_ENTRIES) {
+            break
+        }
+        fileCache.delete(key)
+    }
 }
 
 let pathCache: { [key: string]: string } = {}
@@ -108,7 +158,7 @@ let checkedPaths: string[] = []
 
 /**
  * Gets the source URL of a file.
- * 
+ *
  * @param {string} loc - The location of the file.
  * @returns {Promise<string>} - A promise that resolves to the source URL of the file.
  */
@@ -136,86 +186,98 @@ export async function getFileSrc(loc: string) {
     try {
         if (usingSw) {
             const encoded = Buffer.from(loc, 'utf-8').toString('hex')
-            let ind = fileCache.origin.indexOf(loc)
-            let shouldResolve = true
-            if (ind === -1) {
-                ind = fileCache.origin.length
-                fileCache.origin.push(loc)
-                fileCache.res.push('loading')
-            }
-            else {
-                const existing = fileCache.res[ind]
-                if (existing === 'loading') {
-                    while (fileCache.res[ind] === 'loading') {
-                        await sleep(10)
-                    }
-                    // Fall through to retry only if the in-flight attempt this call was
-                    // waiting on ended up unresolved (missing local data); otherwise the
-                    // entry is already 'done' and there's nothing left to do.
-                    shouldResolve = fileCache.res[ind] === 'missing'
-                }
-                else {
-                    // 'done' is resolved and returned as-is; 'missing' means an earlier
-                    // attempt found no local copy yet, so retry rather than trusting
-                    // that transient miss as permanently resolved.
-                    shouldResolve = existing === 'missing'
-                }
-                if (shouldResolve) {
-                    fileCache.res[ind] = 'loading'
-                }
-            }
+            const existing = fileCache.get(loc)
 
-            if (shouldResolve) {
-                try {
-                    const hasCache: boolean = (await (await fetch("/sw/check/" + encoded)).json()).able
-                    if (hasCache) {
-                        fileCache.res[ind] = 'done'
-                        return "/sw/img/" + encoded
-                    }
-                    else {
+            // Retry (start a fresh resolution) for: no entry yet, or an earlier attempt
+            // that settled 'missing' (a transient local-storage miss that may now have
+            // resolved). An in-flight 'loading' entry is awaited directly below instead
+            // of retried. A settled 'done' entry needs nothing further.
+            const shouldStart = !existing || existing.status === 'missing'
+
+            if (shouldStart) {
+                const loadingEntry: FileCacheEntry = { status: 'loading' }
+                const promise = (async (): Promise<FileCacheEntry> => {
+                    try {
+                        const hasCache: boolean = (await (await fetch("/sw/check/" + encoded)).json()).able
+                        if (hasCache) {
+                            return { status: 'done' }
+                        }
                         const f: Uint8Array = await forageStorage.getItem(loc) as unknown as Uint8Array
                         if (f && f.byteLength > 0) {
                             await fetch("/sw/register/" + encoded, {
                                 method: "POST",
                                 body: f as any
                             })
-                            fileCache.res[ind] = 'done'
                             await sleep(10)
+                            return { status: 'done' }
                         }
-                        else {
-                            // No local copy to register yet — don't memoize this as resolved,
-                            // so a later call for the same asset (once it exists locally) can
-                            // retry instead of being stuck with a permanently-blank image.
-                            fileCache.res[ind] = 'missing'
-                        }
+                        // No local copy to register yet — don't memoize this as resolved,
+                        // so a later call for the same asset (once it exists locally) can
+                        // retry instead of being stuck with a permanently-blank image.
+                        return { status: 'missing' }
+                    } catch (error) {
+                        return { status: 'missing' }
                     }
-                    return "/sw/img/" + encoded
-                } catch (error) {
-                    fileCache.res[ind] = 'missing'
+                })()
+                loadingEntry.promise = promise
+                touchFileCache(loc, loadingEntry)
+                const resolved = await promise
+                // Only commit if this attempt's entry is still the one in the cache —
+                // it may have been evicted (see touchFileCache) and superseded by a
+                // newer retry for the same key while this was in flight.
+                if (fileCache.get(loc) === loadingEntry) {
+                    touchFileCache(loc, resolved)
                 }
+            }
+            else if (existing.status === 'loading' && existing.promise) {
+                await existing.promise
             }
             return "/sw/img/" + encoded
         }
         else {
-            let ind = fileCache.origin.indexOf(loc)
-            if (ind === -1) {
-                ind = fileCache.origin.length
-                fileCache.origin.push(loc)
-                fileCache.res.push('loading')
-                const f: Uint8Array = await forageStorage.getItem(loc) as unknown as Uint8Array
-                fileCache.res[ind] = f
-                return `data:image/png;base64,${Buffer.from(f).toString('base64')}`
+            const existing = fileCache.get(loc)
+            let resolved: FileCacheEntry
+
+            if (!existing) {
+                const loadingEntry: FileCacheEntry = { status: 'loading' }
+                const promise = (async (): Promise<FileCacheEntry> => {
+                    const f: Uint8Array = await forageStorage.getItem(loc) as unknown as Uint8Array
+                    return { status: 'done', data: f }
+                })()
+                loadingEntry.promise = promise
+                touchFileCache(loc, loadingEntry)
+                try {
+                    resolved = await promise
+                    // Only commit if this attempt's entry is still the one in the
+                    // cache — it may have been evicted and superseded by a newer
+                    // retry for the same key while this was in flight.
+                    if (fileCache.get(loc) === loadingEntry) {
+                        touchFileCache(loc, resolved)
+                    }
+                } catch (error) {
+                    // Don't leave this entry stuck at 'loading' forever for other
+                    // callers — remove it (if it's still the current one) so a future
+                    // call can retry — then let the failure propagate to this caller
+                    // exactly as it would have without any caching (caught by the
+                    // function-level catch below).
+                    if (fileCache.get(loc) === loadingEntry) {
+                        fileCache.delete(loc)
+                    }
+                    throw error
+                }
+            }
+            else if (existing.status === 'loading' && existing.promise) {
+                // Await the SAME promise the original caller is waiting on, rather
+                // than re-reading the Map — the entry could otherwise be evicted (or
+                // its promise could reject) between this check and a later read.
+                resolved = await existing.promise
             }
             else {
-                const f = fileCache.res[ind]
-                if (f === 'loading') {
-                    while (fileCache.res[ind] === 'loading') {
-                        await sleep(10)
-                    }
-                    return `data:image/png;base64,${Buffer.from(fileCache.res[ind]).toString('base64')}`
-                }
-                return `data:image/png;base64,${Buffer.from(f).toString('base64')}`
+                // Bump recency on a cache hit without changing its contents.
+                touchFileCache(loc, existing)
+                resolved = existing
             }
+            return `data:image/png;base64,${Buffer.from(resolved?.data ?? new Uint8Array()).toString('base64')}`
         }
     } catch (error) {
         console.error(error)
@@ -445,6 +507,9 @@ export async function saveDb() {
         }
         changeTracker.botPreset ||= toSave.botPreset
         changeTracker.modules ||= toSave.modules
+        changeTracker.loadouts ||= toSave.loadouts
+        changeTracker.plugins ||= toSave.plugins
+        changeTracker.pluginCustomStorage ||= toSave.pluginCustomStorage
     }
 
     let savetrys = 0
@@ -484,6 +549,9 @@ export async function saveDb() {
             changeTracker.chat = changeTracker.chat.length === 0 ? [] : [changeTracker.chat[0]]
             changeTracker.botPreset = false
             changeTracker.modules = false
+            changeTracker.loadouts = false
+            changeTracker.plugins = false
+            changeTracker.pluginCustomStorage = false
 
             if (gotChannel) {
                 //Data is saved in other tab
@@ -1036,19 +1104,25 @@ export function getUncleanablesSync(db: Database, uptype: 'basename' | 'pure' = 
                 addUncleanable(em[1]);
             }
         }
+        // additionalAssets/vits are declared on BOTH `character` and `groupChat`
+        // (the latter's fields are unused by any current write path — see
+        // Agents/Roadmap.md Phase 0.5 — but are still real fields on the type), so
+        // they're protected here unconditionally rather than being skipped for
+        // groups: if anything ever does populate them on a group chat, the boot-time
+        // GC sweep below must not delete the referenced asset out from under it.
+        if (cha.additionalAssets) {
+            for (const em of cha.additionalAssets) {
+                addUncleanable(em[1]);
+            }
+        }
+        if (cha.vits) {
+            const keys = Object.keys(cha.vits.files);
+            for (const key of keys) {
+                const vit = cha.vits.files[key];
+                addUncleanable(vit);
+            }
+        }
         if (cha.type !== 'group') {
-            if (cha.additionalAssets) {
-                for (const em of cha.additionalAssets) {
-                    addUncleanable(em[1]);
-                }
-            }
-            if (cha.vits) {
-                const keys = Object.keys(cha.vits.files);
-                for (const key of keys) {
-                    const vit = cha.vits.files[key];
-                    addUncleanable(vit);
-                }
-            }
             if (cha.ccAssets) {
                 for (const asset of cha.ccAssets) {
                     addUncleanable(asset.uri);

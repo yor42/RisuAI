@@ -23,6 +23,10 @@ let cache={
     origin: [''],
     trans: ['']
 }
+// Unbounded for the life of the session otherwise — cap it and evict the oldest
+// entries (FIFO) once the limit is hit, so a long session doesn't accumulate one
+// entry per unique string translated forever.
+const TRANSLATE_CACHE_MAX_ENTRIES = 500
 
 let bergamotTranslate: (text: string, from: string, to: string, html?: boolean) => Promise<string>|null = null
 
@@ -110,9 +114,13 @@ export async function runTranslator(text:string, reverse:boolean, from:string,ta
     const result = fullResult.join("\n").trim()
 
     cache.origin.push(reverse ? result : text)
-        
+
     cache.trans.push(reverse ? text : result)
 
+    while(cache.origin.length > TRANSLATE_CACHE_MAX_ENTRIES){
+        cache.origin.shift()
+        cache.trans.shift()
+    }
 
     return result
 

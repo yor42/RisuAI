@@ -2,6 +2,26 @@ import { sleep } from "./util";
 import { globalFetch } from "./globalApi.svelte";
 
 let bgmElement:HTMLAudioElement|null = null;
+let bgmSrc:string|null = null;
+
+function playBgm(src:string, volume:number){
+    // Captured locally rather than read from the mutable `bgmElement` global inside
+    // the closure: if this track is swapped out before it ends, a still-queued
+    // 'ended' event from THIS element must only ever act on this element, never on
+    // whatever the global happens to point at by the time the event fires.
+    const el = new Audio(src);
+    bgmElement = el;
+    bgmSrc = src;
+    el.volume = volume;
+    el.addEventListener('ended', ()=>{
+        el.remove();
+        if(bgmElement === el){
+            bgmElement = null;
+            bgmSrc = null;
+        }
+    });
+    el.play();
+}
 
 function nodeObserve(node:HTMLElement){
     const hlLang = node.getAttribute('x-hl-lang');
@@ -59,14 +79,22 @@ function nodeObserve(node:HTMLElement){
         switch(split[0]){
             case 'bgm':{
                 const volume = split[1] === 'auto' ? 0.5 : parseFloat(split[1]);
+                const src = split[2];
                 if(!bgmElement){
-                    bgmElement = new Audio(split[2]);
-                    bgmElement.volume = volume
-                    bgmElement.addEventListener('ended', ()=>{
-                        bgmElement.remove();
-                        bgmElement = null;
-                    })
-                    bgmElement.play();
+                    playBgm(src, volume);
+                }
+                else if(bgmSrc !== src){
+                    // A newly-rendered bgm reference points at a different track than
+                    // what's currently playing (e.g. the user switched chat/character) —
+                    // swap to it instead of silently ignoring the change and letting the
+                    // previous track keep playing.
+                    bgmElement.pause();
+                    bgmElement.remove();
+                    playBgm(src, volume);
+                }
+                else{
+                    // Same track already playing — keep volume in sync in case it changed.
+                    bgmElement.volume = volume;
                 }
                 break
             }

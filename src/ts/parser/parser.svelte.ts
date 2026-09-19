@@ -453,7 +453,21 @@ export function resetAssetsCache(charAssets: string[][], emoAssets: string[][], 
     const charEmoPaths: AssetPaths = {}
 
     getAssetSrc(charAssets, assetPaths)
-    getAssetSrc(moduleAssets, assetPaths)
+
+    // Module assets are a separate namespace from the character's own assets: a
+    // module (which may be installed independently, unrelated to the character
+    // author) must never silently blend into or override a character asset that
+    // happens to share the same name and extension. Character assets always win
+    // on collision; only names the character hasn't already claimed are added.
+    const charKeys = new Set(Object.keys(assetPaths))
+    const modulePaths: AssetPaths = {}
+    getAssetSrc(moduleAssets, modulePaths)
+    for (const key in modulePaths) {
+        if (!charKeys.has(key)) {
+            assetPaths[key] = modulePaths[key]
+        }
+    }
+
     getEmoSrc(emoAssets, charEmoPaths)
 
     assetsCache = assetPaths

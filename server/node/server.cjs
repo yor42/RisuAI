@@ -1231,17 +1231,31 @@ app.get('/api/remove', authenticatedRouteLimiter, async (req, res, next) => {
             });
             return;
         }
+    }
 
+    // Aggregate one response after processing every path, instead of calling
+    // res.send() per iteration — sending more than one response for a single
+    // request throws (ERR_HTTP_HEADERS_SENT) and silently masks whether files
+    // after the first were actually removed.
+    const errors = [];
+    for(const filePath of filePaths){
         try {
             await fs.rm(path.join(savePath, filePath));
-            res.send({
-                success: true,
-            });
         } catch (error) {
-            next(error);
+            errors.push({ filePath, error: error?.message ?? String(error) });
         }
     }
-    
+
+    if(errors.length > 0){
+        res.status(500).send({
+            success: false,
+            errors,
+        });
+        return;
+    }
+    res.send({
+        success: true,
+    });
 });
 
 app.get('/api/list', authenticatedRouteLimiter, async (req, res, next) => {
