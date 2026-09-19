@@ -256,13 +256,22 @@ Language files are located in `/src/lang/`.
 
 ## AI Coding Agent Requirements
 
-Any AI coding agent (Claude Code subagent, Codex, or similar) that produces or modifies application code, or writes an investigative/analysis report intended to inform code changes, **must pass that work through an independent adversarial review before it is treated as final.**
+Any AI coding agent (Claude Code subagent, Codex, or similar) that produces or modifies application code, or writes an investigative/analysis report intended to inform code changes, **must pass that work through independent adversarial review before it is treated as final.**
 
 - Use the Codex CLI's adversarial-review command (`/codex:adversarial-review` when available as a slash command, or the equivalent `codex-companion.mjs adversarial-review` invocation) to get a review from a model that did not produce the original work and has no memory of how it was derived.
-- This applies to code diffs (the command's default target) and to investigative reports/findings (scope the review with explicit focus text naming the exact file and claims to verify, and instruct it to ignore unrelated files in the working tree).
 - Do not treat a report or diff as authoritative, or act on its recommendations, until the adversarial-review pass has run and any confirmed corrections have been folded back in. Mark corrected passages inline (e.g. `[corrected]`) rather than silently rewriting, so the correction trail stays visible.
 - If Codex is not installed/authenticated in the current session, say so explicitly and ask before proceeding without this step — don't silently skip it.
-- See `Agents/Reports/`, `Agents/CodexReviews/`, `Agents/Summary.md`, and `Agents/Roadmap.md` for a worked example of this workflow (four investigation reports, each independently cross-validated, corrections applied in place).
+- See `Agents/Reports/`, `Agents/CodexReviews/`, `Agents/Summary.md`, and `Agents/Roadmap.md` for a worked example of the investigative-report side of this workflow (four investigation reports, each independently cross-validated, corrections applied in place).
+
+### Two-step review for non-trivial code changes
+
+For any **non-trivial** code change — new features, architectural changes, anything touching areas flagged in `Agents/Reports/` (save/persistence, the reactive database, asset caching, Tauri platform config), or anything the agent itself judges risky or wide-reaching — go through adversarial review **twice**, once before implementing and once after:
+
+1. **Plan review.** Before writing code, write down the scope and the proposed approach (what will change, which files, the design tradeoffs considered) and run it through Codex adversarial review, framed as a challenge to the approach and its assumptions — not a code review, since there's no diff yet. Fix the plan based on confirmed findings before writing any code.
+2. **Implement** the reviewed plan.
+3. **Code review.** Run Codex adversarial review again, this time against the actual diff, to catch implementation defects and drift from the reviewed plan. Fold in confirmed corrections before considering the change done.
+
+**Carve-out:** skip the plan-review step (go straight to implement + code-review) for changes that are small and low-risk on their face — a one-line fix, a config tweak, a typo/string change, a well-contained bug fix with an obvious correct shape. Use judgment; when in doubt, do the plan review — it's cheap relative to shipping the wrong design. The code-review step (post-implementation) is not skippable for any AI-authored code change, per the Contribution Guidelines below.
 
 ## Contribution Guidelines
 
@@ -270,4 +279,4 @@ Any AI coding agent (Claude Code subagent, Codex, or similar) that produces or m
 2. Run `pnpm check` before submitting a pull request
 3. Ensure your code is well-tested
 4. Format code with Prettier before committing
-5. Any AI-agent-authored code change or investigative report must go through the adversarial-review process above before being considered complete
+5. Any AI-agent-authored code change or investigative report must go through the adversarial-review process above before being considered complete — non-trivial changes need both the plan review and the post-implementation code review, per the Two-step review section above
