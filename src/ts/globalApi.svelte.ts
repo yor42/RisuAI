@@ -19,7 +19,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { checkRisuUpdate } from "./update";
 import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, bodyIntercepterStore } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
-import { alertConfirm, alertError, alertMd, alertNormal, alertNormalWait, alertSelect, alertTOS, waitAlert } from "./alert";
+import { alertConfirm, alertError, alertMd, alertNormal, alertNormalWait, alertSelect, alertTOS, alertToast, waitAlert } from "./alert";
 import { checkDriverInit, syncDrive } from "./drive/drive";
 import { hasher } from "./parser/parser.svelte";
 import { characterURLImport, hubURL } from "./characterCards";
@@ -97,7 +97,7 @@ export async function downloadFile(name: string, dat: Uint8Array | ArrayBuffer |
 }
 
 let fileCache: {
-    origin: string[], res: (Uint8Array | 'loading' | 'done')[]
+    origin: string[], res: (Uint8Array | 'loading' | 'done' | 'missing')[]
 } = {
     origin: [],
     res: []
@@ -137,10 +137,35 @@ export async function getFileSrc(loc: string) {
         if (usingSw) {
             const encoded = Buffer.from(loc, 'utf-8').toString('hex')
             let ind = fileCache.origin.indexOf(loc)
+            let shouldResolve = true
             if (ind === -1) {
                 ind = fileCache.origin.length
                 fileCache.origin.push(loc)
                 fileCache.res.push('loading')
+            }
+            else {
+                const existing = fileCache.res[ind]
+                if (existing === 'loading') {
+                    while (fileCache.res[ind] === 'loading') {
+                        await sleep(10)
+                    }
+                    // Fall through to retry only if the in-flight attempt this call was
+                    // waiting on ended up unresolved (missing local data); otherwise the
+                    // entry is already 'done' and there's nothing left to do.
+                    shouldResolve = fileCache.res[ind] === 'missing'
+                }
+                else {
+                    // 'done' is resolved and returned as-is; 'missing' means an earlier
+                    // attempt found no local copy yet, so retry rather than trusting
+                    // that transient miss as permanently resolved.
+                    shouldResolve = existing === 'missing'
+                }
+                if (shouldResolve) {
+                    fileCache.res[ind] = 'loading'
+                }
+            }
+
+            if (shouldResolve) {
                 try {
                     const hasCache: boolean = (await (await fetch("/sw/check/" + encoded)).json()).able
                     if (hasCache) {
@@ -149,27 +174,27 @@ export async function getFileSrc(loc: string) {
                     }
                     else {
                         const f: Uint8Array = await forageStorage.getItem(loc) as unknown as Uint8Array
-                        await fetch("/sw/register/" + encoded, {
-                            method: "POST",
-                            body: f as any
-                        })
-                        fileCache.res[ind] = 'done'
-                        await sleep(10)
+                        if (f && f.byteLength > 0) {
+                            await fetch("/sw/register/" + encoded, {
+                                method: "POST",
+                                body: f as any
+                            })
+                            fileCache.res[ind] = 'done'
+                            await sleep(10)
+                        }
+                        else {
+                            // No local copy to register yet — don't memoize this as resolved,
+                            // so a later call for the same asset (once it exists locally) can
+                            // retry instead of being stuck with a permanently-blank image.
+                            fileCache.res[ind] = 'missing'
+                        }
                     }
                     return "/sw/img/" + encoded
                 } catch (error) {
-
+                    fileCache.res[ind] = 'missing'
                 }
             }
-            else {
-                const f = fileCache.res[ind]
-                if (f === 'loading') {
-                    while (fileCache.res[ind] === 'loading') {
-                        await sleep(10)
-                    }
-                }
-                return "/sw/img/" + encoded
-            }
+            return "/sw/img/" + encoded
         }
         else {
             let ind = fileCache.origin.indexOf(loc)
@@ -403,6 +428,25 @@ export async function saveDb() {
         })
     })
 
+    // Merges a snapshot of changeTracker back into the live tracker, without discarding
+    // whatever the live tracker has accumulated since the snapshot was taken (e.g. from
+    // edits made while a write was in flight). Used whenever a save attempt captured
+    // `toSave` but didn't end up persisting it, so nothing pending gets silently dropped.
+    function mergeUnsavedChanges(toSave: toSaveType) {
+        for (const chaId of toSave.character) {
+            if (!changeTracker.character.includes(chaId)) {
+                changeTracker.character.push(chaId)
+            }
+        }
+        for (const pair of toSave.chat) {
+            if (!changeTracker.chat.some(([c, ch]) => c === pair[0] && ch === pair[1])) {
+                changeTracker.chat.push(pair)
+            }
+        }
+        changeTracker.botPreset ||= toSave.botPreset
+        changeTracker.modules ||= toSave.modules
+    }
+
     let savetrys = 0
     let lastDbData = new Uint8Array(0)
     await sleep(1000)
@@ -414,6 +458,11 @@ export async function saveDb() {
 
         saving.state = true
         changed = false
+        // Declared outside the try block (and left null until actually assigned) so the
+        // catch handler can safely check whether a snapshot was taken this iteration
+        // before attempting to merge it back — an error thrown before that assignment
+        // (e.g. during encoder re-init) must not itself throw inside the catch.
+        let toSave: toSaveType | null = null
         try {
 
             if (requiresFullEncoderReload.state) {
@@ -425,13 +474,20 @@ export async function saveDb() {
                 requiresFullEncoderReload.state = false
             }
 
-            let toSave = safeStructuredClone(changeTracker)
+            toSave = safeStructuredClone(changeTracker)
+            // Trim/reset the live tracker right away, so edits made by effects while this
+            // write is in flight accumulate fresh (rather than being clobbered by a naive
+            // post-write reset that doesn't know about them). If this attempt doesn't end
+            // up persisting `toSave` — because it bails out below or the write throws —
+            // mergeUnsavedChanges folds it back in without discarding anything newer.
             changeTracker.character = changeTracker.character.length === 0 ? [] : [changeTracker.character[0]]
             changeTracker.chat = changeTracker.chat.length === 0 ? [] : [changeTracker.chat[0]]
             changeTracker.botPreset = false
             changeTracker.modules = false
+
             if (gotChannel) {
                 //Data is saved in other tab
+                mergeUnsavedChanges(toSave)
                 await sleep(1000)
                 continue
             }
@@ -440,6 +496,7 @@ export async function saveDb() {
             }
             let db = getDatabase()
             if (!db.characters) {
+                mergeUnsavedChanges(toSave)
                 await sleep(1000)
                 continue
             }
@@ -447,6 +504,7 @@ export async function saveDb() {
             await encoder.set(db, toSave)
             const encoded = encoder.encode()
             if (!encoded) {
+                mergeUnsavedChanges(toSave)
                 await sleep(1000)
                 continue
             }
@@ -468,17 +526,31 @@ export async function saveDb() {
             if (!forageStorage.isAccount) {
                 await getDbBackups()
             }
+
             savetrys = 0
             await saveDbKei()
             await sleep(500)
         } catch (error) {
             savetrys += 1
+            // The write failed after the tracker was already trimmed above, so fold
+            // `toSave` back in — merged with whatever's accumulated since — instead of
+            // losing it. `toSave` is only set once the snapshot line above has actually
+            // run; an error before that (e.g. during encoder re-init) has nothing to
+            // merge, since the live tracker was never touched this iteration.
+            if (toSave) {
+                mergeUnsavedChanges(toSave)
+            }
+            changed = true
+            if (savetrys === 1) {
+                alertToast('Failed to save data, retrying…')
+            }
             if (savetrys > 4) {
                 alertError(error)
             }
             else {
                 console.error(error)
             }
+            await sleep(1000)
         }
 
         saving.state = false

@@ -117,6 +117,12 @@ async function registerCache(urlr, buffer, noContentType = false){
         url.pathname = path.join('/')
     }
     const buf = new Uint8Array(await buffer)
+    if(buf.byteLength === 0){
+        return new Response(JSON.stringify({
+            "done": false,
+            "error": "empty body"
+        }))
+    }
     let headers = {
         "cache-control": "max-age=604800",
         "content-type": "image/png"

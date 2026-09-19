@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import * as path from "@tauri-apps/api/path";
 import { exists, readTextFile } from "@tauri-apps/plugin-fs";
-import { alertClear, alertWait } from "src/ts/alert";
+import { alertClear, alertError, alertWait } from "src/ts/alert";
 import { getDatabase } from "src/ts/storage/database.svelte";
 import { sleep } from "src/ts/util";
 
@@ -19,9 +19,14 @@ async function installPython(){
     }
     else{
         alertWait("Installing Python")
-        await invoke("install_python", {
+        const installed = await invoke<boolean>("install_python", {
             path: appDir
         })
+        if(!installed){
+            alertClear()
+            alertError("Failed to install the bundled Python runtime. Local model inference via the bundled Python server is currently only supported on Windows.")
+            return
+        }
         alertWait("Installing Pip")
         await invoke("install_pip", {
             path: appDir

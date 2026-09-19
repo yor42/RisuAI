@@ -179,7 +179,9 @@
     <h2 class="mb-2 text-2xl font-bold mt-2">{language.createModule}</h2>
     <ModuleMenu bind:currentModule={tempModule}/>
     <Button className="mt-6" onclick={() => {
-        DBState.db.modules.push(tempModule)
+        // tempModule was already pushed onto DBState.db.modules when create mode was
+        // entered (the "+" button above), so it doesn't need to be pushed again here —
+        // doing so previously inserted every newly-created module twice.
         mode = 0
     }}>{language.createModule}</Button>
 {:else if mode === 2}
