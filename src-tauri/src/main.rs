@@ -241,7 +241,10 @@ async fn install_python(path: String) -> bool {
     let url;
     let py_path = Path::new(&path).join("python");
     if !py_path.exists() {
-        std::fs::create_dir_all(&py_path).unwrap();
+        if let Err(e) = std::fs::create_dir_all(&py_path) {
+            println!("Failed to create python directory: {}", e);
+            return false;
+        }
     }
     let zip_path: std::path::PathBuf = Path::new(&path).join("python.zip");
 
@@ -258,27 +261,93 @@ async fn install_python(path: String) -> bool {
     }
 
     //download python embeddable
-    let mut resp = reqwest::get(&url).await.unwrap();
-    let mut out = std::fs::File::create(&zip_path).unwrap();
+    let mut resp = match reqwest::get(&url).await {
+        Ok(r) => r,
+        Err(e) => {
+            println!("Failed to download python embeddable: {}", e);
+            return false;
+        }
+    };
+    let mut out = match std::fs::File::create(&zip_path) {
+        Ok(f) => f,
+        Err(e) => {
+            println!("Failed to create python.zip: {}", e);
+            return false;
+        }
+    };
     let mut content = Vec::new();
-    while let Some(chunk) = resp.chunk().await.unwrap() {
-        content.extend_from_slice(&chunk);
+    loop {
+        match resp.chunk().await {
+            Ok(Some(chunk)) => {
+                content.extend_from_slice(&chunk);
+            }
+            Ok(None) => break,
+            Err(e) => {
+                println!("Failed to download python embeddable chunk: {}", e);
+                return false;
+            }
+        }
     }
-    out.write_all(&content).unwrap();
+    if let Err(e) = out.write_all(&content) {
+        println!("Failed to write python.zip: {}", e);
+        return false;
+    }
 
     //extract python embeddable
 
     use zip::ZipArchive;
 
     if os == "windows" {
-        let mut zipf = ZipArchive::new(std::fs::File::open(&zip_path).unwrap()).unwrap();
-        zipf.extract(&py_path).unwrap();
+        let zip_file = match std::fs::File::open(&zip_path) {
+            Ok(f) => f,
+            Err(e) => {
+                println!("Failed to open python.zip: {}", e);
+                return false;
+            }
+        };
+        let mut zipf = match ZipArchive::new(zip_file) {
+            Ok(z) => z,
+            Err(e) => {
+                println!("Failed to read python.zip archive: {}", e);
+                return false;
+            }
+        };
+        if let Err(e) = zipf.extract(&py_path) {
+            println!("Failed to extract python.zip: {}", e);
+            return false;
+        }
     } else if os == "linux" {
-        let mut tarf = tar::Archive::new(std::fs::File::open(&zip_path).unwrap());
-        tarf.unpack(&py_path).unwrap();
+        let tar_file = match std::fs::File::open(&zip_path) {
+            Ok(f) => f,
+            Err(e) => {
+                println!("Failed to open python.zip: {}", e);
+                return false;
+            }
+        };
+        let mut tarf = tar::Archive::new(tar_file);
+        if let Err(e) = tarf.unpack(&py_path) {
+            println!("Failed to extract python.zip: {}", e);
+            return false;
+        }
     } else if os == "macos" {
-        let mut zipf = zip::ZipArchive::new(std::fs::File::open(&zip_path).unwrap()).unwrap();
-        zipf.extract(&py_path).unwrap();
+        let zip_file = match std::fs::File::open(&zip_path) {
+            Ok(f) => f,
+            Err(e) => {
+                println!("Failed to open python.zip: {}", e);
+                return false;
+            }
+        };
+        let mut zipf = match zip::ZipArchive::new(zip_file) {
+            Ok(z) => z,
+            Err(e) => {
+                println!("Failed to read python.zip archive: {}", e);
+                return false;
+            }
+        };
+        if let Err(e) = zipf.extract(&py_path) {
+            println!("Failed to extract python.zip: {}", e);
+            return false;
+        }
     } else {
         println!("OS not supported");
         return false;
@@ -291,7 +360,13 @@ async fn install_python(path: String) -> bool {
     let output = py.arg("--version").output();
     match output {
         Ok(o) => {
-            let res = String::from_utf8(o.stdout).unwrap();
+            let res = match String::from_utf8(o.stdout) {
+                Ok(s) => s,
+                Err(e) => {
+                    println!("Failed to parse python --version output: {}", e);
+                    return false;
+                }
+            };
             if !res.starts_with("Python ") {
                 return false;
             }
