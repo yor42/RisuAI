@@ -130,6 +130,51 @@ contexts, not Codex, per the standing escalation rule. The tests were deliberate
 against the unfixed code and verified red before the fix, and the one path that could not be
 traced end-to-end was turned into a test rather than asserted in prose.
 
+**The alertStore hijack: investigated 2026-09-21, scoped, and deliberately NOT attempted.**
+Worth reading before anyone tries it, because the obvious fix is wrong and the reason is
+not obvious.
+
+*Mechanism (confirmed).* All modals share one global slot (`alertStore`, `stores.svelte.ts`
+~55). Every promise-returning alert in `src/ts/alert.ts` does `set(...)` then `await
+waitAlert()` (polls for `type === 'none'`) then `return get(alertStore).msg`. If a second
+alert is requested while one is pending, it overwrites the slot; when the user answers,
+BOTH pending waiters break and BOTH read the same answer. A chat rename can receive `'yes'`
+from an unrelated confirm dialog. There are 13 promise-returning alert functions.
+
+*Why a mutex in `alert.ts` does not fix it.* Ownership cannot be enforced from `alert.ts`,
+because `alert.ts` ~25 re-exports a set-only `alertStore` wrapper. Counted: **83** direct
+`alertStore.set` writers, **16** `alertClear()` calls and **45** `alertWait()` calls outside
+that module, plus the Enter-key handler (`hotkey.ts` ~250) which resolves any pending
+`ask`/`normal`/`error` with `'yes'`. A mutex would serialize requests while leaving every one
+of those able to resolve a slot-owning alert with a foreign value -- false ownership, which is
+worse than none.
+
+*The load-bearing surprise.* Escape-to-close is implemented AS a clobber: `hotkey.ts` ~243
+calls `alertToast('Alert Closed')` to dismiss a modal. So toasts cannot be serialized
+(Escape would deadlock against the modal it is cancelling) and cannot be left alone (Escape
+is the most frequent wrong-value path in the app). Toasts need their own store slot, which
+in turn means Escape needs a real cancel protocol to replace the clobber.
+
+*Two alerts have no user-reachable exit at all,* which a queue would convert from a local
+annoyance into a permanent global wedge: `alertLogin` (no cancel control; called in a retry
+loop at `accountStorage.ts` ~170) and `alertErrorWait`/`'wait2'` (matches no button branch in
+`AlertComp.svelte`). A wedged chain means the save loop's conflict prompt never appears and
+the tab stops persisting silently -- without even setting `savingStoppedReason`.
+
+*A live data-loss instance, independent of multi-tab:* `bootstrap.ts` ~403-448 maps corrupted
+modules through `Promise.all`, so with two corrupted modules one callback's `alertError`
+destroys the other's `alertConfirm(resetLorebookQuestion)` mid-flight; Enter then resolves it
+`'yes'` and `v.lorebook = []` wipes a lorebook for a question the user never saw.
+
+*Shape of a real fix,* per the plan gate that rejected the mutex-only design: separate toast
+store; an explicit `alertCancel()` sentinel mapped inside `alert.ts` to each function's
+existing cancel value (near-zero call-site churn -- `''` already means cancelled today, which
+is why the sentinel approach is cheaper than it looks); cancel controls added to the `login`
+and `wait2` branches; `alertWait`/`alertClear` routed through the slot owner or documented as
+owner-only; and `nodeStorage.checkAuth` deduped, since serialization turns its concurrent
+callers into N sequential password prompts with conflicting `/api/set_password` writes.
+That is a multi-stage project, not a patch.
+
 **Still open, identified but not fixed:** the `alertStore` modal hijack (a spontaneous
 multi-tab prompt can resolve a pending `alertInput`, e.g. renaming a chat to `"0"`); the
 absence of any "this tab has stopped saving" indicator on the three intentional park paths;
