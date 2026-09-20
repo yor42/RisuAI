@@ -228,8 +228,16 @@ fn check_auth(fpath: String, auth: String) -> bool {
 
 #[tauri::command]
 async fn install_python(path: String) -> bool {
-    //get python embeddable depending on os
+    //get python embeddable depending on os and CPU architecture
     let os = std::env::consts::OS;
+    // Windows-on-ARM (aarch64-pc-windows-msvc) reports OS "windows" the same
+    // as x86_64 — std::env::consts::OS alone can't tell them apart, unlike
+    // Linux/macOS where an unsupported architecture is caught by the OS
+    // check below failing outright. Without this, an ARM64 build would
+    // silently download and run the amd64 embeddable interpreter under
+    // Windows' x64 emulation layer instead of failing cleanly or running
+    // natively — see Agents/Roadmap.md, Phase 3 item 2.
+    let arch = std::env::consts::ARCH;
     let url;
     let py_path = Path::new(&path).join("python");
     if !py_path.exists() {
@@ -239,7 +247,11 @@ async fn install_python(path: String) -> bool {
 
     println!("Path: {}", path);
     if os == "windows" {
-        url = "https://www.python.org/ftp/python/3.11.7/python-3.11.7-embed-amd64.zip".to_string()
+        url = if arch == "aarch64" {
+            "https://www.python.org/ftp/python/3.11.7/python-3.11.7-embed-arm64.zip".to_string()
+        } else {
+            "https://www.python.org/ftp/python/3.11.7/python-3.11.7-embed-amd64.zip".to_string()
+        }
     } else {
         println!("OS not supported");
         return false;

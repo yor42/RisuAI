@@ -1,0 +1,109 @@
+name: 'SPIKE: Windows ARM64 llama-cpp-python build feasibility'
+# Throwaway investigation workflow for Agents/Roadmap.md Phase 3 item 2
+# (Windows on ARM). Not part of the release pipeline — manual dispatch only.
+#
+# Purpose: settle the one open question left after documentation-only
+# research (see the Roadmap entry and the session that added this file):
+# does `pip install llama-cpp-python` — invoked exactly the way
+# src-tauri/src/main.rs's install_py_dependencies() invokes it, with no
+# custom CMAKE_ARGS — successfully build llama.cpp's C++ source natively on
+# a Windows ARM64 runner, using the SAME embeddable-Python setup the real
+# app uses (including the python311._pth site-packages fix post_py_install()
+# performs)? If this succeeds, Phase 3 item 2's remaining risk is
+# essentially resolved. If it fails, the failure output tells us what
+# CMAKE_ARGS or toolchain step needs to be added to install_py_dependencies()
+# before this can ship for real.
+#
+# Delete this file once Phase 3 item 2 is either fully implemented (wired
+# into github-actions-builder.yml's real release matrix) or abandoned —
+# it exists purely to answer this one question, not as a permanent CI job.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  spike:
+    runs-on: windows-11-arm
+    steps:
+      - name: Show environment
+        shell: pwsh
+        run: |
+          [System.Environment]::Is64BitOperatingSystem
+          $env:PROCESSOR_ARCHITECTURE
+          Get-CimInstance Win32_Processor | Select-Object Name, Architecture
+
+      - name: Download and extract the ARM64 embeddable Python (same version/URL install_python() uses)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.11.7/python-3.11.7-embed-arm64.zip" -OutFile "python.zip"
+          Expand-Archive -Path "python.zip" -DestinationPath "python" -Force
+          .\python\python.exe --version
+
+      - name: Enable site-packages (mirrors post_py_install()'s python311._pth fix)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $pthPath = "python\python311._pth"
+          (Get-Content $pthPath) -replace '#import site', 'import site' | Set-Content $pthPath
+          Get-Content $pthPath
+
+      - name: Bootstrap pip (mirrors install_pip())
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Invoke-WebRequest -Uri "https://bootstrap.pypa.io/get-pip.py" -OutFile "get-pip.py"
+          .\python\python.exe get-pip.py
+          .\python\python.exe -m pip --version
+
+      - name: Install dependencies in the same order local.ts's installPython() uses
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $deps = @(
+            'pydantic',
+            'scikit-build',
+            'scikit-build-core',
+            'pyproject_metadata',
+            'pathspec',
+            'llama-cpp-python',
+            'uvicorn[standard]',
+            'fastapi'
+          )
+          foreach ($dep in $deps) {
+            Write-Host "=== Installing $dep ==="
+            .\python\python.exe -m pip install --verbose $dep
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "::error::pip install failed for $dep"
+              exit 1
+            }
+          }
+
+      - name: Verify llama_cpp actually imports and reports a native (not emulated) build
+        shell: pwsh
+        run: |
+          # $ErrorActionPreference only governs PowerShell/cmdlet errors — a
+          # native .exe returning a nonzero exit code does NOT stop the
+          # script or fail the step on its own, so each command below is
+          # checked explicitly via $LASTEXITCODE. Without this, a failed
+          # import on the first line would silently fall through to the
+          # second line, which could still succeed and exit 0 — making the
+          # whole step (and therefore this spike) report a false "pass"
+          # even though llama_cpp never actually built/imported correctly.
+          $ErrorActionPreference = "Stop"
+
+          .\python\python.exe -c "from llama_cpp import Llama; print('llama_cpp imported OK')"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::llama_cpp failed to import — the build did not succeed."
+            exit 1
+          }
+
+          $reportedArch = (.\python\python.exe -c "import platform; print(platform.machine())").Trim()
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::Failed to query platform.machine() after a successful import."
+            exit 1
+          }
+          Write-Host "python reports arch: $reportedArch"
+          if ($reportedArch -ne "ARM64") {
+            Write-Host "::error::Expected a native ARM64 interpreter (platform.machine() == 'ARM64'), got '$reportedArch' — this build may be running under x64 emulation instead of natively, which defeats the purpose of this spike."
+            exit 1
+          }
