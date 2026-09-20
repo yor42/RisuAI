@@ -8,6 +8,19 @@ import { sleep } from "src/ts/util";
 let initPython = false
 
 async function installPython():Promise<boolean>{
+    try{
+        const unsupportedReason = await invoke<string | null>("local_inference_unsupported_reason")
+        if(unsupportedReason){
+            alertClear()
+            alertError(unsupportedReason)
+            return false
+        }
+    }
+    catch(error){
+        alertClear()
+        alertError("Failed to check local inference support: " + error)
+        return false
+    }
     if(initPython){
         return true
     }
