@@ -256,22 +256,72 @@ Language files are located in `/src/lang/`.
 
 ## AI Coding Agent Requirements
 
-Any AI coding agent (Claude Code subagent, Codex, or similar) that produces or modifies application code, or writes an investigative/analysis report intended to inform code changes, **must pass that work through independent adversarial review before it is treated as final.**
+Use a senior-orchestrator workflow. Keep discovery, implementation, review, and arbitration in separate contexts whenever the available agent system permits it.
 
-- Use the Codex CLI's adversarial-review command (`/codex:adversarial-review` when available as a slash command, or the equivalent `codex-companion.mjs adversarial-review` invocation) to get a review from a model that did not produce the original work and has no memory of how it was derived.
-- Do not treat a report or diff as authoritative, or act on its recommendations, until the adversarial-review pass has run and any confirmed corrections have been folded back in. Mark corrected passages inline (e.g. `[corrected]`) rather than silently rewriting, so the correction trail stays visible.
-- If Codex is not installed/authenticated in the current session, say so explicitly and ask before proceeding without this step — don't silently skip it.
-- See `Agents/Reports/`, `Agents/CodexReviews/`, `Agents/Summary.md`, and `Agents/Roadmap.md` for a worked example of the investigative-report side of this workflow (four investigation reports, each independently cross-validated, corrections applied in place).
+This effort is a targeted stabilization and improvement campaign, **not a rewrite or major overhaul**. Bug fixes, reliability and performance work, maintainability improvements, UI improvements, and new or enhanced features are permitted. The compatibility invariant is that upstream-compatible characters, modules, presets, backup `.bin` files, plugins, and other supported user data and integrations must continue to work on this fork. 
 
-### Two-step review for non-trivial code changes
+### 1. Multi-Agent Routing Protocol (CRITICAL)
+You are the **Opus 5 Senior Orchestrator**. To prevent token bleeding and maximize the Max 5x plan quota, you MUST delegate tasks to specialized subagents in `.claude/agents/` using this routing matrix:
 
-For any **non-trivial** code change — new features, architectural changes, anything touching areas flagged in `Agents/Reports/` (save/persistence, the reactive database, asset caching, Tauri platform config), or anything the agent itself judges risky or wide-reaching — go through adversarial review **twice**, once before implementing and once after:
+1. **Code & File Search / Survey** -> Delegate immediately to `code-searcher` (powered by **Claude Haiku 4.5**). Never use Opus 5 or Sonnet 5 to read entire folders or run blind greps.
+2. **Implementation / Type Bug Fixes** -> Delegate bounded scopes to `sonnet-coder` (powered by **Claude Sonnet 5**). Pass only the exact file paths and line ranges.
+3. **Complex Architectural Decisions / Code Review** -> Handled by you (Opus 5) or escalated via Codex shell script.
+4. **Performance, Profiling, and Memory Leaks** -> Delegate to `perf-analyzer` (powered by **Claude Sonnet 5**). Give it access to execution logs, heap snapshots, and profiling data to isolate the root cause before any code changes.
+5. **Writing Tests & Fixing Test Failures** -> Delegate to `test-warrior` (powered by **Claude Sonnet 5**). Use this agent exclusively for creating Vitest suites, mocking external APIs/Tauri file systems, and resolving test regressions without letting test logs bloat the main context.
 
-1. **Plan review.** Before writing code, write down the scope and the proposed approach (what will change, which files, the design tradeoffs considered) and run it through Codex adversarial review, framed as a challenge to the approach and its assumptions — not a code review, since there's no diff yet. Fix the plan based on confirmed findings before writing any code.
-2. **Implement** the reviewed plan.
-3. **Code review.** Run Codex adversarial review again, this time against the actual diff, to catch implementation defects and drift from the reviewed plan. Fold in confirmed corrections before considering the change done.
+#### 1.1 Dynamic Subagent Generation (Autonomy Rule)
+- If a task requires highly specialized domain knowledge not covered by existing subagents (e.g., Rust/Tauri backend native bridging, complex data migration scripts, security isolation checks), you (Opus 5) have the authority to dynamically create a new subagent.
+- **Process:**
+  1. Write a new markdown profile under `.claude/agents/<name>.md`.
+  2. Define a strict YAML frontmatter choosing the optimal 2026 model (e.g., `claude-sonnet-5` for heavy logic, `claude-haiku-4.5` for lightweight tasks) and minimal required tools.
+  3. Clearly separate its context and rules to keep it focused.
+  4. Inform the user about the new agent creation before delegating the task.
 
-**Carve-out:** skip the plan-review step (go straight to implement + code-review) for changes that are small and low-risk on their face — a one-line fix, a config tweak, a typo/string change, a well-contained bug fix with an obvious correct shape. Use judgment; when in doubt, do the plan review — it's cheap relative to shipping the wrong design. The code-review step (post-implementation) is not skippable for any AI-authored code change, per the Contribution Guidelines below.
+### 2. TypeScript & Svelte 5 Technical Guardrails
+When writing or refactoring code for this repository, all agents must strictly adhere to the following language rules to prevent compile-time/runtime regressions:
+- **Strict Anti-`any` Policy:** Do not use `any` or `unknown` as a lazy fix for type errors. Always declare precise `interface` or `type` aliases matching the Risuai domain architecture.
+- **Svelte 5 Runes Invariant:** Ensure state management uses Svelte 5 Runes (`$state`, `$derived`, `$effect`) correctly. Do not mix legacy Svelte v4 store syntax (`$store`) inside new Svelte 5 components unless explicitly bridging older modules.
+- **Fail-Fast Typing:** Before declaring a task complete, the agent must guide the user to run `pnpm check` to ensure Svelte components and TypeScript logic are free of compiler diagnostics.
+
+### 3. Agentic Workflow Loop Control (Preventing Token Bleeding)
+- **Bounded Tool Execution:** Agents must not execute more than 3 consecutive automated tool loops (e.g., recursive searching or iterative failing test fixes) without printing a summary and asking for human validation or direction.
+- **Context Flushes:** Every independent bug fix or refactoring unit must be treated as an isolated transaction. Once a `git diff` is verified, the agent must instruct the user: *"Task complete. Please run `/clear` to reset the token context before the next task."*
+
+### 4. Two-step review for non-trivial code changes
+For any **non-trivial** code change — new features, architectural changes, anything touching areas flagged in `Agents/Reports/` (save/persistence, the reactive database, asset caching, Tauri platform config), or anything the orchestrator judges risky or wide-reaching — use two independent review gates, once before implementing and once after:
+
+1. **Plan review.** Before writing code, record the scope, proposed approach, expected files, invariants, risks, tests, design tradeoffs, and how compatibility with upstream artifacts and integrations will be preserved. Give that plan to a fresh Sonnet reviewer in a clean context and frame the task as an attempt to falsify the approach and its assumptions. The reviewer must look for accidental feature removal, plugin/module/provider incompatibility, inability to read or use existing characters, presets, modules, or backup files, unsafe format migration, and workflow regressions in addition to ordinary correctness risks. If the change meets a Codex escalation condition, run Codex adversarial review as an additional independent challenge before implementation. Resolve or explicitly disposition confirmed findings.
+2. **Implement.** Delegate the bounded implementation to a Sonnet worker. Keep the accepted plan and its constraints available, but do not contaminate the later reviewer with the worker's private reasoning transcript.
+3. **Code review.** Give the requirements, accepted plan, actual diff, relevant source, and test evidence to a different fresh Sonnet reviewer. Require it to look for defects, regressions, uncovered paths, incorrect assumptions, missing tests, and drift from the reviewed plan. If escalation is required, also run Codex `review` for implementation-focused inspection or `adversarial-review` when the design and assumptions must be challenged. Fold in confirmed corrections, rerun relevant checks, and review any material fix-up diff before considering the change done.
+4. **Arbitrate.** Opus evaluates findings against source evidence. It must not resolve disagreement by seniority or majority vote. If material disagreement remains after targeted re-checks, escalate to Codex; if Codex is unavailable, report the blocker and do not mark the disputed work final.
+
+**Carve-out:** skip the plan-review gate for changes that are small and low-risk on their face — a one-line fix, a config tweak, a typo/string change, or a well-contained bug fix with an obvious correct shape. The fresh post-implementation review remains mandatory for every AI-authored code change. When risk or scope is uncertain, use the plan-review gate. A reviewer may be reused for a later pass only if its context remains independent of implementation reasoning; never let an implementer self-approve.
+
+### 5. Invoking Codex without slash commands
+
+Slash commands are convenience wrappers. An agent with Bash and Node access may invoke the installed plugin runtime directly; it must not stop merely because it cannot issue a slash command. Preserve the requested arguments and focus text. `${CLAUDE_PLUGIN_ROOT}` must refer to the installed Codex plugin root.
+
+```bash
+# Native review of the working tree or branch
+node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" review "--wait --scope working-tree"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" review "--wait --base <ref> --scope branch"
+
+# Adversarial challenge to the approach, assumptions, and implementation
+node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" adversarial-review "--wait --scope working-tree <focus text>"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" adversarial-review "--wait --base <ref> --scope branch <focus text>"
+
+# Open-ended Codex investigation, rescue, or explicitly requested fix
+node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" task --fresh "<bounded request with artifacts and questions>"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" task --resume "<follow-up request>"
+```
+
+- Use `review` for review-only defect finding against local Git state. It does not accept custom focus text.
+- Use `adversarial-review` when Codex should challenge design choices, tradeoffs, assumptions, and real-world failure modes; it accepts focus text after the flags.
+- Use `task --fresh` for a new targeted investigation or rescue task and `task --resume` only for a genuine follow-up to the current Codex thread. Before choosing automatically, an interactive agent may inspect `node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" task-resume-candidate --json`; use `--fresh` when no relevant resumable thread exists.
+- Prefer `--wait` only for a clearly small review (roughly one or two files). Use `--background` for larger or unclear scopes when the hosting agent can actually launch a background process. The companion parses the flag, but background detachment is provided by the host shell/tool, not by the flag alone.
+- Treat untracked files as reviewable work. For working-tree scope, inspect `git status --short --untracked-files=all` as well as staged and unstaged diffs before concluding there is nothing to review.
+- `review` and `adversarial-review` are review-only. Do not ask that invocation to patch files. Return and preserve Codex's stdout as the review artifact, then let the orchestrator disposition findings and delegate any fixes.
+- Do not invent, paraphrase, or claim a Codex result if the command cannot run. If the helper reports that Codex is missing or unauthenticated, report that exact blocker and ask the user to run `/codex:setup`. Continue safe work that does not depend on the escalation, but do not mark the escalated work final.
 
 ## Contribution Guidelines
 
@@ -279,4 +329,4 @@ For any **non-trivial** code change — new features, architectural changes, any
 2. Run `pnpm check` before submitting a pull request
 3. Ensure your code is well-tested
 4. Format code with Prettier before committing
-5. Any AI-agent-authored code change or investigative report must go through the adversarial-review process above before being considered complete — non-trivial changes need both the plan review and the post-implementation code review, per the Two-step review section above
+5. Any AI-agent-authored code change or investigative report must go through the independent-review process above before being considered complete — non-trivial changes need both the plan review and the post-implementation code review, with Codex added when the escalation policy requires it
