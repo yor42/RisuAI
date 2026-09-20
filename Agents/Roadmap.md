@@ -101,6 +101,40 @@ The design-feasibility investigation (topic 06, `Reports/06-conflict-resolution-
 6. **Not attempted — Stage 4 (report's own numbering), and now confirmed permanently unreachable rather than merely blocked pending investigation.** Revisiting whether account-sync can get real server-enforced revision checking depends on either obtaining the hub's (RisuAccount) source or running live multi-session tests against it; Report 06 originally flagged this as *unverified* (no hub source present in this repo, inferred from the absence of `/api/account/*` routes in `server/node/server.cjs`). **Update (2026-09-20):** the project owner directly confirmed the hub is maintained entirely upstream and cannot be modified from this repo at all — this is a confirmed hard constraint, not an open question that more investigation could resolve. Stage 4 is therefore not "not yet scheduled" but genuinely out of scope for this repo, permanently; any future account-sync hardening is limited to what Stage 2's client-side-only approach already represents (see item 4 above). See `Agents/Summary.md` §5 for the same correction. *(Report 06, "Incremental adoption path," stage 4.)*
 7. **Deliberately deferred behind Phase 2 (explicit product decision).** Option 3 (CRDT/op-log merge) and Option 4 (hard lock + takeover UI) — both viable later additions layered on Stage 1/2's revision infrastructure, but neither should start before Phase 2's per-character DB decomposition (Phase 2 item 5) exists, since that's the same kind of granular-slice thinking a per-chat conflict design would reuse, and before a product owner decides whether detect-and-refuse is an acceptable long-term UX. *(Report 06, "Incremental adoption path," stage 5.)*
 
+**Round 3 (2026-09-21, Opus): three further live persistence bugs found and fixed.** An audit
+of the save loop turned up three data-loss paths that all nine prior Codex rounds had missed,
+each shipped with its own fresh-context adversarial review:
+
+8. **✅ DONE — a cancelled reload parked the save loop forever** (`b0b16cc8`). Declining the
+   multi-tab reload prompt left the tab permanently unable to autosave, with no indication.
+   Fixed by suppression rather than detection, after the first plan was rejected for
+   introducing two NEW loss paths of its own.
+9. **✅ DONE — the multi-tab auto-reload destroyed in-progress drafts** (`4b2db8db`). A reload
+   triggered by another tab discarded unsent composer text, in-flight message edits, and
+   translation edits. Adds a draft registry (`src/ts/localDrafts.ts`) consulted by
+   `getMultiTabAction`, with five draft holders registered via `$effect` on state.
+10. **✅ DONE — preset renames and images were never written to disk** (`3eeb6553` +
+    `b609ab69`). The `botPresets` change-tracking effect read only `botPresetsId` and
+    `.length`, so in-place mutations were never flagged, and that flag gates whether the
+    preset block is re-encoded at all. The fix is a one-line deep snapshot; the preceding
+    commit extracts the six change-tracking effects out of `saveDb()` into
+    `registerDbChangeEffects` so they could be tested against production code rather than a
+    re-implementation. Measured snapshot cost 0.24/1.76/7.33 ms at 3/15/50 presets, paid on
+    preset-array mutations only.
+
+Process notes worth keeping. Item 10 went through two REJECTs: the first (plan gate) corrected
+a premise about which mutation paths were actually lossy; the second (post-implementation)
+caught a **false scenario in the commit message itself** — an unverified reviewer claim from
+the earlier gate that was propagated without being re-checked. Both reviews were fresh Opus
+contexts, not Codex, per the standing escalation rule. The tests were deliberately written
+against the unfixed code and verified red before the fix, and the one path that could not be
+traced end-to-end was turned into a test rather than asserted in prose.
+
+**Still open, identified but not fixed:** the `alertStore` modal hijack (a spontaneous
+multi-tab prompt can resolve a pending `alertInput`, e.g. renaming a chat to `"0"`); the
+absence of any "this tab has stopped saving" indicator on the three intentional park paths;
+and the pre-existing last-writer-wins whole-DB overwrite, which remains architectural.
+
 ---
 
 ## Phase 2 — RAM/architecture rework (the shared root cause; highest leverage, highest effort)
