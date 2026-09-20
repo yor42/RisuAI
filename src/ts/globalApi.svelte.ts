@@ -19,7 +19,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { checkRisuUpdate } from "./update";
 import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, bodyIntercepterStore } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
-import { alertConfirm, alertError, alertMd, alertNormal, alertNormalWait, alertSelect, alertTOS, alertToast, waitAlert } from "./alert";
+import { alertConfirm, alertError, alertMd, alertNormal, alertSelect, alertTOS, alertToast, waitAlert } from "./alert";
 import { checkDriverInit, syncDrive } from "./drive/drive";
 import { hasher } from "./parser/parser.svelte";
 import { characterURLImport, hubURL } from "./characterCards";
@@ -46,6 +46,7 @@ import { isLocalNetworkUrl } from "./network/localNetwork";
 import { decodeProxyJobWsChunk, formatProxyStreamErrorMessage, parseProxyJobWsEvent } from "./network/proxyJobWs";
 import { getNodeServerProxyAuth, NodeStorageConflictError } from "./storage/nodeStorage";
 import { AccountSyncConflictError } from "./storage/accountStorage";
+import { getMultiTabAction, isRevisionAwareBackend, nextAutoReloadHistory, resolvePromptChoice, resolveRevisionAwarePromptChoice, readAutoReloadHistory, writeAutoReloadHistory, type AutoReloadHistory } from "./storage/multiTabReload";
 
 export const forageStorage = new AutoStorage()
 
@@ -548,7 +549,13 @@ export async function acquireExclusiveStorageMigrationLock(timeoutMs = 5000): Pr
 export async function saveDb() {
     let changed = false
     syncDrive()
-    let gotChannel = false
+    let otherTabSaved = false
+    let dirtySinceLastSave = false
+    let lastPromptAt: number | null = null
+    const multiTabStorage = (() => {
+        try { return window.sessionStorage } catch { return null }
+    })()
+    let autoReloadHistory: AutoReloadHistory = readAutoReloadHistory(multiTabStorage)
     const sessionID = v4()
     let channel: BroadcastChannel
     if (window.BroadcastChannel) {
@@ -559,12 +566,7 @@ export async function saveDb() {
             if (ev.data === sessionID) {
                 return
             }
-            if (!gotChannel) {
-                gotChannel = true
-                alertNormalWait(language.activeTabChange).then(() => {
-                    location.reload()
-                })
-            }
+            otherTabSaved = true
         }
     }
 
@@ -594,7 +596,10 @@ export async function saveDb() {
             selIdState = v
         })
 
-        function saveTimeoutExecute() {
+        function saveTimeoutExecute(markDirty = true) {
+            if (markDirty) {
+                dirtySinceLastSave = true
+            }
             if (saveTimeout) {
                 clearTimeout(saveTimeout);
             }
@@ -603,32 +608,43 @@ export async function saveDb() {
             }, debounceTime);
         }
 
+        let ranOnce = false
         $effect(() => {
             DBState.db.botPresetsId
             DBState.db.botPresets.length
             changeTracker.botPreset = true
-            saveTimeoutExecute()
+            saveTimeoutExecute(ranOnce)
+            ranOnce = true
         })
+        let ranOnce2 = false
         $effect(() => {
             $state.snapshot(DBState.db.modules)
             changeTracker.modules = true
-            saveTimeoutExecute()
+            saveTimeoutExecute(ranOnce2)
+            ranOnce2 = true
         })
+        let ranOnce3 = false
         $effect(() => {
             $state.snapshot(DBState.db.loadouts)
             changeTracker.loadouts = true
-            saveTimeoutExecute()
+            saveTimeoutExecute(ranOnce3)
+            ranOnce3 = true
         })
+        let ranOnce4 = false
         $effect(() => {
             $state.snapshot(DBState.db.plugins)
             changeTracker.plugins = true
-            saveTimeoutExecute()
+            saveTimeoutExecute(ranOnce4)
+            ranOnce4 = true
         })
+        let ranOnce5 = false
         $effect(() => {
             $state.snapshot(DBState.db.pluginCustomStorage)
             changeTracker.pluginCustomStorage = true
-            saveTimeoutExecute()
+            saveTimeoutExecute(ranOnce5)
+            ranOnce5 = true
         })
+        let ranOnce6 = false
         $effect(() => {
             for (const key in DBState.db) {
                 if (
@@ -655,7 +671,8 @@ export async function saveDb() {
                     changeTracker.chat.unshift([DBState.db.characters[selIdState]?.chaId, DBState.db.characters[selIdState]?.chats[DBState.db.characters[selIdState]?.chatPage].id])
                 }
             }
-            saveTimeoutExecute()
+            saveTimeoutExecute(ranOnce6)
+            ranOnce6 = true
         })
     })
 
@@ -690,8 +707,112 @@ export async function saveDb() {
     // otherwise repeat every ~1s forever. Reset back to false on a
     // successful write, so a LATER, separate conflict episode still alerts.
     let conflictAlertShown = false
+    // Consecutive post-commit ancillary failures (backup write -- writeFile on
+    // Tauri, forageStorage.setItem elsewhere -- and getDbBackups's pruning
+    // removeItem) across separate save attempts. Deliberately NOT `savetrys`:
+    // that counter also gates the pre-commit retry/re-commit path (see the
+    // catch block below), and folding post-commit failures into it would let a
+    // run of post-commit failures masquerade as an active pre-commit retry
+    // storm, or vice versa. Reset to 0 only when a full iteration completes
+    // without error, so a persistently broken backup write or pruning step
+    // still eventually escalates instead of degrading silently forever --
+    // mirroring what the old unified `savetrys` counter did before
+    // `primaryCommitted` split this catch into pre-/post-commit halves.
+    // (saveDbKei(), also called in this section, wraps its whole body in its
+    // own try/catch and only ever console.errors -- it never throws, so it
+    // cannot contribute to this streak.)
+    let postCommitFailStreak = 0
+    const POST_COMMIT_ESCALATE_THRESHOLD = 5
+    // Logs a post-commit ancillary failure and, once per consecutive-failure
+    // streak (not once per iteration), escalates it to the user via
+    // alertError. Only ever called from the `primaryCommitted` branches below
+    // -- pre-commit failures keep using the existing `savetrys`-based
+    // classification, unchanged.
+    function notePostCommitAncillaryFailure(error: unknown) {
+        postCommitFailStreak += 1
+        console.error(error)
+        if (postCommitFailStreak === POST_COMMIT_ESCALATE_THRESHOLD) {
+            alertError(error instanceof Error ? error : String(error))
+        }
+    }
     await sleep(1000)
     while (true) {
+        if (otherTabSaved) {
+            // Consumed, never latched: a later foreign save is always re-evaluated.
+            // A message arriving while the modal below is awaited simply sets this
+            // again and is handled on the next iteration.
+            otherTabSaved = false
+            const now = Date.now()
+            const action = getMultiTabAction({
+                dirty: dirtySinceLastSave,
+                now,
+                history: autoReloadHistory,
+                lastPromptAt
+            })
+            if (action === 'auto-reload') {
+                autoReloadHistory = nextAutoReloadHistory(autoReloadHistory, now)
+                // Only reload if we could actually record that we did. The burst cap
+                // lives in sessionStorage, so when storage is unavailable every fresh
+                // page would read an empty history and reload again on the next peer
+                // save — an unbounded reload loop. Staying put instead is lossless
+                // here, because this branch is only reached when the tab is clean.
+                if (writeAutoReloadHistory(multiTabStorage, autoReloadHistory)) {
+                    location.reload()
+                    await sleepForever()
+                }
+            }
+            if (action === 'prompt') {
+                lastPromptAt = now
+                saving.state = false
+                if (isRevisionAwareBackend({ isNodeServer, isAccountSync: forageStorage.isAccount })) {
+                    // On the self-hosted Node server and account sync, this tab's
+                    // known revision is now stale precisely because the other tab's
+                    // save just landed -- and that revision is deliberately never
+                    // refreshed from a 409 (see nodeStorage.ts). So a "save mine"
+                    // option here is not a real choice: it would 409 pre-commit on
+                    // every single retry. Only offer what can actually happen --
+                    // reload to pick up the current server data, or stay and park this
+                    // tab (it stops trying to save, and those edits stay unsaved until
+                    // it reloads).
+                    const choice = resolveRevisionAwarePromptChoice(await alertSelect(
+                        [language.otherTabSavedConflictReload, language.otherTabSavedConflictStay],
+                        language.otherTabSavedConflictTitle
+                    ))
+                    if (choice === 'reload') {
+                        location.reload()
+                        await sleepForever()
+                    }
+                    // choice === 'stay': there is no save-mine path on this backend, so
+                    // falling through to the normal save loop would immediately retry with
+                    // the now-stale `if-match-revision`, 409 pre-commit, and surface a
+                    // second, differently-worded conflict alert before parking anyway (see
+                    // the pre-commit NodeStorageConflictError handling below). Instead, park
+                    // this tab right here, quietly: stop attempting to save and never
+                    // re-prompt on this page load. The user's edits stay on screen, untouched
+                    // and unsaved, until they reload -- exactly what "stay" told them.
+                    // (`saving.state` is already `false` from above this if-block.)
+                    await sleepForever()
+                } else {
+                    const choice = resolvePromptChoice(await alertSelect(
+                        [language.otherTabSavedSaveMine, language.otherTabSavedDiscardMine],
+                        language.otherTabSavedTitle
+                    ))
+                    if (choice === 'reload') {
+                        location.reload()
+                        await sleepForever()
+                    }
+                    if (choice === 'flush') {
+                        // "Save mine": once this write lands, this tab's data IS the
+                        // newest committed state -- reloading would just re-read its
+                        // own write and gain nothing, while a reload here is exactly
+                        // what used to destroy edits landing during the write window
+                        // (this used to be the `finalFlushPending` reload, now removed).
+                        // Just let the normal save loop pick this up and stay put.
+                        changed = true
+                    }
+                }
+            }
+        }
         if (!changed) {
             await sleep(500)
             continue
@@ -704,6 +825,7 @@ export async function saveDb() {
         // before attempting to merge it back — an error thrown before that assignment
         // (e.g. during encoder re-init) must not itself throw inside the catch.
         let toSave: toSaveType | null = null
+        let primaryCommitted = false
         try {
 
             if (requiresFullEncoderReload.state) {
@@ -716,6 +838,7 @@ export async function saveDb() {
             }
 
             toSave = safeStructuredClone(changeTracker)
+            dirtySinceLastSave = false
             // Trim/reset the live tracker right away, so edits made by effects while this
             // write is in flight accumulate fresh (rather than being clobbered by a naive
             // post-write reset that doesn't know about them). If this attempt doesn't end
@@ -729,15 +852,6 @@ export async function saveDb() {
             changeTracker.plugins = false
             changeTracker.pluginCustomStorage = false
 
-            if (gotChannel) {
-                //Data is saved in other tab
-                mergeUnsavedChanges(toSave)
-                await sleep(1000)
-                continue
-            }
-            if (channel) {
-                channel.postMessage(sessionID)
-            }
             let db = getDatabase()
             if (!db.characters) {
                 mergeUnsavedChanges(toSave)
@@ -781,6 +895,21 @@ export async function saveDb() {
             } finally {
                 releaseWriteLock()
             }
+            // The primary database write has landed. Everything after this point
+            // (backup write, getDbBackups) is best-effort and must never be
+            // able to resurrect and re-commit this payload — see the catch below.
+            // saveDbKei() also runs later in this section, but it never throws
+            // (see the postCommitFailStreak comment above), so it cannot be a
+            // source of the failures this flag guards against.
+            primaryCommitted = true
+            if (channel) {
+                try {
+                    channel.postMessage(sessionID)
+                } catch (error) {
+                    // A failed notification must never fail a save that succeeded.
+                    console.error(error)
+                }
+            }
             if (isTauri) {
                 if (shouldWriteBackup) {
                     await writeFile(`database/dbbackup-${(Date.now() / 100).toFixed()}.bin`, dbData, { baseDir: BaseDirectory.AppData });
@@ -803,18 +932,49 @@ export async function saveDb() {
             savetrys = 0
             conflictAlertShown = false
             await saveDbKei()
+            // A full iteration -- primary write, backup write, and getDbBackups
+            // (the steps above that can actually throw), plus saveDbKei (which
+            // never throws) -- completed without error, so this is a genuinely
+            // clean cycle: reset the consecutive post-commit failure streak.
+            postCommitFailStreak = 0
             await sleep(500)
         } catch (error) {
-            savetrys += 1
-            // The write failed after the tracker was already trimmed above, so fold
-            // `toSave` back in — merged with whatever's accumulated since — instead of
-            // losing it. `toSave` is only set once the snapshot line above has actually
-            // run; an error before that (e.g. during encoder re-init) has nothing to
-            // merge, since the live tracker was never touched this iteration.
-            if (toSave) {
-                mergeUnsavedChanges(toSave)
+            // `primaryCommitted` splits this catch into two independent concerns that
+            // used to be conflated: (1) whether it's safe to retry — restore the
+            // tracker, mark `changed`, and loop back to re-encode/re-write — and (2)
+            // how to classify and report the error to the user. Only (1) depends on
+            // `primaryCommitted`: retrying after the primary write already landed
+            // would re-commit an already-committed payload and could overwrite a peer
+            // tab that has since flushed its own state in response to our broadcast —
+            // the race this flag exists to prevent. But the error itself is exactly as
+            // real either way — a quota or conflict failure in a backup write or in
+            // getDbBackups() (its pruning removeItem) is just as actionable to the
+            // user as one in the primary write — so classification always runs below,
+            // regardless of `primaryCommitted`. This can't turn into a toast-spam loop: the
+            // conflict branches already gate on `conflictAlertShown` (a one-shot until
+            // the next successful write), and since `changed` is never set on the
+            // post-commit path, there is no tight retry loop for the quota/generic
+            // branches to spam from either — classification only runs again here when
+            // a genuinely new edit triggers another save attempt.
+            if (!primaryCommitted) {
+                savetrys += 1
+                // The write failed after the tracker was already trimmed above, so fold
+                // `toSave` back in — merged with whatever's accumulated since — instead of
+                // losing it. `toSave` is only set once the snapshot line above has actually
+                // run; an error before that (e.g. during encoder re-init) has nothing to
+                // merge, since the live tracker was never touched this iteration.
+                if (toSave) {
+                    mergeUnsavedChanges(toSave)
+                    dirtySinceLastSave = true
+                }
+                changed = true
+            } else {
+                // Primary write already succeeded and was already broadcast; only
+                // ancillary best-effort work (backup writes, getDbBackups, saveDbKei)
+                // failed. Do NOT restore the tracker or set `changed` — see the
+                // reasoning above.
+                savetrys = 0
             }
-            changed = true
             if (error instanceof NodeStorageConflictError) {
                 // This device's local data is out of date with the self-hosted
                 // Node server — another writer has saved this key since this
@@ -829,61 +989,112 @@ export async function saveDb() {
                 // data fresh), which this alert says explicitly, since silently
                 // "queuing" the failed edit and reloading would discard it — see
                 // Agents/Reports/06-conflict-resolution-design-feasibility.md.
-                if (!conflictAlertShown) {
-                    conflictAlertShown = true
-                    alertToast('Your local data conflicts with a newer version on the self-hosted server — your latest changes could not be saved. Reload the app to get the current data (unsynced local changes will be lost).')
+                //
+                // That reasoning only holds pre-commit. If `primaryCommitted` is
+                // true, this device's write already landed and was already
+                // broadcast to other tabs — the conflict happened on ancillary
+                // best-effort work instead (e.g. two tabs pruning the same oldest
+                // backup once getDbBackups() finds more than the cap, which calls
+                // through to NodeStorage.removeItem() and can 409). There is no
+                // stale local write to protect here, so claiming the save failed
+                // and parking the tab would be wrong — it would reintroduce "one
+                // bad ancillary event permanently disables saving" for a save that
+                // actually succeeded.
+                if (primaryCommitted) {
+                    if (!conflictAlertShown) {
+                        conflictAlertShown = true
+                        alertToast('Your latest changes were saved. A background backup step could not complete because of a conflict on the self-hosted server; this does not affect your saved data.')
+                    }
+                    notePostCommitAncillaryFailure(error)
+                    await sleep(500)
+                } else {
+                    if (!conflictAlertShown) {
+                        conflictAlertShown = true
+                        alertToast('Your local data conflicts with a newer version on the self-hosted server — your latest changes could not be saved. Reload the app to get the current data (unsynced local changes will be lost).')
+                    }
+                    console.error(error)
+                    // Actually stop retrying, not just stop re-alerting: a short
+                    // sleep-then-loop here would re-encode and resend the exact
+                    // same rejected state on every iteration forever (Codex
+                    // review caught this — the comment above already claimed
+                    // this wasn't "blindly retrying," but the code did exactly
+                    // that). Reload is the only real resolution today, so park
+                    // this loop indefinitely instead. Deliberately `sleepForever()`,
+                    // not `sleep(hugeNumber)` — a first attempt at this used
+                    // `sleep(100000000)` on the mistaken assumption it meant
+                    // "forever" (copying accountStorage.ts's reloadSession
+                    // handling, which has the same bug), but that's milliseconds,
+                    // so it only blocks for ~27.8 hours before silently resuming
+                    // and resending the known-stale write. `sleepForever()` never
+                    // resolves at all, so only a reload (which discards this
+                    // pending await along with all other JS state) can end it.
+                    saving.state = false
+                    await sleepForever()
                 }
-                console.error(error)
-                // Actually stop retrying, not just stop re-alerting: a short
-                // sleep-then-loop here would re-encode and resend the exact
-                // same rejected state on every iteration forever (Codex
-                // review caught this — the comment above already claimed
-                // this wasn't "blindly retrying," but the code did exactly
-                // that). Reload is the only real resolution today, so park
-                // this loop indefinitely instead. Deliberately `sleepForever()`,
-                // not `sleep(hugeNumber)` — a first attempt at this used
-                // `sleep(100000000)` on the mistaken assumption it meant
-                // "forever" (copying accountStorage.ts's reloadSession
-                // handling, which has the same bug), but that's milliseconds,
-                // so it only blocks for ~27.8 hours before silently resuming
-                // and resending the known-stale write. `sleepForever()` never
-                // resolves at all, so only a reload (which discards this
-                // pending await along with all other JS state) can end it.
-                saving.state = false
-                await sleepForever()
             }
             else if (error instanceof AccountSyncConflictError) {
                 // Same reasoning as the NodeStorageConflictError branch above,
                 // for the account-sync backend: whether the hub actually
                 // enforces this today is unverified, but if it does, blindly
                 // retrying the same stale write is wrong for the same reason.
-                if (!conflictAlertShown) {
-                    conflictAlertShown = true
-                    alertToast('Your local data conflicts with a newer version on your account — your latest changes could not be saved. Reload the app to get the current data (unsynced local changes will be lost).')
+                // Same `primaryCommitted` split as above too: a conflict on
+                // ancillary work after this device's write already landed is
+                // not a lost save.
+                if (primaryCommitted) {
+                    if (!conflictAlertShown) {
+                        conflictAlertShown = true
+                        alertToast('Your latest changes were saved. A background sync step could not complete because of a conflict on your account; this does not affect your saved data.')
+                    }
+                    notePostCommitAncillaryFailure(error)
+                    await sleep(500)
+                } else {
+                    if (!conflictAlertShown) {
+                        conflictAlertShown = true
+                        alertToast('Your local data conflicts with a newer version on your account — your latest changes could not be saved. Reload the app to get the current data (unsynced local changes will be lost).')
+                    }
+                    console.error(error)
+                    saving.state = false
+                    await sleepForever()
                 }
-                console.error(error)
-                saving.state = false
-                await sleepForever()
             }
             else if (isQuotaExceededError(error)) {
                 // A distinct, actionable message instead of the generic retry path —
                 // "retrying" is misleading here, since retrying the exact same write
                 // won't succeed until the user actually frees up space.
                 alertToast('Your browser storage is full — free up space (delete old chats, characters, or backups) and try again. Your latest edits could not be saved.')
-                console.error(error)
-                await sleep(5000)
-            }
-            else {
-                if (savetrys === 1) {
-                    alertToast('Failed to save data, retrying…')
-                }
-                if (savetrys > 4) {
-                    alertError(error)
-                }
-                else {
+                // Post-commit, `changed` was deliberately left false above, so there is
+                // nothing queued to retry — just yield back to the idle poll at the top
+                // of the loop instead of the longer pre-commit retry backoff.
+                if (primaryCommitted) {
+                    notePostCommitAncillaryFailure(error)
+                } else {
                     console.error(error)
                 }
-                await sleep(1000)
+                await sleep(primaryCommitted ? 500 : 5000)
+            }
+            else {
+                if (primaryCommitted) {
+                    // Ancillary failure with nothing more specific to classify.
+                    // notePostCommitAncillaryFailure logs it and escalates via
+                    // alertError once this becomes a persistent streak, instead of
+                    // degrading silently forever. Nothing is queued to retry (see
+                    // above), so this deliberately skips the "retrying…" toast
+                    // below, which would be misleading — no retry is actually
+                    // happening.
+                    notePostCommitAncillaryFailure(error)
+                    await sleep(500)
+                } else {
+                    if (savetrys === 1) {
+                        alertToast('Failed to save data, retrying…')
+                    }
+                    if (savetrys > 4) {
+                        alertError(error)
+                    }
+                    else {
+                        console.error(error)
+                    }
+                    await sleep(1000)
+                }
             }
         }
 
