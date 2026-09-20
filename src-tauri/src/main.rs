@@ -226,6 +226,38 @@ fn check_auth(fpath: String, auth: String) -> bool {
     }
 }
 
+#[cfg(windows)]
+fn host_is_arm64() -> bool {
+    use windows_sys::Win32::System::SystemInformation::IMAGE_FILE_MACHINE_ARM64;
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, IsWow64Process2};
+
+    let mut process_machine = 0u16;
+    let mut native_machine = 0u16;
+    let ok = unsafe { IsWow64Process2(GetCurrentProcess(), &mut process_machine, &mut native_machine) };
+    if ok == 0 {
+        println!("IsWow64Process2 failed; assuming host is not ARM64");
+        return false;
+    }
+    native_machine == IMAGE_FILE_MACHINE_ARM64
+}
+
+#[cfg(not(windows))]
+fn host_is_arm64() -> bool {
+    false
+}
+
+#[tauri::command]
+fn local_inference_unsupported_reason() -> Option<String> {
+    let os = std::env::consts::OS;
+    if os == "windows" {
+        if host_is_arm64() {
+            return Some("Local inference is unavailable on Windows on ARM: the bundled Python local-inference server requires a native build of llama-cpp-python, which cannot be performed on this machine.".to_string());
+        }
+        return None;
+    }
+    Some(format!("Local inference via the bundled Python server is only supported on Windows (detected OS: {}).", os))
+}
+
 #[tauri::command]
 async fn install_python(path: String) -> bool {
     //get python embeddable depending on os and CPU architecture
@@ -250,6 +282,10 @@ async fn install_python(path: String) -> bool {
 
     println!("Path: {}", path);
     if os == "windows" {
+        if host_is_arm64() {
+            println!("Host is ARM64 Windows; refusing to install the bundled Python runtime because llama-cpp-python cannot be built natively on this machine");
+            return false;
+        }
         url = if arch == "aarch64" {
             "https://www.python.org/ftp/python/3.11.7/python-3.11.7-embed-arm64.zip".to_string()
         } else {
@@ -762,6 +798,7 @@ fn main() {
             native_request,
             check_auth,
             check_requirements_local,
+            local_inference_unsupported_reason,
             install_python,
             install_pip,
             post_py_install,
