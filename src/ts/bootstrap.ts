@@ -648,7 +648,21 @@ async function cleanChunks(options:{
                 continue
             }
             else if (asset.startsWith('remotes/')) {
-                const name = getBasename(asset).slice(0, -10) //remove .local.bin
+                // getRemoteSavePayloadName() only recognizes the legacy
+                // `.local.bin` suffix — a content-addressed (`v:2`,
+                // `<chaId>.<hash>.bin`) file returns null here and is
+                // correctly left untouched, matching the Tauri branch above.
+                // A hard-coded `.slice(0, -10)` (removing exactly the length
+                // of ".local.bin") used to stand in for this check, back when
+                // that was genuinely the only possible remote-file suffix —
+                // fed a hash-named file instead, it silently produced a
+                // bogus "character id" that never matches anything real,
+                // making a live block look orphaned and deletable after the
+                // grace period. See Agents/Reports/08-remote-block-gc-transactional-safety.md.
+                const name = getRemoteSavePayloadName(getBasename(asset))
+                if(!name){
+                    continue
+                }
                 const exists = characterIds.has(name)
                 if(!exists){
                     let okayToDelete = false

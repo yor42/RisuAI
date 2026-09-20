@@ -30,6 +30,28 @@ const disableRemoteSaving = () => {
     }
 }
 const checkedRemoteExistence = new Set<string>();
+
+/**
+ * Content-addressing hash for remote character blocks (Phase 1.5 Tier B
+ * Stage 3a — see Agents/Reports/07-remote-block-versioning-design.md).
+ * Truncated to 16 hex chars (64 bits) — ample collision resistance for a
+ * per-character, per-user keyspace, keeps filenames short. Deliberately a
+ * small local helper rather than reusing `hasher()` from
+ * `src/ts/parser/parser.svelte.ts` (also SHA-256-based, same convention
+ * `saveAsset()` already established for asset addressing) — importing that
+ * module here would pull in its large, UI-adjacent dependency graph for no
+ * benefit, since the hashing itself is a three-line primitive already used
+ * inline in several other files in this codebase (e.g. mcplib.ts,
+ * filesystemclient.ts).
+ */
+async function hashRemoteBlockContent(data: Uint8Array): Promise<string> {
+    const digest = await crypto.subtle.digest('SHA-256', data as BufferSource)
+    return Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('')
+        .slice(0, 16)
+}
+
 const magicHeader = new Uint8Array([0, 82, 73, 83, 85, 83, 65, 86, 69, 0, 7]);
 const magicCompressedHeader = new Uint8Array([0, 82, 73, 83, 85, 83, 65, 86, 69, 0, 8]);
 const magicStreamCompressedHeader = new Uint8Array([0, 82, 73, 83, 85, 83, 65, 86, 69, 0, 9]);
@@ -456,9 +478,21 @@ export class RisuSaveEncoder {
     async encodeRemoteBlock(arg:EncodeBlockArg){
         console.log(`Encoding remote block: ${arg.name}`);
         const encoded = new TextEncoder().encode(arg.data);
-        const fileName = `remotes/${arg.name}.local.bin`
+        // Content-addressed naming (Phase 1.5 Tier B Stage 3a — see
+        // Agents/Reports/07-remote-block-versioning-design.md): the filename
+        // is a function of content, not a stable per-character name, so a
+        // write is always a fresh, never-again-mutated object (or a true
+        // no-op if identical content was already written under this exact
+        // hash). This is what makes a rejected root write's earlier remote
+        // writes harmless garbage instead of silently-visible corruption —
+        // the bug that got the original (unversioned) eligibility-extension
+        // attempt reverted. `v:1`/bare-name pointers (pre-this-change saves)
+        // are still fully supported for reading — see RisuSaveDecoder's
+        // REMOTE case below — this only changes what NEW writes produce.
+        const hash = await hashRemoteBlockContent(encoded);
+        const fileName = `remotes/${arg.name}.${hash}.bin`
 
-        if(arg.skipRemoteSaving && checkedRemoteExistence.has(arg.name) === false){
+        if(arg.skipRemoteSaving && checkedRemoteExistence.has(fileName) === false){
             let fileExists = false;
             if(isTauri){
                 fileExists = await exists(fileName, { baseDir: BaseDirectory.AppData });
@@ -473,7 +507,12 @@ export class RisuSaveEncoder {
                 console.log(`Remote file ${fileName} does not exist, disabling skipRemoteSaving for this block.`);
                 arg.skipRemoteSaving = false;
             }
-            checkedRemoteExistence.add(arg.name);
+            // Keyed by the full (content-addressed) fileName, not just
+            // arg.name — a different hash for the same character is
+            // effectively a brand-new file that's never been checked, and
+            // keying by chaId alone would have permanently skipped the
+            // existence check for every subsequent version after the first.
+            checkedRemoteExistence.add(fileName);
         }
 
         if(!arg.skipRemoteSaving){
@@ -490,9 +529,10 @@ export class RisuSaveEncoder {
         return await this.encodeBlock({
             compression: false,
             data: JSON.stringify({
-                v: 1,
+                v: 2,
                 type: arg.type,
                 name: arg.name,
+                hash,
             }),
             type: RisuSaveType.REMOTE,
             name: arg.name
@@ -688,8 +728,28 @@ export class RisuSaveDecoder {
                             v:number
                             type:RisuSaveType
                             name:string
+                            hash?:string
                         } = JSON.parse(this.blocks[key].content);
-                        const fileName = `remotes/${remoteInfo.name}.local.bin`
+                        // v1 pointers (pre-Stage-3a saves) name a stable,
+                        // mutable file; v2 pointers name a content-addressed,
+                        // immutable one. An unrecognized version, or a v2
+                        // pointer missing its hash, is treated the same way
+                        // this format already treats other corruption —
+                        // don't guess, skip this block cleanly (the per-block
+                        // checksum already protects the JSON payload itself,
+                        // so this can only happen from a genuine encoder bug,
+                        // not byte-level corruption — still fail closed).
+                        let fileName: string
+                        if(remoteInfo.v === 2 && remoteInfo.hash){
+                            fileName = `remotes/${remoteInfo.name}.${remoteInfo.hash}.bin`
+                        }
+                        else if(remoteInfo.v === 1){
+                            fileName = `remotes/${remoteInfo.name}.local.bin`
+                        }
+                        else{
+                            console.warn(`Remote pointer for "${remoteInfo.name}" has an unrecognized version (${remoteInfo.v}) or a v2 pointer missing its hash; skipping.`);
+                            break;
+                        }
                         let remoteData:Uint8Array|null = null
                         if(isTauri){
                             try {
@@ -819,7 +879,7 @@ export async function decodeRisuSave(data:Uint8Array){
         } catch (error) {
             const buf = Buffer.from(fflate.decompressSync(Buffer.from(data)))
             try {
-                return JSON.parse(buf.toString('utf-8'))                            
+                return JSON.parse(buf.toString('utf-8'))
             } catch (error) {
                 return unpackr.decode(buf)
             }
