@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { tick, untrack } from "svelte";
+  import { tick, untrack, onDestroy } from "svelte";
+  import { v4 } from "uuid";
+  import { registerDraft, unregisterDraft } from "src/ts/localDrafts";
   import {
     LanguagesIcon,
     StarIcon,
@@ -84,6 +86,21 @@
   let rerolled = $state<string | null>(null);
   let isTranslatingRerolled = $state(false);
   let rerolledTranslation = $state<string | null>(null);
+
+  // Driven from `$effect` tracking `rerolled` itself (not the accept/discard
+  // handlers), so every exit path is covered.
+  const rerolledDraftKey = v4();
+  $effect(() => {
+    if (rerolled !== null) {
+      registerDraft(rerolledDraftKey);
+      return () => unregisterDraft(rerolledDraftKey);
+    }
+  });
+  onDestroy(() => {
+    // Backstop alongside the `$effect` cleanup above -- `unregisterDraft` is a
+    // safe no-op if the key was already removed.
+    unregisterDraft(rerolledDraftKey);
+  });
 
   $effect.pre(() => {
     summaryItemStateMap.set(summary, summaryItemState);

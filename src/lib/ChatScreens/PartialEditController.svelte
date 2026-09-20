@@ -3,6 +3,8 @@
     import { createEventDispatcher, onDestroy } from 'svelte';
     import { DBState } from 'src/ts/stores.svelte';
     import { language } from 'src/lang';
+    import { registerDraft, unregisterDraft } from 'src/ts/localDrafts';
+    import { v4 } from 'uuid';
     import { 
         findAllOriginalRangesFromHtml,
         findAllOriginalRangesFromText,
@@ -42,6 +44,16 @@
     let isEditing = $state(false);
     let editText = $state('');
     let textareaRef: HTMLTextAreaElement | null = $state(null);
+
+    // Driven from `$effect` rather than `closeEdit()`/the button handlers, so every
+    // exit path is covered by tracking `isEditing` itself, not just the funnel.
+    const editDraftKey = v4();
+    $effect(() => {
+        if (isEditing) {
+            registerDraft(editDraftKey);
+            return () => unregisterDraft(editDraftKey);
+        }
+    });
 
     let isConfirmingDelete = $state(false);
 
@@ -629,6 +641,9 @@
 
     // Cleanup on component unmount
     onDestroy(() => {
+        // Backstop alongside the `$effect` cleanup above -- `unregisterDraft` is a
+        // safe no-op if the key was already removed.
+        unregisterDraft(editDraftKey);
         matchingRequestId += 1;
         if (blockButtonWrapper) {
             blockButtonWrapper.remove();

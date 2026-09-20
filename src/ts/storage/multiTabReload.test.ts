@@ -12,8 +12,10 @@ import {
     readAutoReloadHistory,
     resolvePromptChoice,
     resolveRevisionAwarePromptChoice,
+    shouldRetainOtherTabSavedSignal,
     writeAutoReloadHistory,
     type AutoReloadHistory,
+    type MultiTabAction,
 } from './multiTabReload'
 
 const now = 10_000_000_000
@@ -52,6 +54,7 @@ describe('getMultiTabAction', () => {
             now,
             history: { lastAt: null, burst: 0 },
             lastPromptAt: null,
+            hasLocalDraft: false,
         })).toBe('auto-reload')
     })
 
@@ -61,6 +64,7 @@ describe('getMultiTabAction', () => {
             now,
             history: { lastAt: now - 5000, burst: 1 },
             lastPromptAt: null,
+            hasLocalDraft: false,
         })).toBe('stay')
     })
 
@@ -70,6 +74,7 @@ describe('getMultiTabAction', () => {
             now,
             history: { lastAt: now - 20000, burst: 1 },
             lastPromptAt: null,
+            hasLocalDraft: false,
         })).toBe('auto-reload')
     })
 
@@ -79,6 +84,7 @@ describe('getMultiTabAction', () => {
             now,
             history: { lastAt: now - 30000, burst: AUTO_RELOAD_MAX_BURST },
             lastPromptAt: null,
+            hasLocalDraft: false,
         })).toBe('stay')
     })
 
@@ -88,6 +94,7 @@ describe('getMultiTabAction', () => {
             now,
             history: { lastAt: now - AUTO_RELOAD_BURST_WINDOW_MS - 1, burst: AUTO_RELOAD_MAX_BURST },
             lastPromptAt: null,
+            hasLocalDraft: false,
         })).toBe('auto-reload')
     })
 
@@ -97,6 +104,7 @@ describe('getMultiTabAction', () => {
             now,
             history: { lastAt: now - AUTO_RELOAD_BURST_WINDOW_MS, burst: AUTO_RELOAD_MAX_BURST },
             lastPromptAt: null,
+            hasLocalDraft: false,
         })).toBe('auto-reload')
     })
 
@@ -106,6 +114,7 @@ describe('getMultiTabAction', () => {
             now,
             history: { lastAt: null, burst: 0 },
             lastPromptAt: null,
+            hasLocalDraft: false,
         })).toBe('prompt')
     })
 
@@ -115,6 +124,7 @@ describe('getMultiTabAction', () => {
             now,
             history: { lastAt: null, burst: 0 },
             lastPromptAt: now - 5000,
+            hasLocalDraft: false,
         })).toBe('stay')
     })
 
@@ -124,6 +134,7 @@ describe('getMultiTabAction', () => {
             now,
             history: { lastAt: null, burst: 0 },
             lastPromptAt: now - 2 * PROMPT_RENOTIFY_MS,
+            hasLocalDraft: false,
         })).toBe('prompt')
     })
 
@@ -133,6 +144,7 @@ describe('getMultiTabAction', () => {
             now,
             history: { lastAt: now + 5000, burst: AUTO_RELOAD_MAX_BURST },
             lastPromptAt: null,
+            hasLocalDraft: false,
         })).toBe('stay')
     })
 
@@ -142,7 +154,110 @@ describe('getMultiTabAction', () => {
             now,
             history: { lastAt: null, burst: 0 },
             lastPromptAt: now + 5000,
+            hasLocalDraft: false,
         })).toBe('stay')
+    })
+
+    it('stays when clean but a local draft is in progress, even with fresh history', () => {
+        expect(getMultiTabAction({
+            dirty: false,
+            now,
+            history: { lastAt: null, burst: 0 },
+            lastPromptAt: null,
+            hasLocalDraft: true,
+        })).toBe('stay')
+    })
+
+    it('a local draft must never suppress the conflict prompt when dirty (ordering guard)', () => {
+        expect(getMultiTabAction({
+            dirty: true,
+            now,
+            history: { lastAt: null, burst: 0 },
+            lastPromptAt: null,
+            hasLocalDraft: true,
+        })).toBe('prompt')
+    })
+
+    it('a local draft does not defeat the renotify window when dirty and recently prompted', () => {
+        expect(getMultiTabAction({
+            dirty: true,
+            now,
+            history: { lastAt: null, burst: 0 },
+            lastPromptAt: now - 5000,
+            hasLocalDraft: true,
+        })).toBe('stay')
+    })
+
+    it('stays clean with no history when hasLocalDraft is false (regression guard)', () => {
+        expect(getMultiTabAction({
+            dirty: false,
+            now,
+            history: { lastAt: null, burst: 0 },
+            lastPromptAt: null,
+            hasLocalDraft: false,
+        })).toBe('auto-reload')
+    })
+
+    it('a local draft still wins over an already-exhausted burst cap', () => {
+        expect(getMultiTabAction({
+            dirty: false,
+            now,
+            history: { lastAt: now - 30000, burst: AUTO_RELOAD_MAX_BURST },
+            lastPromptAt: null,
+            hasLocalDraft: true,
+        })).toBe('stay')
+    })
+})
+
+describe('shouldRetainOtherTabSavedSignal', () => {
+    it('retains the signal when clean with a local draft producing stay', () => {
+        expect(shouldRetainOtherTabSavedSignal({
+            action: 'stay',
+            dirty: false,
+            hasLocalDraft: true,
+        })).toBe(true)
+    })
+
+    it('does not retain when the action is auto-reload', () => {
+        expect(shouldRetainOtherTabSavedSignal({
+            action: 'auto-reload',
+            dirty: false,
+            hasLocalDraft: false,
+        })).toBe(false)
+    })
+
+    it('does not retain when the action is prompt', () => {
+        expect(shouldRetainOtherTabSavedSignal({
+            action: 'prompt',
+            dirty: true,
+            hasLocalDraft: true,
+        })).toBe(false)
+    })
+
+    it('does not retain a dirty stay (the renotify-window case), even with a local draft', () => {
+        // This 'stay' is caused by the recently-prompted renotify window, not by the
+        // draft -- it must keep re-arming only on a fresh peer broadcast, per the
+        // existing "consumed, never latched" behaviour for dirty tabs.
+        expect(shouldRetainOtherTabSavedSignal({
+            action: 'stay',
+            dirty: true,
+            hasLocalDraft: true,
+        })).toBe(false)
+    })
+
+    it('does not retain a clean stay with no local draft (e.g. burst cap)', () => {
+        expect(shouldRetainOtherTabSavedSignal({
+            action: 'stay',
+            dirty: false,
+            hasLocalDraft: false,
+        })).toBe(false)
+    })
+
+    it('does not retain when clean, no draft, and dirty is also false (sanity)', () => {
+        const actions: MultiTabAction[] = ['auto-reload', 'prompt', 'stay']
+        for (const action of actions) {
+            expect(shouldRetainOtherTabSavedSignal({ action, dirty: false, hasLocalDraft: false })).toBe(false)
+        }
     })
 })
 
@@ -330,6 +445,7 @@ describe('writeAutoReloadHistory', () => {
             now,
             history: { lastAt: now - AUTO_RELOAD_MIN_INTERVAL_MS, burst: 1 },
             lastPromptAt: null,
+            hasLocalDraft: false,
         })).toBe('auto-reload')
     })
 })

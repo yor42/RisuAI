@@ -27,12 +27,24 @@ export function getMultiTabAction(arg: {
     now: number
     history: AutoReloadHistory
     lastPromptAt: number | null
+    hasLocalDraft: boolean
 }): MultiTabAction {
-    const { dirty, now, history, lastPromptAt } = arg
+    const { dirty, now, history, lastPromptAt, hasLocalDraft } = arg
     if (dirty) {
         if (lastPromptAt === null || now - lastPromptAt >= PROMPT_RENOTIFY_MS) {
             return 'prompt'
         }
+        return 'stay'
+    }
+    // Must stay AFTER the `if (dirty)` block above: `dirty && hasLocalDraft` must
+    // still fall into the branch above and return 'prompt'/'stay' from there, never
+    // from here -- letting a draft suppress the conflict prompt on a revision-aware
+    // backend would be a severe regression. This branch is only ever reached when
+    // `!dirty`, and it must win over auto-reload regardless of burst/interval state:
+    // an unsaved draft living in component-local `$state` (not yet committed to
+    // `DBState.db`, so `dirty` never saw it) would otherwise be silently destroyed by
+    // `location.reload()`.
+    if (hasLocalDraft) {
         return 'stay'
     }
     if (
@@ -49,6 +61,35 @@ export function getMultiTabAction(arg: {
         return 'stay'
     }
     return 'auto-reload'
+}
+
+// `saveDb()` consumes the peer-save signal unconditionally before calling
+// `getMultiTabAction` (`otherTabSaved = false`, then re-armed only by a fresh
+// broadcast). That is correct for every existing 'stay' reason -- but not for a
+// 'stay' caused by a local draft: the draft can later be committed with no new
+// peer broadcast ever arriving, and `saveDb()`'s `if (otherTabSaved)` guard would
+// then simply be skipped forever, letting the loop write the whole (now-dirty) DB
+// straight past the conflict prompt at `:741`, silently clobbering the peer's
+// committed save.
+//
+// This function tells the caller whether to put the signal back for the next
+// iteration instead of leaving it consumed. It must only do that for the specific
+// case that motivates it -- `!dirty && hasLocalDraft` producing 'stay' -- not for
+// every 'stay'. In particular the dirty-but-recently-prompted 'stay' (the
+// renotify window in the `if (dirty)` branch above) is deliberately left alone: by
+// design it only re-prompts on a fresh peer broadcast ("Consumed, never latched",
+// see the comment on `getMultiTabAction`'s dirty branch), and widening retention to
+// that case here would change that intentional behaviour.
+//
+// Re-evaluating every ~500ms iteration while retained is cheap and side-effect
+// free, since the action stays 'stay' for as long as the draft (or lack of a
+// commit) persists.
+export function shouldRetainOtherTabSavedSignal(arg: {
+    action: MultiTabAction
+    dirty: boolean
+    hasLocalDraft: boolean
+}): boolean {
+    return !arg.dirty && arg.hasLocalDraft && arg.action === 'stay'
 }
 
 export function nextAutoReloadHistory(history: AutoReloadHistory, now: number): AutoReloadHistory {

@@ -9,6 +9,7 @@
     import { runTrigger } from 'src/ts/process/triggers'
     import { sayTTS } from "src/ts/process/tts"
     import { DBState, ReloadChatPointer, CurrentTriggerIdStore, popupStore } from 'src/ts/stores.svelte'
+    import { registerDraft, unregisterDraft } from "src/ts/localDrafts"
     import { ConnectionOpenStore } from "src/ts/sync/multiuser"
     import { capitalize, getUserIcon, getUserName, sleep } from "src/ts/util"
     import { onDestroy, onMount } from "svelte"
@@ -92,6 +93,27 @@
     let translationViewControlsDisabled = $derived(editMode || editTranslationMode || loadingTranslationEdit)
     let originalEditControlDisabled = $derived(editTranslationMode || loadingTranslationEdit)
     let translationEditControlDisabled = $derived(editMode || loadingTranslationEdit)
+
+    // Two independent drafts can be in flight in this component at once (the
+    // original-message editor and the translation editor), so each gets its own
+    // per-instance key -- an index- or id-derived key would collide across a
+    // remount at the same index. Driven from `$effect` (not the handlers that flip
+    // `editMode`/`editTranslationMode`) so every exit path is covered, including
+    // `handleLongPress` clearing `editMode` with no commit call.
+    const editDraftKey = v4()
+    const translationEditDraftKey = v4()
+    $effect(() => {
+        if (editMode) {
+            registerDraft(editDraftKey)
+            return () => unregisterDraft(editDraftKey)
+        }
+    })
+    $effect(() => {
+        if (editTranslationMode) {
+            registerDraft(translationEditDraftKey)
+            return () => unregisterDraft(translationEditDraftKey)
+        }
+    })
 
     export function updateStreamingDisplay(state: {
         isOptimizedStreamingMessage: boolean
@@ -290,6 +312,10 @@
 
     onDestroy(()=>{
         unsubscribers.forEach(u => u())
+        // Backstop alongside the `$effect` cleanups above -- `unregisterDraft` is a
+        // safe no-op if the key was already removed.
+        unregisterDraft(editDraftKey)
+        unregisterDraft(translationEditDraftKey)
     })
 
     function RenderGUIHtml(html:string){

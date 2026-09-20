@@ -47,7 +47,8 @@ import { isLocalNetworkUrl } from "./network/localNetwork";
 import { decodeProxyJobWsChunk, formatProxyStreamErrorMessage, parseProxyJobWsEvent } from "./network/proxyJobWs";
 import { getNodeServerProxyAuth, NodeStorageConflictError } from "./storage/nodeStorage";
 import { AccountSyncConflictError } from "./storage/accountStorage";
-import { getMultiTabAction, isRevisionAwareBackend, nextAutoReloadHistory, resolvePromptChoice, resolveRevisionAwarePromptChoice, readAutoReloadHistory, writeAutoReloadHistory, type AutoReloadHistory } from "./storage/multiTabReload";
+import { getMultiTabAction, isRevisionAwareBackend, nextAutoReloadHistory, resolvePromptChoice, resolveRevisionAwarePromptChoice, readAutoReloadHistory, writeAutoReloadHistory, shouldRetainOtherTabSavedSignal, type AutoReloadHistory } from "./storage/multiTabReload";
+import { hasLocalDrafts } from "./localDrafts";
 
 export const forageStorage = new AutoStorage()
 
@@ -744,12 +745,23 @@ export async function saveDb() {
             // again and is handled on the next iteration.
             otherTabSaved = false
             const now = Date.now()
+            const hasLocalDraft = hasLocalDrafts()
             const action = getMultiTabAction({
                 dirty: dirtySinceLastSave,
                 now,
                 history: autoReloadHistory,
-                lastPromptAt
+                lastPromptAt,
+                hasLocalDraft
             })
+            if (shouldRetainOtherTabSavedSignal({ action, dirty: dirtySinceLastSave, hasLocalDraft })) {
+                // A local draft is blocking this reload/prompt while the tab is
+                // otherwise clean. There may be no further peer broadcast before the
+                // user commits that draft, so keep this signal alive instead of
+                // leaving it consumed -- otherwise the `if (otherTabSaved)` guard
+                // above would simply be skipped once the tab does go dirty, and the
+                // loop would write straight past the conflict prompt below.
+                otherTabSaved = true
+            }
             if (action === 'auto-reload') {
                 autoReloadHistory = nextAutoReloadHistory(autoReloadHistory, now)
                 // Only reload if we could actually record that we did. The burst cap

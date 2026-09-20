@@ -3,7 +3,7 @@
     import Suggestion from './Suggestion.svelte';
     import { CameraIcon, DatabaseIcon, DicesIcon, GlobeIcon, ImagePlusIcon, LanguagesIcon, Laugh, MenuIcon, MicOffIcon, PackageIcon, Plus, RefreshCcwIcon, ReplyIcon, Send, StepForwardIcon, XIcon, BrainIcon, ArrowDown, SparkleIcon } from "@lucide/svelte";
     import { selectedCharID, PlaygroundStore, createSimpleCharacter, hypaV3ModalOpen, ScrollToMessageStore, additionalChatMenu, additionalFloatingActionButtons, easyPanelStore, chatPanelStore } from "../../ts/stores.svelte";
-    import { tick } from 'svelte';
+    import { tick, onDestroy } from 'svelte';
     import Chat from "./Chat.svelte";
     import { type Message } from "../../ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
@@ -32,6 +32,7 @@
     import Button from '../UI/GUI/Button.svelte';
     import PluginDefinedIcon from '../Others/PluginDefinedIcon.svelte';
     import { getAdditionalChatLoadPages, getInitialChatLoadPages } from 'src/ts/chatLoadPages';
+    import { registerDraft, unregisterDraft } from 'src/ts/localDrafts';
 
     const loadPlaygroundMenu = () => import('../Playground/PlaygroundMenu.svelte').then(m => m.default);
     
@@ -58,6 +59,23 @@
     let { openModuleList = $bindable(false), openChatList = $bindable(false), customStyle = '' }: Props = $props();
     let currentCharacter = $derived(DBState.db.characters[$selectedCharID])
     let currentChat = $derived(currentCharacter?.chats[currentCharacter.chatPage]?.message ?? [])
+
+    // Driven from `$effect` tracking the input state itself (not the send/clear
+    // handlers), so every exit path is covered. `messageInput`, `messageInputTranslate`,
+    // and `fileInput` are a single combined draft here (unsent message text -- in either
+    // its normal or auto-translate-input form -- and/or a staged attachment).
+    const composerDraftKey = v4();
+    $effect(() => {
+        if (messageInput !== '' || messageInputTranslate !== '' || fileInput.length > 0) {
+            registerDraft(composerDraftKey);
+            return () => unregisterDraft(composerDraftKey);
+        }
+    });
+    onDestroy(() => {
+        // Backstop alongside the `$effect` cleanup above -- `unregisterDraft` is a
+        // safe no-op if the key was already removed.
+        unregisterDraft(composerDraftKey);
+    });
 
     function scrollToBottom() {
         chatsInstance?.scrollToLatestMessage();
