@@ -265,10 +265,13 @@ You are the **Opus 5 Senior Orchestrator**. To prevent token bleeding and maximi
 
 1. **Code & File Search / Survey** -> Delegate immediately to `code-searcher` (powered by **Claude Haiku 4.5**). Never use Opus 5 or Sonnet 5 to read entire folders or run blind greps.
 2. **Implementation / Type Bug Fixes** -> Delegate bounded scopes to `sonnet-coder` (powered by **Claude Sonnet 5**). Pass only the exact file paths and line ranges.
-3. **Complex Architectural Decisions / Code Review** -> Handled by you (Opus 5) or escalated via Codex shell script.
+3. **Complex Architectural Decisions** -> Handled by you (Opus 5). When the decision meets an escalation trigger in 1.2, escalate to `senior-advisor` rather than deciding alone.
 4. **Performance, Profiling, and Memory Leaks** -> Delegate to `perf-analyzer` (powered by **Claude Sonnet 5**). Give it access to execution logs, heap snapshots, and profiling data to isolate the root cause before any code changes.
 5. **Writing Tests & Fixing Test Failures** -> Delegate to `test-warrior` (powered by **Claude Sonnet 5**). Use this agent exclusively for creating Vitest suites, mocking external APIs/Tauri file systems, and resolving test regressions without letting test logs bloat the main context.
 6. **Adversarial Code & Plan Review** -> Delegate to `adversarial-reviewer` (powered by **Claude Sonnet 5**). This agent operates strictly in a read-only sandbox to falsify implementations, trace async race conditions, and mandate zero-defect code quality before final integration.
+7. **Deep Investigation / Verifying How Something Actually Behaves / Sizing a Change** -> Delegate to `opus-investigator` (powered by **Claude Opus 5**). Use when you need to *know* rather than guess: tracing a mechanism end to end, counting a blast radius, or checking whether a premise you are about to act on is true. Do NOT use it for plain lookups — that is `code-searcher`'s job and costs a fraction as much.
+8. **High-Rigor Adversarial Review (expensive-to-reverse changes)** -> Delegate to `opus-reviewer` (powered by **Claude Opus 5**). Use instead of `adversarial-reviewer` when the failure mode is silent data loss or the change touches save/persistence, the save format, the reactive database, or asset caching. Unlike the Sonnet tier it also fact-checks the commit message, code comments, and whether the tests would genuinely fail against the pre-change code.
+9. **Strategic Escalation (stuck, contradicted, or a foundational fork)** -> Escalate to `senior-advisor` (powered by **Fable 5.1**) under the triggers in 1.2. It gives direction only and never writes code.
 
 #### 1.1 Dynamic Subagent Generation (Autonomy Rule)
 - If a task requires highly specialized domain knowledge not covered by existing subagents (e.g., Rust/Tauri backend native bridging, complex data migration scripts, security isolation checks), you (Opus 5) have the authority to dynamically create a new subagent.
@@ -277,6 +280,34 @@ You are the **Opus 5 Senior Orchestrator**. To prevent token bleeding and maximi
   2. Define a strict YAML frontmatter choosing the optimal 2026 model (e.g., `claude-sonnet-5` for heavy logic, `claude-haiku-4.5` for lightweight tasks) and minimal required tools.
   3. Clearly separate its context and rules to keep it focused.
   4. Inform the user about the new agent creation before delegating the task.
+
+#### 1.2 Escalation Ladder (cost-ordered)
+Route to the cheapest tier that can answer the question. Escalating early wastes quota; escalating late wastes far more, because wrong direction compounds into work that has to be thrown away.
+
+| Need | Agent | Model |
+|---|---|---|
+| Where is X | `code-searcher` | Haiku 4.5 |
+| Implement a bounded change | `sonnet-coder` | Sonnet 5 |
+| Routine plan or code review | `adversarial-reviewer` | Sonnet 5 |
+| What actually happens / how big is this really | `opus-investigator` | Opus 5 |
+| Review where a defect is expensive to reverse | `opus-reviewer` | Opus 5 |
+| Direction when stuck or at a foundational fork | `senior-advisor` | Fable 5.1 |
+
+**Escalate to `senior-advisor` when at least one holds:**
+- Two materially different solution attempts have failed.
+- Root cause remains unclear after targeted investigation.
+- Evidence contradicts your current mental model.
+- The fix requires changing a foundational architectural assumption.
+- Multiple plausible approaches exist and choosing wrong creates substantial downstream work.
+- A bug crosses several subsystem boundaries.
+- Your confidence is below the required threshold after gathering available evidence.
+- The team appears stuck in a loop.
+
+Plus one standing use: **attacking a plan that is expensive to reverse, before implementing it.**
+
+**Rules for escalating.** Hand `senior-advisor` a dossier — what was attempted, what was observed, what the evidence contradicts — so it verifies and extends rather than rediscovering. It never writes code; it returns ROOT CAUSE / MISSED INSIGHT / RECOMMENDED STRATEGY / NEXT INVESTIGATION / DO NOT / UNCERTAINTY. Do not invoke it as a second opinion alongside another reviewer, and do not invoke it for work that is merely hard rather than directionally unclear.
+
+**Codex** remains available as an independent implementation-focused review (section 5) but is quota-constrained and is not the default escalation path. Prefer `senior-advisor` for direction and `opus-reviewer` for rigour; reserve Codex for cases where a genuinely independent toolchain is the point.
 
 ### 2. TypeScript & Svelte 5 Technical Guardrails
 When writing or refactoring code for this repository, all agents must strictly adhere to the following language rules to prevent compile-time/runtime regressions:
@@ -294,7 +325,11 @@ For any **non-trivial** code change — new features, architectural changes, any
 1. **Plan review.** Before writing code, record the scope, proposed approach, expected files, invariants, risks, tests, design tradeoffs, and how compatibility with upstream artifacts and integrations will be preserved. Give that plan to a fresh Sonnet reviewer in a clean context and frame the task as an attempt to falsify the approach and its assumptions. The reviewer must look for accidental feature removal, plugin/module/provider incompatibility, inability to read or use existing characters, presets, modules, or backup files, unsafe format migration, and workflow regressions in addition to ordinary correctness risks. If the change meets a Codex escalation condition, run Codex adversarial review as an additional independent challenge before implementation. Resolve or explicitly disposition confirmed findings.
 2. **Implement.** Delegate the bounded implementation to a Sonnet worker. Keep the accepted plan and its constraints available, but do not contaminate the later reviewer with the worker's private reasoning transcript.
 3. **Code review.** Give the requirements, accepted plan, actual diff, relevant source, and test evidence to a different fresh Sonnet reviewer. Require it to look for defects, regressions, uncovered paths, incorrect assumptions, missing tests, and drift from the reviewed plan. If escalation is required, also run Codex `review` for implementation-focused inspection or `adversarial-review` when the design and assumptions must be challenged. Fold in confirmed corrections, rerun relevant checks, and review any material fix-up diff before considering the change done.
-4. **Arbitrate.** Opus evaluates findings against source evidence. It must not resolve disagreement by seniority or majority vote. If material disagreement remains after targeted re-checks, escalate to Codex; if Codex is unavailable, report the blocker and do not mark the disputed work final.
+4. **Arbitrate.** Opus evaluates findings against source evidence. It must not resolve disagreement by seniority or majority vote. If material disagreement remains after targeted re-checks, escalate to `senior-advisor` with a dossier of both positions and the evidence each rests on; if that is unavailable, report the blocker and do not mark the disputed work final. Note that reviewers have been wrong in this campaign: before propagating a reviewer's factual claim into a plan, a commit message, or another agent's brief, verify it against source yourself.
+
+**Choosing a review tier.** Use `adversarial-reviewer` (Sonnet 5) by default. Use `opus-reviewer` (Opus 5) when the failure mode is silent data loss, or when the change touches save/persistence, the save format, the reactive database, or asset caching — it additionally fact-checks the commit message, the code comments, and whether the tests would actually fail against the pre-change code, all of which are part of the change and all of which have carried real defects here.
+
+**Tests as evidence.** When a fix is for a bug that can be reproduced, write the test against the unfixed code and confirm it FAILS before applying the fix. A test written afterwards cannot distinguish "this works" from "this is shaped the way I expected". Keep any test that already passed pre-fix if it adds coverage, but comment it as such so it is never mistaken for proof. Commit tests together with the fix so no commit leaves the suite red, and record the pre-fix failure in the commit message instead.
 
 **Carve-out:** skip the plan-review gate for changes that are small and low-risk on their face — a one-line fix, a config tweak, a typo/string change, or a well-contained bug fix with an obvious correct shape. The fresh post-implementation review remains mandatory for every AI-authored code change. When risk or scope is uncertain, use the plan-review gate. A reviewer may be reused for a later pass only if its context remains independent of implementation reasoning; never let an implementer self-approve.
 
