@@ -400,7 +400,16 @@ async function checkNewFormat(): Promise<void> {
         return v !== null;
     });
 
-    db.modules = await Promise.all((db.modules ?? []).map(async (v) => {
+    // This loop must run sequentially (not via Promise.all), because the corrupted-lorebook
+    // branch below awaits a sequence of user prompts (alertError/alertConfirm/alertMd), and
+    // RisuAI's alert system (src/ts/alert.ts) has a single global alert slot with no ownership.
+    // If multiple modules are corrupted and processed concurrently, their prompt sequences
+    // interleave on that shared slot: a later module's alert can overwrite an earlier module's
+    // still-pending question, and answering it resolves every pending waiter with that same
+    // answer. That can silently wipe a module's lorebook (v.lorebook = []) for a confirmation
+    // question the user never actually saw. Do not "optimize" this back to Promise.all.
+    const newModules: typeof db.modules = [];
+    for (const v of (db.modules ?? [])) {
         if (v?.lorebook) {
             if (!Array.isArray(v.lorebook)) {
                 console.error('Critical: Invalid lorebook format detected in module');
@@ -450,9 +459,10 @@ async function checkNewFormat(): Promise<void> {
                 v.lorebook = updateLorebooks(v.lorebook);
             }
         }
-        return v
-    }));
-    
+        newModules.push(v);
+    }
+    db.modules = newModules;
+
     db.modules = db.modules.filter((v) => {
         return v !== null && v !== undefined;
     });
