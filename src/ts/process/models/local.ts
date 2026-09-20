@@ -7,9 +7,9 @@ import { sleep } from "src/ts/util";
 
 let initPython = false
 
-async function installPython(){
+async function installPython():Promise<boolean>{
     if(initPython){
-        return
+        return true
     }
     initPython = true
     const appDir = await path.appDataDir()
@@ -23,9 +23,10 @@ async function installPython(){
             path: appDir
         })
         if(!installed){
+            initPython = false
             alertClear()
-            alertError("Failed to install the bundled Python runtime. Local model inference via the bundled Python server is currently only supported on Windows.")
-            return
+            alertError("Failed to install the bundled Python runtime. The bundled Python local-inference server could not be started on this system.")
+            return false
         }
         alertWait("Installing Pip")
         await invoke("install_pip", {
@@ -50,18 +51,34 @@ async function installPython(){
     ]
     for(const dep of dependencies){
         alertWait("Installing Python Dependencies (" + dep + ")")
-        await invoke('install_py_dependencies', {
-            path: appDir,
-            dependency: dep
-        })
+        try{
+            await invoke('install_py_dependencies', {
+                path: appDir,
+                dependency: dep
+            })
+        }
+        catch(error){
+            initPython = false
+            alertClear()
+            alertError("Failed to install Python dependency (" + dep + "): " + error)
+            return false
+        }
     }
 
-    await invoke('run_py_server', {
-        pyPath: appDir,
-    })
+    try{
+        await invoke('run_py_server', {
+            pyPath: appDir,
+        })
+    }
+    catch(error){
+        initPython = false
+        alertClear()
+        alertError("Failed to start the local inference server: " + error)
+        return false
+    }
     await sleep(4000)
     alertClear()
-    return
+    return true
 
 }
 
@@ -81,7 +98,10 @@ async function getLocalKey(retry = true) {
             error.message.includes("NetworkError when attempting to fetch resource.")
             || error.message.includes("Failed to fetch")
         ){
-            await installPython()
+            const installed = await installPython()
+            if(!installed){
+                throw `Error when getting local key: local inference sidecar could not be started`
+            }
             return await getLocalKey(false)
         }
         else{
