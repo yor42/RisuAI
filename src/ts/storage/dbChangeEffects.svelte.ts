@@ -16,9 +16,15 @@ export function registerDbChangeEffects(opts: DbChangeEffectOptions): void {
     })
 
     let ranOnce = false
+    // Deep-read, like the sibling effects below. A shallow id/length read misses
+    // every in-place preset mutation -- rename, preset image, and most importantly
+    // saveCurrentPreset()'s `botPresets[id] = savedPreset` element write, whose
+    // following `db.botPresets = pres` self-assignment notifies nothing. Since this
+    // flag gates whether the preset block is re-encoded at all, a missed mutation is
+    // never written to disk rather than merely written late.
     $effect(() => {
+        $state.snapshot(DBState.db.botPresets)
         DBState.db.botPresetsId
-        DBState.db.botPresets.length
         opts.tracker.botPreset = true
         opts.markChanged(ranOnce)
         ranOnce = true
