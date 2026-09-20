@@ -6,6 +6,7 @@
     import { OpfsStorage } from "src/ts/storage/opfsStorage";
     import { acquireExclusiveStorageMigrationLock, forageStorage, getUncleanablesSync } from "src/ts/globalApi.svelte";
     import { scanAssetCacheIntegrity, evictAssetCacheEntries } from "src/ts/storage/assetIntegrity";
+    import { markAppInitiatedReload } from "src/ts/reloadGuard";
     import { DBState } from "src/ts/stores.svelte";
     import Check from "src/lib/UI/GUI/CheckInput.svelte";
     import localforage from "localforage";
@@ -110,6 +111,7 @@
         // reload below actually happens, same reasoning as loadDrive()'s
         // restore write in src/ts/drive/drive.ts.
         localStorage.setItem('opfs_flag!', 'able')
+        markAppInitiatedReload()
         location.reload()
     }
 
@@ -137,6 +139,7 @@
             // already-migrated.
             await target.removeItem('migrated')
             localStorage.removeItem('opfs_flag!')
+            markAppInitiatedReload()
             location.reload()
         } catch (error) {
             await releaseMigrationLock()

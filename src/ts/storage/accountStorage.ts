@@ -7,6 +7,7 @@ import { encodeRisuSaveLegacy } from "./risuSave"
 import { v4 } from "uuid"
 import { language } from "src/lang"
 import { sleepForever } from "../util"
+import { markAppInitiatedReload } from "../reloadGuard"
 import { fetchProtectedResource } from "../sionyw"
 
 export const AccountWarning = writable('')
@@ -112,6 +113,7 @@ export class AccountStorage{
                 }
                 if(json?.reloadSession){
                     alertNormalWait(language.activeTabChange).then(() => {
+                        markAppInitiatedReload()
                         location.reload()
                     })
                     // Genuinely never-resolving, not `sleep(hugeNumber)` — that

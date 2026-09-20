@@ -8,6 +8,7 @@ import {
     remove
 } from "@tauri-apps/plugin-fs"
 import { changeFullscreen, checkNullish, sleep, sleepForever } from "./util"
+import { markAppInitiatedReload } from "./reloadGuard"
 import { convertFileSrc, invoke } from "@tauri-apps/api/core"
 import { v4 as uuidv4, v4 } from 'uuid';
 import { appDataDir, join } from "@tauri-apps/api/path";
@@ -757,6 +758,7 @@ export async function saveDb() {
                 // save — an unbounded reload loop. Staying put instead is lossless
                 // here, because this branch is only reached when the tab is clean.
                 if (writeAutoReloadHistory(multiTabStorage, autoReloadHistory)) {
+                    markAppInitiatedReload()
                     location.reload()
                     await sleepForever()
                 }
@@ -779,6 +781,7 @@ export async function saveDb() {
                         language.otherTabSavedConflictTitle
                     ))
                     if (choice === 'reload') {
+                        markAppInitiatedReload()
                         location.reload()
                         await sleepForever()
                     }
@@ -798,6 +801,7 @@ export async function saveDb() {
                         language.otherTabSavedTitle
                     ))
                     if (choice === 'reload') {
+                        markAppInitiatedReload()
                         location.reload()
                         await sleepForever()
                     }
