@@ -18,7 +18,7 @@ import streamSaver from 'streamsaver';
 import { setDatabase, type Database, defaultSdDataFunc, getDatabase, appVer, getCurrentCharacter, type character, type groupChat, appSubVer } from "./storage/database.svelte";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { checkRisuUpdate } from "./update";
-import { MobileGUI, botMakerMode, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, bodyIntercepterStore } from "./stores.svelte";
+import { MobileGUI, botMakerMode, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, bodyIntercepterStore, savingStoppedReason } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
 import { alertConfirm, alertError, alertMd, alertNormal, alertSelect, alertTOS, alertToast, waitAlert } from "./alert";
 import { checkDriverInit, syncDrive } from "./drive/drive";
@@ -735,6 +735,7 @@ export async function saveDb() {
                     // re-prompt on this page load. The user's edits stay on screen, untouched
                     // and unsaved, until they reload -- exactly what "stay" told them.
                     // (`saving.state` is already `false` from above this if-block.)
+                    savingStoppedReason.set('stay')
                     await sleepForever()
                 } else {
                     const choice = resolvePromptChoice(await alertSelect(
@@ -974,6 +975,7 @@ export async function saveDb() {
                     // resolves at all, so only a reload (which discards this
                     // pending await along with all other JS state) can end it.
                     saving.state = false
+                    savingStoppedReason.set('node-conflict')
                     await sleepForever()
                 }
             }
@@ -999,6 +1001,7 @@ export async function saveDb() {
                     }
                     console.error(error)
                     saving.state = false
+                    savingStoppedReason.set('account-conflict')
                     await sleepForever()
                 }
             }
