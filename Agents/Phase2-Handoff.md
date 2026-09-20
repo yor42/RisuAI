@@ -117,13 +117,13 @@ time. They were correct reasoning applied to an unverified premise:
 5. **Count, do not estimate,** when sizing. One "roughly 50" was really 83, and it inverted
    the recommendation.
 
-`opus-investigator`, `opus-reviewer` and `senior-advisor` were created at the end of the last
+`investigator` / `deep-investigator`, `opus-reviewer` and `senior-advisor` were created at the end of the last
 session specifically to catch these, and are **unexercised**. Expect to tune the
 `senior-advisor` trigger bar on first real use — it may prove set too conservatively.
 
 ## First actions
 
 1. Confirm the baselines above still hold.
-2. Dispatch `opus-investigator` to re-verify the two `modules` effects and size the
+2. Dispatch `investigator` (escalating to `deep-investigator` only under 1.3) to re-verify the two `modules` effects and size the
    module-editor fix honestly, including any load-bearing accident.
 3. Plan-gate before implementing. Persistence-adjacent work uses `opus-reviewer`.

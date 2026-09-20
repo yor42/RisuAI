@@ -269,9 +269,10 @@ You are the **Opus 5 Senior Orchestrator**. To prevent token bleeding and maximi
 4. **Performance, Profiling, and Memory Leaks** -> Delegate to `perf-analyzer` (powered by **Claude Sonnet 5**). Give it access to execution logs, heap snapshots, and profiling data to isolate the root cause before any code changes.
 5. **Writing Tests & Fixing Test Failures** -> Delegate to `test-warrior` (powered by **Claude Sonnet 5**). Use this agent exclusively for creating Vitest suites, mocking external APIs/Tauri file systems, and resolving test regressions without letting test logs bloat the main context.
 6. **Adversarial Code & Plan Review** -> Delegate to `adversarial-reviewer` (powered by **Claude Sonnet 5**). This agent operates strictly in a read-only sandbox to falsify implementations, trace async race conditions, and mandate zero-defect code quality before final integration.
-7. **Deep Investigation / Verifying How Something Actually Behaves / Sizing a Change** -> Delegate to `opus-investigator` (powered by **Claude Opus 5**). Use when you need to *know* rather than guess: tracing a mechanism end to end, counting a blast radius, or checking whether a premise you are about to act on is true. Do NOT use it for plain lookups — that is `code-searcher`'s job and costs a fraction as much.
-8. **High-Rigor Adversarial Review (expensive-to-reverse changes)** -> Delegate to `opus-reviewer` (powered by **Claude Opus 5**). Use instead of `adversarial-reviewer` when the failure mode is silent data loss or the change touches save/persistence, the save format, the reactive database, or asset caching. Unlike the Sonnet tier it also fact-checks the commit message, code comments, and whether the tests would genuinely fail against the pre-change code.
-9. **Strategic Escalation (stuck, contradicted, or a foundational fork)** -> Escalate to `senior-advisor` (powered by **Fable 5.1**) under the triggers in 1.2. It gives direction only and never writes code.
+7. **Investigation / Verifying How Something Actually Behaves / Sizing a Change** -> Delegate to `investigator` (powered by **Claude Sonnet 5**). This is the default investigation tier. Use when you need to *know* rather than guess: tracing a mechanism end to end, counting a blast radius, or checking whether a premise you are about to act on is true. It acts as a context firewall — it absorbs the grep output, dead ends and framework internals, and returns a compact evidence packet. Do NOT use it for plain lookups — that is `code-searcher`'s job and costs a fraction as much.
+8. **Deep Investigation (escalation only)** -> Delegate to `deep-investigator` (powered by **Claude Opus 5**) under the triggers in 1.3. Its question is not "what happens" but *"are we sure that is what happens"*. It is handed the prior investigation as an evidence packet and is required to re-open primary source itself for every decision-critical claim. It is an exception path, not the standard route for a hard question.
+9. **High-Rigor Adversarial Review (expensive-to-reverse changes)** -> Delegate to `opus-reviewer` (powered by **Claude Opus 5**). Use instead of `adversarial-reviewer` when the failure mode is silent data loss or the change touches save/persistence, the save format, the reactive database, or asset caching. Unlike the Sonnet tier it also fact-checks the commit message, code comments, and whether the tests would genuinely fail against the pre-change code.
+10. **Strategic Escalation (stuck, contradicted, or a foundational fork)** -> Escalate to `senior-advisor` (powered by **Fable 5.1**) under the triggers in 1.2. It gives direction only and never writes code.
 
 #### 1.1 Dynamic Subagent Generation (Autonomy Rule)
 - If a task requires highly specialized domain knowledge not covered by existing subagents (e.g., Rust/Tauri backend native bridging, complex data migration scripts, security isolation checks), you (Opus 5) have the authority to dynamically create a new subagent.
@@ -289,7 +290,8 @@ Route to the cheapest tier that can answer the question. Escalating early wastes
 | Where is X | `code-searcher` | Haiku 4.5 |
 | Implement a bounded change | `sonnet-coder` | Sonnet 5 |
 | Routine plan or code review | `adversarial-reviewer` | Sonnet 5 |
-| What actually happens / how big is this really | `opus-investigator` | Opus 5 |
+| What actually happens / how big is this really | `investigator` | Sonnet 5 |
+| Are we sure that is what actually happens | `deep-investigator` | Opus 5 |
 | Review where a defect is expensive to reverse | `opus-reviewer` | Opus 5 |
 | Direction when stuck or at a foundational fork | `senior-advisor` | Fable 5.1 |
 
@@ -308,6 +310,49 @@ Plus one standing use: **attacking a plan that is expensive to reverse, before i
 **Rules for escalating.** Hand `senior-advisor` a dossier — what was attempted, what was observed, what the evidence contradicts — so it verifies and extends rather than rediscovering. It never writes code; it returns ROOT CAUSE / MISSED INSIGHT / RECOMMENDED STRATEGY / NEXT INVESTIGATION / DO NOT / UNCERTAINTY. Do not invoke it as a second opinion alongside another reviewer, and do not invoke it for work that is merely hard rather than directionally unclear.
 
 **Codex** remains available as an independent implementation-focused review (section 5) but is quota-constrained and is not the default escalation path. Prefer `senior-advisor` for direction and `opus-reviewer` for rigour; reserve Codex for cases where a genuinely independent toolchain is the point.
+
+#### 1.3 Investigation Tiers
+
+Four agents answer four different questions. Route to the one whose question you are actually asking:
+
+| Question | Agent | Model |
+|---|---|---|
+| Where is X? | `code-searcher` | Haiku 4.5 |
+| What actually happens? | `investigator` | Sonnet 5 |
+| Are we sure that is what happens? | `deep-investigator` | Opus 5 |
+| Given these facts, what should we do? | `senior-advisor` | Fable 5.1 |
+
+**Default flow:** `Orchestrator -> investigator -> Orchestrator`.
+**Escalated:** `Orchestrator -> investigator -> deep-investigator -> Orchestrator`.
+**Simple lookup:** `Orchestrator -> code-searcher -> Orchestrator`.
+
+Investigation contains a great deal of expensive mechanical work — greps, following imports, enumerating call sites, reading framework internals, checking git history, and walking dead ends. That work needs evidence discipline, not frontier reasoning. Running it on Opus pays Opus rates for repository archaeology *and* fills an Opus context with exploration exhaust immediately before the reasoning step that matters. The default tier exists to absorb that mess and return a compact evidence packet.
+
+**Escalate to `deep-investigator` when at least one holds:**
+- Ordinary investigation produced contradictory evidence.
+- The mechanism still cannot be established confidently — only the symptoms correlate.
+- Evidence contradicts your mental model, or the investigation's own conclusions do not cohere.
+- The reported blast radius is unexpectedly large or strange.
+- Behaviour depends on framework or runtime subtleties that were not pinned down in source.
+- A possible load-bearing accident materially changes the decision.
+- Multiple traces look individually valid but imply incompatible conclusions.
+- You suspect the investigation itself may be wrong.
+- The `investigator` returned a `REQUEST ESCALATION` section.
+
+Do not escalate merely because a question is hard, or because the change is important. Escalate when the *direction of the facts* is in doubt.
+
+**Standing Orchestrator duty — this does not delegate.** The common path does not pass through `deep-investigator`, so in most investigations a mid-tier inference reaches you unchallenged. Before you propagate any investigative claim into a plan, a commit message, or another agent's brief, **verify it yourself** — and verify it the cheapest way that actually settles it. A count or an enumeration is settled by re-running the reported command; a claim about what code *means* requires opening the file. Do not read fifty files to check a number, and do not accept a mechanism because a map listed its location. This is the only verification step that runs on every investigation rather than only on escalated ones, so it must stay cheap enough that you always actually do it. Compression is what makes the tier split affordable; unverified compression is how a wrong premise becomes established fact. Reviewers and investigators in this campaign have been wrong, and deferring to one has already cost a correct answer that had been derived and was then abandoned.
+
+**Subagent nesting works, and `investigator` / `deep-investigator` may dispatch `code-searcher`.** Verified empirically on 2026-09-21, not taken from documentation: a subagent successfully spawned a third-level `code-searcher` whose answer cross-checked correctly against source. Two constraints came out of that test and both matter:
+
+- **Delegation has a floor cost of ~9,000 tokens and ~5 seconds per dispatch**, even for one grep. So delegate *surveys* (broad, batched, mechanical enumeration that would otherwise flood a context), never individual *lookups* — an inline `rg` is cheaper and instant. Reflexive delegation is a net loss.
+- **The tool grant is unrestricted.** A subagent with `Agent` can spawn any agent type, including another Opus one. The "only dispatch `code-searcher`" rule lives in the profiles as doctrine and is **not enforced by a sandbox**. If fan-out is ever observed going wider than that, the grant must be revoked rather than re-worded.
+
+Profile changes register at **turn boundaries**, not immediately — a newly created or edited agent profile is not dispatchable within the same turn that wrote it. Budget an extra turn when adding an agent.
+
+**Record every investigation in `Agents/Investigation-Ledger.md`.** The tier split is an architecture under test, not a settled result. Log the question, tier, token cost, whether it escalated, and whether escalation changed the conclusion. If the mid-tier cannot reliably produce packets good enough to resolve most investigations without escalation, that ledger is what justifies reverting to Opus as the default.
+
+**Do not invoke both tiers in parallel on the same question.** `deep-investigator` consumes the prior investigation as input; running them concurrently discards its entire advantage and pays twice for it.
 
 ### 2. TypeScript & Svelte 5 Technical Guardrails
 When writing or refactoring code for this repository, all agents must strictly adhere to the following language rules to prevent compile-time/runtime regressions:
