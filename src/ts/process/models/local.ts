@@ -29,14 +29,42 @@ async function installPython():Promise<boolean>{
             return false
         }
         alertWait("Installing Pip")
-        await invoke("install_pip", {
-            path: appDir
-        })
+        try{
+            const pipInstalled = await invoke<boolean>("install_pip", {
+                path: appDir
+            })
+            if(!pipInstalled){
+                initPython = false
+                alertClear()
+                alertError("Failed to install Pip for the bundled Python runtime. The bundled Python local-inference server could not be started on this system.")
+                return false
+            }
+        }
+        catch(error){
+            initPython = false
+            alertClear()
+            alertError("Failed to install Pip for the bundled Python runtime: " + error)
+            return false
+        }
         alertWait("Rewriting requirements")
-        await invoke('post_py_install', {
-            path: appDir
-        })
-    
+        try{
+            const postInstalled = await invoke<boolean>('post_py_install', {
+                path: appDir
+            })
+            if(!postInstalled){
+                initPython = false
+                alertClear()
+                alertError("Failed to finalize the bundled Python runtime installation. The bundled Python local-inference server could not be started on this system.")
+                return false
+            }
+        }
+        catch(error){
+            initPython = false
+            alertClear()
+            alertError("Failed to finalize the bundled Python runtime installation: " + error)
+            return false
+        }
+
         alertClear()
     }
     const dependencies = [

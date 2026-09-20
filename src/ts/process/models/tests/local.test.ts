@@ -89,6 +89,12 @@ describe('tokenizeGGUFModel — bundled Python sidecar install flow', () => {
             if (cmd === 'install_python') {
                 return true
             }
+            if (cmd === 'install_pip') {
+                return true
+            }
+            if (cmd === 'post_py_install') {
+                return true
+            }
             return undefined
         })
 
@@ -175,6 +181,12 @@ describe('tokenizeGGUFModel — bundled Python sidecar install flow', () => {
             if (cmd === 'install_python') {
                 return true
             }
+            if (cmd === 'install_pip') {
+                return true
+            }
+            if (cmd === 'post_py_install') {
+                return true
+            }
             return undefined
         })
         readTextFileMock.mockResolvedValue('fake-key-2')
@@ -205,6 +217,12 @@ describe('tokenizeGGUFModel — bundled Python sidecar install flow', () => {
     test('dependency install rejects (llama-cpp-python): alertError identifies the dependency, run_py_server is skipped, no retry fetch, error propagates, and the latch resets for a later attempt', async () => {
         invokeMock.mockImplementation(async (cmd: string, args?: { dependency?: string }) => {
             if (cmd === 'install_python') {
+                return true
+            }
+            if (cmd === 'install_pip') {
+                return true
+            }
+            if (cmd === 'post_py_install') {
                 return true
             }
             if (cmd === 'install_py_dependencies' && args?.dependency === 'llama-cpp-python') {
@@ -265,6 +283,12 @@ describe('tokenizeGGUFModel — bundled Python sidecar install flow', () => {
             if (cmd === 'install_python') {
                 return true
             }
+            if (cmd === 'install_pip') {
+                return true
+            }
+            if (cmd === 'post_py_install') {
+                return true
+            }
             return undefined
         })
         readTextFileMock.mockResolvedValue('fake-key-2')
@@ -298,6 +322,12 @@ describe('tokenizeGGUFModel — bundled Python sidecar install flow', () => {
     test('run_py_server invoke rejects: alertError fires, no retry fetch, error propagates, and the latch resets for a later attempt', async () => {
         invokeMock.mockImplementation(async (cmd: string) => {
             if (cmd === 'install_python') {
+                return true
+            }
+            if (cmd === 'install_pip') {
+                return true
+            }
+            if (cmd === 'post_py_install') {
                 return true
             }
             if (cmd === 'run_py_server') {
@@ -345,6 +375,12 @@ describe('tokenizeGGUFModel — bundled Python sidecar install flow', () => {
             if (cmd === 'install_python') {
                 return true
             }
+            if (cmd === 'install_pip') {
+                return true
+            }
+            if (cmd === 'post_py_install') {
+                return true
+            }
             return undefined
         })
         readTextFileMock.mockResolvedValue('fake-key-2')
@@ -374,6 +410,12 @@ describe('tokenizeGGUFModel — bundled Python sidecar install flow', () => {
     test('re-entrancy: a second call arriving mid-install does not start a second install sequence', async () => {
         invokeMock.mockImplementation(async (cmd: string) => {
             if (cmd === 'install_python') {
+                return true
+            }
+            if (cmd === 'install_pip') {
+                return true
+            }
+            if (cmd === 'post_py_install') {
                 return true
             }
             return undefined
@@ -415,5 +457,381 @@ describe('tokenizeGGUFModel — bundled Python sidecar install flow', () => {
         expect(installPythonCalls).toHaveLength(1)
         expect(runServerCalls).toHaveLength(1)
         expect(sleepMock).toHaveBeenCalledTimes(1)
+    })
+
+    test('install_pip resolves false: alertError identifies pip, post_py_install is never invoked, dependencies/run_py_server are skipped, no retry fetch, error propagates, and the latch resets for a later attempt', async () => {
+        invokeMock.mockImplementation(async (cmd: string) => {
+            if (cmd === 'install_python') {
+                return true
+            }
+            if (cmd === 'install_pip') {
+                return false
+            }
+            if (cmd === 'post_py_install') {
+                return true
+            }
+            return undefined
+        })
+
+        const fetchMock = vi.fn<(url: string) => Promise<Response>>(async (url) => {
+            if (url === LOCAL_KEY_URL) {
+                throw networkError()
+            }
+            throw new Error(`unexpected fetch url: ${url}`)
+        })
+        vi.stubGlobal('fetch', fetchMock)
+
+        const { tokenizeGGUFModel } = await import('../local')
+
+        await expect(tokenizeGGUFModel('hello')).rejects.toMatch(
+            /local inference sidecar could not be started/,
+        )
+
+        expect(alertErrorMock).toHaveBeenCalledTimes(1)
+        expect(alertErrorMock).toHaveBeenCalledWith(
+            expect.stringContaining('Failed to install Pip'),
+        )
+
+        // Writing completed.txt (post_py_install) after a false-returning
+        // pip install is exactly what permanently bricks local inference —
+        // it must never be reached.
+        expect(invokeMock).not.toHaveBeenCalledWith('post_py_install', expect.anything())
+        expect(invokeMock).not.toHaveBeenCalledWith('install_py_dependencies', expect.anything())
+        expect(invokeMock).not.toHaveBeenCalledWith('run_py_server', expect.anything())
+        expect(invokeMock).toHaveBeenCalledTimes(2)
+        expect(invokeMock).toHaveBeenCalledWith('install_python', { path: '/fake/appdata' })
+        expect(invokeMock).toHaveBeenCalledWith('install_pip', { path: '/fake/appdata' })
+
+        // Only the initial probe fetch happened — no retry after a
+        // definitive pip install failure.
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+
+        // The module-private latch must have been reset on failure: a
+        // later call should do real work again, not silently no-op.
+        invokeMock.mockClear()
+        fetchMock.mockClear()
+        alertErrorMock.mockClear()
+        invokeMock.mockImplementation(async (cmd: string) => {
+            if (cmd === 'install_python') {
+                return true
+            }
+            if (cmd === 'install_pip') {
+                return true
+            }
+            if (cmd === 'post_py_install') {
+                return true
+            }
+            return undefined
+        })
+        readTextFileMock.mockResolvedValue('fake-key-2')
+
+        let secondFetchCount = 0
+        fetchMock.mockImplementation(async (url: string) => {
+            secondFetchCount++
+            if (url === LOCAL_KEY_URL) {
+                if (secondFetchCount === 1) {
+                    throw networkError()
+                }
+                return jsonResponse({ dir: '/fake/appdata/key2.txt' })
+            }
+            if (url === TOKENIZE_URL) {
+                return jsonResponse([9])
+            }
+            throw new Error(`unexpected fetch url: ${url}`)
+        })
+
+        const secondResult = await tokenizeGGUFModel('again')
+
+        expect(secondResult).toEqual([9])
+        expect(invokeMock).toHaveBeenCalledWith('post_py_install', { path: '/fake/appdata' })
+        expect(invokeMock).toHaveBeenCalledWith('run_py_server', { pyPath: '/fake/appdata' })
+        expect(alertErrorMock).not.toHaveBeenCalled()
+    })
+
+    test('post_py_install resolves false: alertError identifies the finalize step, dependencies/run_py_server are skipped, no retry fetch, error propagates, and the latch resets for a later attempt', async () => {
+        invokeMock.mockImplementation(async (cmd: string) => {
+            if (cmd === 'install_python') {
+                return true
+            }
+            if (cmd === 'install_pip') {
+                return true
+            }
+            if (cmd === 'post_py_install') {
+                return false
+            }
+            return undefined
+        })
+
+        const fetchMock = vi.fn<(url: string) => Promise<Response>>(async (url) => {
+            if (url === LOCAL_KEY_URL) {
+                throw networkError()
+            }
+            throw new Error(`unexpected fetch url: ${url}`)
+        })
+        vi.stubGlobal('fetch', fetchMock)
+
+        const { tokenizeGGUFModel } = await import('../local')
+
+        await expect(tokenizeGGUFModel('hello')).rejects.toMatch(
+            /local inference sidecar could not be started/,
+        )
+
+        expect(alertErrorMock).toHaveBeenCalledTimes(1)
+        expect(alertErrorMock).toHaveBeenCalledWith(
+            expect.stringContaining('Failed to finalize the bundled Python runtime installation'),
+        )
+
+        expect(invokeMock).not.toHaveBeenCalledWith('install_py_dependencies', expect.anything())
+        expect(invokeMock).not.toHaveBeenCalledWith('run_py_server', expect.anything())
+        expect(invokeMock).toHaveBeenCalledTimes(3)
+        expect(invokeMock).toHaveBeenCalledWith('install_python', { path: '/fake/appdata' })
+        expect(invokeMock).toHaveBeenCalledWith('install_pip', { path: '/fake/appdata' })
+        expect(invokeMock).toHaveBeenCalledWith('post_py_install', { path: '/fake/appdata' })
+
+        // Only the initial probe fetch happened — no retry after a
+        // definitive finalize-install failure.
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+
+        // The module-private latch must have been reset on failure: a
+        // later call should do real work again, not silently no-op.
+        invokeMock.mockClear()
+        fetchMock.mockClear()
+        alertErrorMock.mockClear()
+        invokeMock.mockImplementation(async (cmd: string) => {
+            if (cmd === 'install_python') {
+                return true
+            }
+            if (cmd === 'install_pip') {
+                return true
+            }
+            if (cmd === 'post_py_install') {
+                return true
+            }
+            return undefined
+        })
+        readTextFileMock.mockResolvedValue('fake-key-2')
+
+        let secondFetchCount = 0
+        fetchMock.mockImplementation(async (url: string) => {
+            secondFetchCount++
+            if (url === LOCAL_KEY_URL) {
+                if (secondFetchCount === 1) {
+                    throw networkError()
+                }
+                return jsonResponse({ dir: '/fake/appdata/key2.txt' })
+            }
+            if (url === TOKENIZE_URL) {
+                return jsonResponse([9])
+            }
+            throw new Error(`unexpected fetch url: ${url}`)
+        })
+
+        const secondResult = await tokenizeGGUFModel('again')
+
+        expect(secondResult).toEqual([9])
+        expect(invokeMock).toHaveBeenCalledWith('run_py_server', { pyPath: '/fake/appdata' })
+        expect(alertErrorMock).not.toHaveBeenCalled()
+    })
+
+    test('install_pip invoke rejects: alertError identifies pip, post_py_install is never invoked, dependencies/run_py_server are skipped, no retry fetch, error propagates, and the latch resets for a later attempt', async () => {
+        invokeMock.mockImplementation(async (cmd: string) => {
+            if (cmd === 'install_python') {
+                return true
+            }
+            if (cmd === 'install_pip') {
+                throw new Error('pip network reset')
+            }
+            if (cmd === 'post_py_install') {
+                return true
+            }
+            return undefined
+        })
+
+        const fetchMock = vi.fn<(url: string) => Promise<Response>>(async (url) => {
+            if (url === LOCAL_KEY_URL) {
+                throw networkError()
+            }
+            throw new Error(`unexpected fetch url: ${url}`)
+        })
+        vi.stubGlobal('fetch', fetchMock)
+
+        const { tokenizeGGUFModel } = await import('../local')
+
+        await expect(tokenizeGGUFModel('hello')).rejects.toMatch(
+            /local inference sidecar could not be started/,
+        )
+
+        expect(alertErrorMock).toHaveBeenCalledTimes(1)
+        expect(alertErrorMock).toHaveBeenCalledWith(
+            expect.stringContaining('Failed to install Pip'),
+        )
+
+        expect(invokeMock).not.toHaveBeenCalledWith('post_py_install', expect.anything())
+        expect(invokeMock).not.toHaveBeenCalledWith('install_py_dependencies', expect.anything())
+        expect(invokeMock).not.toHaveBeenCalledWith('run_py_server', expect.anything())
+        expect(invokeMock).toHaveBeenCalledTimes(2)
+
+        // Only the initial probe fetch happened — no retry after a pip
+        // install that throws.
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+
+        // The module-private latch must have been reset on failure: a
+        // later call should do real work again, not silently no-op.
+        invokeMock.mockClear()
+        fetchMock.mockClear()
+        alertErrorMock.mockClear()
+        invokeMock.mockImplementation(async (cmd: string) => {
+            if (cmd === 'install_python') {
+                return true
+            }
+            if (cmd === 'install_pip') {
+                return true
+            }
+            if (cmd === 'post_py_install') {
+                return true
+            }
+            return undefined
+        })
+        readTextFileMock.mockResolvedValue('fake-key-2')
+
+        let secondFetchCount = 0
+        fetchMock.mockImplementation(async (url: string) => {
+            secondFetchCount++
+            if (url === LOCAL_KEY_URL) {
+                if (secondFetchCount === 1) {
+                    throw networkError()
+                }
+                return jsonResponse({ dir: '/fake/appdata/key2.txt' })
+            }
+            if (url === TOKENIZE_URL) {
+                return jsonResponse([9])
+            }
+            throw new Error(`unexpected fetch url: ${url}`)
+        })
+
+        const secondResult = await tokenizeGGUFModel('again')
+
+        expect(secondResult).toEqual([9])
+        expect(invokeMock).toHaveBeenCalledWith('post_py_install', { path: '/fake/appdata' })
+        expect(invokeMock).toHaveBeenCalledWith('run_py_server', { pyPath: '/fake/appdata' })
+        expect(alertErrorMock).not.toHaveBeenCalled()
+    })
+
+    test('post_py_install invoke rejects: alertError identifies the finalize step, dependencies/run_py_server are skipped, no retry fetch, error propagates, and the latch resets for a later attempt', async () => {
+        invokeMock.mockImplementation(async (cmd: string) => {
+            if (cmd === 'install_python') {
+                return true
+            }
+            if (cmd === 'install_pip') {
+                return true
+            }
+            if (cmd === 'post_py_install') {
+                throw new Error('disk full while rewriting python311._pth')
+            }
+            return undefined
+        })
+
+        const fetchMock = vi.fn<(url: string) => Promise<Response>>(async (url) => {
+            if (url === LOCAL_KEY_URL) {
+                throw networkError()
+            }
+            throw new Error(`unexpected fetch url: ${url}`)
+        })
+        vi.stubGlobal('fetch', fetchMock)
+
+        const { tokenizeGGUFModel } = await import('../local')
+
+        await expect(tokenizeGGUFModel('hello')).rejects.toMatch(
+            /local inference sidecar could not be started/,
+        )
+
+        expect(alertErrorMock).toHaveBeenCalledTimes(1)
+        expect(alertErrorMock).toHaveBeenCalledWith(
+            expect.stringContaining('Failed to finalize the bundled Python runtime installation'),
+        )
+
+        expect(invokeMock).not.toHaveBeenCalledWith('install_py_dependencies', expect.anything())
+        expect(invokeMock).not.toHaveBeenCalledWith('run_py_server', expect.anything())
+        expect(invokeMock).toHaveBeenCalledTimes(3)
+
+        // Only the initial probe fetch happened — no retry after a
+        // finalize step that throws.
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+
+        // The module-private latch must have been reset on failure: a
+        // later call should do real work again, not silently no-op.
+        invokeMock.mockClear()
+        fetchMock.mockClear()
+        alertErrorMock.mockClear()
+        invokeMock.mockImplementation(async (cmd: string) => {
+            if (cmd === 'install_python') {
+                return true
+            }
+            if (cmd === 'install_pip') {
+                return true
+            }
+            if (cmd === 'post_py_install') {
+                return true
+            }
+            return undefined
+        })
+        readTextFileMock.mockResolvedValue('fake-key-2')
+
+        let secondFetchCount = 0
+        fetchMock.mockImplementation(async (url: string) => {
+            secondFetchCount++
+            if (url === LOCAL_KEY_URL) {
+                if (secondFetchCount === 1) {
+                    throw networkError()
+                }
+                return jsonResponse({ dir: '/fake/appdata/key2.txt' })
+            }
+            if (url === TOKENIZE_URL) {
+                return jsonResponse([9])
+            }
+            throw new Error(`unexpected fetch url: ${url}`)
+        })
+
+        const secondResult = await tokenizeGGUFModel('again')
+
+        expect(secondResult).toEqual([9])
+        expect(invokeMock).toHaveBeenCalledWith('run_py_server', { pyPath: '/fake/appdata' })
+        expect(alertErrorMock).not.toHaveBeenCalled()
+    })
+
+    test('regression guard: when install_pip fails, post_py_install (which writes completed.txt) must never be invoked', async () => {
+        // This is the exact bug that motivated this test suite: install_pip
+        // used to always resolve falsy on success due to a copy-paste
+        // stdout check, so post_py_install (and its completed.txt write)
+        // could run even though pip was never actually installed —
+        // permanently bricking local inference on every future launch.
+        invokeMock.mockImplementation(async (cmd: string) => {
+            if (cmd === 'install_python') {
+                return true
+            }
+            if (cmd === 'install_pip') {
+                return false
+            }
+            if (cmd === 'post_py_install') {
+                return true
+            }
+            return undefined
+        })
+
+        const fetchMock = vi.fn<(url: string) => Promise<Response>>(async (url) => {
+            if (url === LOCAL_KEY_URL) {
+                throw networkError()
+            }
+            throw new Error(`unexpected fetch url: ${url}`)
+        })
+        vi.stubGlobal('fetch', fetchMock)
+
+        const { tokenizeGGUFModel } = await import('../local')
+
+        await expect(tokenizeGGUFModel('hello')).rejects.toMatch(
+            /local inference sidecar could not be started/,
+        )
+
+        expect(invokeMock).not.toHaveBeenCalledWith('post_py_install', expect.anything())
     })
 })
