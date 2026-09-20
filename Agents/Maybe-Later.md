@@ -55,11 +55,36 @@ button."
 
 ### What is actually missing
 
-**A. Discoverability.** A two-tier binding model is communicated entirely through two
-button colours and one sentence of prose. There is no legend, no tooltip, no distinct
-affordance, and no indication of which tier a given module is bound at once the menu is
-closed. A user can plausibly use this app for a long time without discovering that
-character-level binding exists — which is how this idea was raised in the first place.
+**A. Discoverability.** *(Behaviour confirmed by yor42, 2026-09-21: right-click / long-press
+does work as documented, and does bind character-wide. The feature is fine. Finding it is
+the problem.)*
+
+The binding model has three states, communicated almost entirely through colour:
+
+| State | Colour | How you set it |
+|---|---|---|
+| Chat-level | blue | left click / tap |
+| Character-level | violet | right click / long press |
+| Globally enabled | greyed, non-interactive | elsewhere, in module settings |
+
+There is no legend, no tooltip, and no persistent indication of a module's tier once the
+menu is closed. The only explanation is one line of small grey text above the search box
+(`ModuleChatMenu.svelte:46` rendering `en.ts:1133`), which describes the *gesture* but
+never says what the resulting colour means.
+
+As yor42 put it: "if you tap and hold the check icon next to the module, it turns purple,
+and it means that module is enabled character wide" is very hard to figure out unless the
+user reads the code. A hidden gesture whose only feedback is an unlabelled colour change
+is not discoverable, and long-press in particular has no visual affordance at all.
+
+Concrete, low-risk improvements — none of which change behaviour:
+- A legend mapping each colour to its scope, rendered in the menu.
+- A text badge ("chat" / "character") on the row instead of relying on colour alone.
+  This also fixes the accessibility problem: blue vs violet is a poor distinction for
+  colour-vision-deficient users, and it is the *only* signal today.
+- An explicit control for the character-level toggle, so it is reachable without knowing
+  the gesture. The gesture can stay as a shortcut.
+- State the colour meaning in `chatModulesInfo`, not just the gesture.
 
 **B. No character-editor view of bound modules.** `character.modules` is written *only*
 from the right-click handler in `ModuleChatMenu.svelte`. Nothing in the character editor
