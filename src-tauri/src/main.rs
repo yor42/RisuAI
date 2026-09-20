@@ -262,14 +262,13 @@ fn local_inference_unsupported_reason() -> Option<String> {
 async fn install_python(path: String) -> bool {
     //get python embeddable depending on os and CPU architecture
     let os = std::env::consts::OS;
-    // Windows-on-ARM (aarch64-pc-windows-msvc) reports OS "windows" the same
-    // as x86_64 — std::env::consts::OS alone can't tell them apart, unlike
-    // Linux/macOS where an unsupported architecture is caught by the OS
-    // check below failing outright. Without this, an ARM64 build would
-    // silently download and run the amd64 embeddable interpreter under
-    // Windows' x64 emulation layer instead of failing cleanly or running
-    // natively — see Agents/Roadmap.md, Phase 3 item 2.
-    let arch = std::env::consts::ARCH;
+    // std::env::consts::ARCH is compile-time: it describes the build target,
+    // not the host CPU, so it cannot detect an emulated ARM64 host. Host
+    // detection is done at runtime by host_is_arm64() (via IsWow64Process2)
+    // below, which is what actually gates this function. Local inference is
+    // refused on ARM64 Windows hosts because a real end user has no Visual
+    // Studio or Clang, so the first-run `pip install llama-cpp-python`
+    // source build cannot succeed there.
     let url;
     let py_path = Path::new(&path).join("python");
     if !py_path.exists() {
@@ -286,11 +285,11 @@ async fn install_python(path: String) -> bool {
             println!("Host is ARM64 Windows; refusing to install the bundled Python runtime because llama-cpp-python cannot be built natively on this machine");
             return false;
         }
-        url = if arch == "aarch64" {
-            "https://www.python.org/ftp/python/3.11.7/python-3.11.7-embed-arm64.zip".to_string()
-        } else {
-            "https://www.python.org/ftp/python/3.11.7/python-3.11.7-embed-amd64.zip".to_string()
-        }
+        // Native aarch64 builds are refused above via host_is_arm64(), so
+        // only the amd64 embeddable interpreter is ever needed here. Keep
+        // the arm64 URL around in case that changes:
+        // "https://www.python.org/ftp/python/3.11.7/python-3.11.7-embed-arm64.zip"
+        url = "https://www.python.org/ftp/python/3.11.7/python-3.11.7-embed-amd64.zip".to_string();
     } else {
         println!("OS not supported");
         return false;

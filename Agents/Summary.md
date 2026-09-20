@@ -131,6 +131,11 @@ The actionable cleanup is deleting/relocating the orphaned Capacitor set, not "f
 - Full sweep of all 11 `#[tauri::command]`s in `main.rs`, including a new one: `post_py_install` hardcodes the `.pth` filename, so it'd silently break if the Python installer's OS/version gating is ever fixed without updating this too.
 - Confirmed the Phase 0 `local.ts` fix is in place and is the only caller path to the Rust-side Python-installer commands.
 
+**Update — Windows on ARM resolved (declined), and two claims above corrected.** Native local inference is now explicitly disabled on ARM64 Windows hosts; no native ARM64 Windows target is being added. See Roadmap Phase 3 item 2 for the full rationale. Two corrections to the text above:
+
+- The reasoning about `std::env::consts::ARCH` distinguishing Windows-on-ARM is wrong. `ARCH` is a **compile-time** constant describing the build target, not the host CPU. The only Windows binary shipped is `x86_64-pc-windows-msvc`, so it reports `"x86_64"` even on ARM64 hardware under emulation — where downloading the amd64 interpreter is in fact correct. Host detection now happens at runtime via `IsWow64Process2`.
+- The observation that the frontend "ignores that failure and proceeds into steps with Windows-specific assumptions and `unwrap`/`expect` calls" was accurate and has since been fixed, along with a deeper set of problems it pointed at: every success signal in the install pipeline was fake (`install_pip` returned `false` on success, `post_py_install` wrote the `completed.txt` gate unconditionally, `install_py_dependencies` ignored exit status), and panics inside `async` Tauri commands left their JS promises permanently unsettled, hanging the UI with no error. All fixed with test coverage.
+
 ---
 
 ## 5. Multi-Instance / Multi-Writer Conflicts
