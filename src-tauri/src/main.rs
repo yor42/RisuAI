@@ -385,22 +385,48 @@ async fn install_pip(path: String) -> bool {
     let py_path = Path::new(&path).join("python");
     let py_exec_path = py_path.join("python.exe");
     let get_pip_url = "https://bootstrap.pypa.io/get-pip.py";
-    let mut resp = reqwest::get(get_pip_url).await.unwrap();
+    let mut resp = match reqwest::get(get_pip_url).await {
+        Ok(r) => r,
+        Err(e) => {
+            println!("Failed to download get-pip.py: {}", e);
+            return false;
+        }
+    };
     let get_pip_path = Path::new(&path).join("get-pip.py");
-    let mut out = std::fs::File::create(&get_pip_path).unwrap();
+    let mut out = match std::fs::File::create(&get_pip_path) {
+        Ok(f) => f,
+        Err(e) => {
+            println!("Failed to create get-pip.py: {}", e);
+            return false;
+        }
+    };
     let mut content = Vec::new();
-    while let Some(chunk) = resp.chunk().await.unwrap() {
-        content.extend_from_slice(&chunk);
+    loop {
+        match resp.chunk().await {
+            Ok(Some(chunk)) => {
+                content.extend_from_slice(&chunk);
+            }
+            Ok(None) => break,
+            Err(e) => {
+                println!("Failed to download get-pip.py chunk: {}", e);
+                return false;
+            }
+        }
     }
-    out.write_all(&content).unwrap();
+    if let Err(e) = out.write_all(&content) {
+        println!("Failed to write get-pip.py: {}", e);
+        return false;
+    }
 
     let mut py = Command::new(py_exec_path);
     let output = py.arg(get_pip_path).output();
     match output {
         Ok(o) => {
-            let res = String::from_utf8(o.stdout).unwrap();
+            let res = String::from_utf8_lossy(&o.stdout);
             println!("{}", res);
-            if !res.starts_with("Python ") {
+            if !o.status.success() {
+                let stderr = String::from_utf8_lossy(&o.stderr);
+                println!("get-pip.py failed with status {}: {}", o.status, stderr);
                 return false;
             }
             return true;
@@ -452,17 +478,54 @@ fn check_requirements_local() -> String {
 }
 
 #[tauri::command]
-fn post_py_install(path: String) {
+fn post_py_install(path: String) -> bool {
     let py_path = Path::new(&path).join("python");
     let py_pth_path = py_path.join("python311._pth");
+    let py_exec_path = py_path.join("python.exe");
+
     //uncomment python libs
-    let mut py_pth = std::fs::read_to_string(&py_pth_path).unwrap();
+    let mut py_pth = match std::fs::read_to_string(&py_pth_path) {
+        Ok(s) => s,
+        Err(e) => {
+            println!("Failed to read python311._pth: {}", e);
+            return false;
+        }
+    };
     py_pth = py_pth.replace("#import site", "import site");
-    std::fs::write(&py_pth_path, py_pth).unwrap();
+    if let Err(e) = std::fs::write(&py_pth_path, py_pth) {
+        println!("Failed to write python311._pth: {}", e);
+        return false;
+    }
+
+    //verify pip is actually usable now that site imports are enabled
+    let mut py = Command::new(py_exec_path);
+    let output = py.arg("-m").arg("pip").arg("--version").output();
+    match output {
+        Ok(o) => {
+            let stdout = String::from_utf8_lossy(&o.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&o.stderr).to_string();
+            println!("{}", stdout);
+            if !stderr.is_empty() {
+                println!("{}", stderr);
+            }
+            if !o.status.success() || !stdout.starts_with("pip ") {
+                println!("pip verification failed after python311._pth rewrite");
+                return false;
+            }
+        }
+        Err(e) => {
+            println!("Failed to run pip --version: {}", e);
+            return false;
+        }
+    }
 
     //create "completed" file
     let completed_path = py_path.join("completed.txt");
-    std::fs::write(&completed_path, "python311").unwrap();
+    if let Err(e) = std::fs::write(&completed_path, "python311") {
+        println!("Failed to write completed.txt: {}", e);
+        return false;
+    }
+    return true;
 }
 
 #[tauri::command]
@@ -475,12 +538,28 @@ fn install_py_dependencies(path: String, dependency: String) -> Result<(), Strin
         .arg("-m")
         .arg("pip")
         .arg("install")
-        .arg(dependency)
+        .arg(&dependency)
         .output();
     match output {
         Ok(o) => {
-            let res = String::from_utf8(o.stdout).unwrap();
+            let res = String::from_utf8_lossy(&o.stdout).to_string();
             println!("{}", res);
+            if !o.status.success() {
+                let stderr_full = String::from_utf8_lossy(&o.stderr).to_string();
+                const MAX_STDERR_CHARS: usize = 4000;
+                let char_count = stderr_full.chars().count();
+                let stderr = if char_count > MAX_STDERR_CHARS {
+                    let skip = char_count - MAX_STDERR_CHARS;
+                    let tail: String = stderr_full.chars().skip(skip).collect();
+                    format!("(truncated) ...{}", tail)
+                } else {
+                    stderr_full
+                };
+                return Err(format!(
+                    "Failed to install {}: {}",
+                    dependency, stderr
+                ));
+            }
             return Ok(());
         }
         Err(e) => {
