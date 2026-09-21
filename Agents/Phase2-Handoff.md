@@ -121,7 +121,8 @@ run only** — `Legal.svelte:6-8` forbids setting it automatically.
 | CHORE-07 7a | **Committed `c66c9f4b`** (Report 13 §2; gates ledger 29/33/34; red ledger 32) | none |
 | AV-3 | constraints only (Report 12 §4) | plan, then gate. Keep AV-3 before AV-4 |
 | AV-4 | constraints only (Report 12 §5), measure first | after AV-3 |
-| CHORE-07 7b, 7c | designed (Report 13 §4, §5) | gate by a fresh `opus-reviewer` (the earlier instance may not resume). 7c needs the maintainer's plugin-storage decision |
+| CHORE-07 7b | **Committed `3e17c8a3`** (minimal core; Report 13 §4; gates ledger 39/40) | none |
+| CHORE-07 7c | designed (Report 13 §5, including the items moved from 7b) | gate by a fresh `opus-reviewer`. Needs the maintainer's plugin-storage decision |
 | Item 3 part 2 (chat list) | not started | plan after the avatar track |
 
 Nothing is pushed. The docs (this file, Roadmap, ledger rows 13-38) are committed separately.

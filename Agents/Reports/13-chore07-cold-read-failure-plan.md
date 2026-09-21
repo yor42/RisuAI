@@ -145,7 +145,7 @@ cite the exit codes.
 ## 3. User advice until 7b/7c ship
 
 Anyone who sees `[Cold storage data could not be loaded. Key: …]` should not run "clean cold
-storage". **After 7a ships** it is safe for chats showing that error text. **Until 7b ships**,
+storage". **After 7a ships** it is safe for chats showing that error text. **Until 7c ships**,
 do not run it right after opening cold chats, or while saving is failing: a restore that has not
 yet been saved can still have its blob deleted (gate F2).
 
@@ -218,6 +218,17 @@ The rev-2 design, with every rev-2 gate finding folded in:
     get-default-set overwrite.
   - Add a note to `risuai.d.ts` that `getItem` can reject.
   - **Awaiting the maintainer's decision.**
+- **Moved here from 7b** (the 7b gate on 2026-09-21 cut 7b down to a minimal core; the gate found
+  no data-loss path in any of these being deferred):
+  - the three-way reader (`ok | missing | error`) and a `missing` branch in `preLoadChat`;
+  - **a firm "this chat's data is gone, delete it" notice, but only for a reliable `missing`**
+    (maintainer request). 7b shows a softer notice for every failed load, because 7b cannot tell a
+    temporary failure from lost data, and telling users to delete a recoverable chat would lead to
+    its blob being cleaned;
+  - merging the side fields (R2b-d);
+  - the `v3.svelte.ts` `risuai.sendChat` guard;
+  - `markCharacterForSave` and the restored-keys keep-list (F2);
+  - a Retry button for pointer chats (switching chats already retries).
 
 ## 6. Out of scope, recorded (suspected, pre-existing)
 
