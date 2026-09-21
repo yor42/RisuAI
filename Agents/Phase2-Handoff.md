@@ -20,7 +20,7 @@ anything.
 
 ## Repo state at handoff
 
-- Branch `fix/persistence-conflict-platform-hardening`, **22 commits ahead of origin**, HEAD `d0bb5cd9`.
+- Branch `fix/persistence-conflict-platform-hardening`, **22 commits ahead of origin**, HEAD `0aeae15d`.
 - Baselines, all verified: `pnpm check` 0 errors / 0 warnings; `pnpm test` **31 files, 331 passed, 3 skipped**; `cd src-tauri && cargo check` clean.
 - Working tree carries ONE deliberate exception: `src/ts/process/mcp/risuaccess/tests/__snapshots__/modules.test.ts.snap` shows modified but has an **empty content diff** (line endings only). It has been excluded from every commit this campaign. Leave it alone.
 - Phase 1 / 1.5 and three rounds of persistence fixes are done. See `Agents/Roadmap.md`.
@@ -65,7 +65,7 @@ to the repo — that is a user decision.
 2. A draft-copy fix for it was designed earlier and **rejected** — correctly — because it
    would have added a fourth draft holder to a mechanism that already mishandled three.
 3. That objection no longer applies. `src/ts/localDrafts.ts` now exists and is proven in
-   production by the multi-tab work (commit `c8bf308e`), with five draft holders registered
+   production by the multi-tab work (commit `ae167294`), with five draft holders registered
    via `$effect` on state plus `onDestroy` backstops. It is the piece the rejected plan was missing.
 
 Two effects track `modules`: one in `src/ts/storage/dbChangeEffects.svelte.ts` and one in
@@ -86,14 +86,14 @@ sizing anything** — the effects were relocated this session and any line numbe
   works around it with a browser plugin. Do not bound these caches without tracing that first.
 - **Draft-aware dirty tracking exists now** (`src/ts/localDrafts.ts`,
   `src/ts/storage/multiTabReload.ts`). If a perf fix moves editor state, it must register a
-  draft or it will reintroduce the data loss fixed in `c8bf308e`.
+  draft or it will reintroduce the data loss fixed in `ae167294`.
 
 ## Open items NOT in Phase 2 scope (documented, do not silently absorb)
 
 - **alertStore hijack** — investigated and deliberately deferred. Full mechanism, four
   blocking findings, and the shape of a real fix are in `Agents/Roadmap.md`. Do not attempt
   the "obvious" mutex; it was taken to a plan gate and rejected. One instance was fixed
-  narrowly in `20edd850`.
+  narrowly in `0d8a1cd5`.
 - `loadPages` never reset on character switch.
 - `streamingDisplayOptimizationMode` defaults to `'off'`, causing per-network-chunk full-chat clones.
 - Last-writer-wins whole-DB overwrite — pre-existing and architectural.

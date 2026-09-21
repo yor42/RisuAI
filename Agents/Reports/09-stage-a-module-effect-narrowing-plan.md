@@ -1,7 +1,7 @@
 # Stage A plan — narrow the `moduleUpdate()` effect's module dependency
 
 Status: **PLAN GATE OPEN — not implemented.** Phase 2, module-editor per-keystroke cost.
-Branch `fix/persistence-conflict-platform-hardening`, HEAD `d974c0cc`.
+Branch `fix/persistence-conflict-platform-hardening`, HEAD `6485c66e`.
 
 ## 1. Problem
 
@@ -262,7 +262,7 @@ than assuming it stayed clean; it stays out of the commit.
 
 `dbChangeEffects.svelte.ts:34` (L1). The `getModules()` cache and `refreshModules()` (L3) —
 Stage A neither depends on nor repairs the load-bearing accident. The proxy-tracking layer,
-reverted twice (`30b09aae`, `901d1dd0`); `databaseState.svelte.ts` no longer exists. The
+reverted twice (`33b665d1`, `72ce7218`); `databaseState.svelte.ts` no longer exists. The
 alertStore hijack, `loadPages` reset on character switch,
 `streamingDisplayOptimizationMode`, last-writer-wins whole-DB overwrite, and
 `Agents/Maybe-Later.md`.
