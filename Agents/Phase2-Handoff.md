@@ -25,7 +25,8 @@ and it shipped a different design from the one that brief recommended — see "W
 ## Repo state at handoff
 
 - Branch `fix/persistence-conflict-platform-hardening`, **56 commits ahead of `origin/main`**
-  (`669b12ce`), 0 behind. **Local commits not yet pushed** to the remote branch.
+  (`669b12ce`), 0 behind. Pushed to `origin` (`yor42/RisuAI`) and in sync with its tracking
+  branch (0 ahead / 0 behind, verified with `git rev-list --left-right --count HEAD...@{u}`).
 - Baselines, verified on the committed tree: `pnpm test` **32 files, 377 passed, 3 skipped,
   exit 0**; `pnpm check` **0 errors / 0 warnings, exit 0**. `cargo check` not run recently.
 - **History was rewritten on 2026-09-21** (a plugin-bundle purge, then a rebase back onto the
@@ -98,6 +99,53 @@ plausible wrong number: Vite's `?t=` cache-busting handing back an empty module 
 `svelte` loading a second runtime whose `flushSync` measures 0 ms; and `requestAnimationFrame` not
 firing while the browser pane is hidden. Pass `VITE_RISU_LEGAL_CONFIGURED=TRUE` **inline, for one
 run only** — `Legal.svelte:6-8` forbids setting it automatically.
+
+## LIVE STATE — session of 2026-09-21 afternoon (read this first after a context compaction)
+
+**Maintainer decisions this session:**
+- Phase 2 **item 3** first, starting with the **character lists**. The maintainer chose all four
+  avatar stages. Plan: `Agents/Reports/12-charlist-avatar-plan.md`. Order: AV-1 (stop
+  re-lookups), then AV-2 (lazy-mount), then AV-3 (plain-HTTP encode), then AV-4 (thumbnails).
+  **Keep B (AV-3) before D (AV-4).**
+- **CHORE-07 runs in parallel.** It is a data-loss bug, reproduced and seen in the wild. Plan:
+  `Agents/Reports/13-chore07-cold-read-failure-plan.md` rev 3, **staged 7a / 7b / 7c**.
+- **Still open for the maintainer:** 7c's plugin-storage rejection (`_getPluginStorage` rejects on
+  a real read error). The reviewer recommends it.
+
+**Where each stream stands:**
+
+| Stream | State | Next |
+|---|---|---|
+| AV-1 | **Committed `64777a34`** (Report 12; gates ledger 20/27; red ledger 24) | none |
+| AV-2 | **Committed `97c3f53a`** (Report 14; gates ledger 30/35/37; step-0 memory probe ledger 31; red ledger 36; live check ledger 38) | none |
+| CHORE-07 7a | **Committed `c66c9f4b`** (Report 13 §2; gates ledger 29/33/34; red ledger 32) | none |
+| AV-3 | constraints only (Report 12 §4) | plan, then gate. Keep AV-3 before AV-4 |
+| AV-4 | constraints only (Report 12 §5), measure first | after AV-3 |
+| CHORE-07 7b, 7c | designed (Report 13 §4, §5) | gate by a fresh `opus-reviewer` (the earlier instance may not resume). 7c needs the maintainer's plugin-storage decision |
+| Item 3 part 2 (chat list) | not started | plan after the avatar track |
+
+Nothing is pushed. The docs (this file, Roadmap, ledger rows 13-38) are committed separately.
+
+**Small follow-ups found this session (not ticketed yet):**
+- `saveDbKei` reads `db.account.kei` without a guard (`src/ts/kei/backup.ts:86`), so it logs "KEI auto-backup failed" on every save when `account` is undefined. Harmless, noisy.
+- `getColdStorageAffectedCharacters` (coldstorageData.ts) still has an untranslated `'Unknown character'` fallback.
+- Failed cold-storage removals in `removeColdStorageItems` are silent (pre-existing; ledger 34).
+- Live checks: a hidden browser pane runs no IntersectionObserver or rAF (ledger 38). The maintainer starts the dev server.
+
+**Key facts established this session, all in the Roadmap and ledger rows 13-38:**
+- The chat list is already windowed by `loadPages`, which only grows.
+- All 3 character-list layouts plus the sidebar mount everything and re-resolve every avatar.
+- The plain-HTTP `getFileSrc` re-encodes base64 on every call: 1.33x the bytes (4/3), ~8.75 ms/MB on the i9.
+- **Item 8 (new):** all chats are resident. Chromium proxy overhead is ~1 KB/message (2.47x
+  ASCII); 1000 characters and 150k messages gives 95.5 MB plus 140 MB.
+- **CHORE-06 (new):** `console.log` retains whole-save objects in Chromium.
+- **CHORE-07 has two loss paths, both reproduced:**
+  - the chat is overwritten with an error text;
+  - startup `cleanChunks` deletes cold characters' emotion and additional assets. This affects
+    Tauri and web, for anyone with the setting off.
+- **Maintainer context is in memory:** platform mix (hosted web > local HTTP > Tauri, account sync
+  almost unused), Pi 3 and mid-range phones as the hardware floor, most avatars under 10 MB,
+  animated avatars exist, and upstream rolled cold storage back.
 
 ## What is next — the maintainer chooses
 

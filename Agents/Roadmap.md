@@ -200,11 +200,57 @@ This phase is the load-bearing one: it's what Phase 4 (Android) is gated behind,
 2. **Narrow the `saveDb()` change-tracking effects** (`globalApi.svelte.ts:350-403`) so they stop `$state.snapshot()`-ing broad subtrees just to detect "something changed." Replace deep-clone-based dirty detection with explicit dirty-marking at actual mutation call sites, or watch only shallow identity/length/timestamp signals. **Note (corrected):** this specific effect already excludes `modules`/`botPresets`/`loadouts`/`plugins`/`pluginCustomStorage` — it's the hot path for *character-field and chat-message* edits specifically, item 1 above is the hot path for module edits. Both need fixing; they're independent, not the same effect. *(Report 01, recommendation 2 — Medium-High effort.)*
 
    **⚠ Caution added 2026-09-21 — do not implement the "shallow identity/length/timestamp" option above as written.** That is *narrowing*, and Stage B established that narrowing this effect family loses writes: `tracker` flags gate whether a block is encoded at all, so a missed mutation is never written rather than written late (the `:19-24` presets comment in `dbChangeEffects.svelte.ts` records a real data-loss bug from exactly this, `8bc0f426`). The technique that worked for modules is **partitioning** — same dependency closure, sliced across per-element effects — and it is the natural candidate here too. Note this is also the effect containing CHORE-01's non-selected-character gap, so the two should be planned together.
-3. **Add real virtual scrolling to the chat message list** (`DefaultChatScreen.svelte`), keeping the existing incremental-load-on-scroll-up behavior for fetching history but unmounting off-screen messages so peak DOM/component count is bounded. This is the most Android-relevant fix in the whole roadmap. *(Report 01, recommendation 4 — Medium-High effort.)*
+3. **Status 2026-09-21 — character-list half, in progress:** AV-1 committed `64777a34` (each avatar resolved once per character), AV-2 committed `97c3f53a` (avatars resolved only near the viewport, far ones released; live-checked, ledger 38). AV-3 (plain-HTTP encode) and AV-4 (thumbnails) are next, in that order; the chat-list half below is not started.
+   **Add real virtual scrolling to the chat message list** (`DefaultChatScreen.svelte`), keeping the existing incremental-load-on-scroll-up behavior for fetching history but unmounting off-screen messages so peak DOM/component count is bounded. This is the most Android-relevant fix in the whole roadmap. *(Report 01, recommendation 4 — Medium-High effort.)*
+
+   **Premise re-measured 2026-09-21 (ledger row 13) — corrected and widened. Scope now includes the character lists at the maintainer's request.**
+   - **The chat list is already windowed, but the window only ever grows.** `Chats.svelte` mounts and unmounts messages imperatively with `mount()`/`unmount()` (not an `{#each}`), capped at `loadPages`: 30 initially, +15 per scroll-up (`chatLoadPages.ts`). The cap never shrinks on scroll, and a screenshot sets it to `Infinity` (`DefaultChatScreen.svelte:469`). The mounted count is therefore bounded by scroll-back depth, not by chat length. "Unbounded, append-only" above overstates it.
+   - **Character lists are fully unbounded — all three layouts, not only the grid.** Grid, list/trash (`GridCatalog.svelte:93,111,134`) and simple (`MobileCharacters.svelte:74`) mount every matching character. Each resolves avatars inline with `getCharImage(...,'css')`, so every re-render (e.g. a search keystroke) re-resolves every avatar. The sidebar (`Sidebar.svelte:563`) is unkeyed and fully mounted, and its `<img>` has no `loading="lazy"`. Real profiles: maintainer 500+ characters, extreme users 1000+.
+   - **Worst avatar path: plain-HTTP web (no service worker, no account — LAN/Pi).** `getFileSrc` re-encodes the full file to a base64 `data:` string on every call, even on a cache hit (`globalApi.svelte.ts:285`), and `fileSrcCache` holds those full strings unbounded. Tauri returns short `asset://` URLs.
+   - **Avatar lookups measured on 2026-09-21 (ledger row 17).** Harness `Agents/Tools/save-gen/charlist-avatar-count.svelte.harness.ts` mounts the real `GridCatalog` / `MobileCharacters` / `BarIcon` and the real `getCharImage`, with `getFileSrc` replaced by a counting spy.
+     - **Opening any layout** does one lookup per listed character: at 1000 characters, 1000 lookups. DOM elements mounted: grid 2,019, simple 10,022, list 15,017.
+     - **Grid and list** re-look-up every visible avatar on each search keystroke: 1000 for a keystroke that still matches everyone, 100 for one narrowing to 10%. They also re-look-up all of them when any visible character's `name` or `image` changes.
+     - **Simple layout** does **0** lookups on a search keystroke, because it filters with an `{#if}` inside the loop (`MobileCharacters.svelte:74-75`). It still re-looks-up every avatar when any character's name, image, `lastInteraction` or chat count changes, since `sortChar` reads them.
+     - **Chat messages:** pushing a message caused 0 lookups in every layout.
+   - **Cost of one lookup on the plain-HTTP branch** (`globalApi.svelte.ts:285`, i9-13900K best case): about 8.75 ms of CPU and a 1.33 MB base64 string per MB of avatar — exactly 4/3 (100 KB: 0.8 ms; 3 MB: 26 ms).
+     - Maintainer: most avatars are PNGs **under ~10 MB**; 10 MB is the upper bound.
+     - Derived by arithmetic, not measured: opening the grid at 1000 characters with 1 MB avatars means ~1000 encodes, **~8.8 s of CPU and ~1.4 GB of strings** on this CPU. It scales linearly with avatar size, and a grid search keystroke repeats it.
+     - Tauri (`asset://`) and service-worker builds skip the encode. On those builds the full-size image fetch and decode per 56 px icon is **unmeasured**.
+   - **Virtualization hazards — each must be dispositioned in the plan:**
+     - Plugin API v3 `getRootDocument()` wraps the real `document.documentElement` (`v3.svelte.ts:360-364`), a documented way to query live chat DOM. This is a compatibility risk.
+     - `scrollToMessage` depends on `data-chat-index` and on raising `loadPages`.
+     - The reroll-arrow CSS `.chat-message-container:first-of-type` (`styles.css:513`) assumes the newest message is the first DOM child.
+     - The list uses nested `flex-col-reverse` containers, and auto-scroll depends on the newest message being `firstElementChild`.
+     - The sidebar calls `scrollIntoView` by `data-char-id`.
+     - There is no shared parse cache, so every remount re-runs `ParseMarkdown`, including character display scripts.
 4. **Extend cold storage to size-based (not just idle-time-based) compaction**, so very long *active* chats also get relief, reducing the size of whatever remains to be cloned/stringified by items 1-2. **Note (corrected):** cold storage already offloads old, stale chats belonging to an active character today — this item specifically targets the gap that remains: a chat that's long but still *recent* (not idle 10+ days), which today gets no relief regardless of size. *(Report 01, recommendation 5 — Low-Medium effort.)*
 5. **(Architectural, largest item — stage last, after 1-4 prove the pattern) Split `DBState.db.characters` into per-character reactive slices** so only the active character is a "hot" proxy and editing one character cannot force reactivity traversal touching others. Large surface area — every read/write site of `DBState.db.characters[i]` across `src/ts` and `src/lib` — should be scoped deliberately and probably split into its own sub-project once items 1-4 are proven. *(Report 01, recommendation 3 — High effort.)*
 6. **[from round 2] Apply the same "give it a real draft copy" fix to the LoreBook entry editor and the Regex/Script editor**, which round 2 confirmed have the same live-`DBState`-binding pattern as the Module editor (item 1 above). Whether they carry the same *clone-cost* severity as the Module editor wasn't established — round 2 found direct binding is actually widespread (Persona/CharConfig too) — so profile each before assuming it needs the same fix; fix the ones that demonstrably clone something expensive on every keystroke. *(Report 01-deepdive, Lead 1 — Medium effort, sequence after item 1 proves the pattern.)*
-7. **[from round 2] Add real virtual scrolling (or at minimum a cap) to the other uncapped `{#each}` lists found**: LoreBook/WorldInfo entries, scripts, triggers, characters, personas, modules. Round 2 found these lack any windowing but could not establish real-world cardinality/impact — treat as lower priority than the chat list (item 3) unless a specific list is reported as a problem in practice. *(Report 01-deepdive, Lead 3 — Low-Medium effort, investigate-before-implementing.)*
+7. **[from round 2] Add real virtual scrolling (or at minimum a cap) to the other uncapped `{#each}` lists found**: LoreBook/WorldInfo entries, scripts, triggers, characters, personas, modules. Round 2 found these lack any windowing but could not establish real-world cardinality/impact — treat as lower priority than the chat list (item 3) unless a specific list is reported as a problem in practice. *(Report 01-deepdive, Lead 3 — Low-Medium effort, investigate-before-implementing.)* **Update 2026-09-21:** the *characters* list is now reported as a problem in practice (500+/1000+ characters) and has been folded into item 3.
+8. **[added 2026-09-21, ledger row 14] Resident chat data for characters that are not open.** This is a separate item from item 3: item 3 is about the DOM, this item is about the JS heap.
+   - **Residency is confirmed.** Every non-cold character and every one of its chats is decoded eagerly at boot and stays resident for the session (`risuSave.ts:695-700` into `DBState.db`). Only cold-storage stubs are lazy.
+   - **Why it gets expensive.** Svelte 5 proxies lazily, but boot's `saveDb()` runs `encoder.init(getDatabase())` (`globalApi.svelte.ts:587`). That calls `JSON.stringify(character)` through the proxy for every character (`risuSave.ts:250-253`), which forces full proxy materialisation.
+   - **Measured in Node** (`svelte@5.55.1`, production conditions, seed-1337 generator; i9-13900K; pointer compression **off**, so the multipliers are upper bounds):
+     - Chats are 97-99% of the plain heap when characters carry no large fields.
+     - Proxy overhead is ~1.9-2.4 KB per message, independent of text length.
+     - 1000 characters × 150 messages each: 100.8 MB plain, plus 277.6 MB of proxy overhead.
+     - Multiplier ≈ 3.7x for ASCII and 2.4x for Hangul. Per-message cost is the portable figure.
+   - **Re-measured in real Chromium on 2026-09-21 (ledger row 16):** headless Chrome 154, `--expose-gc`, production-conditioned Svelte 5.55.1 bundle, pointer compression on. 3 fresh-isolate repeats were bit-identical, and the CDP `Runtime.getHeapUsage` cross-check agreed within 1.3%. Pointer compression roughly halves the proxy overhead:
+
+     | Profile | Plain | Proxy overhead | Multiplier | Proxy bytes per message | Chat share of plain |
+     |---|---|---|---|---|---|
+     | 1000 characters, 150k messages | 95.5 MB | +140.0 MB | 2.47x | 979 | 98.8% |
+     | 500 characters, 75k messages, Hangul | 91.9 MB | +70.1 MB | 1.76x | 979 | 99.3% |
+
+     **These Chromium figures supersede the Node multipliers above for any user-facing claim.** Proxy overhead is structural, about 1 KB per message whatever the text length, so real roleplay messages (longer than the fixture's ~730 B) have a lower multiplier but the same absolute overhead. All data is resident for the session.
+   - **What the measurement narrowed.** Asset and inlay bytes are **not** in chat data or in the database: inlays are in the separate `inlay` store, and assets are stored as paths. CSS and HTML weight sits on characters and modules, not chats. With a 200 KB background per character, chats fall to 34% of the heap.
+   - **Related Tauri-slowdown candidates, measured or verified.**
+     - `dbChangeEffects.svelte.ts:109` snapshots all of the **active** character's chats on every tracked change, including every streaming chunk, since `streamingDisplayOptimizationMode` defaults to `'off'`. That costs ~5.3 µs/message (10k messages ≈ 53 ms). This belongs to item 2 and must be **partitioned**, never narrowed.
+     - V2 `pluginStorage.getItem` deep-clones the whole database on every call (`plugins.svelte.ts:717`).
+     - V3 `getDatabase()` defaults to snapshotting every character.
+     - How often these plugin paths fire is unmeasured.
+   - **Cold storage covers little of this.** It is on by default only for installs that had no plugins at first load (`database.svelte.ts:713`), runs once per boot after the full decode (`bootstrap.ts:284`), and evicts only data idle for 10+ days. It does nothing for peak memory at boot.
+   - **Relationship to other items.** Items 4 (size-based compaction) and 5 (per-character slices) are candidate mechanisms. This item states the measured problem; plan it after a live-app heap measurement confirms the proxy multiplier with pointer compression on. **Android caveat:** no Android build exists in the repo (`src-tauri/gen` has no `android/`, `[lib]` is commented out at `Cargo.toml:47`), so the OOM premise cannot be observed from this codebase.
 
 **Exit criterion for this phase** (relevant to Phase 4/Android gating): a long chat session with a large module set no longer shows the reported keystroke stutter, and peak memory for an active long conversation is bounded rather than growing monotonically with scroll-back depth.
 
@@ -248,6 +294,15 @@ source**, none is fixed, and none was absorbed into Stage B. Recorded here so th
 Evidence and full reasoning: `Agents/Reports/11-stage-b-module-effect-partition-plan.md` section 8.1.
 
 ### CHORE-01 — Mutations to a NON-selected character are never marked for save
+
+**Real plugin exposure (2026-09-21).** Two community plugins, provided by the maintainer
+(`Agents/Evidences of Investigations/`, gitignored, never commit), write the database through the
+plugin API:
+- **AssetGod v3_alt:** `risuai.setDatabase` ×7.
+- **fast-character-import v3 2.0.0:** `setDatabaseLite` and `setCharacterToIndex`.
+
+If they edit non-selected characters, CHORE-01 could lose plugin-made edits. The CHORE-01 plan
+must test the plugin API write paths, not only the UI.
 
 **Confirmed bug — EMPIRICALLY REPRODUCED, not just source-traced.** Occasional loss, not
 systemic; severity depends on user behaviour. See CHORE-03 for the reproduction.
@@ -364,7 +419,8 @@ appears to come from a full GUI reload rather than from dirty-tracking.
 - Either way the enabled-id string changes, so `getModules()`'s cache key changes
   (`modules.ts:417-419`) and `moduleUpdate()` **also** bumps `ReloadGUIPointer`
   (`modules.ts:579-582`).
-- `ReloadGUIPointer` drives `{#key $ReloadGUIPointer}` blocks at `Chat.svelte:522` and
+- `ReloadGUIPointer` drives `{#key}` blocks in `Chat.svelte` (read into `chatReloadPointer` at
+  `:522`, keyed at `:538` — one per mounted message, around its `ChatBody`) and at
   `BackgroundDom.svelte:15`. A `{#key}` change **destroys and recreates the entire subtree** — i.e.
   the whole chat message list re-renders.
 
@@ -440,6 +496,97 @@ path. Everything else can follow.
 
 Note `src/lib/Others/Legal.svelte` deliberately carries multi-language text inline and must not be
 "fixed" into a single locale.
+
+### CHORE-06 — `console.log` of whole-save objects may pin them in memory for the session
+
+Found by the memory investigation on 2026-09-21 (ledger row 14). **Source-verified, and measured in
+Node; in-browser retention is inferred, not proven.**
+- **Call sites** that pass very large objects to the console:
+  - `console.log('blocks', this.blocks)` at `risuSave.ts:641`. The array later also receives
+    remote-block contents (`:777-782`), so the log holds the whole save as strings.
+  - `console.log('Decoded RisuSave data', db)` at `risuSave.ts:824`.
+  - `console.log(decoded)` at `bootstrap.ts:171`.
+  - `console.log("setting cold storage item", key, value)` at `coldstorage.svelte.ts:151`, where
+    `value` is the full character being evicted.
+- **Node measurement:** V8 retains `console.log` arguments whenever an inspector exists, even with no
+  client attached. A 96 MB object stayed pinned until about 1000 further log lines had been written,
+  and was not retained without an inspector.
+- **Why the browser case is likely:** Chromium always creates a V8 inspector. That supports the
+  inference but does not prove it.
+- **Measure first:** in the live app, compare heap size after a forced GC before and after
+  `console.clear()`.
+- **Now measured in Chromium (2026-09-21, ledger row 16).**
+  - **Setup:** headless Chrome 154 with no Runtime, Console or Log domain enabled, which is how a
+    tab with DevTools closed looks to Chromium.
+  - **Retention:** after a `console.log` of a ~95 MB object graph, **95.5 MB stayed retained**
+    after every reference was dropped and three GCs had run. The control without the log retained
+    0.06 MB.
+  - **Release:** `console.clear()` released it, and so did about 1000 further `console.log` calls.
+    That matches Blink's console-message storage cap.
+  - **Consequence:** a big object stays pinned until roughly 1000 more lines have been logged.
+- **What that means per call site.** Only logs of objects that would otherwise be freed matter:
+  - `:824`'s `db` is the live database, which is resident anyway.
+  - The decoder's `this.blocks` strings at `:641` and `bootstrap.ts:171`'s `decoded` are extra
+    copies of the save.
+  - `coldstorage.svelte.ts:151`'s `value` is the character that cold storage is trying to evict.
+    Pinning it defeats the eviction.
+- **Still open:** how many log lines a typical session produces after boot, which decides how long
+  these stay pinned.
+- **Fix, if confirmed:** small and low-risk — log sizes and counts, not objects.
+
+### CHORE-07 — A transient cold-storage read failure permanently orphans a chat (DATA LOSS, reproduced)
+
+**Status 2026-09-21:** stage 7a (stop deleting: startup asset sweep and manual cleanup) is **committed `c66c9f4b`** (Report 13 §2; gates ledger 29/33/34). Stages 7b (no overwrite on load, send guards) and 7c (recovery UI, plugin storage) are designed and still to do.
+
+**A second loss path, reproduced 2026-09-21 (ledger 22), which deletes ASSET FILES.** Startup
+`cleanChunks` (`bootstrap.ts:292` → `:576-589` Tauri, `:645-654` web) deletes every asset that
+`getUncleanables` does not list. For a cold-stored character, `getUncleanables` needs a
+successful cold read to see its emotion images and additional assets. After one failed read,
+those files are **deleted**, while the blob stays intact.
+- **Affected:** anyone with cold-stored characters and the cold-storage **setting** off.
+- **Likely explains** some "images going missing" reports.
+- **Fix plan:** `Agents/Reports/13-chore07-cold-read-failure-plan.md` §3.4.
+
+**Seen in the wild (maintainer, 2026-09-21):** old user reports exist of this exact
+`[Cold storage data could not be loaded...]` text. Cold storage defaults to on only for installs
+that had no plugins at first load, so the affected population is mostly plugin-free users.
+
+Found by the memory investigation on 2026-09-21 (ledger row 14). **Reproduced end to end the same
+day (ledger row 15)** by `Agents/Tools/save-gen/cold-storage-orphan-repro.svelte.harness.ts`, which
+drives the real `coldstorage.svelte.ts`, `registerDbChangeEffects()` and the RisuSave encoder/decoder.
+- **Setup:** one read throws; the blob is still present.
+- **What was observed, in order:**
+  - `getColdStorageItem` returns `null`, and a retry right after returns the real payload.
+  - `preLoadChat` overwrites the chat with the error message.
+  - `markChanged` fires.
+  - The decoded save holds the error string.
+  - A later `preLoadChat` is a no-op, because the pointer header is gone.
+  - `cleanColdStorage()` then **deletes the still-intact blob**.
+- **Control:** a genuinely missing blob produces the same error message, so the user cannot tell
+  the two cases apart.
+- **Branches:** the reproduction exercised the web (OPFS) branch. Source shows the same
+  catch-everything-and-return-`null` in the Node-server (`:61-73`) and Tauri (`:74-84`) branches.
+- **Account branch (source-inferred, not reproduced):** any non-200 hub response falls back to
+  local, and returns `null` if the data isn't local. This path depends on selection, like CHORE-01
+  and CHORE-03: the overwrite persists only while that character is selected.
+- **Corrected ranges:** `getColdStorageItem` spans `:40-105`; `cleanColdStorage` spans `:244-262`;
+  the referenced-key logic lives in `coldstorageData.ts:64-97`.
+
+The rest of this entry is the original source trace, kept for its line references:
+- **What happens on a failed read:** `getColdStorageItem` swallows every error and returns `null`
+  (`coldstorage.svelte.ts:74-104`). `preLoadChat` then treats `null` as "missing or corrupted" and
+  overwrites the chat's messages with an error message (`:650-661`).
+- **Why the loss persists:** that overwrite is an ordinary mutation of the selected character, so it
+  is saved and the cold pointer is gone from the live data. The key survives only as text inside the
+  error message.
+- **How the blob would then be deleted (inferred):** a later manual `cleanColdStorage`
+  (`:244-257`, triggered from `UserSettings.svelte:95`) deletes blobs that no pointer references. It
+  would then delete the still-intact blob.
+- **Scope:** whole-character restore is safe (`characters.ts:893-901` alerts and keeps the stub).
+- **Next step:** reproduce the failure against unfixed code first, as with CHORE-03, then separate
+  "not found" from "read failed".
+- **Relevance:** this campaign targets exactly the "sudden data loss" that 1000+-character users
+  report.
 
 ## Sequencing Summary
 
