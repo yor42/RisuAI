@@ -35,11 +35,12 @@ import { AccountSyncCacheMismatchError } from "./storage/accountStorage";
 import { makeColdData } from "./process/coldstorage.svelte";
 import { verifyAssetCacheEntry } from "./storage/assetIntegrity";
 import { getRemoteSaveCleanupAction, getRemoteSavePayloadName } from "./storage/remoteSaveCleanup";
+import { sweepTauriAssets, sweepForageAssetKey } from "./storage/assetSweep";
 import {
     forageStorage,
     saveDb,
     getDbBackups,
-    getUncleanables,
+    buildAssetKeepSet,
     getBasename,
     setUsingSw,
     checkCharOrder
@@ -573,22 +574,21 @@ async function cleanChunks(options:{
         return
     }
 
-    const uncleanable = new Set(await getUncleanables(db))
+    // `keepSet.complete` is false when any cold-stored character's blob
+    // failed to read, was missing, or mismatched chaId -- see
+    // globalApi.svelte.ts's `resolveUncleanableChars`. Both sweeps below
+    // (never the remote-block cleanup that follows them) skip deleting
+    // anything in that case, via the spread below.
+    const keepSet = await buildAssetKeepSet(db)
     if (isTauri) {
-        const assets = await readDir('assets', { baseDir: BaseDirectory.AppData })
-        console.log(assets)
-        for (const asset of assets) {
-            try {
-                const n = getBasename(asset.name)
-                if (!uncleanable.has(n)) {
-                    await remove('assets/' + asset.name, { baseDir: BaseDirectory.AppData })
-                }
-            } catch (error) {
-                console.log('error', asset.name)
-            }
-        }
+        await sweepTauriAssets({
+            ...keepSet,
+            listAssets: () => readDir('assets', { baseDir: BaseDirectory.AppData }),
+            removeAsset: (relativePath) => remove(relativePath, { baseDir: BaseDirectory.AppData }),
+            getBasename
+        })
 
-        
+
         if(!await exists('remotes', { baseDir: BaseDirectory.AppData })) {
             await mkdir('remotes', { baseDir: BaseDirectory.AppData })
         }
@@ -647,12 +647,16 @@ async function cleanChunks(options:{
         const characterIds = new Set<string>(
             db.characters.map((v) => v.chaId)
         )
+        if (keepSet.complete === false) {
+            console.log('cleanChunks: cold-storage read was incomplete, skipping the forage asset sweep this run')
+        }
         for (const asset of indexes) {
             if (asset.startsWith('assets/')) {
-                const n = getBasename(asset)
-                if(!uncleanable.has(n)) {
-                    await forageStorage.removeItem(asset)
-                }
+                await sweepForageAssetKey(asset, {
+                    ...keepSet,
+                    removeAsset: (key) => forageStorage.removeItem(key),
+                    getBasename
+                })
             }
             else if (asset.endsWith('.meta')){
                 continue
@@ -713,7 +717,7 @@ async function cleanChunks(options:{
         // and would just be alert noise for most users. Read-only either way
         // — doesn't attempt to repair anything; that's the explicit "verify
         // assets" action in the same settings section.
-        const sampleTargets = Array.from(uncleanable)
+        const sampleTargets = Array.from(keepSet.uncleanable)
             .sort(() => Math.random() - 0.5)
             .slice(0, 3)
         for (const target of sampleTargets) {

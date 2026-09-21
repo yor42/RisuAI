@@ -3,6 +3,61 @@ import type { Database, character, groupChat } from "../storage/database.svelte"
 
 export const coldStorageHeader = '\uEF01COLDSTORAGE\uEF01'
 
+const coldStorageLoadErrorPrefix = '[Cold storage data could not be loaded. Key: '
+const coldStorageLoadErrorSuffix = ']'
+
+/**
+ * Builds the exact chat-message text `preLoadChat`
+ * (`coldstorage.svelte.ts`) writes into `chat.message[0].data` when a cold
+ * read fails or returns unusable data. The single builder both
+ * `preLoadChat` and `matchColdStorageLoadErrorKey` use, so the two cannot
+ * drift apart (CHORE-07 stage 7a §2.2).
+ */
+export function formatColdStorageLoadError(coldDataKey: string): string {
+    return `${coldStorageLoadErrorPrefix}${coldDataKey}${coldStorageLoadErrorSuffix}`
+}
+
+/**
+ * Recovers the key from text that exactly matches
+ * `formatColdStorageLoadError`'s output, anchored on the whole string.
+ * Returns null for anything else, including a near-miss with extra
+ * prefix/suffix text around an otherwise-exact match -- the captured key
+ * text itself is never rejected by its format.
+ */
+export function matchColdStorageLoadErrorKey(text: string | null | undefined): string | null {
+    if (!text) {
+        return null
+    }
+    if (!text.startsWith(coldStorageLoadErrorPrefix) || !text.endsWith(coldStorageLoadErrorSuffix)) {
+        return null
+    }
+    return text.slice(coldStorageLoadErrorPrefix.length, text.length - coldStorageLoadErrorSuffix.length)
+}
+
+/**
+ * Collects the key from any chat whose FIRST message exactly matches the
+ * cold-storage load-error text, regardless of how many messages follow it
+ * -- a user who kept chatting after the error keeps every later message,
+ * and this only inspects `message[0]`. These blobs are still referenced by
+ * that visible error text and must not be treated as unused
+ * (CHORE-07 stage 7a §2.2).
+ */
+export function listRecoverableErrorKeysFromDb(db: Pick<Database, 'characters'> | null | undefined): string[] {
+    const keys = new Set<string>()
+    for (const character of db?.characters ?? []) {
+        if (!character) {
+            continue
+        }
+        for (const chat of character.chats ?? []) {
+            const key = matchColdStorageLoadErrorKey(chat.message?.[0]?.data)
+            if (key) {
+                keys.add(key)
+            }
+        }
+    }
+    return Array.from(keys)
+}
+
 export function getColdStorageBackupKey(name: string): string | null {
     const match = name.match(/^(?:coldstorage[/_])?([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\.json$/)
     return match?.[1] ?? null

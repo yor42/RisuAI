@@ -1471,21 +1471,113 @@ export function getBasename(data: string) {
     return lasts;
 }
 
-export async function getUncleanables(db: Database, uptype: 'basename' | 'pure' = 'basename') {
+/**
+ * Resolves each character to the full data `getUncleanablesSync` should
+ * scan for asset references, swapping in a cold-stored character's own
+ * blob when it is readable and matches. Shared by `getUncleanables` and
+ * `buildAssetKeepSet` so the two cannot drift (CHORE-07 stage 7a,
+ * `Agents/Reports/13-chore07-cold-read-failure-plan.md` §2.1, gate R9).
+ *
+ * `opts.swallowErrors` controls what happens when a `cha.coldstorage` read
+ * throws:
+ * - `false` (`getUncleanables`'s own behaviour, byte-for-byte the same as
+ *   before this function existed): the read is awaited with no try/catch
+ *   around it, so a throw rejects this function immediately, before any
+ *   later character is scanned. The account branch of
+ *   `getColdStorageItem` (`coldstorage.svelte.ts`) is the only one of its
+ *   four backends that can actually do this -- Node/Tauri/OPFS each
+ *   already swallow their own read errors into a `null` return.
+ * - `true` (`buildAssetKeepSet`'s own behaviour): the read is wrapped in a
+ *   try/catch, and a throw is recorded by setting `complete = false`
+ *   instead of rejecting, so the boot-time asset sweep can still finish
+ *   scanning the rest of the characters and skip deleting anything rather
+ *   than crash.
+ *
+ * Independent of that flag, `complete` is also false whenever a read
+ * resolves but is falsy, or its `character.chaId` does not match
+ * `cha.chaId` (the existing check below) -- neither of those is a throw,
+ * so both flag values reach this same branch. In every case where a full
+ * character could not be substituted, `cha` itself (the stub) is still
+ * what gets scanned, matching this function's behaviour before `complete`
+ * was tracked.
+ */
+async function resolveUncleanableChars(db: Database, opts: { swallowErrors: boolean }): Promise<{
+    chars: (character|groupChat)[]
+    complete: boolean
+}> {
     let chars: (character|groupChat)[] = []
+    let complete = true
     if (db.characters) {
         for(let cha of db.characters){
             if(cha?.coldstorage){
-                const coldData = await getColdStorageItem(cha.coldstorage!)
-                if(coldData?.character && coldData.character.chaId === cha.chaId){
-                    cha = coldData.character
+                if(opts.swallowErrors){
+                    try {
+                        const coldData = await getColdStorageItem(cha.coldstorage!)
+                        if(coldData?.character && coldData.character.chaId === cha.chaId){
+                            cha = coldData.character
+                        }
+                        else{
+                            complete = false
+                        }
+                    } catch (error) {
+                        complete = false
+                    }
+                }
+                else{
+                    const coldData = await getColdStorageItem(cha.coldstorage!)
+                    if(coldData?.character && coldData.character.chaId === cha.chaId){
+                        cha = coldData.character
+                    }
+                    else{
+                        complete = false
+                    }
                 }
             }
             chars.push(cha)
         }
     }
 
+    return { chars, complete }
+}
+
+/**
+ * A throw from a `cha.coldstorage` read (only reachable via
+ * `getColdStorageItem`'s account branch) propagates out of this function
+ * exactly as it did before `resolveUncleanableChars` existed: nothing here
+ * catches it, so `getUncleanables`'s own promise rejects with that same
+ * error, before any later character is scanned. `drive.ts:312`'s
+ * `loadDrive` relies on that rejection to abort a restore instead of
+ * silently treating a broken account read as "nothing to protect" --
+ * `buildAssetKeepSet` below is the function that swallows a read failure,
+ * not this one.
+ */
+export async function getUncleanables(db: Database, uptype: 'basename' | 'pure' = 'basename') {
+    const { chars } = await resolveUncleanableChars(db, { swallowErrors: false })
     return getUncleanablesSync(db, uptype, { chars });
+}
+
+/**
+ * Builds the keep-set the boot-time asset sweep (`cleanChunks`'s
+ * `sweepTauriAssets` / `sweepForageAssetKey`, `src/ts/storage/assetSweep.ts`)
+ * uses to decide what NOT to delete. Shares `resolveUncleanableChars` with
+ * `getUncleanables` so the two cannot drift (CHORE-07 stage 7a,
+ * `Agents/Reports/13-chore07-cold-read-failure-plan.md` §2.1, gate R9).
+ *
+ * Unlike `getUncleanables`, a `cha.coldstorage` read that throws here does
+ * NOT reject this function: it is swallowed and reported as
+ * `complete: false`, the same as a falsy read or a chaId mismatch (see
+ * `resolveUncleanableChars`), so the boot-time sweep can finish scanning
+ * every character. The sweeps (`sweepTauriAssets` / `sweepForageAssetKey`)
+ * skip deleting anything when `complete` is explicitly `false`.
+ *
+ * `getUncleanables` itself is unaffected by this function -- `drive.ts:312`
+ * keeps calling it directly and keeps seeing a throw reject, as documented
+ * on `getUncleanables` above.
+ */
+export async function buildAssetKeepSet(db: Database): Promise<{ uncleanable: Set<string>, complete: boolean }> {
+    const { chars, complete } = await resolveUncleanableChars(db, { swallowErrors: true })
+    const uncleanable = new Set(getUncleanablesSync(db, 'basename', { chars }))
+    return { uncleanable, complete }
 }
 
 /**
