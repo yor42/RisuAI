@@ -2,7 +2,7 @@ import DOMPurify from 'dompurify';
 import markdownit from 'markdown-it'
 import { appVer, getCurrentCharacter, getDatabase, type Database, type character, type customscript, type groupChat, type triggerscript } from '../storage/database.svelte';
 import { DBState, selIdState } from '../stores.svelte';
-import { aiWatermarkingLawApplies, getFileSrc } from '../globalApi.svelte';
+import { aiWatermarkingLawApplies, getFileSrc, isPlainHttpFileSrc } from '../globalApi.svelte';
 import { isTauri, isNodeServer } from "src/ts/platform"
 import { getChatVar, setChatVar, getGlobalChatVar } from './chatVar.svelte';
 import { processScriptFull } from '../process/scripts';
@@ -428,9 +428,23 @@ function getEmoSrc(emoArr: string[][], emoPaths: AssetPaths) {
     }
 }
 
+// Unbounded on plain HTTP before AV-3 (Report 15 §2.2/F3): every getFileSrc
+// result ever requested by chat rendering was kept here forever. On plain
+// HTTP, getFileSrc now has its own budgeted cache (globalApi.svelte.ts), so
+// getFileSrcCached skips this Map entirely for that branch (see below) and
+// only Tauri/account/service-worker results (short URLs, not full `data:`
+// strings) still accumulate here.
 const fileSrcCache = new Map<string, string>()
 
 async function getFileSrcCached(path:string){
+    // AV-3 (Report 15 §2.2): on plain HTTP, getFileSrc's own cache already
+    // dedupes reads and encodes, so don't also pin a permanent copy here.
+    // isPlainHttpFileSrc must be called in the same tick as getFileSrc, with
+    // no await in between, because getFileSrc picks its branch synchronously
+    // and usingSw can only change once, at boot.
+    if(isPlainHttpFileSrc(path)){
+        return await getFileSrc(path)
+    }
     let cached = fileSrcCache.get(path)
     if(cached){
         return cached

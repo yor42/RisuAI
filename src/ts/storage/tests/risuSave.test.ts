@@ -29,6 +29,8 @@ vi.mock(
                 getItem: vi.fn(async () => null),
                 setItem: vi.fn(async () => {}),
             },
+            // AV-3 (Report 15 §2.2, gate L6): getFileSrcCached calls this predicate.
+            isPlainHttpFileSrc: vi.fn(() => false),
         }) as unknown as typeof import('src/ts/globalApi.svelte'),
 )
 

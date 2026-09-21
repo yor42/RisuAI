@@ -19,6 +19,8 @@ vi.mock(
 vi.mock(import('../../../globalApi.svelte'), () => ({
   aiWatermarkingLawApplies: () => false,
   getFileSrc: () => Promise.resolve(''),
+  // AV-3 (Report 15 §2.2, gate L6): getFileSrcCached calls this predicate.
+  isPlainHttpFileSrc: () => false,
 }))
 
 vi.mock(import('../../../stores.svelte'), () => {

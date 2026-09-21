@@ -119,6 +119,8 @@ vi.mock(
             getFetchLogs: vi.fn(() => []),
             getFetchData: vi.fn(() => ({})),
             aiLawApplies: vi.fn(() => false),
+            // AV-3 (Report 15 §2.2, gate L6): getFileSrcCached calls this predicate.
+            isPlainHttpFileSrc: vi.fn(() => false),
         }) as unknown as typeof import('src/ts/globalApi.svelte'),
 )
 

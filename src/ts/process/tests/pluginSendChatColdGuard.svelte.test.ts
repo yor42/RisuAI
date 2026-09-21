@@ -138,6 +138,8 @@ vi.mock(import('../../globalApi.svelte'), () => ({
     checkCharOrder: vi.fn(),
     forageStorage: { isAccount: false },
     getFetchLogs: vi.fn(),
+    // AV-3 (Report 15 §2.2, gate L6): getFileSrcCached calls this predicate.
+    isPlainHttpFileSrc: vi.fn(() => false),
 }) as unknown as typeof import('../../globalApi.svelte'))
 
 vi.mock(import('../../gui/colorscheme'), () => ({

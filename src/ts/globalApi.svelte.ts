@@ -103,7 +103,21 @@ export async function downloadFile(name: string, dat: Uint8Array | ArrayBuffer |
 
 type FileCacheEntry = {
     status: 'loading' | 'done' | 'missing'
-    data?: Uint8Array
+    // AV-3 (Report 15 §2.1): plain-HTTP 'done' entries store the finished,
+    // full `data:image/png;base64,...` string here, built once inside the
+    // loading producer in getFileSrc, instead of raw bytes that got
+    // re-encoded into a fresh string on every call. Every cache hit, the
+    // oversized memo included, returns this exact string object as-is — no
+    // caller re-concatenates it — so every caller served from the same cache
+    // entry or memo slot gets the same string object, instead of each holder
+    // (a DOM attribute, CSS, or any other consumer) building its own copy.
+    // Whether that also avoids a browser engine flattening its own copy of a
+    // rope/ConsString per holder is plausible but not verified against Blink.
+    // A caller that arrives after an eviction, re-read, or an orphaned
+    // attempt still gets a different string object than an earlier caller
+    // did. Service-worker 'done'/'missing' entries never set this and cost 0
+    // bytes in the accounting below.
+    src?: string
     // Set only while status === 'loading'. All callers that find an in-flight entry
     // await this SAME promise object directly rather than polling the Map — polling
     // is what let a concurrent waiter observe a stale/evicted entry after the
@@ -112,49 +126,154 @@ type FileCacheEntry = {
     promise?: Promise<FileCacheEntry>
 }
 
+// The `data:image/png;base64,` wrapper every successful plain-HTTP getFileSrc
+// result carries (the function-level catch below still returns '' on error,
+// not this prefix). `FileCacheEntry.src` and the oversized memo's `src` both
+// store the FULL string including this prefix (see FileCacheEntry.src above)
+// — it is never concatenated on a per-call basis, so a caller served from the
+// same cache entry or memo slot as an earlier caller gets back the exact same
+// string object. The byte budget below still sizes only the actual encoded
+// payload, so fileCacheEntryCost (below) subtracts this constant-length
+// prefix back out of the cost.
+const FILE_CACHE_SRC_PREFIX = 'data:image/png;base64,'
+
 // Bounded LRU cache, keyed by asset location. On the non-Tauri/non-service-worker
-// path this holds the full raw bytes of every asset resolved via getFileSrc, which
-// used to accumulate forever for the life of the session — capped here to keep
-// long sessions from holding an unbounded amount of decoded asset data in memory.
-const FILE_CACHE_MAX_ENTRIES = 200
+// path this holds the already-encoded `data:` string of every asset resolved via
+// getFileSrc, bounded by both an entry-count cap and a byte budget below, so long
+// sessions can't hold an unbounded amount of encoded asset data in memory.
+const FILE_CACHE_DEFAULT_MAX_ENTRIES = 200
+// Mutable only so the test-only seam (__fileCacheTestHooks.setLimits) can shrink
+// it for a test and restore it afterward; production code never changes it.
+let FILE_CACHE_MAX_ENTRIES = FILE_CACHE_DEFAULT_MAX_ENTRIES
+// AV-3 budget (Report 15 §2.1): total bytes of encoded payload the cache may
+// hold across all entries (see fileCacheEntryCost — the shared prefix on each
+// `src` is excluded). Service-worker, loading and missing entries cost 0.
+const FILE_CACHE_DEFAULT_MAX_BYTES = 64 * 1024 * 1024
+let fileCacheMaxBytes = FILE_CACHE_DEFAULT_MAX_BYTES
+// Running total of every cached entry's cost (see fileCacheEntryCost), kept in
+// sync by fileCacheSet/fileCacheDelete below — the only two functions allowed
+// to mutate `fileCache` during normal operation (the test-only
+// __fileCacheTestHooks.reset() below is the one exception: it calls
+// fileCache.clear() directly and zeroes this counter to match) — so it never
+// drifts from a recomputed sum (see __fileCacheTestHooks.stats, which asserts
+// exactly that in tests).
+let fileCacheBytes = 0
 const fileCache = new Map<string, FileCacheEntry>()
+
+// AV-3 (Report 15 §2.1, gate M2): the most recent oversized `getFileSrc` result
+// (one whose cost, see fileCacheEntryCost, exceeds fileCacheMaxBytes). Oversized
+// results are never committed to the budgeted `fileCache` map above, but
+// without this one-slot memo a caller that re-requests the same oversized loc
+// repeatedly (e.g. a streaming re-parse) would re-read and re-encode it every
+// time. Holds at most one entry, replaced whenever a new oversized result
+// arrives, and never counted toward fileCacheBytes/fileCacheMaxBytes. `src`
+// here is the full string too, returned as-is, same as a cached entry's.
+let oversizedMemo: { loc: string, src: string } | null = null
+
+// The byte cost of one cache entry for budget purposes. This is `src.length`
+// MINUS the constant-length `FILE_CACHE_SRC_PREFIX` every `src` carries — the
+// cost counts only the encoded payload, not the shared prefix. This
+// deliberately departs from Report 15 §2.1's "an entry costs src.length" (the
+// Orchestrator's instruction, given `src` here is the full prefixed string
+// rather than the bare payload the plan assumed). Entries with no `src`
+// (service-worker, loading, missing) cost 0.
+function fileCacheEntryCost(entry: FileCacheEntry): number {
+    return entry.src ? entry.src.length - FILE_CACHE_SRC_PREFIX.length : 0
+}
+
+// Every mutation of `fileCache` during normal operation must go through one
+// of these two helpers so `fileCacheBytes` can never drift from the Map's
+// actual contents. The one exception is __fileCacheTestHooks.reset(), which
+// clears the whole Map and zeroes the counter together, so no drift is
+// possible there either.
+function fileCacheSet(loc: string, entry: FileCacheEntry) {
+    fileCache.set(loc, entry)
+    fileCacheBytes += fileCacheEntryCost(entry)
+}
+
+function fileCacheDelete(loc: string) {
+    const existing = fileCache.get(loc)
+    if (!existing) {
+        return
+    }
+    fileCacheBytes -= fileCacheEntryCost(existing)
+    fileCache.delete(loc)
+}
+
+// Test-only seam for AV-3 (Report 15 §4). Not used by any production code path.
+// Lets a test shrink the cache's limits, reset it between cases (the module
+// otherwise has no way to clear `fileCache`), and read both the running byte
+// total and one recomputed from the Map, so tests can assert the two never
+// drift apart.
+export const __fileCacheTestHooks = {
+    setLimits(limits: { maxEntries?: number, maxBytes?: number }) {
+        if (typeof limits.maxEntries === 'number') {
+            FILE_CACHE_MAX_ENTRIES = limits.maxEntries
+        }
+        if (typeof limits.maxBytes === 'number') {
+            fileCacheMaxBytes = limits.maxBytes
+        }
+    },
+    reset() {
+        fileCache.clear()
+        FILE_CACHE_MAX_ENTRIES = FILE_CACHE_DEFAULT_MAX_ENTRIES
+        fileCacheMaxBytes = FILE_CACHE_DEFAULT_MAX_BYTES
+        fileCacheBytes = 0
+        oversizedMemo = null
+    },
+    stats() {
+        let recomputedBytes = 0
+        for (const entry of fileCache.values()) {
+            recomputedBytes += fileCacheEntryCost(entry)
+        }
+        return {
+            entries: fileCache.size,
+            bytes: fileCacheBytes,
+            recomputedBytes,
+        }
+    },
+}
 
 function touchFileCache(loc: string, entry: FileCacheEntry) {
     // Map iteration order is insertion order; delete-then-set moves this key to the
     // end, which doubles as a cheap recency marker for the LRU eviction below.
-    fileCache.delete(loc)
-    fileCache.set(loc, entry)
-    if (fileCache.size <= FILE_CACHE_MAX_ENTRIES) {
-        return
-    }
+    fileCacheDelete(loc)
+    fileCacheSet(loc, entry)
+
+    const overBudget = () => fileCache.size > FILE_CACHE_MAX_ENTRIES || fileCacheBytes > fileCacheMaxBytes
+
     // Walk oldest-to-newest and evict the oldest entries that aren't still
-    // in-flight. A single slow/stuck load must not block eviction of everything
-    // behind it, so this scans past 'loading' entries instead of stopping at the
-    // first one.
+    // in-flight, until neither the count cap nor the byte budget is exceeded. A
+    // single slow/stuck load must not block eviction of everything behind it,
+    // so this scans past 'loading' entries instead of stopping at the first one.
     for (const [key, candidate] of fileCache) {
-        if (fileCache.size <= FILE_CACHE_MAX_ENTRIES) {
+        if (!overBudget()) {
             break
         }
         if (candidate.status === 'loading') {
             continue
         }
-        fileCache.delete(key)
+        fileCacheDelete(key)
     }
     // If every remaining entry is still 'loading' (e.g. many stalled requests at
-    // once), the pass above evicts nothing and the cache would otherwise grow
-    // without bound. Fall back to evicting the oldest in-flight entries too — this
-    // is safe because every caller already awaits its entry's `promise` directly
-    // (see getFileSrc), not a Map lookup, so removing the Map slot doesn't affect
-    // anyone already waiting on it. It only means a brand-new caller for that same
-    // key won't find this attempt and will start a fresh one instead of joining
-    // it — which is exactly why the completion side below only ever commits a
-    // result back into the Map if its own entry is still the one present, so an
-    // orphaned old attempt can never clobber a newer retry.
+    // once), the pass above evicts nothing and the count cap could otherwise be
+    // exceeded without bound. Fall back to evicting the oldest in-flight entries
+    // too — this is safe because every caller already awaits its entry's
+    // `promise` directly (see getFileSrc), not a Map lookup, so removing the Map
+    // slot doesn't affect anyone already waiting on it. It only means a
+    // brand-new caller for that same key won't find this attempt and will start
+    // a fresh one instead of joining it — which is exactly why the completion
+    // side below only ever commits a result back into the Map if its own entry
+    // is still the one present, so an orphaned old attempt can never clobber a
+    // newer retry. This fallback loops on the COUNT condition only: loading
+    // entries hold no bytes (see fileCacheSet), so evicting one can never bring
+    // the byte total down, and looping on the byte condition here would spin
+    // forever whenever the remaining entries are all still loading.
     for (const key of fileCache.keys()) {
         if (fileCache.size <= FILE_CACHE_MAX_ENTRIES) {
             break
         }
-        fileCache.delete(key)
+        fileCacheDelete(key)
     }
 }
 
@@ -244,10 +363,31 @@ export async function getFileSrc(loc: string) {
             let resolved: FileCacheEntry
 
             if (!existing) {
+                // AV-3 (Report 15 §2.1, gate M2): an oversized result from a
+                // previous call for this exact loc is never committed to the
+                // budgeted cache below, so check the one-slot memo before
+                // starting a fresh read — otherwise a caller that repeatedly
+                // re-requests the same oversized asset (e.g. a streaming
+                // re-parse) would re-read and re-encode it every time.
+                if (oversizedMemo && oversizedMemo.loc === loc) {
+                    return oversizedMemo.src
+                }
                 const loadingEntry: FileCacheEntry = { status: 'loading' }
                 const promise = (async (): Promise<FileCacheEntry> => {
+                    // Built once here, inside the shared producer, so every
+                    // concurrent or later caller for this loc reuses this same
+                    // read and this same encode, and every caller served from
+                    // the same cache entry or memo slot gets the same string
+                    // object instead of each re-encoding or re-concatenating
+                    // its own copy on every call (Report 15 §2.1). `src` is
+                    // the FULL `data:image/png;base64,...` string, prefix
+                    // included — every return path below hands it out as-is,
+                    // never rebuilding it per call. A caller that arrives
+                    // after this entry is evicted or superseded by a retry
+                    // still gets a different string than an earlier caller.
                     const f: Uint8Array = await forageStorage.getItem(loc) as unknown as Uint8Array
-                    return { status: 'done', data: f }
+                    const src = FILE_CACHE_SRC_PREFIX + Buffer.from(f ?? new Uint8Array()).toString('base64')
+                    return { status: 'done', src }
                 })()
                 loadingEntry.promise = promise
                 touchFileCache(loc, loadingEntry)
@@ -257,7 +397,16 @@ export async function getFileSrc(loc: string) {
                     // cache — it may have been evicted and superseded by a newer
                     // retry for the same key while this was in flight.
                     if (fileCache.get(loc) === loadingEntry) {
-                        touchFileCache(loc, resolved)
+                        if (resolved.src !== undefined && fileCacheEntryCost(resolved) > fileCacheMaxBytes) {
+                            // Oversized: don't let one asset evict the entire
+                            // budgeted cache. Remove the loading placeholder and
+                            // memoize the result on the side instead (Report 15
+                            // §2.1, gate M2).
+                            fileCacheDelete(loc)
+                            oversizedMemo = { loc, src: resolved.src }
+                        } else {
+                            touchFileCache(loc, resolved)
+                        }
                     }
                 } catch (error) {
                     // Don't leave this entry stuck at 'loading' forever for other
@@ -266,7 +415,7 @@ export async function getFileSrc(loc: string) {
                     // exactly as it would have without any caching (caught by the
                     // function-level catch below).
                     if (fileCache.get(loc) === loadingEntry) {
-                        fileCache.delete(loc)
+                        fileCacheDelete(loc)
                     }
                     throw error
                 }
@@ -282,7 +431,14 @@ export async function getFileSrc(loc: string) {
                 touchFileCache(loc, existing)
                 resolved = existing
             }
-            return `data:image/png;base64,${Buffer.from(resolved?.data ?? new Uint8Array()).toString('base64')}`
+            // `src` was already built once, inside the producer above (or by
+            // whichever call originally populated this entry) — every caller
+            // just returns this exact string, matching the pre-AV-3 code's
+            // output exactly (a missing file's empty buffer encodes to the
+            // empty string, same as the pre-AV-3 code's
+            // `resolved?.data ?? new Uint8Array()`) without rebuilding it per
+            // call.
+            return resolved?.src ?? FILE_CACHE_SRC_PREFIX
         }
     } catch (error) {
         console.error(error)
@@ -1097,6 +1253,19 @@ let usingSw = false
 
 export function setUsingSw(value: boolean) {
     usingSw = value
+}
+
+/**
+ * Reports whether `getFileSrc(loc)` would take the plain-HTTP branch (the one
+ * that reads+encodes through `fileCache` above) right now, without calling it.
+ * Must mirror getFileSrc's own branch conditions exactly — this is a
+ * synchronous snapshot of the same three checks getFileSrc makes before its
+ * first await, so a caller (parser.svelte.ts's getFileSrcCached, Report 15
+ * §2.2) can decide, in the same tick, whether to route through its own
+ * permanent cache or call getFileSrc directly every time.
+ */
+export function isPlainHttpFileSrc(loc: string): boolean {
+    return !isTauri && !(forageStorage.isAccount && loc.startsWith('assets')) && !usingSw
 }
 
 /**
