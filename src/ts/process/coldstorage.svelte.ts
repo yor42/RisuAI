@@ -17,7 +17,8 @@ import { fetchProtectedResource } from "../sionyw"
 import { alertClear, alertConfirm, alertError, alertWait } from "../alert"
 import { language } from "src/lang"
 import type { Database, character } from "../storage/database.svelte"
-import { coldStorageHeader, getColdStorageAffectedCharacters, getColdStorageBackupName, isColdStorageBackupData, listColdDataKeysFromDb, listRecoverableErrorKeysFromDb, matchColdStorageLoadErrorKey } from "./coldstorageData"
+import { coldStorageHeader, getColdStorageAffectedCharacters, getColdStorageBackupName, isColdStorageBackupData, listColdDataKeysFromDb, listRecoverableErrorKeysFromDb, matchColdStorageLoadErrorKey, mergeRetriedColdChatSideFields } from "./coldstorageData"
+import { doingChat } from "./index.svelte"
 
 export {
     coldStorageHeader,
@@ -793,8 +794,8 @@ async function makeColdDataForCharacter(i:number, coldTime:number): Promise<bool
     return false
 }
 
-async function makeColdDataForChat(i:number, j:number, coldTime:number): Promise<boolean>{
-    
+export async function makeColdDataForChat(i:number, j:number, coldTime:number): Promise<boolean>{
+
     const chat = DBState.db.characters[i].chats[j]
     let greatestTime = chat.lastDate ?? 0
 
@@ -805,6 +806,17 @@ async function makeColdDataForChat(i:number, j:number, coldTime:number): Promise
 
     if(chat.message?.[0]?.data?.startsWith(coldStorageHeader)){
         //already cold storage
+        return false
+    }
+
+    if(matchColdStorageLoadErrorKey(chat.message?.[0]?.data)){
+        // This chat's message[0] is the pre-7b "could not be loaded" error
+        // text, not ordinary content -- it is still the key
+        // `retryLegacyColdChatLoad` needs and `listRecoverableErrorKeysFromDb`
+        // keeps track of. Making it cold again would bury the original key
+        // inside a brand-new blob, unreachable by either (F4, CHORE-07 stage
+        // 7c-2, plan §5.3 "scope" item 1). Once Retry succeeds, message[0]
+        // is ordinary text again and this chat can be made cold normally.
         return false
     }
 
@@ -1082,6 +1094,168 @@ export async function preLoadChat(characterIndex:number, chatIndex:number): Prom
         chat.hypaV3Data = blob.hypaV3Data
         chat.scriptstate = blob.scriptstate
         chat.localLore = blob.localLore
+    }
+    chat.lastDate = Date.now()
+
+    return 'ok'
+}
+
+/**
+ * `retryLegacyColdChatLoad`'s outcome, mirroring `PreLoadChatResult` but for
+ * a chat whose `message[0]` already holds the pre-7b "could not be loaded"
+ * error text (`matchColdStorageLoadErrorKey`), rather than a live
+ * `coldStorageHeader` pointer (CHORE-07 stage 7c-2, plan §5.3 item 2):
+ *   - `'none'`    -- the chat's first message isn't (or is no longer) that
+ *                    exact error text, the selected character changed while
+ *                    the read was in flight, or the chat identity/order at
+ *                    `chatIndex` changed underneath it (a plugin replaced
+ *                    the character, or its chats were reordered). Nothing to
+ *                    retry, or unsafe to apply the result.
+ *   - `'busy'`    -- `doingChat` or the chat's own `isStreaming` was set,
+ *                    either before the read started or by the time it
+ *                    finished. Retry again once sending settles.
+ *   - `'ok'`      -- the read succeeded and the chat's messages/side fields
+ *                    were restored -- the same restore `preLoadChat` would
+ *                    have done before this chat was corrupted into error
+ *                    text.
+ *   - `'missing'` -- the reader positively confirmed the data doesn't exist.
+ *   - `'error'`   -- the read failed ambiguously, or returned data in a
+ *                    shape this function doesn't recognize.
+ * `'none'`, `'busy'`, `'missing'` and `'error'` never mutate the chat, so
+ * Retry can simply be pressed again later.
+ */
+export type RetryLegacyColdChatLoadResult = 'none' | 'busy' | 'ok' | 'missing' | 'error'
+
+export async function retryLegacyColdChatLoad(characterIndex:number, chatIndex:number): Promise<RetryLegacyColdChatLoadResult> {
+    const chat = DBState.db?.characters?.[characterIndex]?.chats?.[chatIndex]
+
+    if(!chat){
+        return 'none'
+    }
+
+    // Capture the exact error text and this character's chaId up front --
+    // the chat proxy may be mutated or replaced, and the user may switch
+    // characters, while we `await` below (mirrors preLoadChat's own
+    // up-front capture).
+    const errorText = chat.message?.[0]?.data
+    const coldDataKey = matchColdStorageLoadErrorKey(errorText)
+    if(!coldDataKey){
+        return 'none'
+    }
+    const chaId = DBState.db?.characters?.[characterIndex]?.chaId
+
+    if(get(doingChat) || chat.isStreaming){
+        return 'busy'
+    }
+
+    const result = await readColdStorageItem(coldDataKey)
+
+    // A send may have started while the read was in flight -- re-check
+    // busy status after the await too.
+    if(get(doingChat) || chat.isStreaming){
+        return 'busy'
+    }
+
+    // The user may have switched to a DIFFERENT CHARACTER entirely while we
+    // were awaiting the read. Compared by chaId, not index alone, since the
+    // character array can reorder in between (mirrors preLoadChat's race
+    // check, CHORE-07 stage 7c-1, plan §5.2 item 4).
+    const selectedIndex = get(selectedCharID)
+    if(DBState.db?.characters?.[selectedIndex]?.chaId !== chaId){
+        return 'none'
+    }
+
+    // Require the exact same chat object still sitting at chatIndex -- a
+    // plugin could have replaced the character or reordered its chats
+    // underneath us while we awaited the read (gate finding 4a/4b).
+    if(DBState.db?.characters?.[selectedIndex]?.chats?.[chatIndex] !== chat){
+        return 'none'
+    }
+
+    // A double retry (or any other write) may already have changed
+    // message[0] -- only apply this result if it's still the same error
+    // text this call started with.
+    if(chat.message?.[0]?.data !== errorText){
+        return 'none'
+    }
+
+    if(result.status === 'missing'){
+        console.error(`Cold storage retry: data missing for key: ${coldDataKey}`)
+        return 'missing'
+    }
+
+    if(result.status === 'error'){
+        console.error(`Cold storage retry: read failed for key: ${coldDataKey}`, result.error)
+        return 'error'
+    }
+
+    const coldData = result.value
+
+    const isLegacyArray = Array.isArray(coldData)
+    const isObjectBlob = !!coldData
+        && typeof coldData === 'object'
+        && Array.isArray((coldData as {message?:unknown}).message)
+
+    if(!isLegacyArray && !isObjectBlob){
+        console.error(`Cold storage retry: data invalid for key: ${coldDataKey}`)
+        return 'error'
+    }
+
+    // Computed only now, from the same identity-checked chat object, after
+    // the await (gate finding 4a/4b) -- drops the error-text message[0] and
+    // keeps every message sent after it, by identity.
+    const droppedErrorMessage = chat.message[0]
+    const tail = chat.message.slice(1)
+
+    if(isLegacyArray){
+        // A legacy array blob never carried side fields in the first place
+        // -- leave every live side field untouched (CHORE-07 stage 7c-2,
+        // plan §5.3 item 2).
+        chat.message = [...(coldData as typeof chat.message), ...tail]
+    }
+    else{
+        const blob = coldData as {
+            message: typeof chat.message
+            hypaV2Data?: typeof chat.hypaV2Data
+            hypaV3Data?: typeof chat.hypaV3Data
+            scriptstate?: typeof chat.scriptstate
+            localLore?: typeof chat.localLore
+        }
+
+        // Computed BEFORE any assignment to `chat` -- the shape check above
+        // only confirms `blob.message` is an array; a side field can still
+        // be malformed (e.g. a truthy, non-iterable `localLore` or
+        // `hypaV3Data.summaries`), which throws inside the merge. Catching
+        // it here, before `chat.message` (or anything else) is touched,
+        // keeps the mutate-nothing contract for a bad blob (post-gate
+        // finding 1).
+        let merged: ReturnType<typeof mergeRetriedColdChatSideFields>
+        try {
+            merged = mergeRetriedColdChatSideFields(
+                {
+                    hypaV2Data: chat.hypaV2Data,
+                    hypaV3Data: chat.hypaV3Data,
+                    scriptstate: chat.scriptstate,
+                    localLore: chat.localLore,
+                },
+                {
+                    hypaV2Data: blob.hypaV2Data,
+                    hypaV3Data: blob.hypaV3Data,
+                    scriptstate: blob.scriptstate,
+                    localLore: blob.localLore,
+                },
+                droppedErrorMessage?.chatId,
+            )
+        } catch (mergeError) {
+            console.error(`Cold storage retry: side-field merge failed for key: ${coldDataKey}`, mergeError)
+            return 'error'
+        }
+
+        chat.message = [...blob.message, ...tail]
+        chat.hypaV2Data = merged.hypaV2Data
+        chat.hypaV3Data = merged.hypaV3Data
+        chat.scriptstate = merged.scriptstate
+        chat.localLore = merged.localLore
     }
     chat.lastDate = Date.now()
 

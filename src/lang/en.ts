@@ -45,6 +45,10 @@ export const languageEnglish = {
             `This chat's stored data could not be loaded (key: ${coldDataKey}). It may be a temporary problem — try switching chats or restarting. If it keeps failing, the data may be lost and you can delete this chat. Until then, don't run "clean cold storage".`,
         coldStorageChatDataMissing: (coldDataKey: string) =>
             `This chat's stored data could not be found (key: ${coldDataKey}). If you have a backup from another device, restore it first. Otherwise the data is lost, and you can delete this chat.`,
+        coldStorageLegacyChatRetryNotice: "This chat's earlier messages failed to load before an update. You can try loading them again.",
+        coldStorageLegacyChatRetryButton: "Retry",
+        coldStorageLegacyChatRetryFailed: "Couldn't load the earlier messages. Try again later.",
+        coldStorageLegacyChatDataMissing: "The earlier messages for this chat could not be found. The messages you can already see are unaffected.",
     },
     showHelp: "Show Help",
     help: {

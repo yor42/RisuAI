@@ -171,6 +171,17 @@ vi.mock(import('../../stores.svelte'), () => {
     } as unknown as typeof import('../../stores.svelte')
 })
 
+// CHORE-07 stage 7c-2: `retryLegacyColdChatLoad` (coldstorage.svelte.ts)
+// reads the real `doingChat` store from `index.svelte.ts` for its busy
+// check. `index.svelte.ts` itself pulls in a huge, separately-mocked import
+// graph (tokenizer, scripts, request/request, memory/*, etc.) that this
+// file has no reason to load for real -- it never drives `sendChat` here
+// (`sendChatColdGuard.svelte.test.ts` does that) -- so the whole module is
+// replaced with just the one export this file's tests control directly.
+vi.mock(import('../index.svelte'), () => ({
+    doingChat: writable(false),
+}) as unknown as typeof import('../index.svelte'))
+
 vi.mock(import('src/ts/alert'), () => ({
     alertClear: vi.fn(),
     alertConfirm: vi.fn(async () => true),
@@ -506,8 +517,13 @@ import {
     classifyNodeColdRead,
     classifyAccountColdRead,
     decodeColdStorageBytes,
+    retryLegacyColdChatLoad,
+    makeColdDataForChat,
+    makeColdData,
 } from '../coldstorage.svelte'
-import { isColdChat, formatColdStorageLoadError } from '../coldstorageData'
+import { isColdChat, formatColdStorageLoadError, mergeRetriedColdChatSideFields } from '../coldstorageData'
+import type { RetryLegacyColdChatSideFields } from '../coldstorageData'
+import { doingChat } from '../index.svelte'
 import { sweepTauriAssets, sweepForageAssetKey } from '../../storage/assetSweep'
 import { readDir, remove, BaseDirectory, readFile as tauriReadFile, exists as tauriExists } from '@tauri-apps/plugin-fs'
 import { DBState, selectedCharID } from '../../stores.svelte'
@@ -588,6 +604,18 @@ function makeErrorTextChat(id: string, coldKey: string) {
         name: '',
         localLore: [],
     }
+}
+
+/** A single-character db holding exactly one chat, for the
+ * `retryLegacyColdChatLoad` group below. */
+function makeRetryDb(chaId: string, chat: unknown): Database {
+    return makeDb([{
+        chaId,
+        name: 'Retry Character',
+        type: 'character',
+        chatPage: 0,
+        chats: [chat],
+    } as unknown as CharacterFixture])
 }
 
 //#endregion
@@ -1861,5 +1889,724 @@ describe('CHORE-07 stage 7c-1: preLoadChat missing result and the character-swit
         // alone.
         expect(result).toBe('none')
         expect(chat.message).toEqual(messageBefore)
+    })
+})
+
+/**
+ * CHORE-07 stage 7c-2 -- `mergeRetriedColdChatSideFields` (`coldstorageData.ts`),
+ * a brand-new, pure, dependency-free function. Plan §5.3 item 2, §5.5. RED
+ * for the same structural (missing export) reason as the 7c-1 groups above:
+ * on pre-7c-2 source, importing it resolves to `undefined`, so calling it
+ * throws `TypeError: mergeRetriedColdChatSideFields is not a function`.
+ */
+describe('CHORE-07 stage 7c-2: mergeRetriedColdChatSideFields (pure)', () => {
+    test('RED: hypaV3 takes the blob wholesale when live has no summaries, even with a live modalSettings set', () => {
+        const live = {
+            hypaV3Data: { summaries: [], modalSettings: { displayMode: 'all', displayRangeFrom: 0, displayRangeTo: 0, displayRecentCount: 0, displayImportant: false, displaySelected: false } },
+        } as unknown as RetryLegacyColdChatSideFields
+        const blob = {
+            hypaV3Data: { summaries: [{ text: 'blob summary', chatMemos: ['b1'], isImportant: false }] },
+        } as unknown as RetryLegacyColdChatSideFields
+
+        const result = mergeRetriedColdChatSideFields(live, blob, undefined)
+
+        // Semantic emptiness is judged on summaries.length alone -- a live
+        // modalSettings does not stop the wholesale replacement.
+        expect((result.hypaV3Data as { summaries: unknown[] }).summaries).toEqual(blob.hypaV3Data.summaries)
+    })
+
+    test('RED: hypaV3 concatenates blob before live, unions categories by id, and strips the dropped memo from a live summary', () => {
+        const live = {
+            hypaV3Data: {
+                summaries: [
+                    { text: 'live1', chatMemos: ['keep-1', 'dropped-memo'], isImportant: false },
+                    { text: 'live2', chatMemos: ['keep-2'], isImportant: true },
+                ],
+                categories: [{ id: 'catB', name: 'Live Cat' }],
+            },
+        } as unknown as RetryLegacyColdChatSideFields
+        const blob = {
+            hypaV3Data: {
+                summaries: [{ text: 'blob1', chatMemos: ['b1'], isImportant: false }],
+                categories: [{ id: 'catA', name: 'Blob Cat' }],
+            },
+        } as unknown as RetryLegacyColdChatSideFields
+
+        const result = mergeRetriedColdChatSideFields(live, blob, 'dropped-memo')
+        const hypaV3Data = result.hypaV3Data as { summaries: { text: string, chatMemos: string[] }[], categories: { id: string }[] }
+
+        expect(hypaV3Data.summaries).toEqual([
+            { text: 'blob1', chatMemos: ['b1'], isImportant: false },
+            { text: 'live1', chatMemos: ['keep-1'], isImportant: false },
+            { text: 'live2', chatMemos: ['keep-2'], isImportant: true },
+        ])
+        expect(hypaV3Data.categories).toEqual([{ id: 'catA', name: 'Blob Cat' }, { id: 'catB', name: 'Live Cat' }])
+    })
+
+    test('RED (post-gate finding 3): hypaV3 drops a live summary entirely when stripping the dropped memo leaves it with no memos', () => {
+        const live = {
+            hypaV3Data: {
+                summaries: [
+                    // This summary's ONLY memo is the one being dropped --
+                    // stripping it would leave `chatMemos: []`, and
+                    // hypav3.ts's startIdx computation reads
+                    // `[...lastSummary.chatMemos].at(-1)`, which is
+                    // `undefined` for an empty list if this summary ends up
+                    // last. It must be removed outright instead.
+                    { text: 'live1-emptied-by-strip', chatMemos: ['dropped-memo'], isImportant: false },
+                    { text: 'live2', chatMemos: ['keep-2'], isImportant: true },
+                ],
+            },
+        } as unknown as RetryLegacyColdChatSideFields
+        const blob = {
+            hypaV3Data: { summaries: [{ text: 'blob1', chatMemos: ['b1'], isImportant: false }] },
+        } as unknown as RetryLegacyColdChatSideFields
+
+        const result = mergeRetriedColdChatSideFields(live, blob, 'dropped-memo')
+        const hypaV3Data = result.hypaV3Data as { summaries: { text: string, chatMemos: string[] }[] }
+
+        expect(hypaV3Data.summaries).toEqual([
+            { text: 'blob1', chatMemos: ['b1'], isImportant: false },
+            { text: 'live2', chatMemos: ['keep-2'], isImportant: true },
+        ])
+    })
+
+    test('RED: hypaV2 takes the blob wholesale when it has mainChunks', () => {
+        const live = { hypaV2Data: { chunks: [], mainChunks: [{ id: 1, text: 'live', chatMemos: [], lastChatMemo: '' }], lastMainChunkID: 1 } } as unknown as RetryLegacyColdChatSideFields
+        const blob = { hypaV2Data: { chunks: [], mainChunks: [{ id: 5, text: 'blob', chatMemos: [], lastChatMemo: '' }], lastMainChunkID: 5 } } as unknown as RetryLegacyColdChatSideFields
+
+        const result = mergeRetriedColdChatSideFields(live, blob, undefined)
+
+        expect(result.hypaV2Data).toBe(blob.hypaV2Data)
+    })
+
+    // Not RED: confirmed against a temporary live-passthrough stub of this
+    // function (`return {...live}`, the exact stub plan §5.3's "extract
+    // seams first" step calls for) that this one assertion already holds --
+    // a trivial passthrough coincidentally satisfies "blob has no
+    // mainChunks, keep live" for hypaV2 specifically. Kept as regression
+    // coverage of the real merge function, not RED evidence.
+    test('CHAR: hypaV2 keeps live untouched when the blob has no mainChunks', () => {
+        const live = { hypaV2Data: { chunks: [], mainChunks: [{ id: 2, text: 'live', chatMemos: [], lastChatMemo: '' }], lastMainChunkID: 2 } } as unknown as RetryLegacyColdChatSideFields
+        const blob = { hypaV2Data: { chunks: [], mainChunks: [], lastMainChunkID: 0 } } as unknown as RetryLegacyColdChatSideFields
+
+        const result = mergeRetriedColdChatSideFields(live, blob, undefined)
+
+        expect(result.hypaV2Data).toBe(live.hypaV2Data)
+    })
+
+    test('RED: localLore concatenates blob then live, and scriptstate lets live win on a shallow merge', () => {
+        const live = { localLore: [{ key: 'l', value: 'live-value' }], scriptstate: { b: 99, c: 3 } } as unknown as RetryLegacyColdChatSideFields
+        const blob = { localLore: [{ key: 'b', value: 'blob-value' }], scriptstate: { a: 1, b: 2 } } as unknown as RetryLegacyColdChatSideFields
+
+        const result = mergeRetriedColdChatSideFields(live, blob, undefined)
+
+        expect(result.localLore).toEqual([{ key: 'b', value: 'blob-value' }, { key: 'l', value: 'live-value' }])
+        expect(result.scriptstate).toEqual({ a: 1, b: 99, c: 3 })
+    })
+})
+
+/**
+ * CHORE-07 stage 7c-2 -- `makeColdDataForChat` (F4, plan §5.3 "scope" item
+ * 1): a chat holding the pre-7b error text must not be made cold again,
+ * which would bury the original recoverable key inside a brand-new blob.
+ * `makeColdDataForChat` did exist before (module-private); it is exported
+ * here purely as an extracted seam so this file can call it directly.
+ */
+describe('CHORE-07 stage 7c-2: makeColdDataForChat must not re-cold-store an error-text chat (F4)', () => {
+    test('RED: an old, long error-text chat is not made cold again', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'f4-cold-key'
+        const errorChat = makeErrorTextChat('f4-chat-0', coldKey)
+        errorChat.message.push({ time: 2, data: 'a', role: 'user' } as never)
+        errorChat.message.push({ time: 3, data: 'b', role: 'char' } as never)
+        errorChat.message.push({ time: 4, data: 'c', role: 'user' } as never)
+
+        DBState.db = makeDb([{
+            chaId: 'f4-char',
+            name: 'F4 Character',
+            type: 'character',
+            chatPage: 0,
+            chats: [errorChat],
+        } as unknown as CharacterFixture])
+
+        // RED: on pre-7c-2 source, `makeColdDataForChat` only skips a chat
+        // whose message[0] starts with `coldStorageHeader` -- the error text
+        // does not, so this old (every message time is far in the past),
+        // 4-message chat was wrongly made cold again, burying `coldKey`
+        // inside a brand-new blob.
+        const madeCold = await makeColdDataForChat(0, 0, Date.now())
+
+        expect(madeCold).toBe(false)
+        const chat = DBState.db.characters[0].chats[0] as unknown as { message: { data: string }[] }
+        expect(chat.message[0].data).toBe(`[Cold storage data could not be loaded. Key: ${coldKey}]`)
+    })
+
+    test('Added by the gate, CHAR: an ordinary old chat is still made cold', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const chat = {
+            message: [
+                { time: 1, data: 'a', role: 'user' },
+                { time: 2, data: 'b', role: 'char' },
+                { time: 3, data: 'c', role: 'user' },
+                { time: 4, data: 'd', role: 'char' },
+            ],
+            note: '', name: '', localLore: [],
+        }
+        DBState.db = makeDb([{
+            chaId: 'f4-ordinary-char',
+            name: 'F4 Ordinary Character',
+            type: 'character',
+            chatPage: 0,
+            chats: [chat],
+        } as unknown as CharacterFixture])
+
+        const madeCold = await makeColdDataForChat(0, 0, Date.now())
+
+        // CHAR: unaffected by the F4 fix -- an ordinary old chat (not
+        // holding the error text) is still cold-stored exactly as before.
+        expect(madeCold).toBe(true)
+        const storedChat = DBState.db.characters[0].chats[0] as unknown as { message: { data: string }[] }
+        expect(storedChat.message[0].data.startsWith(coldStorageHeader)).toBe(true)
+    })
+
+    test('Guard F4, RED: makeColdData() as a whole must not bury the error text, with the character kept hot so makeColdDataForCharacter does not run first', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'f4-pipeline-cold-key'
+        const errorChat = makeErrorTextChat('f4-pipeline-chat-0', coldKey)
+        errorChat.message.push({ time: 2, data: 'a', role: 'user' } as never)
+        errorChat.message.push({ time: 3, data: 'b', role: 'char' } as never)
+        errorChat.message.push({ time: 4, data: 'c', role: 'user' } as never)
+
+        const db = makeDb([{
+            chaId: 'f4-pipeline-char',
+            name: 'F4 Pipeline Character',
+            type: 'character',
+            chatPage: 0,
+            // Kept HOT (a recent lastInteraction) on purpose (gate 7): without
+            // this, whole-character cold storage (makeColdDataForCharacter)
+            // would run first and replace this character with a pointer-only
+            // stub before makeColdDataForChat ever saw this chat, which would
+            // make this test pass for the wrong reason.
+            lastInteraction: Date.now(),
+            chats: [errorChat],
+        } as unknown as CharacterFixture])
+        db.coldstorage = true // makeColdData() early-returns unless this is set
+        DBState.db = db
+
+        await makeColdData()
+
+        const chat = DBState.db.characters[0].chats[0] as unknown as { message: { data: string }[] }
+        expect(chat.message[0].data).toBe(`[Cold storage data could not be loaded. Key: ${coldKey}]`)
+    })
+})
+
+/**
+ * CHORE-07 stage 7c-2 -- `retryLegacyColdChatLoad` (`coldstorage.svelte.ts`),
+ * plan §5.3 item 2, §5.5. A brand-new, exported function -- every case below
+ * is RED for the same structural (missing export) reason as the 7c-1 groups
+ * above, EXCEPT where a case is explicitly marked CHAR/Guard because the
+ * behaviour it pins (e.g. "not an error-text chat" or "a near-miss string")
+ * has no pre-7c-2 equivalent to regress from; it is new coverage, not a
+ * fix to an existing wrong behaviour.
+ */
+describe('CHORE-07 stage 7c-2: retryLegacyColdChatLoad', () => {
+    beforeEach(() => {
+        selectedCharID.set(0)
+        doingChat.set(false)
+    })
+    afterEach(() => {
+        selectedCharID.set(-1)
+        doingChat.set(false)
+    })
+
+    test('RL1 RED: ok with an object blob gives the restored messages followed by the tail, and empty live side fields take the blob\'s', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'rl1-cold-key'
+        const blobPayload = {
+            message: [{ time: 1, data: 'restored message', role: 'user' }],
+            hypaV2Data: { chunks: [], mainChunks: [{ id: 1, text: 'chunk', chatMemos: ['m1'], lastChatMemo: 'm1' }], lastMainChunkID: 1 },
+            hypaV3Data: { summaries: [{ text: 'blob summary', chatMemos: ['b1'], isImportant: false }] },
+            scriptstate: { flag: 'blob' },
+            localLore: [{ key: 'blob-lore', value: 'v' }],
+        }
+        await setColdStorageItem(coldKey, blobPayload)
+
+        const errorChat = {
+            ...makeErrorTextChat('rl1-chat-0', coldKey),
+            hypaV2Data: { chunks: [], mainChunks: [], lastMainChunkID: 0 },
+            hypaV3Data: { summaries: [] },
+            scriptstate: {},
+        }
+        errorChat.message.push({ time: 2, data: 'sent after the error', role: 'user' } as never)
+        DBState.db = makeRetryDb('rl1-char', errorChat)
+
+        const result = await retryLegacyColdChatLoad(0, 0)
+
+        const chat = DBState.db.characters[0].chats[0] as unknown as {
+            message: { time: number, data: string, role: string }[]
+            hypaV2Data: unknown
+            hypaV3Data: { summaries: unknown[] }
+            scriptstate: unknown
+            localLore: unknown
+            lastDate?: number
+        }
+        expect(result).toBe('ok')
+        expect(chat.message).toEqual([
+            { time: 1, data: 'restored message', role: 'user' },
+            { time: 2, data: 'sent after the error', role: 'user' },
+        ])
+        expect(chat.hypaV2Data).toEqual(blobPayload.hypaV2Data)
+        expect(chat.hypaV3Data.summaries).toEqual(blobPayload.hypaV3Data.summaries)
+        expect(chat.scriptstate).toEqual(blobPayload.scriptstate)
+        expect(chat.localLore).toEqual(blobPayload.localLore)
+        expect(typeof chat.lastDate).toBe('number')
+    })
+
+    test('RL2 RED: ok keeps non-empty live side fields when the blob\'s are the cold-storage reset state', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'rl2-cold-key'
+        await setColdStorageItem(coldKey, {
+            message: [{ time: 1, data: 'restored message', role: 'user' }],
+            hypaV2Data: { chunks: [], mainChunks: [], lastMainChunkID: 0 },
+            hypaV3Data: { summaries: [] },
+            scriptstate: {},
+            localLore: [],
+        })
+
+        const liveHypaV2 = { chunks: [], mainChunks: [{ id: 9, text: 'live chunk', chatMemos: ['x'], lastChatMemo: 'x' }], lastMainChunkID: 9 }
+        const liveHypaV3 = { summaries: [{ text: 'live summary', chatMemos: ['live-memo'], isImportant: false }] }
+        const liveScriptstate = { flag: 'live' }
+        const liveLocalLore = [{ key: 'live-lore', value: 'v' }]
+
+        const errorChat = {
+            ...makeErrorTextChat('rl2-chat-0', coldKey),
+            hypaV2Data: liveHypaV2,
+            hypaV3Data: liveHypaV3,
+            scriptstate: liveScriptstate,
+            localLore: liveLocalLore,
+        }
+        DBState.db = makeRetryDb('rl2-char', errorChat)
+        // Captured through the reactive DBState proxy, NOT the plain
+        // `liveHypaV2` object above -- Svelte 5's $state proxy wraps every
+        // nested plain object it's given, so DBState.db's own view of this
+        // field is a different (though deep-equal) reference from the bare
+        // object literal. A reference-identity assertion below must compare
+        // proxy-to-proxy, matching this file's C1/C2 convention.
+        const hypaV2Ref = (DBState.db.characters[0].chats[0] as unknown as { hypaV2Data: unknown }).hypaV2Data
+
+        const result = await retryLegacyColdChatLoad(0, 0)
+        const chat = DBState.db.characters[0].chats[0] as unknown as {
+            hypaV2Data: unknown
+            hypaV3Data: { summaries: unknown[] }
+            scriptstate: unknown
+            localLore: unknown
+        }
+
+        expect(result).toBe('ok')
+        // hypaV2 has no non-empty mainChunks in the blob, so the merge keeps
+        // the live value BY REFERENCE (no spread) -- unlike hypaV3Data/
+        // scriptstate/localLore below, which the merge always rebuilds into
+        // a new object/array regardless of path, so those are asserted by
+        // value (toEqual), not identity.
+        expect(chat.hypaV2Data).toBe(hypaV2Ref)
+        expect(chat.hypaV3Data.summaries).toEqual(liveHypaV3.summaries)
+        expect(chat.scriptstate).toEqual(liveScriptstate)
+        expect(chat.localLore).toEqual(liveLocalLore)
+    })
+
+    test('RL3 RED: ok with a legacy array blob restores messages only, leaving every live side field untouched', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'rl3-cold-key'
+        const legacyMessages = [{ time: 1, data: 'legacy restored message', role: 'user' }]
+        await setColdStorageItem(coldKey, legacyMessages)
+
+        const liveHypaV2 = { chunks: [], mainChunks: [{ id: 3, text: 'x', chatMemos: [], lastChatMemo: '' }], lastMainChunkID: 3 }
+        const liveScriptstate = { untouched: true }
+        const liveLocalLore = [{ key: 'k', value: 'v' }]
+        const errorChat = {
+            ...makeErrorTextChat('rl3-chat-0', coldKey),
+            hypaV2Data: liveHypaV2,
+            scriptstate: liveScriptstate,
+            localLore: liveLocalLore,
+        }
+        errorChat.message.push({ time: 2, data: 'after error', role: 'user' } as never)
+        DBState.db = makeRetryDb('rl3-char', errorChat)
+        // See RL2's comment: captured through the reactive proxy, not the
+        // bare objects above, so the "untouched" identity checks below
+        // compare proxy-to-proxy.
+        const chatBefore = DBState.db.characters[0].chats[0] as unknown as { hypaV2Data: unknown, scriptstate: unknown, localLore: unknown }
+        const hypaV2Ref = chatBefore.hypaV2Data
+        const scriptstateRef = chatBefore.scriptstate
+        const localLoreRef = chatBefore.localLore
+
+        const result = await retryLegacyColdChatLoad(0, 0)
+        const chat = DBState.db.characters[0].chats[0] as unknown as {
+            message: unknown[]
+            hypaV2Data: unknown
+            scriptstate: unknown
+            localLore: unknown
+        }
+
+        expect(result).toBe('ok')
+        expect(chat.message).toEqual([...legacyMessages, { time: 2, data: 'after error', role: 'user' }])
+        expect(chat.hypaV2Data).toBe(hypaV2Ref)
+        expect(chat.scriptstate).toBe(scriptstateRef)
+        expect(chat.localLore).toBe(localLoreRef)
+    })
+
+    test('RL4 RED: a positively missing blob resolves "missing" and mutates nothing', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'rl4-missing-key' // deliberately never written
+        const errorChat = makeErrorTextChat('rl4-chat-0', coldKey)
+        DBState.db = makeRetryDb('rl4-char', errorChat)
+        const chat = DBState.db.characters[0].chats[0] as unknown as { message: { data: string }[] }
+        const messageBefore = JSON.parse(JSON.stringify(chat.message))
+
+        const result = await retryLegacyColdChatLoad(0, 0)
+
+        expect(result).toBe('missing')
+        expect(chat.message).toEqual(messageBefore)
+    })
+
+    test('RL5 RED: an ambiguous read failure resolves "error" and mutates nothing', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'rl5-error-key'
+        await setColdStorageItem(coldKey, { message: [{ time: 1, data: 'x', role: 'user' }] })
+        armTransientOpfsFailure(coldKey)
+        const errorChat = makeErrorTextChat('rl5-chat-0', coldKey)
+        DBState.db = makeRetryDb('rl5-char', errorChat)
+        const chat = DBState.db.characters[0].chats[0] as unknown as { message: { data: string }[] }
+        const messageBefore = JSON.parse(JSON.stringify(chat.message))
+
+        const result = await retryLegacyColdChatLoad(0, 0)
+
+        expect(result).toBe('error')
+        expect(chat.message).toEqual(messageBefore)
+    })
+
+    test('RL6 RED: "busy" when doingChat is already set before the read starts', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'rl6-cold-key'
+        await setColdStorageItem(coldKey, { message: [{ time: 1, data: 'x', role: 'user' }] })
+        const errorChat = makeErrorTextChat('rl6-chat-0', coldKey)
+        DBState.db = makeRetryDb('rl6-char', errorChat)
+
+        doingChat.set(true)
+        const result = await retryLegacyColdChatLoad(0, 0)
+
+        expect(result).toBe('busy')
+    })
+
+    test('RL7 RED: "busy" when the chat\'s own isStreaming is set before the read starts', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'rl7-cold-key'
+        await setColdStorageItem(coldKey, { message: [{ time: 1, data: 'x', role: 'user' }] })
+        const errorChat = { ...makeErrorTextChat('rl7-chat-0', coldKey), isStreaming: true }
+        DBState.db = makeRetryDb('rl7-char', errorChat)
+
+        const result = await retryLegacyColdChatLoad(0, 0)
+
+        expect(result).toBe('busy')
+    })
+
+    test('RL8 Added by the gate, RED: "busy" when doingChat turns true during the read', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'rl8-cold-key'
+        await setColdStorageItem(coldKey, { message: [{ time: 1, data: 'x', role: 'user' }] })
+        const errorChat = makeErrorTextChat('rl8-chat-0', coldKey)
+        DBState.db = makeRetryDb('rl8-char', errorChat)
+
+        const resultPromise = retryLegacyColdChatLoad(0, 0)
+        // Synchronously, before the read settles, a send starts.
+        doingChat.set(true)
+        const result = await resultPromise
+
+        expect(result).toBe('busy')
+    })
+
+    // Not RED: confirmed against a temporary `return 'none'` stub of
+    // retryLegacyColdChatLoad (the exact stub plan §5.3's "extract seams
+    // first" step calls for) that any assertion of `result === 'none'`
+    // trivially holds against that stub -- it cannot fail. Kept as coverage
+    // of the real race check, not RED evidence.
+    test('RL9 Guard: switching the selected character during the read resolves "none" and mutates nothing', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'rl9-cold-key'
+        await setColdStorageItem(coldKey, { message: [{ time: 1, data: 'x', role: 'user' }] })
+        const errorChat = makeErrorTextChat('rl9-chat-0', coldKey)
+        DBState.db = makeDb([
+            {
+                chaId: 'rl9-char-0',
+                name: 'RL9 Character 0',
+                type: 'character',
+                chatPage: 0,
+                chats: [errorChat],
+            },
+            {
+                chaId: 'rl9-char-1',
+                name: 'RL9 Character 1',
+                type: 'character',
+                chatPage: 0,
+                chats: [{ message: [{ time: 1, data: 'unrelated', role: 'user' }], note: '', name: '', localLore: [] }],
+            },
+        ] as unknown as CharacterFixture[])
+        selectedCharID.set(0)
+
+        const chat = DBState.db.characters[0].chats[0] as unknown as { message: { data: string }[] }
+        const messageBefore = JSON.parse(JSON.stringify(chat.message))
+
+        const resultPromise = retryLegacyColdChatLoad(0, 0)
+        // Synchronously, before the read settles, the user switches to a
+        // DIFFERENT CHARACTER entirely.
+        selectedCharID.set(1)
+        const result = await resultPromise
+
+        expect(result).toBe('none')
+        expect(chat.message).toEqual(messageBefore)
+    })
+
+    // Not RED, for the same reason as RL9 above -- a `result === 'none'`
+    // assertion cannot fail against the `return 'none'` stub.
+    test('RL10 Guard: message[0] changing during the read (a double retry) resolves "none" and mutates nothing further', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'rl10-cold-key'
+        await setColdStorageItem(coldKey, { message: [{ time: 1, data: 'x', role: 'user' }] })
+        const errorChat = makeErrorTextChat('rl10-chat-0', coldKey)
+        DBState.db = makeRetryDb('rl10-char', errorChat)
+        const chat = DBState.db.characters[0].chats[0] as unknown as { message: { time: number, data: string, role: string }[] }
+
+        const resultPromise = retryLegacyColdChatLoad(0, 0)
+        // Synchronously, before the read settles, a concurrent retry (or
+        // anything else) already restored this chat.
+        chat.message = [{ time: 999, data: 'restored by a concurrent retry', role: 'user' }]
+        const result = await resultPromise
+
+        expect(result).toBe('none')
+        expect(chat.message).toEqual([{ time: 999, data: 'restored by a concurrent retry', role: 'user' }])
+    })
+
+    test('RL11 RED: an ok read with a shape this function does not recognize resolves "error" and mutates nothing', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'rl11-bad-shape-key'
+        await setColdStorageItem(coldKey, { message: 'not-an-array' })
+        const errorChat = makeErrorTextChat('rl11-chat-0', coldKey)
+        DBState.db = makeRetryDb('rl11-char', errorChat)
+        const chat = DBState.db.characters[0].chats[0] as unknown as { message: { data: string }[] }
+        const messageBefore = JSON.parse(JSON.stringify(chat.message))
+
+        const result = await retryLegacyColdChatLoad(0, 0)
+
+        expect(result).toBe('error')
+        expect(chat.message).toEqual(messageBefore)
+    })
+
+    test('RL12 Guard: a chat with ordinary text resolves "none"', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const errorChat = { message: [{ time: 1, data: 'ordinary text', role: 'char' }], note: '', name: '', localLore: [] }
+        DBState.db = makeRetryDb('rl12-char', errorChat)
+
+        const result = await retryLegacyColdChatLoad(0, 0)
+
+        expect(result).toBe('none')
+    })
+
+    test('RL13 Guard: a near-miss error-text string resolves "none"', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const errorChat = {
+            message: [{
+                time: 1,
+                data: 'note: [Cold storage data could not be loaded. Key: rl13-key] (seen by support)',
+                role: 'char',
+            }],
+            note: '', name: '', localLore: [],
+        }
+        DBState.db = makeRetryDb('rl13-char', errorChat)
+
+        const result = await retryLegacyColdChatLoad(0, 0)
+
+        expect(result).toBe('none')
+    })
+
+    // Not RED, for the same reason as RL9 above.
+    test('RL14 Added by the gate: a chat reordered to a different index during the read resolves "none" and mutates nothing', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'rl14-cold-key'
+        await setColdStorageItem(coldKey, { message: [{ time: 1, data: 'x', role: 'user' }] })
+        const errorChat = makeErrorTextChat('rl14-chat-0', coldKey)
+        const otherChat = { message: [{ time: 1, data: 'unrelated', role: 'user' }], note: '', name: '', localLore: [] }
+        DBState.db = makeRetryDb('rl14-char', errorChat)
+        // Read through the reactive DBState proxy, not the raw `errorChat`
+        // object built above -- Svelte 5's $state proxy wraps every nested
+        // plain object it's given, so a write made through the proxy (or
+        // the ABSENCE of one) would never be observable on the bare object
+        // that was only used to construct the initial value. This assertion
+        // must go through DBState.db, or it can never fail either way.
+        const messageBefore = JSON.parse(JSON.stringify(
+            (DBState.db.characters[0].chats[0] as unknown as { message: unknown[] }).message
+        ))
+
+        const resultPromise = retryLegacyColdChatLoad(0, 0)
+        // Synchronously, before the read settles, a new chat is inserted at
+        // index 0 -- the captured chat object is still IN the array, just no
+        // longer at chatIndex 0 (it's now at index 1).
+        ;(DBState.db.characters[0].chats as unknown[]).unshift(otherChat)
+        const result = await resultPromise
+
+        expect(result).toBe('none')
+        expect((DBState.db.characters[0].chats[1] as unknown as { message: unknown[] }).message).toEqual(messageBefore)
+    })
+
+    // Not RED, for the same reason as RL9 above.
+    test('RL15 Added by the gate: the character being replaced (same chaId, a new chats array) during the read resolves "none"', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'rl15-cold-key'
+        await setColdStorageItem(coldKey, { message: [{ time: 1, data: 'x', role: 'user' }] })
+        const errorChat = makeErrorTextChat('rl15-chat-0', coldKey)
+        DBState.db = makeRetryDb('rl15-char', errorChat)
+
+        const resultPromise = retryLegacyColdChatLoad(0, 0)
+        // Synchronously, before the read settles, a plugin replaces the
+        // whole character object (same chaId, a brand-new chats array) --
+        // e.g. via setCharacterToIndex (plan §5.4, accepted limit note).
+        DBState.db.characters[0] = {
+            chaId: 'rl15-char',
+            name: 'Replaced',
+            type: 'character',
+            chatPage: 0,
+            chats: [{ message: [{ time: 1, data: 'replacement', role: 'user' }], note: '', name: '', localLore: [] }],
+        } as unknown as CharacterFixture
+        const result = await resultPromise
+
+        expect(result).toBe('none')
+    })
+
+    test('RL16 Added by the gate: the tail is kept by identity, chatId included', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'rl16-cold-key'
+        await setColdStorageItem(coldKey, { message: [{ time: 1, data: 'restored', role: 'user' }] })
+        const errorChat = makeErrorTextChat('rl16-chat-0', coldKey)
+        DBState.db = makeRetryDb('rl16-char', errorChat)
+        const chat = DBState.db.characters[0].chats[0] as unknown as {
+            message: { time: number, data: string, role: string, chatId?: string }[]
+        }
+
+        const resultPromise = retryLegacyColdChatLoad(0, 0)
+        const pushedMessage = { time: 2, data: 'sent while retrying', role: 'user', chatId: 'rl16-memo' }
+        // Synchronously, before the read settles, a message is sent.
+        chat.message.push(pushedMessage)
+        // Captured through the reactive array itself, not `pushedMessage`
+        // (see RL2/RL3's comment) -- pushing a plain object into a $state
+        // array wraps it, so this is the reference retryLegacyColdChatLoad's
+        // own `.slice(1)` must preserve.
+        const pushedRef = chat.message[chat.message.length - 1]
+        const result = await resultPromise
+
+        expect(result).toBe('ok')
+        expect(chat.message[chat.message.length - 1]).toBe(pushedRef)
+        expect(chat.message[chat.message.length - 1].chatId).toBe('rl16-memo')
+    })
+
+    test('RL17 Added by the gate: the error message\'s chatId is stripped from a live summary\'s chatMemos during retry', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'rl17-cold-key'
+        await setColdStorageItem(coldKey, {
+            message: [{ time: 1, data: 'restored', role: 'user' }],
+            hypaV2Data: { chunks: [], mainChunks: [], lastMainChunkID: 0 },
+            hypaV3Data: { summaries: [] },
+            scriptstate: {},
+            localLore: [],
+        })
+
+        const baseChat = makeErrorTextChat('rl17-chat-0', coldKey)
+        const errorChat = {
+            ...baseChat,
+            message: [{ ...baseChat.message[0], chatId: 'rl17-error-memo' }],
+            hypaV3Data: {
+                summaries: [
+                    { text: 'live summary', chatMemos: ['rl17-error-memo', 'rl17-other-memo'], isImportant: false },
+                ],
+            },
+        }
+        DBState.db = makeRetryDb('rl17-char', errorChat)
+
+        const result = await retryLegacyColdChatLoad(0, 0)
+        const chat = DBState.db.characters[0].chats[0] as unknown as {
+            hypaV3Data: { summaries: { chatMemos: string[] }[] }
+        }
+
+        expect(result).toBe('ok')
+        expect(chat.hypaV3Data.summaries[0].chatMemos).toEqual(['rl17-other-memo'])
+    })
+
+    test('RL18 Added by the gate, RED (post-gate finding 1): a malformed side field in the blob resolves "error" and leaves the chat completely untouched', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'rl18-malformed-key'
+        await setColdStorageItem(coldKey, {
+            message: [{ time: 1, data: 'restored', role: 'user' }],
+            // Passes the shape check (the blob still has a message array),
+            // but `localLore` is truthy and non-iterable -- spreading it
+            // inside the merge (`[...blob.localLore, ...]`) throws.
+            localLore: 5,
+        })
+        const errorChat = makeErrorTextChat('rl18-chat-0', coldKey)
+        DBState.db = makeRetryDb('rl18-char', errorChat)
+        const chatBefore = DBState.db.characters[0].chats[0] as unknown as { message: { data: string }[] }
+        const messageBefore = JSON.parse(JSON.stringify(chatBefore.message))
+
+        const result = await retryLegacyColdChatLoad(0, 0)
+
+        // RED (post-gate): before the fix, `chat.message` was assigned
+        // BEFORE the merge ran, so a throw from the merge left the chat
+        // half-mutated (message replaced, side fields not) instead of
+        // leaving it completely untouched, and the throw itself propagated
+        // out of retryLegacyColdChatLoad as a rejection instead of
+        // resolving 'error'.
+        expect(result).toBe('error')
+        const chat = DBState.db.characters[0].chats[0] as unknown as { message: { data: string }[] }
+        expect(chat.message).toEqual(messageBefore)
+        expect(chat.message[0].data).toBe(`[Cold storage data could not be loaded. Key: ${coldKey}]`)
     })
 })

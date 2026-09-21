@@ -1,5 +1,7 @@
 import { safeStructuredClone } from "../polyfill"
 import type { Database, character, groupChat, Chat } from "../storage/database.svelte"
+import type { SerializableHypaV2Data } from "./memory/hypav2"
+import type { SerializableHypaV3Data } from "./memory/hypav3"
 
 export const coldStorageHeader = '\uEF01COLDSTORAGE\uEF01'
 
@@ -58,6 +60,151 @@ export function matchColdStorageLoadErrorKey(text: string | null | undefined): s
         return null
     }
     return text.slice(coldStorageLoadErrorPrefix.length, text.length - coldStorageLoadErrorSuffix.length)
+}
+
+/**
+ * The four per-chat side fields a cold blob can carry, shared by
+ * `retryLegacyColdChatLoad` (`coldstorage.svelte.ts`) for both the "live"
+ * chat and the restored blob.
+ */
+export type RetryLegacyColdChatSideFields = Pick<Chat, 'hypaV2Data' | 'hypaV3Data' | 'scriptstate' | 'localLore'>
+
+function normalizeChatMemos(memos: string[] | Set<string> | undefined | null): string[] {
+    if (!memos) {
+        return []
+    }
+    return Array.isArray(memos) ? memos : Array.from(memos)
+}
+
+function mergeHypaV3Categories(
+    blobCategories: SerializableHypaV3Data['categories'] | undefined,
+    liveCategories: SerializableHypaV3Data['categories'] | undefined,
+): SerializableHypaV3Data['categories'] | undefined {
+    if (!blobCategories?.length && !liveCategories?.length) {
+        return liveCategories ?? blobCategories
+    }
+    const seenIds = new Set<string>()
+    const merged: NonNullable<SerializableHypaV3Data['categories']> = []
+    for (const category of [...(blobCategories ?? []), ...(liveCategories ?? [])]) {
+        if (seenIds.has(category.id)) {
+            continue
+        }
+        seenIds.add(category.id)
+        merged.push(category)
+    }
+    return merged
+}
+
+/**
+ * hypaV3 links a summary to the messages it covers by `chatId` memo, not by
+ * index (`hypav3.ts:212-228`) -- keeping only the live post-error memory
+ * would push every restored message before `startIdx`, so it would never be
+ * summarized or prompted again. Emptiness is judged on `summaries.length`
+ * alone (semantic, not deep-equal to the cold-storage reset shape): a live
+ * chat that never re-accumulated any summary of its own takes the blob's
+ * data wholesale, even if some OTHER field (e.g. `modalSettings`) happens to
+ * be set on it (CHORE-07 stage 7c-2, plan §5.3 item 2).
+ *
+ * **Accepted limit.** This only protects BLOB messages the blob's own
+ * summaries already covered. After the merge, the last summary is a live
+ * post-error one, so `startIdx` (`hypav3.ts:212-228`, `[...lastSummary.
+ * chatMemos].at(-1)`) is computed from THAT summary's memos -- any blob
+ * message the blob never got around to summarizing (or every blob message,
+ * if the blob has `{summaries:[]}` while live has summaries) falls before
+ * `startIdx` and is never summarized or prompted again. The same applies to
+ * `mergeHypaV2SideField` below when the blob has no `mainChunks` but live
+ * does. This is a memory-context gap only -- `chat.message` itself still
+ * has every message, restored blob and live tail alike; nothing is lost,
+ * only left out of future summarization/prompting until the next full
+ * re-summarize.
+ */
+function mergeHypaV3SideField(
+    live: SerializableHypaV3Data | undefined,
+    blob: SerializableHypaV3Data | undefined,
+    droppedErrorMessageChatId: string | undefined,
+): SerializableHypaV3Data | undefined {
+    const liveSummaries = live?.summaries ?? []
+    if (liveSummaries.length === 0) {
+        return blob ? { ...blob } : live
+    }
+
+    // The dropped error-text message may have picked up a `chatId` memo on
+    // the user's first post-error send (`index.svelte.ts:269-272`). Any live
+    // summary that still references it must have that one memo removed, or
+    // `cleanOrphanedSummary` (`hypav3.ts:1646`) would delete the whole
+    // summary on the next send, since the message it was keyed to is gone
+    // -- unless `preserveOrphanedMemory` is set (`hypav3.ts:208`). If
+    // stripping that one memo leaves a summary with NO memos left at all,
+    // this drops the summary outright here instead: `hypav3.ts`'s own
+    // `startIdx` computation reads `[...lastSummary.chatMemos].at(-1)`,
+    // which would be `undefined` for a summary with an empty list, so an
+    // empty-chatMemos summary must never be allowed to become the last one.
+    const strippedLiveSummaries = droppedErrorMessageChatId
+        ? liveSummaries
+            .map((summary) => {
+                const memos = normalizeChatMemos(summary.chatMemos)
+                if (!memos.includes(droppedErrorMessageChatId)) {
+                    return summary
+                }
+                return {
+                    ...summary,
+                    chatMemos: memos.filter((memo) => memo !== droppedErrorMessageChatId),
+                }
+            })
+            .filter((summary) => normalizeChatMemos(summary.chatMemos).length > 0)
+        : liveSummaries
+
+    return {
+        ...live,
+        summaries: [...(blob?.summaries ?? []), ...strippedLiveSummaries],
+        categories: mergeHypaV3Categories(blob?.categories, live?.categories),
+    }
+}
+
+/**
+ * hypaV2's `mainChunks` are numbered ids, so concatenating blob and live
+ * would collide -- this is always a full replacement, never a splice. If
+ * the blob has any `mainChunks`, its data is taken wholesale: the
+ * post-error messages then sit after `startIdx`, and the normal
+ * summarization loop picks them up again. Otherwise the live value (which
+ * may itself be empty, if the chat never accumulated hypaV2 memory either
+ * before or after the error) is kept untouched (CHORE-07 stage 7c-2, plan
+ * §5.3 item 2).
+ */
+function mergeHypaV2SideField(
+    live: SerializableHypaV2Data | undefined,
+    blob: SerializableHypaV2Data | undefined,
+): SerializableHypaV2Data | undefined {
+    if (blob?.mainChunks?.length) {
+        return blob
+    }
+    return live
+}
+
+/**
+ * The side-field merge `retryLegacyColdChatLoad` (`coldstorage.svelte.ts`)
+ * applies when restoring a legacy error-text chat's OBJECT-shaped blob --
+ * never for a legacy array blob, which carries no side fields at all and
+ * whose caller leaves the live side fields untouched instead of calling
+ * this (CHORE-07 stage 7c-2, plan §5.3 item 2, gate finding 2).
+ *
+ * `droppedErrorMessageChatId` is the `chatId` of the error-text
+ * `message[0]` being dropped by the restore, if it has one yet (it only
+ * gets one on the user's first post-error send) -- passed through to the
+ * hypaV3 merge so it can strip that memo out of any live summary that
+ * references it.
+ */
+export function mergeRetriedColdChatSideFields(
+    live: RetryLegacyColdChatSideFields,
+    blob: RetryLegacyColdChatSideFields,
+    droppedErrorMessageChatId: string | undefined,
+): RetryLegacyColdChatSideFields {
+    return {
+        hypaV2Data: mergeHypaV2SideField(live.hypaV2Data, blob.hypaV2Data),
+        hypaV3Data: mergeHypaV3SideField(live.hypaV3Data, blob.hypaV3Data, droppedErrorMessageChatId),
+        scriptstate: { ...(blob.scriptstate ?? {}), ...(live.scriptstate ?? {}) },
+        localLore: [...(blob.localLore ?? []), ...(live.localLore ?? [])],
+    }
 }
 
 /**
