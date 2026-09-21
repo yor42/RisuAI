@@ -29,12 +29,45 @@ export function registerDbChangeEffects(opts: DbChangeEffectOptions): void {
         opts.markChanged(ranOnce)
         ranOnce = true
     })
-    let ranOnce2 = false
+    let modulesRanOnce = false
+    // Partitioned, not narrowed: an outer effect over array shape plus one child
+    // effect per element, together registering the exact same dependency closure as
+    // a single `$state.snapshot(DBState.db.modules)` (container, length, and every
+    // index -- $state.snapshot's array branch never touches the array `version`
+    // source). Reading less than this loses writes -- see the preset comment at
+    // :19-24 for a real data-loss bug caused by exactly that. The point of splitting
+    // it is that a leaf edit to module k now only re-reads module k's child effect,
+    // not every other module's.
+    //
+    // Two independent guards, neither redundant:
+    //   1. `opts.tracker.modules = true` is set unconditionally by the outer AND by
+    //      every child, regardless of any `ranOnce` flag -- `risuSave.ts:328` gates
+    //      on `tracker.modules`, not on `dirtySinceLastSave`. Do not delete the
+    //      child's assignment as "redundant" with the outer's.
+    //   2. `markChanged(false)` never marks clean: `saveTimeoutExecute`
+    //      (`globalApi.svelte.ts:594-604`) only ever sets `dirtySinceLastSave = true`
+    //      and re-arms the debounce timer.
+    // Shape changes (push/splice/whole-array replacement) tear down and recreate
+    // every child, so a recreated child's first run always passes `false` -- shape
+    // changes are covered only by the outer's own `markChanged(modulesRanOnce)`,
+    // which passes `true` on every run after its first.
     $effect(() => {
-        $state.snapshot(DBState.db.modules)
+        const mods = DBState.db.modules
+        const len = mods?.length ?? 0          // shape: push/splice/whole-array replacement
+        for (let i = 0; i < len; i++) {
+            const m = mods[i]                  // element identity: modules[i] = {...}
+            if (!m) continue
+            let childRanOnce = false
+            $effect(() => {
+                $state.snapshot(m)             // deep-read THIS element only
+                opts.tracker.modules = true
+                opts.markChanged(childRanOnce)
+                childRanOnce = true
+            })
+        }
         opts.tracker.modules = true
-        opts.markChanged(ranOnce2)
-        ranOnce2 = true
+        opts.markChanged(modulesRanOnce)
+        modulesRanOnce = true
     })
     let ranOnce3 = false
     $effect(() => {

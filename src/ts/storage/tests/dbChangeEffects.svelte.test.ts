@@ -3,6 +3,7 @@ import { writable } from 'svelte/store'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { Database } from '../database.svelte'
 import { registerDbChangeEffects } from '../dbChangeEffects.svelte'
+import type { RisuModule } from '../../process/modules'
 import type { toSaveType } from '../risuSave'
 
 // Regression tests for a bug that WAS present in registerDbChangeEffects()
@@ -307,5 +308,503 @@ describe('registerDbChangeEffects — botPreset shallow-tracking bug (fixed)', (
 
         expect(tracker.character[0]).toBe('char-0')
         expect(tracker.chat[0]).toEqual(['char-0', 'chat-0'])
+    })
+})
+
+// Tests below are for Agents/Reports/11-stage-b-module-effect-partition-plan.md
+// section 5: the equivalence suite (step 1) for the partition of the
+// modules effect (originally a single effect at
+// dbChangeEffects.svelte.ts:33-38 in commit afcb4e09) into an outer
+// shape-effect plus one child effect per element, and the single
+// red-before-green proof test (step 2). Written against that pre-change
+// source; the partition has since landed at dbChangeEffects.svelte.ts:54-70.
+// The step 1 tests below pass both before and after the partition by
+// design, since they pin the mutation closure the refactor had to preserve
+// exactly. The step 2 test failed against the pre-change source; see its
+// own comment for the recorded failure.
+
+//#region modules fixtures (Stage B, section 5)
+
+// RisuModule's shape lives in src/ts/process/modules.ts, with nested
+// loreBook/customscript/triggerscript types in database.svelte.ts and
+// process/triggers.ts. Every field is given a real, present value, mirroring
+// src/ts/process/tests/moduleUpdateDeps.svelte.test.ts's makeModule(), so
+// that "field absent" is never an accidental variable in these tests.
+type LoreBookEntry = NonNullable<RisuModule['lorebook']>[number]
+type CustomScriptEntry = NonNullable<RisuModule['regex']>[number]
+type TriggerEntry = NonNullable<RisuModule['trigger']>[number]
+type AssetEntry = NonNullable<RisuModule['assets']>[number]
+
+function makeModule(seed: string): RisuModule {
+    const lorebookEntry: LoreBookEntry = {
+        key: `key-${seed}`,
+        secondkey: `secondkey-${seed}`,
+        insertorder: 100,
+        comment: `lorebook-comment-${seed}`,
+        content: `lorebook-content-${seed}`,
+        mode: 'normal',
+        alwaysActive: false,
+        selective: true,
+    }
+    const regexEntry: CustomScriptEntry = {
+        comment: `regex-comment-${seed}`,
+        in: '/foo/',
+        out: 'bar',
+        type: 'editinput',
+    }
+    const triggerEntry: TriggerEntry = {
+        comment: `trigger-comment-${seed}`,
+        type: 'manual',
+        conditions: [],
+        effect: [],
+    }
+    const assetEntry: AssetEntry = [`asset-name-${seed}`, `asset-path-${seed}`, `asset-ext-${seed}`]
+
+    return {
+        name: `Module ${seed}`,
+        description: `Description for module ${seed}`,
+        lorebook: [lorebookEntry],
+        regex: [regexEntry],
+        trigger: [triggerEntry],
+        id: `module-id-${seed}`,
+        assets: [assetEntry],
+    }
+}
+
+// installDb() (above) sets `modules: []`, which is required for the
+// existing count-based first-run test to keep passing (see the CRITICAL
+// CONSTRAINT note in plan section 5 / gate finding F-3). Populate modules
+// separately, after installDb(), rather than changing its default.
+function installDbWithModules(modules: RisuModule[]) {
+    installDb()
+    DBState.db.modules = modules
+}
+
+function freshTrackerAndMarker() {
+    const tracker = makeTracker()
+    const markChanged = vi.fn()
+    return { tracker, markChanged }
+}
+
+//#endregion
+
+describe('registerDbChangeEffects — modules partition equivalence suite (Stage B plan section 5, step 1)', () => {
+
+    // CRITICAL CONSTRAINT (plan section 5 / gate finding F-3): none of the
+    // tests below assert a markChanged call COUNT, because with N modules
+    // populated, the first flush calls markChanged 6+N times: the outer
+    // modules effect plus its N children replace the single former modules
+    // effect, so the 6 top-level effects become (6-1)+1+N = 6+N. (Separately,
+    // a modules *shape-change* flush -- push/splice/whole-array replacement
+    // -- calls markChanged N+1 times just for the modules effects: the outer
+    // plus every recreated child.) Only tracker.modules and, where first-run
+    // semantics matter, the markDirty ARGUMENT of every call are asserted.
+
+    test('leaf write on modules[k].name marks dirty', () => {
+        installDbWithModules([makeModule('a'), makeModule('b')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+        tracker.modules = false
+
+        DBState.db.modules[1].name = 'renamed'
+        flushSync()
+
+        expect(tracker.modules).toBe(true)
+    })
+
+    test('nested leaf write on modules[k].lorebook[i].content marks dirty', () => {
+        installDbWithModules([makeModule('a'), makeModule('b')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+        tracker.modules = false
+
+        DBState.db.modules[0].lorebook[0].content = 'changed content'
+        flushSync()
+
+        expect(tracker.modules).toBe(true)
+    })
+
+    test('nested leaf write on modules[k].regex[i].out marks dirty', () => {
+        installDbWithModules([makeModule('a'), makeModule('b')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+        tracker.modules = false
+
+        DBState.db.modules[0].regex[0].out = 'changed-out'
+        flushSync()
+
+        expect(tracker.modules).toBe(true)
+    })
+
+    test('nested leaf write on modules[k].trigger[i].comment marks dirty', () => {
+        installDbWithModules([makeModule('a'), makeModule('b')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+        tracker.modules = false
+
+        DBState.db.modules[0].trigger[0].comment = 'changed-trigger-comment'
+        flushSync()
+
+        expect(tracker.modules).toBe(true)
+    })
+
+    test('nested leaf write on modules[k].assets[i][0] marks dirty', () => {
+        installDbWithModules([makeModule('a'), makeModule('b')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+        tracker.modules = false
+
+        DBState.db.modules[0].assets[0][0] = 'changed-asset-name'
+        flushSync()
+
+        expect(tracker.modules).toBe(true)
+    })
+
+    test('element replacement modules[k] = {...} marks dirty', () => {
+        installDbWithModules([makeModule('a'), makeModule('b')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+        tracker.modules = false
+
+        DBState.db.modules[1] = { ...DBState.db.modules[1], name: 'replaced' }
+        flushSync()
+
+        expect(tracker.modules).toBe(true)
+    })
+
+    test('push marks dirty', () => {
+        installDbWithModules([makeModule('a')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+        tracker.modules = false
+
+        DBState.db.modules.push(makeModule('b'))
+        flushSync()
+
+        expect(tracker.modules).toBe(true)
+    })
+
+    test('splice marks dirty', () => {
+        installDbWithModules([makeModule('a'), makeModule('b'), makeModule('c')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+        tracker.modules = false
+
+        DBState.db.modules.splice(1, 1)
+        flushSync()
+
+        expect(tracker.modules).toBe(true)
+    })
+
+    test('unshift marks dirty', () => {
+        installDbWithModules([makeModule('a')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+        tracker.modules = false
+
+        DBState.db.modules.unshift(makeModule('z'))
+        flushSync()
+
+        expect(tracker.modules).toBe(true)
+    })
+
+    test('in-place reorder (index swap) marks dirty', () => {
+        installDbWithModules([makeModule('a'), makeModule('b')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+        tracker.modules = false
+
+        const modules = DBState.db.modules
+        const first = modules[0]
+        const second = modules[1]
+        modules[0] = second
+        modules[1] = first
+        flushSync()
+
+        expect(tracker.modules).toBe(true)
+    })
+
+    // The real call-site pair at ModuleSettings.svelte:133-134:
+    //   DBState.db.modules.splice(index, 1)
+    //   DBState.db.modules = DBState.db.modules
+    // Assert that this pair marks dirty. Per plan gate finding F-5, do NOT
+    // invert this into "self-assign alone does not mark" -- a negative
+    // assertion there would enshrine under-marking as a spec.
+    test('ModuleSettings.svelte splice + self-assign pair marks dirty', () => {
+        installDbWithModules([makeModule('a'), makeModule('b'), makeModule('c')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+        tracker.modules = false
+
+        DBState.db.modules.splice(1, 1)
+        DBState.db.modules = DBState.db.modules
+        flushSync()
+
+        expect(tracker.modules).toBe(true)
+    })
+
+    test('whole-array reassignment marks dirty', () => {
+        installDbWithModules([makeModule('a')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+        tracker.modules = false
+
+        DBState.db.modules = [makeModule('x'), makeModule('y')]
+        flushSync()
+
+        expect(tracker.modules).toBe(true)
+    })
+
+    // F8: first run must not mark dirty. Verified against the running
+    // source that this is NOT the same claim as "tracker.modules stays
+    // false on the first run" -- it does not: `opts.tracker.modules = true`
+    // is set unconditionally on every run, including the first, per plan
+    // section 4.1 ("independent of any ranOnce flag"). The actual first-run
+    // guard is that every markChanged() call's argument is false on this
+    // first flush; markChanged(false) never means "mark clean" (plan 4.1
+    // point 2), so tracker.modules legitimately starting `true` after mount
+    // is not a contradiction of F8. The existing
+    // 'first run reports markChanged(false) for every effect' test above
+    // covers the same argument contract with installDb()'s empty modules
+    // array (and asserts a call COUNT, which only survives because there
+    // are zero modules -- see the CRITICAL CONSTRAINT note); this is the
+    // same contract with modules actually populated, asserted without a
+    // call count.
+    test('first run sets tracker.modules unconditionally, but every markChanged call still receives false (F8, plan 4.1)', () => {
+        installDbWithModules([makeModule('a'), makeModule('b'), makeModule('c')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+
+        expect(tracker.modules).toBe(true)
+        expect(markChanged.mock.calls.every((call) => call[0] === false)).toBe(true)
+    })
+
+    test('mutating a module that is NOT the most recently touched one still marks dirty', () => {
+        installDbWithModules([makeModule('a'), makeModule('b'), makeModule('c')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+
+        // Touch module 2 first (making it the "most recently touched"
+        // module), then clear and mutate module 0 instead.
+        DBState.db.modules[2].name = 'touched-last'
+        flushSync()
+        tracker.modules = false
+
+        DBState.db.modules[0].name = 'touched-earlier-module'
+        flushSync()
+
+        expect(tracker.modules).toBe(true)
+    })
+
+    test('empty modules array does not throw, and a subsequent push marks dirty', () => {
+        installDbWithModules([])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+
+        expect(() => {
+            cleanup = $effect.root(() => {
+                registerDbChangeEffects({ tracker, markChanged })
+            })
+            flushSync()
+        }).not.toThrow()
+
+        // tracker.modules is set unconditionally on every run, including
+        // the first (plan section 4.1), so it is already true here; reset
+        // it before the push so the assertion below is meaningful.
+        tracker.modules = false
+
+        DBState.db.modules.push(makeModule('a'))
+        flushSync()
+
+        expect(tracker.modules).toBe(true)
+    })
+
+    // "Hole/undefined entry": an explicit `undefined` element (a present
+    // own property whose value is undefined), not a true sparse-array hole
+    // -- but a genuine hole (e.g. `[a, , c]` assigned into a $state array)
+    // behaves identically here: proxy.js:178's `!exists` path still creates
+    // an UNINITIALIZED source that gets subscribed. This exercises the same
+    // defensive case: registration must not throw, and a leaf write on a
+    // REAL neighbouring entry must still mark dirty.
+    test('modules array containing an undefined entry does not throw, and a leaf write on a present entry still marks dirty', () => {
+        installDbWithModules([makeModule('a'), undefined as unknown as RisuModule, makeModule('c')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+
+        expect(() => {
+            cleanup = $effect.root(() => {
+                registerDbChangeEffects({ tracker, markChanged })
+            })
+            flushSync()
+        }).not.toThrow()
+        tracker.modules = false
+
+        DBState.db.modules[2].name = 'renamed-c'
+        flushSync()
+
+        expect(tracker.modules).toBe(true)
+    })
+
+    test('db.modules.length = 0 truncation marks dirty', () => {
+        installDbWithModules([makeModule('a'), makeModule('b')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+        tracker.modules = false
+
+        DBState.db.modules.length = 0
+        flushSync()
+
+        expect(tracker.modules).toBe(true)
+    })
+
+    // LOAD-BEARING (plan gate finding F-4). Under the partition
+    // (dbChangeEffects.svelte.ts:54-70), a shape change tears down and
+    // recreates every child effect. A leaf mutation to a PRE-EXISTING module
+    // (present before the shape change) must still mark dirty afterwards --
+    // this is the exact mechanic the whole design depends on, and no
+    // existing test or benchmark in this repo exercises a $effect created
+    // inside a re-running $effect. This is now the real assertion of that
+    // mechanic; against the pre-change single effect (afcb4e09), it would
+    // have trivially passed instead, since that effect deep-read everything
+    // regardless of prior shape changes.
+    test('post-shape-change leaf mutation on a pre-existing module still marks dirty', () => {
+        installDbWithModules([makeModule('a'), makeModule('b')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+
+        // Shape change: push a third module.
+        DBState.db.modules.push(makeModule('c'))
+        flushSync()
+        expect(tracker.modules).toBe(true)
+        tracker.modules = false
+
+        // Leaf mutation on a PRE-EXISTING module (index 0, present before
+        // the push) must still mark dirty after teardown/recreation of the
+        // per-element child effects.
+        DBState.db.modules[0].name = 'renamed-after-shape-change'
+        flushSync()
+
+        expect(tracker.modules).toBe(true)
+    })
+})
+
+describe('registerDbChangeEffects — modules partition red-before-green proof (Stage B plan section 5, step 2)', () => {
+
+    // RED-BEFORE-GREEN PROOF TEST -- this FAILED against the pre-change
+    // src/ts/storage/dbChangeEffects.svelte.ts (afcb4e09). The single
+    // `$effect(() => { $state.snapshot(DBState.db.modules) ... })`
+    // (dbChangeEffects.svelte.ts:33-38 in afcb4e09) deep-read the WHOLE
+    // modules array on every flush, so a leaf write in module k re-read
+    // every other module too. It passes now that effect is partitioned
+    // into an outer shape-effect plus one child effect per element
+    // (dbChangeEffects.svelte.ts:54-70), because a leaf write to module k
+    // only re-runs module k's own child effect.
+    //
+    // Observability: DbChangeEffectOptions exposes only `tracker` and
+    // `markChanged` -- counting child-effect runs is not observable through
+    // it, and adding a production hook for this would itself be the kind of
+    // scaffolding the plan forbids (section 5, gate finding F-7). Instead
+    // this defines an ACCESSOR property (a getter, not a data property) on
+    // a fixture module. Verified against Svelte source:
+    // node_modules/svelte/src/internal/client/proxy.js:178 skips creating a
+    // reactive source for a property when it exists but its descriptor has
+    // no `writable` (true for a getter-only accessor), so :198 falls
+    // through to `Reflect.get(target, prop, receiver)`, invoking the getter
+    // directly and untracked, on every single deep read that reaches it.
+    // node_modules/svelte/src/internal/shared/clone.js:83-105 -- the plain-
+    // object branch of `$state.snapshot()`'s recursive clone -- walks
+    // `Object.keys(value)` and reads `value[key]` for each, so it reaches
+    // and fires the getter.
+    test('a leaf write in module k does not deep-read module j', () => {
+        let jHits = 0
+        const modJ = makeModule('j')
+        Object.defineProperty(modJ, 'probe', {
+            get() {
+                jHits++
+                return 'x'
+            },
+            enumerable: true,
+        })
+        const modK = makeModule('k')
+
+        installDbWithModules([modK, modJ])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+        // The first run legitimately deep-reads everything (there is
+        // nothing to narrow against yet, and F8 requires it not mark dirty
+        // either way); only hits AFTER this point are evidence of
+        // unnecessary re-reading of module j.
+        jHits = 0
+
+        DBState.db.modules[0].name = 'k-renamed'
+        flushSync()
+
+        expect(jHits).toBe(0)
     })
 })
