@@ -18,15 +18,24 @@ const CONTENT_HASH_BASENAME = /^[0-9a-f]{64}$/i
  *
  * This works because saveAsset() (src/ts/globalApi.svelte.ts) names every
  * asset it creates after the SHA-256 hash of its own content (`hasher()`,
- * src/ts/parser/parser.svelte.ts), UNLESS called with an explicit custom id
- * — and nothing in this codebase currently does that (verified: every
- * saveAsset() call site either omits the id argument or passes an empty
- * string). So for the overwhelming majority of real assets, the filename
- * already IS the expected content hash — no separate freshness marker needs
- * to be stored "alongside" the cache entry, since one is already encoded in
- * its name. Re-hashing just the cached copy and comparing it to that name
- * is enough to catch drift/corruption (Agents/Roadmap.md Phase 1 item 6),
- * without the cost of also fetching a comparison copy from local storage.
+ * src/ts/parser/parser.svelte.ts), UNLESS called with an explicit custom id.
+ * The only caller that does is multiuser sync's 'receive-asset' handler
+ * (src/ts/sync/multiuser.ts, case 'receive-asset'), which saves an incoming
+ * peer's asset bytes under an id the peer supplied — not re-hashed locally.
+ * In normal operation that id is just the sender's own saveAsset() path
+ * (already `<hash>.<ext>`), so saveAsset()'s `assets/${id}.${ext}` wrapping
+ * doubles it into `assets/assets/<hash>.png.png` instead of overwriting the
+ * original (that call's own return value is discarded, so nothing else
+ * reads the doubled path back). A corrupted or mismatched pair from a peer
+ * therefore surfaces here as 'not-content-addressed', not 'mismatch': the
+ * doubled name's hash-shaped part still has a trailing extension attached,
+ * so it fails the 64-hex check below. So for the overwhelming majority of
+ * real assets, the filename already IS the expected content hash — no
+ * separate freshness marker needs to be stored "alongside" the cache entry,
+ * since one is already encoded in its name. Re-hashing just the cached copy
+ * and comparing it to that name is enough to catch drift/corruption
+ * (Agents/Roadmap.md Phase 1 item 6), without the cost of also fetching a
+ * comparison copy from local storage.
  *
  * Read-only: reports a mismatch, does not attempt to repair one. Intended
  * for a small sampled boot-time check (see bootstrap.ts's cleanChunks()) and
