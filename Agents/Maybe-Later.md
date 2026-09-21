@@ -245,6 +245,17 @@ already exist elsewhere in this repo"** — port the `.charx` semaphore to legac
 parallelise the non-account backup loop. Neither touches the account path, so neither increases
 load on upstream infrastructure, and the existing `isAccount` throttle keeps protecting it.
 
+**yor42, 2026-09-21, after seeing the refutation: wants to explore speeding up backup on Tauri
+and local specifically.** That is the tractable half and it is well scoped, because those are
+exactly the two cases where the `isAccount` throttle never runs. Tauri's backup branch
+(`backuplocal.ts:80-106`) is a sequential `for` over `readDir('assets')` doing one
+`readFile` + `writeBackup` per asset against local disk — no network, no throttle, nothing
+shared with upstream. The browser-local branch (`:107-151`) is the same shape over
+`forageStorage`. Whoever picks this up should first establish where the time actually goes
+(per-asset I/O round-trip vs. the archive write itself) rather than assuming concurrency is
+the answer — the `.charx` semaphore is a precedent, not a diagnosis, and `Agents/Tools/`
+already has a harness pattern for measuring this kind of thing honestly.
+
 **Do not** make the account/sync path more aggressive. The upstream maintainer's objection to a
 community backup plugin was specifically that plugins run on the public instance and would
 strain its asset-cache servers; `backuplocal.ts:147-150` is that concern encoded in this
