@@ -109,8 +109,9 @@ run only** — `Legal.svelte:6-8` forbids setting it automatically.
   **Keep B (AV-3) before D (AV-4).**
 - **CHORE-07 runs in parallel.** It is a data-loss bug, reproduced and seen in the wild. Plan:
   `Agents/Reports/13-chore07-cold-read-failure-plan.md` rev 3, **staged 7a / 7b / 7c**.
-- **Still open for the maintainer:** 7c's plugin-storage rejection (`_getPluginStorage` rejects on
-  a real read error). The reviewer recommends it.
+- **Plugin storage decided (2026-09-21):** option A. `getItem` rejects on a read error, and `setItem`
+  rejects on a failed write. This is noted in `risuai.d.ts` as fork-specific. This is a long-lived
+  community fork, not upstream PRs, so keep changes minimal and upstream-compatible.
 
 **Where each stream stands:**
 
@@ -122,10 +123,11 @@ run only** — `Legal.svelte:6-8` forbids setting it automatically.
 | AV-3 | constraints only (Report 12 §4) | plan, then gate. Keep AV-3 before AV-4 |
 | AV-4 | constraints only (Report 12 §5), measure first | after AV-3 |
 | CHORE-07 7b | **Committed `3e17c8a3`** (minimal core; Report 13 §4; gates ledger 39/40) | none |
-| CHORE-07 7c | designed (Report 13 §5, including the items moved from 7b) | gate by a fresh `opus-reviewer`. Needs the maintainer's plugin-storage decision |
+| CHORE-07 7c-1 | **Committed `be3633bd`** (Report 13 §5 rev 5; gates ledger 41/42; live check ledger 43) | none |
+| CHORE-07 7c-2 | designed (Report 13 §5.3: Retry for chats that already show the pre-7b error text) | plan detail, then gate by a fresh `opus-reviewer` |
 | Item 3 part 2 (chat list) | not started | plan after the avatar track |
 
-Nothing is pushed. The docs (this file, Roadmap, ledger rows 13-38) are committed separately.
+Nothing is pushed. The docs (this file, Roadmap, ledger rows 13-43) are committed separately.
 
 **Small follow-ups found this session (not ticketed yet):**
 - `saveDbKei` reads `db.account.kei` without a guard (`src/ts/kei/backup.ts:86`), so it logs "KEI auto-backup failed" on every save when `account` is undefined. Harmless, noisy.

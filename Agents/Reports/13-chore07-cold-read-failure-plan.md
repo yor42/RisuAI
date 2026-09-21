@@ -204,31 +204,169 @@ The rev-2 design, with every rev-2 gate finding folded in:
   - add tests for R1 (the reader returns ok for `{character}` and plugin scalars, including
     `null`), R2a, R4a-c and R5c.
 
-## 5. Stage 7c — recovery and plugin storage (design; own gate)
+## 5. Stage 7c — plan (revision 5, 2026-09-21; 7c-1 gated, ledger 41)
 
-- **Recovery of already-hit chats:**
-  - a Retry element of its own, since these chats render in `{:else}` (R8);
-  - reads the key via the reader;
-  - on `ok`, restores as in 7b. If there was activity after the error, `hypaV2Data` is kept as is
-    (R5c);
-  - **refuses while `doingChat` is set or a stream is active** (R5c).
-- **`_getPluginStorage` rejects on `error`** and returns `null` only for `missing`.
-  - The reviewer recommends this: low-to-moderate compatibility risk, since host errors already
-    reach plugins as rejections (`factory.ts:281,466-467`), and it prevents the silent
-    get-default-set overwrite.
-  - Add a note to `risuai.d.ts` that `getItem` can reject.
-  - **Awaiting the maintainer's decision.**
-- **Moved here from 7b** (the 7b gate on 2026-09-21 cut 7b down to a minimal core; the gate found
-  no data-loss path in any of these being deferred):
-  - the three-way reader (`ok | missing | error`) and a `missing` branch in `preLoadChat`;
-  - **a firm "this chat's data is gone, delete it" notice, but only for a reliable `missing`**
-    (maintainer request). 7b shows a softer notice for every failed load, because 7b cannot tell a
-    temporary failure from lost data, and telling users to delete a recoverable chat would lead to
-    its blob being cleaned;
-  - merging the side fields (R2b-d);
-  - the `v3.svelte.ts` `risuai.sendChat` guard;
-  - `markCharacterForSave` and the restored-keys keep-list (F2);
-  - a Retry button for pointer chats (switching chats already retries).
+7b is committed (`3e17c8a3`) as a minimal core. It stops overwriting the chat, adds the send guards
+and shows a soft notice. 7c is split into two sub-stages, following the maintainer's "keep it
+minimal" direction, and **each sub-stage gets its own gate.** This section is the plan for
+**7c-1**. It also records 7c-2 and the work that was dropped.
+
+**Revision 5** folds in the 7c-1 plan gate (ledger 41: approve with required changes). The
+Orchestrator verified gate findings 1, 2, 3 and the bridge location in source before folding them
+in.
+
+### 5.1 Maintainer decisions (2026-09-21)
+
+- **Plugin storage, option A.**
+  - `pluginStorage.getItem` **rejects** when a read fails, and resolves `null` only when the data
+    is really missing.
+  - `pluginStorage.setItem` **rejects** when a write fails. Today it ignores
+    `setColdStorageItem`'s `false`.
+- **`risuai.d.ts` note.** Document that both can reject, and label this **specific to this fork**.
+  - This work is a long-lived community fork (like Haejeok-Risu or PocketRisu), not a series of
+    upstream PRs. Upstream appears to accept only small, measurable PRs.
+  - Plugin code must keep working on upstream too. The note should tell authors to wrap these
+    calls in `try/catch`, which is harmless on upstream, and must not suggest they can count on
+    the rejection happening.
+- **Firm notice for lost data.** Show it only for a reliable `missing` result (carried over from
+  7b).
+- **Fork rule, general.** Stay fully backward compatible with upstream characters, modules, presets,
+  `.bin` backups and plugins, and keep changes non-invasive.
+
+### 5.2 7c-1 scope
+
+1. **A new three-way reader,** `readColdStorageItem(key) -> {status:'ok', value} |
+   {status:'missing'} | {status:'error', error}`.
+   - It classifies I/O and decoding only. It does **no shape check** (R1), because it also serves
+     character blobs and arbitrary plugin values, including a stored `null`.
+   - **`getColdStorageItem` stays byte-identical** (gate Q1: option (i)). Its 11 existing callers
+     keep today's behaviour. Wrapping it would break `globalApi.svelte.ts:1527` / `drive.ts:312`,
+     which need the account network-throw rejection to abort, and would give `backuplocal.ts:556`
+     a false "cold data missing" prompt.
+   - Only two call sites use the new reader: `preLoadChat` and `_getPluginStorage`.
+   - Per backend (gate findings 4-6):
+     - **Tauri:** `missing` only when the `readFile` error matches `/\(os error 2\)/` **and**
+       `exists()` resolves `false`. An `exists()` throw, such as a scope violation, is `error`.
+       Android's differently formatted errors always fall to `error`, which is the safe direction.
+     - **OPFS:** `missing` only for a `DOMException` named `NotFoundError`. Every other error,
+       including `TypeMismatchError` and `NotReadableError`, is `error`.
+     - **Node:** `missing` when `getItem` returns `null`, since the server answers a missing file
+       with 200 and an empty body. Any throw is `error`.
+     - **Account: never `missing`.** Try the hub first. On a non-200 or a network throw, fall back
+       to the local read, and a local `ok` wins. Everything else is `error`. The hub's 204
+       meaning is unverified and the hub is upstream-only, so a hub answer can never be allowed to
+       trigger the lost-data notice. This is no more aggressive than today, as the `isAccount`
+       rule requires.
+   - Decoding: a decompression or `JSON.parse` failure is `error`.
+2. **Plugin storage** (`v3.svelte.ts:1282-1300`).
+   - `_getPluginStorage`:
+     - no mapping -> `null` (unchanged);
+     - `ok` -> the value, `?? null` as today;
+     - `missing` -> `null`;
+     - `error` -> throw an `Error` whose message names the key but **never the value**.
+   - `_setPluginStorage`:
+     - **`value === undefined` (gate finding 3).** `JSON.stringify(undefined)` stores 0 bytes and
+       would read back as `error` forever. Store `null` instead: `getItem` already returns `null`
+       for it today, so plugins see no change. This mirrors the existing guard at
+       `coldstorage.svelte.ts:648`.
+     - If `setColdStorageItem` returns `false`, throw.
+     - **A new key's mapping is recorded only after the write succeeds**, and the implementation
+       **re-reads `getDatabase().pluginCustomStorage._coldplugin` after the `await`** (gate finding
+       7). It must never write into an object captured before the await, which `_clearPluginStorage`
+       may have replaced.
+     - The accepted ordering limits: a `removeItem` or `clear` racing a first write may see the key
+       come back; two first writes on the same key both succeed, the last to finish wins, and one
+       blob is orphaned until cleanup.
+     - An existing mapping is left alone on failure.
+   - **The bridge** (verified): the host side is `factory.ts:846-868`, where the try/catch sets
+     `response.error`. The plugin side is `factory.ts:278-281`, which rejects with
+     `new Error(data.error)`. So a host throw arrives as a rejection, and the host neither crashes
+     nor raises an unhandled rejection. Legacy v2 plugin storage (`plugins.svelte.ts:716-745`) is
+     not affected.
+3. **`risuai.d.ts`** (`PluginStorage.getItem`/`setItem`, around `:1017-1030`): add notes worded
+   per §5.1.
+4. **`preLoadChat`: a `missing` result and the character-switch race.**
+   - It resolves `'none' | 'ok' | 'missing' | 'error'`, and uses the new reader.
+   - `missing` **mutates nothing**, the same as `error`.
+   - **Race fix (gate finding 2, pre-existing data loss).** After the `await`, if `characterIndex`
+     is no longer the selected character, return `'none'` and write nothing.
+     - How the loss happens: a restore that lands on a non-selected character is never tracked
+       for saving (`dbChangeEffects.svelte.ts:103-117`). A later `cleanColdStorage` then deletes
+       the blob, while the saved database still holds the pointer.
+     - Reopening the chat retries the read. Check the selection by `chaId`, not by index alone.
+   - The shape check stays: an `ok` read with a bad shape is `'error'`.
+   - **`DefaultChatScreen`:** show the firm notice for `missing` (a new `en` key, flagged for
+     CHORE-05), and 7b's soft notice for `error`.
+     - The wording must not tell the user to delete unconditionally (gate finding 8). A `.bin`
+       restore from another device might still hold the blob, and deleting the chat removes the
+       pointer that recovery would need.
+     - Proposed wording: "This chat's stored data could not be found (key: …). If you have a backup
+       from another device, restore it first. Otherwise the data is lost, and you can delete this
+       chat."
+5. **`risuai.sendChat` guard: required** (gate finding 1, verified).
+   - The problem: `v3.svelte.ts:1411-1415` pushes the plugin's message into the chat *before*
+     `processSendChat` runs. The 7b guard refuses the send only after that push, and the plugin
+     still gets `true` (`:1427`).
+   - The fix: at the start of the `sendChat` handler, before the permission prompt and before the
+     push, reject when the selected chat `isColdChat`.
+
+### 5.3 7c-2 (later, own gate): recovery of chats already hit before 7b
+
+- These chats show the old `[Cold storage data could not be loaded. Key: ...]` text as
+  `message[0]`, and 7a keeps their blobs.
+- A Retry button in the `{:else}` path (R8) reads the key with the 7c-1 reader.
+  - `ok`: restore. The messages become the restored ones plus the messages after the error text,
+    and `hypaV2Data` is kept as it is if there was activity (R5c).
+  - `missing`: show the firm notice.
+  - Refuse while `doingChat` is set or a stream is active, and apply the same character-switch
+    check as 7c-1.
+
+### 5.4 Dropped, and accepted limits
+
+- **Side-field merges (R2b-d)** are dropped.
+  - With the §5.2 item-5 guard, neither the UI nor the plugin `sendChat` can append to a pointer
+    chat any more.
+  - **Accepted limit (gate finding 9, pre-existing):** a plugin can still write side fields onto
+    a pointer chat through `setChatToIndex`/`setCharacterToIndex` (`v3:879-951`). A later `ok`
+    restore overwrites them.
+- **`markCharacterForSave` and the restored-keys keep-list (F2)** are dropped. The race-fix
+  premise was false (§5.2 item 4). After that fix, a restore lands only on the selected
+  character, which is tracked for saving, so the targeted save mark is not needed.
+
+### 5.5 Tests (extracted seams, no source-text guards)
+
+**RED on today's code (must fail first):**
+- plugin get: an `error` read rejects, and the message does not contain the value;
+- plugin set: a failed write rejects;
+- plugin set: a failed first write leaves no mapping;
+- plugin set: a mapping recorded after a `clear` during the write goes into the live object;
+- `preLoadChat` returns `'missing'` and makes no mutation;
+- the character-switch race: switch during the read, then `'none'` and no mutation;
+- plugin `sendChat` on a cold chat: rejects, with no push and no permission prompt.
+
+**Regression guards (pass today, must keep passing):**
+- plugin get: `ok` returns the value, `missing` returns `null`, no mapping returns `null`;
+- plugin set: a failure with an existing mapping keeps the mapping;
+- plugin set: `setItem(undefined)` then `getItem` gives `null`.
+
+**New reader:**
+- a stored `null` and a `{character}` blob are both `ok`;
+- Tauri:
+  - `os error 2` with `exists` false is `missing`;
+  - `os error 2` with `exists` true is `error`;
+  - an `exists()` throw is `error`;
+  - `os error 3` is `error`;
+- OPFS: `NotFoundError` is `missing`, and `TypeMismatchError` is `error`;
+- Node: `null` is `missing`, and a throw is `error`;
+- account:
+  - network throw plus local `ok` is `ok`;
+  - network throw plus local missing is `error`;
+  - 401/500/204 plus local missing is `error`;
+  - 200 with a corrupt body is `error`;
+- corrupt compression or JSON is `error`.
+
+**Bridge:** a host throw arrives as a rejection through `factory.ts`'s message handler, if it can
+be tested without a real iframe. If not, record that it wasn't tested.
 
 ## 6. Out of scope, recorded (suspected, pre-existing)
 
