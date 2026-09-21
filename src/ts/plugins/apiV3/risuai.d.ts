@@ -1017,6 +1017,15 @@ interface PluginStorage {
      * Gets an item from storage
      * @param key - Storage key
      * @returns Promise resolving to stored value or null
+     *
+     * **Fork-specific note (not upstream RisuAI):** on this fork, this can
+     * also *reject* if the underlying storage read fails (as opposed to the
+     * key simply not being set, which still resolves `null`). Upstream
+     * RisuAI does not document this happening, so plugins that must run on
+     * both should wrap calls in `try/catch` -- doing so is harmless on
+     * upstream even if it never rejects there. Do not rely on the rejection
+     * actually happening; treat it as a possibility to guard against, not a
+     * contract this or any other fork/build promises to keep.
      */
     getItem(key: string): Promise<any | null>;
 
@@ -1025,6 +1034,14 @@ interface PluginStorage {
      * @param key - Storage key
      * @param value - Value to store (any JSON-serializable value)
      * @returns Promise that resolves when item is stored
+     *
+     * **Fork-specific note (not upstream RisuAI):** on this fork, this can
+     * also *reject* if the underlying storage write fails. Upstream RisuAI
+     * does not document this happening, so plugins that must run on both
+     * should wrap calls in `try/catch` -- doing so is harmless on upstream
+     * even if it never rejects there. Do not rely on the rejection actually
+     * happening; treat it as a possibility to guard against, not a contract
+     * this or any other fork/build promises to keep.
      */
     setItem(key: string, value: any): Promise<void>;
 

@@ -4,11 +4,13 @@ import {
     readFile,
     mkdir,
     remove,
-    readDir
+    readDir,
+    exists
 } from "@tauri-apps/plugin-fs"
 import { forageStorage, requiresFullEncoderReload } from "../globalApi.svelte"
 import { isTauri, isNodeServer } from "src/ts/platform"
-import { DBState } from "../stores.svelte"
+import { DBState, selectedCharID } from "../stores.svelte"
+import { get } from "svelte/store"
 import type { NodeStorage } from "../storage/nodeStorage"
 import { compress as fflateCompress, decompress as fflateDecompress } from "fflate"
 import { fetchProtectedResource } from "../sionyw"
@@ -102,6 +104,241 @@ export async function getColdStorageItem(key:string, opts:{
             return null
         }
     }
+}
+
+/**
+ * A three-way outcome for a cold-storage read (CHORE-07 stage 7c-1, plan
+ * `Agents/Reports/13-chore07-cold-read-failure-plan.md` §5.2 item 1):
+ *   - `'ok'`      -- the bytes were read and decoded. `value` may itself be
+ *                    `null` (a plugin can legitimately store `null`) --
+ *                    that is still `'ok'`, not `'missing'`.
+ *   - `'missing'` -- the backend positively reported "no such item", per the
+ *                    backend-specific rules below. Never returned for the
+ *                    account branch (see `classifyAccountColdRead`).
+ *   - `'error'`   -- anything else: a transient I/O failure, a permission or
+ *                    scope error, or a decode (decompress/JSON.parse)
+ *                    failure. Every case that isn't clearly "the item was
+ *                    never written" falls here on purpose -- the whole point
+ *                    of this reader is that callers must not treat an
+ *                    ambiguous failure as proof of data loss.
+ *
+ * This reader does no shape validation of `value` -- it also serves whole
+ * character blobs (`{character}`) and arbitrary plugin-stored values, so a
+ * shape check does not belong here (see `preLoadChat`, which adds its own
+ * shape check on top of this reader's `'ok'` result).
+ */
+export type ColdStorageReadResult =
+    | { status: 'ok', value: any }
+    | { status: 'missing' }
+    | { status: 'error', error: unknown }
+
+type ColdStorageBytesResult =
+    | { status: 'ok', bytes: Uint8Array }
+    | { status: 'missing' }
+    | { status: 'error', error: unknown }
+
+export async function decodeColdStorageBytes(bytes: Uint8Array): Promise<any> {
+    const text = new TextDecoder().decode(await decompress(bytes))
+    return JSON.parse(text)
+}
+
+/**
+ * Pure classification seam for the Tauri backend, with `readFileFn` and
+ * `existsFn` injected so this can be unit-tested without mocking
+ * `@tauri-apps/plugin-fs` at the module level.
+ *
+ * `missing` only when `readFileFn` rejects with an error matching
+ * `/\(os error 2\)/` **and** a follow-up `existsFn` call resolves `false`
+ * (gates M4/R7, plan §5.2 item 1). `exists()` is only ever consulted after a
+ * matching read failure, never on a healthy read. An `exists()` throw --
+ * e.g. a Tauri fs scope violation -- is `error`, not `missing`: it tells us
+ * nothing about whether the file exists. Any other `readFileFn` error
+ * (including `os error 3`, and Android's differently formatted errors) is
+ * also `error` -- the safe direction, per plan.
+ */
+export async function classifyTauriColdRead(
+    path: string,
+    readFileFn: (path: string, opts: { baseDir: number }) => Promise<Uint8Array>,
+    existsFn: (path: string, opts: { baseDir: number }) => Promise<boolean>,
+): Promise<ColdStorageBytesResult> {
+    try {
+        const bytes = await readFileFn(path, { baseDir: BaseDirectory.AppData })
+        return { status: 'ok', bytes }
+    } catch (readError) {
+        const message = String((readError as { message?: unknown })?.message ?? readError)
+        if (!/\(os error 2\)/.test(message)) {
+            return { status: 'error', error: readError }
+        }
+        try {
+            const fileExists = await existsFn(path, { baseDir: BaseDirectory.AppData })
+            return fileExists ? { status: 'error', error: readError } : { status: 'missing' }
+        } catch (existsError) {
+            return { status: 'error', error: existsError }
+        }
+    }
+}
+
+/**
+ * Pure classification seam for the OPFS backend, with `getDirectoryFn`
+ * injected. `missing` only for a `NotFoundError` thrown while LOCATING OR
+ * OPENING THE FILE ITSELF -- i.e. from `getFileHandle(filename)` (called
+ * without `{create: true}`, real OPFS's own way of saying "no such file")
+ * or `getFile()` -- the name real OPFS's `DOMException` uses, and the name
+ * this project's OPFS test mocks use. A `NotFoundError` thrown by
+ * `getDirectoryFn()` itself (i.e. `navigator.storage.getDirectory()`) is
+ * NOT about this file at all -- it would mean OPFS's root directory
+ * couldn't be obtained, which says nothing about whether `filename` exists
+ * -- so it (and every other error from either step, including
+ * `TypeMismatchError` and `NotReadableError`) is `error`.
+ */
+export async function classifyOpfsColdRead(
+    getDirectoryFn: () => Promise<{
+        getFileHandle: (name: string) => Promise<{
+            getFile: () => Promise<{ arrayBuffer: () => Promise<ArrayBuffer> }>
+        }>
+    }>,
+    filename: string,
+): Promise<ColdStorageBytesResult> {
+    let opfs: Awaited<ReturnType<typeof getDirectoryFn>>
+    try {
+        opfs = await getDirectoryFn()
+    } catch (error) {
+        return { status: 'error', error }
+    }
+
+    try {
+        const file = await opfs.getFileHandle(filename)
+        const f = await file.getFile()
+        const buf = await f.arrayBuffer()
+        return { status: 'ok', bytes: new Uint8Array(buf) }
+    } catch (error) {
+        if ((error as { name?: unknown })?.name === 'NotFoundError') {
+            return { status: 'missing' }
+        }
+        return { status: 'error', error }
+    }
+}
+
+/**
+ * Pure classification seam for the Node backend, with `getItemFn` injected.
+ * `missing` only when `getItemFn` resolves `null`/`undefined` -- the
+ * self-hosted Node server (`NodeStorage.getItem`) answers a missing file
+ * with HTTP 200 and an empty body, which it already turns into `null`. Any
+ * throw is `error`.
+ */
+export async function classifyNodeColdRead(
+    getItemFn: (key: string) => Promise<Uint8Array | null | undefined>,
+    storageKey: string,
+): Promise<ColdStorageBytesResult> {
+    try {
+        const f = await getItemFn(storageKey)
+        if (f === null || f === undefined) {
+            return { status: 'missing' }
+        }
+        return { status: 'ok', bytes: new Uint8Array(f) }
+    } catch (error) {
+        return { status: 'error', error }
+    }
+}
+
+/**
+ * Pure classification seam for the account backend, with `fetchHub` and
+ * `readLocal` injected. **Never returns `'missing'`** (plan §5.2 item 1):
+ * the hub's 204 meaning is unverified and the hub is upstream-only
+ * (`RisuAccount` cannot be modified from this repo), so a hub answer alone
+ * can never be allowed to trigger the lost-data notice.
+ *
+ * On a non-200 status (401, 404, 500, 204, ...) or a network throw, this
+ * falls back to `readLocal()`, and a local `'ok'` wins over the hub's
+ * failure. A hub `'ok'` (status 200) that fails to decode is `'error'`
+ * immediately, with no local fallback attempt -- the hub does have the
+ * data, just not readable data. Everything that isn't a local `'ok'`
+ * collapses to `'error'`, including a local `'missing'`: this is no more
+ * aggressive than today's account branch, which also never trusted a bare
+ * "not found" as proof of loss (the `isAccount` rule must never get more
+ * aggressive than today).
+ */
+export async function classifyAccountColdRead(
+    fetchHub: () => Promise<{ status: number, arrayBuffer: () => Promise<ArrayBuffer> }>,
+    readLocal: () => Promise<ColdStorageReadResult>,
+): Promise<ColdStorageReadResult> {
+    let hubResponse: { status: number, arrayBuffer: () => Promise<ArrayBuffer> } | null = null
+    try {
+        hubResponse = await fetchHub()
+    } catch (networkError) {
+        hubResponse = null
+    }
+
+    if (hubResponse && hubResponse.status === 200) {
+        try {
+            const buf = await hubResponse.arrayBuffer()
+            const value = await decodeColdStorageBytes(new Uint8Array(buf))
+            return { status: 'ok', value }
+        } catch (decodeError) {
+            return { status: 'error', error: decodeError }
+        }
+    }
+
+    const localResult = await readLocal()
+    if (localResult.status === 'ok') {
+        return localResult
+    }
+    return {
+        status: 'error',
+        error: hubResponse
+            ? new Error(`Cold storage account read failed with status ${hubResponse.status}`)
+            : new Error('Cold storage account read failed: network error')
+    }
+}
+
+async function readLocalColdStorageBytes(key: string): Promise<ColdStorageBytesResult> {
+    if (isNodeServer) {
+        const storage = forageStorage.realStorage as NodeStorage
+        return await classifyNodeColdRead((k) => storage.getItem(k), 'coldstorage/' + key)
+    }
+    if (isTauri) {
+        return await classifyTauriColdRead('./coldstorage/' + key + '.json', readFile, exists)
+    }
+    return await classifyOpfsColdRead(() => navigator.storage.getDirectory(), 'coldstorage_' + key + '.json')
+}
+
+async function readLocalColdStorageValue(key: string): Promise<ColdStorageReadResult> {
+    const bytesResult = await readLocalColdStorageBytes(key)
+    if (bytesResult.status !== 'ok') {
+        return bytesResult
+    }
+    try {
+        return { status: 'ok', value: await decodeColdStorageBytes(bytesResult.bytes) }
+    } catch (decodeError) {
+        return { status: 'error', error: decodeError }
+    }
+}
+
+/**
+ * Three-way cold-storage reader (CHORE-07 stage 7c-1, plan §5.2 item 1).
+ * Classifies I/O and decoding only -- see `ColdStorageReadResult` above for
+ * why there is no shape check here.
+ *
+ * `getColdStorageItem` above stays byte-identical (gate Q1): its existing
+ * callers keep today's behaviour, including the account branch's
+ * network-throw rejection that `globalApi.svelte.ts`/`drive.ts` rely on to
+ * abort, and the `null`-on-any-failure shape `backuplocal.ts` expects. Only
+ * `preLoadChat` and the plugin-storage bridge (`v3.svelte.ts`) moved to this
+ * reader instead.
+ */
+export async function readColdStorageItem(key: string): Promise<ColdStorageReadResult> {
+    if (forageStorage.isAccount) {
+        return await classifyAccountColdRead(
+            () => fetchProtectedResource('/hub/account/coldstorage', {
+                method: 'GET',
+                headers: {
+                    'x-risu-key': key,
+                }
+            }),
+            () => readLocalColdStorageValue(key),
+        )
+    }
+    return await readLocalColdStorageValue(key)
 }
 
 async function compressColdStorageValue(value:any):Promise<Uint8Array | null> {
@@ -735,21 +972,29 @@ export async function makeColdData(){
 
 /**
  * `preLoadChat`'s outcome:
- *   - `'none'`  -- the chat wasn't found, or its first message isn't a live
- *                  cold-storage pointer (nothing to do). Also used when the
- *                  pointer was replaced by something else while the read
- *                  was in flight (see the R4 case below) -- by the time the
- *                  read finishes, this chat is no longer a cold chat.
- *   - `'ok'`    -- the read succeeded and the chat's messages/side fields
- *                  were restored.
- *   - `'error'` -- the read threw, or returned data in a shape we don't
- *                  recognize (CHORE-07 stage 7b: unlike the pre-7b
- *                  behaviour, this never mutates `chat.message` and never
- *                  rejects the returned promise -- the pointer is left in
- *                  place so the read can simply be retried by reopening the
- *                  chat).
+ *   - `'none'`    -- the chat wasn't found, or its first message isn't a
+ *                    live cold-storage pointer (nothing to do). Also used
+ *                    when the pointer was replaced by something else while
+ *                    the read was in flight (see the R4 case below), or
+ *                    when the user switched to a different character while
+ *                    the read was in flight (CHORE-07 stage 7c-1, plan §5.2
+ *                    item 4) -- in either case, by the time the read
+ *                    finishes, restoring into this chat would be wrong.
+ *   - `'ok'`      -- the read succeeded and the chat's messages/side fields
+ *                    were restored.
+ *   - `'missing'` -- the reader positively confirmed the data doesn't exist
+ *                    (CHORE-07 stage 7c-1). Never mutates the chat, exactly
+ *                    like `'error'` -- the pointer is left in place, since a
+ *                    `.bin` restore from another device might still hold
+ *                    the blob.
+ *   - `'error'`   -- the read failed ambiguously, or returned data in a
+ *                    shape we don't recognize (CHORE-07 stage 7b: unlike
+ *                    the pre-7b behaviour, this never mutates `chat.message`
+ *                    and never rejects the returned promise -- the pointer
+ *                    is left in place so the read can simply be retried by
+ *                    reopening the chat).
  */
-export type PreLoadChatResult = 'none' | 'ok' | 'error'
+export type PreLoadChatResult = 'none' | 'ok' | 'missing' | 'error'
 
 export async function preLoadChat(characterIndex:number, chatIndex:number): Promise<PreLoadChatResult> {
     const chat = DBState.db?.characters?.[characterIndex]?.chats?.[chatIndex]
@@ -758,22 +1003,33 @@ export async function preLoadChat(characterIndex:number, chatIndex:number): Prom
         return 'none'
     }
 
-    // Capture the pointer string up front -- the chat proxy itself may be
-    // mutated (or entirely replaced) while we `await` below.
+    // Capture the pointer string and this character's chaId up front -- the
+    // chat proxy may be mutated (or entirely replaced), and the user may
+    // switch to a different character altogether, while we `await` below.
     const pointer = chat.message?.[0]?.data
     if(typeof pointer !== 'string' || !pointer.startsWith(coldStorageHeader)){
         return 'none'
     }
     const coldDataKey = pointer.slice(coldStorageHeader.length)
+    const chaId = DBState.db?.characters?.[characterIndex]?.chaId
 
-    let coldData: unknown
-    try {
-        coldData = await getColdStorageItem(coldDataKey)
+    const result = await readColdStorageItem(coldDataKey)
+
+    if(result.status === 'missing'){
+        // Positively confirmed missing. Leave the pointer in place (no
+        // mutation), the same as 'error', so the caller can show the firm
+        // "could not be found" notice without risking a false positive from
+        // a merely transient failure.
+        console.error(`Cold storage data missing for key: ${coldDataKey}`)
+        return 'missing'
     }
-    catch(error){
-        console.error(`Cold storage read failed for key: ${coldDataKey}`, error)
+
+    if(result.status === 'error'){
+        console.error(`Cold storage read failed for key: ${coldDataKey}`, result.error)
         return 'error'
     }
+
+    const coldData = result.value
 
     const isLegacyArray = Array.isArray(coldData)
     const isObjectBlob = !!coldData
@@ -781,10 +1037,10 @@ export async function preLoadChat(characterIndex:number, chatIndex:number): Prom
         && Array.isArray((coldData as {message?:unknown}).message)
 
     if(!isLegacyArray && !isObjectBlob){
-        // Cold storage data is missing or corrupted. Leave the pointer in
-        // place (no mutation) so a later retry -- e.g. reopening the chat --
-        // can still recover it if the failure was transient.
-        console.error(`Cold storage data not found or invalid for key: ${coldDataKey}`)
+        // The read succeeded, but the data isn't in a shape this function
+        // recognizes. Leave the pointer in place (no mutation) so a later
+        // retry -- e.g. reopening the chat -- can still recover it.
+        console.error(`Cold storage data invalid for key: ${coldDataKey}`)
         return 'error'
     }
 
@@ -792,6 +1048,18 @@ export async function preLoadChat(characterIndex:number, chatIndex:number): Prom
     // (the user switched chats, or something else replaced message[0]) --
     // only apply the restored data if it is still the same live pointer.
     if(chat.message?.[0]?.data !== pointer){
+        return 'none'
+    }
+
+    // The user may also have switched to a DIFFERENT CHARACTER entirely
+    // while we were awaiting the read. A restore that lands on a
+    // non-selected character is never tracked for saving, so a later
+    // cleanup could delete this blob while the saved database still holds
+    // the pointer (CHORE-07 stage 7c-1, plan §5.2 item 4, gate finding 2).
+    // Compared by chaId, not by index alone, since the character array can
+    // reorder between the capture above and this point.
+    const selectedIndex = get(selectedCharID)
+    if(DBState.db?.characters?.[selectedIndex]?.chaId !== chaId){
         return 'none'
     }
 

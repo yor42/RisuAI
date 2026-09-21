@@ -13,7 +13,9 @@ import { changeColorScheme, updateColorScheme, updateTextThemeAndCSS, type Color
 import { isNodeServer, isTauri } from "src/ts/platform";
 import { get } from "svelte/store";
 import { registerMCPModule, unregisterMCPModule } from "src/ts/process/mcp/pluginmcp";
-import { getColdStorageItem, setColdStorageItem } from "src/ts/process/coldstorage.svelte";
+import { setColdStorageItem, readColdStorageItem } from "src/ts/process/coldstorage.svelte";
+import { isColdChat } from "src/ts/process/coldstorageData";
+import { readPluginStorageValue, writePluginStorageValue } from "./pluginColdStorage";
 import { getInlayAsset } from "src/ts/process/files/inlays";
 import { getLLMCache, searchLLMCache } from "src/ts/translator/translator";
 import { hasher, risuChatParser, type CbsConditions } from "src/ts/parser/parser.svelte";
@@ -648,7 +650,10 @@ const authorizationHeaders = [
     'proxy-authorization',
 ]
 
-const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
+// Exported (only) so CHORE-07 stage 7c-1's `sendChat` cold-chat guard can be
+// driven directly in tests without going through the iframe/SandboxHost
+// bridge -- see `src/ts/process/tests/pluginSendChatColdGuard.svelte.test.ts`.
+export const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
 
     const oldApis = getV2PluginAPIs();
     return {
@@ -1279,25 +1284,20 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         },
         //pluginStorage is coldstorage-backed for v3: values live in cold storage,
         //db.pluginCustomStorage._coldplugin only keeps the key -> coldstorage id map
+        //
+        //CHORE-07 stage 7c-1 (plan §5.2 item 2): both getItem and setItem can
+        //now reject on a storage failure -- this is specific to this fork,
+        //see the doc notes on PluginStorage.getItem/setItem in risuai.d.ts.
+        //The actual logic lives in the dependency-injected
+        //`readPluginStorageValue`/`writePluginStorageValue` (pluginColdStorage.ts)
+        //so it can be unit-tested without mocking this module's whole
+        //dependency graph -- these two are thin wrappers over the real
+        //`getDatabase`/`readColdStorageItem`/`setColdStorageItem`/`v4`.
         _getPluginStorage: async (key: string) => {
-            const db = getDatabase()
-            const coldId = db.pluginCustomStorage?._coldplugin?.[key]
-            if(!coldId){
-                return null
-            }
-            const value = await getColdStorageItem(coldId)
-            return value ?? null
+            return await readPluginStorageValue(getDatabase(), key, readColdStorageItem)
         },
         _setPluginStorage: async (key: string, value: any) => {
-            const db = getDatabase()
-            db.pluginCustomStorage ??= {}
-            db.pluginCustomStorage._coldplugin ??= {}
-            let coldId: string = db.pluginCustomStorage._coldplugin[key]
-            if(!coldId){
-                coldId = v4()
-                db.pluginCustomStorage._coldplugin[key] = coldId
-            }
-            await setColdStorageItem(coldId, value)
+            await writePluginStorageValue(getDatabase(), getDatabase, key, value, setColdStorageItem, v4)
         },
         _removePluginStorage: async (key: string) => {
             const db = getDatabase()
@@ -1378,6 +1378,21 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             }, options.mode)
         },
         sendChat: async (message: string) => {
+            // CHORE-07 stage 7c-1 (plan §5.2 item 5, gate finding 1):
+            // refuse before the permission prompt and before `message` is
+            // ever pushed into the chat, so a plugin can never be told
+            // `true` for a send that a cold chat's own guard would refuse
+            // anyway -- the 7b guard (`isColdChat` check in `sendChat`,
+            // `src/ts/process/index.svelte.ts` ~:221-230) only runs inside
+            // `processSendChat` below, which this handler calls AFTER the
+            // permission prompt and the push have already happened.
+            const guardCharId = get(selectedCharID);
+            const guardChar = DBState.db.characters[guardCharId];
+            const guardChat = guardChar?.chats?.[guardChar.chatPage];
+            if(isColdChat(guardChat)){
+                throw new Error("This chat hasn't finished loading from cold storage yet");
+            }
+
             const conf = await getPluginPermission(plugin.name, 'sendChat');
             if(!conf){
                 return false;

@@ -834,7 +834,11 @@
                         {language.loadingChatData}
                     </div>
                 {:then a}
-                    {#if a === 'error'}
+                    {#if a === 'missing'}
+                        <div class="w-full flex justify-center text-textcolor2 italic mb-12">
+                            {language.errors.coldStorageChatDataMissing(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[0]?.data?.slice(coldStorageHeader.length) ?? '')}
+                        </div>
+                    {:else if a === 'error'}
                         <div class="w-full flex justify-center text-textcolor2 italic mb-12">
                             {language.errors.coldStorageChatLoadFailed(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[0]?.data?.slice(coldStorageHeader.length) ?? '')}
                         </div>

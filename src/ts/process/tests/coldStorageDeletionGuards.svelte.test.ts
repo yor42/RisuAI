@@ -103,7 +103,7 @@
  * for them yet), so this file switches `platformState.isTauri` to `false`
  * for that whole group.
  */
-import { describe, test, expect, vi } from 'vitest'
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { writable } from 'svelte/store'
 import type { Database } from '../../storage/database.svelte'
 
@@ -414,6 +414,13 @@ class MockNotFoundError extends Error {
     name = 'NotFoundError'
 }
 
+// Used only by the CHORE-07 stage 7c-1 `classifyOpfsColdRead` group, far
+// below -- declared here (module scope) alongside `MockNotFoundError` to
+// avoid Svelte's "nested class" perf warning.
+class FakeTypeMismatchError extends Error {
+    name = 'TypeMismatchError'
+}
+
 const mockDirectoryHandle = {
     async getFileHandle(name: string, opts?: { create?: boolean }) {
         if (throwOnceFilenames.has(name)) {
@@ -493,11 +500,19 @@ import {
     listColdStorageItems,
     collectColdStorageBackupPayloads,
     coldStorageHeader,
+    readColdStorageItem,
+    classifyTauriColdRead,
+    classifyOpfsColdRead,
+    classifyNodeColdRead,
+    classifyAccountColdRead,
+    decodeColdStorageBytes,
 } from '../coldstorage.svelte'
 import { isColdChat, formatColdStorageLoadError } from '../coldstorageData'
 import { sweepTauriAssets, sweepForageAssetKey } from '../../storage/assetSweep'
-import { readDir, remove, BaseDirectory } from '@tauri-apps/plugin-fs'
-import { DBState } from '../../stores.svelte'
+import { readDir, remove, BaseDirectory, readFile as tauriReadFile, exists as tauriExists } from '@tauri-apps/plugin-fs'
+import { DBState, selectedCharID } from '../../stores.svelte'
+import { compress as fflateCompress } from 'fflate'
+import type { ColdStorageReadResult } from '../coldstorage.svelte'
 
 //#region shared fixture helpers
 
@@ -1227,6 +1242,21 @@ describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recover
  * reason -- see its own comment.
  */
 describe('CHORE-07 stage 7b: preLoadChat must not reject and must not mutate a chat on a failed/invalid read', () => {
+    // CHORE-07 stage 7c-1 added a character-switch race check to
+    // `preLoadChat` (plan §5.2 item 4): after the read, it now also requires
+    // that `get(selectedCharID)` still points at a character whose `chaId`
+    // matches the character being loaded, else it returns 'none' with no
+    // mutation. Every fixture in this describe block loads character index
+    // 0 and expects the pre-existing (pointer-only) race check to be the
+    // only thing gating the mutation, so `selectedCharID` must be pointed at
+    // that same character here for those assertions to still hold.
+    beforeEach(() => {
+        selectedCharID.set(0)
+    })
+    afterEach(() => {
+        selectedCharID.set(-1)
+    })
+
     test('R1 RED: a transient OPFS read failure leaves the chat untouched and resolves "error"', async () => {
         platformState.isTauri = false
         resetOpfs()
@@ -1546,5 +1576,290 @@ describe('CHORE-07 stage 7b: isColdChat', () => {
         expect(isColdChat(undefined)).toBe(false)
         expect(isColdChat(null)).toBe(false)
         expect(isColdChat({ message: [] } as never)).toBe(false)
+    })
+})
+
+/**
+ * CHORE-07 stage 7c-1 -- `readColdStorageItem`'s per-backend classification
+ * seams (`classifyTauriColdRead`/`classifyOpfsColdRead`/
+ * `classifyNodeColdRead`/`classifyAccountColdRead`), plan §5.2 item 1, §5.5.
+ * These are brand-new, pure, dependency-injected functions -- none of them
+ * existed on pre-7c-1 (92b9bba7), so every case below is RED for the same
+ * structural reason as the `isColdChat` group above: on pre-7c-1, importing
+ * any of these names from `../coldstorage.svelte` resolves to `undefined`
+ * (no such export), so calling one throws `TypeError: classifyTauriColdRead
+ * is not a function` (etc.) rather than failing a behavioural assertion.
+ * That import error is this group's red-before-green evidence. No platform
+ * mocking is needed for these -- every dependency is a plain injected
+ * function.
+ */
+describe('CHORE-07 stage 7c-1: classifyTauriColdRead', () => {
+    test('RED: "(os error 2)" with exists() false is missing', async () => {
+        const readFileFn = vi.fn(async () => { throw new Error('reading file failed: (os error 2)') })
+        const existsFn = vi.fn(async () => false)
+        const result = await classifyTauriColdRead('./coldstorage/x.json', readFileFn, existsFn)
+        expect(result).toEqual({ status: 'missing' })
+        expect(existsFn).toHaveBeenCalledTimes(1)
+    })
+
+    test('RED: "(os error 2)" with exists() true is error, not missing', async () => {
+        const readError = new Error('reading file failed: (os error 2)')
+        const readFileFn = vi.fn(async () => { throw readError })
+        const existsFn = vi.fn(async () => true)
+        const result = await classifyTauriColdRead('./coldstorage/x.json', readFileFn, existsFn)
+        expect(result.status).toBe('error')
+        expect((result as { error: unknown }).error).toBe(readError)
+    })
+
+    test('RED: an exists() throw is error, not missing', async () => {
+        const readFileFn = vi.fn(async () => { throw new Error('reading file failed: (os error 2)') })
+        const existsError = new Error('simulated Tauri fs scope violation')
+        const existsFn = vi.fn(async () => { throw existsError })
+        const result = await classifyTauriColdRead('./coldstorage/x.json', readFileFn, existsFn)
+        expect(result.status).toBe('error')
+        expect((result as { error: unknown }).error).toBe(existsError)
+    })
+
+    test('RED: "(os error 3)" is error, and never calls exists()', async () => {
+        const readFileFn = vi.fn(async () => { throw new Error('reading file failed: (os error 3)') })
+        const existsFn = vi.fn(async () => false)
+        const result = await classifyTauriColdRead('./coldstorage/x.json', readFileFn, existsFn)
+        expect(result.status).toBe('error')
+        expect(existsFn).not.toHaveBeenCalled()
+    })
+})
+
+describe('CHORE-07 stage 7c-1: classifyOpfsColdRead', () => {
+    test('RED: a NotFoundError from getFileHandle() is missing', async () => {
+        const getDirectoryFn = vi.fn(async () => ({
+            getFileHandle: vi.fn(async () => { throw new MockNotFoundError('not found') }),
+        }))
+        const result = await classifyOpfsColdRead(getDirectoryFn as never, 'coldstorage_x.json')
+        expect(result).toEqual({ status: 'missing' })
+    })
+
+    test('RED: a TypeMismatchError from getFileHandle() is error, not missing', async () => {
+        const getDirectoryFn = vi.fn(async () => ({
+            getFileHandle: vi.fn(async () => { throw new FakeTypeMismatchError('type mismatch') }),
+        }))
+        const result = await classifyOpfsColdRead(getDirectoryFn as never, 'coldstorage_x.json')
+        expect(result.status).toBe('error')
+    })
+
+    test('RED: a NotFoundError from getDirectory() is error, not missing', async () => {
+        // A NotFoundError here is about OPFS's root directory, not about
+        // `filename` -- it must never be conflated with "this file doesn't
+        // exist". Distinguishing the two error sites is the whole point of
+        // this seam having a separate try/catch around `getDirectoryFn()`.
+        const getDirectoryFn = vi.fn(async () => { throw new MockNotFoundError('directory not found') })
+        const result = await classifyOpfsColdRead(getDirectoryFn as never, 'coldstorage_x.json')
+        expect(result.status).toBe('error')
+        expect(getDirectoryFn).toHaveBeenCalledTimes(1)
+    })
+})
+
+describe('CHORE-07 stage 7c-1: classifyNodeColdRead', () => {
+    test('RED: a null getItem is missing', async () => {
+        const getItemFn = vi.fn(async () => null)
+        const result = await classifyNodeColdRead(getItemFn, 'coldstorage/x')
+        expect(result).toEqual({ status: 'missing' })
+    })
+
+    test('RED: a throw is error', async () => {
+        const thrown = new Error('simulated Node getItem failure')
+        const getItemFn = vi.fn(async () => { throw thrown })
+        const result = await classifyNodeColdRead(getItemFn, 'coldstorage/x')
+        expect(result.status).toBe('error')
+        expect((result as { error: unknown }).error).toBe(thrown)
+    })
+})
+
+describe('CHORE-07 stage 7c-1: classifyAccountColdRead', () => {
+    test('RED: a network throw plus a local ok is ok', async () => {
+        const fetchHub = vi.fn(async (): Promise<{ status: number, arrayBuffer: () => Promise<ArrayBuffer> }> => {
+            throw new Error('simulated network failure')
+        })
+        const readLocal = vi.fn(async (): Promise<ColdStorageReadResult> => ({ status: 'ok', value: { restored: true } }))
+        const result = await classifyAccountColdRead(fetchHub, readLocal)
+        expect(result).toEqual({ status: 'ok', value: { restored: true } })
+    })
+
+    test('RED: a network throw plus a local missing is error, never missing', async () => {
+        const fetchHub = vi.fn(async (): Promise<{ status: number, arrayBuffer: () => Promise<ArrayBuffer> }> => {
+            throw new Error('simulated network failure')
+        })
+        const readLocal = vi.fn(async (): Promise<ColdStorageReadResult> => ({ status: 'missing' }))
+        const result = await classifyAccountColdRead(fetchHub, readLocal)
+        expect(result.status).toBe('error')
+    })
+
+    test('RED: 401, 500 and 204 plus a local missing are all error, never missing', async () => {
+        for (const status of [401, 500, 204]) {
+            const fetchHub = vi.fn(async () => ({ status, arrayBuffer: async () => new ArrayBuffer(0) }))
+            const readLocal = vi.fn(async (): Promise<ColdStorageReadResult> => ({ status: 'missing' }))
+            const result = await classifyAccountColdRead(fetchHub, readLocal)
+            expect(result.status).toBe('error')
+        }
+    })
+
+    test('RED: a 200 with a corrupt body is error, with no local fallback attempted', async () => {
+        const fetchHub = vi.fn(async () => ({
+            status: 200,
+            arrayBuffer: async () => new TextEncoder().encode('not compressed, not JSON').buffer,
+        }))
+        const readLocal = vi.fn(async (): Promise<ColdStorageReadResult> => ({ status: 'ok', value: 'should-not-be-used' }))
+        const result = await classifyAccountColdRead(fetchHub, readLocal)
+        expect(result.status).toBe('error')
+        expect(readLocal).not.toHaveBeenCalled()
+    })
+})
+
+describe('CHORE-07 stage 7c-1: decodeColdStorageBytes', () => {
+    test('RED: corrupt compressed bytes reject', async () => {
+        await expect(decodeColdStorageBytes(new Uint8Array([1, 2, 3, 4]))).rejects.toBeTruthy()
+    })
+
+    test('RED: validly-compressed but corrupt JSON rejects', async () => {
+        const badJsonBytes = await new Promise<Uint8Array>((resolve, reject) => {
+            fflateCompress(new TextEncoder().encode('{not valid json'), (err, result) => {
+                if (err) {
+                    reject(err)
+                    return
+                }
+                resolve(result)
+            })
+        })
+        await expect(decodeColdStorageBytes(badJsonBytes)).rejects.toBeTruthy()
+    })
+})
+
+/**
+ * CHORE-07 stage 7c-1 -- `readColdStorageItem` end to end, real OPFS
+ * backend (same mock as the `preLoadChat`/a7-a14 groups above). RED for the
+ * same structural (missing export) reason as the classify-function group
+ * above.
+ */
+describe('CHORE-07 stage 7c-1: readColdStorageItem (OPFS backend)', () => {
+    test('RED: a stored null value is ok, not missing', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const key = 'reader-7c1-null-key'
+        const writeOk = await setColdStorageItem(key, null)
+        expect(writeOk).toBe(true)
+
+        const result = await readColdStorageItem(key)
+        expect(result).toEqual({ status: 'ok', value: null })
+    })
+
+    test('RED: a {character} blob is ok', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const key = 'reader-7c1-character-key'
+        const payload = { character: { chaId: 'reader-7c1-char', name: 'Reader', type: 'character', chatPage: 0, chats: [] } }
+        await setColdStorageItem(key, payload)
+
+        const result = await readColdStorageItem(key)
+        expect(result).toEqual({ status: 'ok', value: payload })
+    })
+
+    test('RED: a never-stored key is missing', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const result = await readColdStorageItem('reader-7c1-never-stored-key')
+        expect(result).toEqual({ status: 'missing' })
+    })
+})
+
+/**
+ * CHORE-07 stage 7c-1 -- `preLoadChat`'s `'missing'` result and the
+ * character-switch race fix, plan §5.2 item 4, §5.5.
+ */
+describe('CHORE-07 stage 7c-1: preLoadChat missing result and the character-switch race', () => {
+    beforeEach(() => {
+        selectedCharID.set(0)
+    })
+    afterEach(() => {
+        selectedCharID.set(-1)
+    })
+
+    test('RED: a positively missing blob resolves "missing" and mutates nothing', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'missing-7c1-key' // deliberately never written
+        DBState.db = makeDb([{
+            chaId: 'missing-7c1-char',
+            name: 'Missing 7c1 Character',
+            type: 'character',
+            chatPage: 0,
+            chats: [makeColdChat('missing-7c1-chat-0', coldKey)],
+        } as unknown as CharacterFixture])
+
+        const chat = DBState.db.characters[0].chats[0] as unknown as { message: { data: string }[] }
+        const messageBefore = JSON.parse(JSON.stringify(chat.message))
+
+        const result = await preLoadChat(0, 0)
+
+        // RED: `'missing'` is not a `PreLoadChatResult` on pre-7c-1
+        // (92b9bba7) -- that source resolves `'error'` for this same
+        // never-written-key case, since it cannot distinguish "positively
+        // missing" from any other unusable read.
+        expect(result).toBe('missing')
+        expect(chat.message).toEqual(messageBefore)
+    })
+
+    test('RED: switching the selected character during the read resolves "none" and mutates nothing', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'race-7c1-key'
+        await setColdStorageItem(coldKey, {
+            message: [{ time: 1, data: 'archived', role: 'user' }],
+            hypaV2Data: { chunks: [], mainChunks: [], lastMainChunkID: 0 },
+            hypaV3Data: { summaries: [] },
+            scriptstate: {},
+            localLore: [],
+        })
+
+        DBState.db = makeDb([
+            {
+                chaId: 'race-7c1-char-0',
+                name: 'Race 7c1 Character 0',
+                type: 'character',
+                chatPage: 0,
+                chats: [makeColdChat('race-7c1-chat-0', coldKey)],
+            },
+            {
+                chaId: 'race-7c1-char-1',
+                name: 'Race 7c1 Character 1',
+                type: 'character',
+                chatPage: 0,
+                chats: [{ message: [{ time: 1, data: 'unrelated', role: 'user' }], note: '', name: '', localLore: [] }],
+            },
+        ] as unknown as CharacterFixture[])
+
+        const chat = DBState.db.characters[0].chats[0] as unknown as { message: { time: number, data: string, role: string }[] }
+        const messageBefore = JSON.parse(JSON.stringify(chat.message))
+
+        selectedCharID.set(0)
+        const resultPromise = preLoadChat(0, 0)
+        // Synchronously, before the read settles, the user switches to a
+        // DIFFERENT CHARACTER entirely (not just a different chat on the
+        // same character) -- character index 0 is no longer selected.
+        selectedCharID.set(1)
+
+        const result = await resultPromise
+
+        // RED: this character-switch-by-chaId check does not exist at all
+        // on pre-7c-1 (92b9bba7) -- that source only re-checks the pointer
+        // string, which is untouched here, so it proceeds to restore into
+        // character 0's chat regardless of which character is selected,
+        // resolving 'ok' and mutating `chat.message` instead of leaving it
+        // alone.
+        expect(result).toBe('none')
+        expect(chat.message).toEqual(messageBefore)
     })
 })
