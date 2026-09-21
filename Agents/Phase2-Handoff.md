@@ -124,7 +124,7 @@ run only** — `Legal.svelte:6-8` forbids setting it automatically.
 | AV-4 | constraints only (Report 12 §5), measure first | after AV-3 |
 | CHORE-07 7b | **Committed `3e17c8a3`** (minimal core; Report 13 §4; gates ledger 39/40) | none |
 | CHORE-07 7c-1 | **Committed `be3633bd`** (Report 13 §5 rev 5; gates ledger 41/42; live check ledger 43) | none |
-| CHORE-07 7c-2 | implemented, gated and live-checked (Report 13 §5.3 rev 7; ledger 44-46); awaiting commit | commit on the maintainer's go-ahead |
+| CHORE-07 7c-2 | **committed `4a4dfae1`** (Report 13 §5.3 rev 7; ledger 44-46) | none |
 | Item 3 part 2 (chat list) | not started | plan after the avatar track |
 
 Nothing is pushed. The docs (this file, Roadmap, ledger rows 13-46) are committed separately.
