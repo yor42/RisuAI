@@ -3,6 +3,7 @@ import type { character, Database, groupChat } from "./storage/database.svelte";
 import { type simpleCharacterArgument } from "./parser/parser.svelte";
 import type { alertData } from "./alert";
 import { moduleUpdate } from "./process/modules";
+import { trackModuleUpdateDeps } from "./process/moduleUpdateDeps";
 import { resetScriptCache } from "./process/scripts";
 import type { hubType } from "./characterCards";
 import type { PluginSafetyErrors } from "./plugins/pluginSafety";
@@ -194,7 +195,7 @@ $effect.root(() => {
         }
     })
     $effect(() => {
-        $state.snapshot(DBState.db.modules)
+        trackModuleUpdateDeps(DBState?.db?.modules)
         DBState?.db?.enabledModules
         DBState?.db?.enabledModules?.length
         DBState?.db?.characters?.[selIdState.selId]?.chats?.[DBState?.db?.characters?.[selIdState.selId]?.chatPage]?.modules?.length

@@ -582,6 +582,9 @@ export function moduleUpdate(){
     }
 }
 
+// The reactive dependency list for the above lives in ./moduleUpdateDeps.ts.
+// If moduleUpdate() starts reading another module field, update it there too.
+
 export function refreshModules(){
     lastModules = ''
     lastModuleData = []

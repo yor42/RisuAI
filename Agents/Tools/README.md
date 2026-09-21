@@ -77,3 +77,43 @@ inflated the headline figure was tested and **disproven**; do not revive it.
 `$state({db:...})` container, not the real `DBState` wired into the effect graph. They
 are raw snapshot cost only and exclude the effects' downstream work, so the real
 per-keystroke figure is this **or higher**, never lower.
+
+## Stage A after-measurement (2026-09-21, same machine)
+
+`track-module-deps-bench.harness.ts` measures `trackModuleUpdateDeps()`
+(`src/ts/process/moduleUpdateDeps.ts`) against `$state.snapshot(modules)` over the same
+seed-1337 module-heavy fixture, in the same process, so the two sides are comparable.
+Both sides are measured fresh on each run rather than compared against a number in this
+file. Production is forced with `NODE_ENV=production` in front of the command — a
+`resolve.conditions` override does **not** work, because Vite injects its own
+`development`/`production` condition ahead of custom ones based on `NODE_ENV`.
+
+```
+NODE_ENV=production npx vitest run --config Agents/Tools/vitest.harness.config.ts Agents/Tools/save-gen/track-module-deps-bench.harness.ts --reporter=verbose
+```
+
+| Condition | `$state.snapshot(modules)` | `trackModuleUpdateDeps()` | Per keystroke before | Per keystroke after |
+|---|---|---|---|---|
+| Dev | 33.87 ms | 0.045 ms | 67.74 ms | 33.92 ms |
+| Production | 29.18 ms | 0.031 ms | 58.35 ms | 29.21 ms |
+
+**Read the per-keystroke columns carefully.** Stage A replaced **one** of the two
+per-keystroke snapshot calls. The other, `dbChangeEffects.svelte.ts:34`, is deliberately
+untouched because it gates whether modules are re-encoded to disk. So "after" is
+`snapshot + trackModuleUpdateDeps`, not `trackModuleUpdateDeps` alone.
+
+**The frame budget is still missed.** 29.2 ms production is 175% of 16.7 ms, and 33.9 ms
+dev is 203%. The surviving `dbChangeEffects` snapshot exceeds the whole budget on its
+own. The 2.00x and the ~29 ms saved per keystroke are real; the frame-budget problem is
+not solved and Stage A never claimed it would be.
+
+Two deviations from the older measurements above, both deliberate:
+- The fixture is enriched with `namespace` / `hideIcon` / `backgroundEmbedding`, which
+  `build.ts` leaves unset, so the narrowed read is not timed against absent properties.
+  Same shape, size and module count; the freshly measured production snapshot median
+  landed within 0.1% of the 29.15 ms published above, which is the cross-check.
+- `trackModuleUpdateDeps()` is batched 500 calls per sample and divided out. At ~0.03 ms
+  a single call is close enough to timer resolution that an unbatched number would not be
+  defensible.
+
+Same standalone-container caveat as above: raw call cost, real figure is this or higher.
