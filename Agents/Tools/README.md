@@ -173,3 +173,50 @@ Benches added for the Stage B decision, all `.harness.ts`:
   *re-running* parent effect; the real nested path is covered by the app test suite instead.
 - `trash-restore-repro.svelte.harness.ts` — **not a benchmark**: an end-to-end reproduction of
   the restore-from-trash data-loss bug (Roadmap CHORE-01 / CHORE-03).
+
+## Measuring in the live app (browser pane) — protocol and traps
+
+The harnesses above run in Node. The Stage B before/after numbers came from the **live app**, which
+is the measurement that should back any user-facing latency claim. What worked, and three traps that
+each produced a plausible-looking wrong number first:
+
+**Setup.** `.claude/launch.json` defines `risuai-web` on port 5174, but the app needs
+`VITE_RISU_LEGAL_CONFIGURED=TRUE`, which `launch.json` does not set. Pass it **inline for the one
+run** (`VITE_RISU_LEGAL_CONFIGURED=TRUE pnpm dev`). Do **not** bake it into `launch.json` or a
+`.env`: `src/lib/Others/Legal.svelte:6-8` says in capitals not to set it automatically. If a ToS
+dialog appears, the **user** accepts it; never click it. The Claude browser pane has its own
+storage, which held the seed-1337 **fixture** (52 modules, names like `Module 2 (giant)`) — not
+the maintainer's personal data. Check which you are looking at before mutating anything.
+
+**Getting the app's own state.** `await import('/src/ts/stores.svelte.ts')` from the page returns
+the live `DBState` and stores. Drive the UI through those stores rather than hunting icons:
+`settingsOpen.set(true); SettingsMenuIndex.set(14)` opens Settings -> Modules.
+
+**Trap 1 — after editing a source file, a bare import gives you an EMPTY copy.** Vite then serves
+changed modules with a `?t=` cache-busting query, so `import('/src/ts/stores.svelte.ts')` no longer
+matches the app's instance and yields a **separate module with its own empty `DBState`**. Symptom:
+`Object.keys(DBState.db).length === 0` while the console shows the save decoded fine. Fix: restart
+the dev server, then reload.
+
+**Trap 2 — importing `svelte` from the page loads a SECOND runtime.** Its `flushSync` drives a
+different scheduler from the app's, and a timed mutation measured **0 ms**. Do not use it. Drain
+microtasks instead: Svelte flushes on `queueMicrotask`, so awaiting three nested microtasks after a
+mutation is enough.
+
+**Trap 3 — `requestAnimationFrame` never fires while the pane is hidden.** A script awaiting rAF
+hangs until the tool times out, possibly **mid-mutation, leaving data dirty**. Time to a forced
+synchronous layout instead: drain microtasks, then read `document.documentElement.offsetHeight`.
+That captures effect + DOM + layout; it excludes paint, which is small and off the main thread.
+
+**Protocol used for Stage B.** Open the module editor on the largest module, dispatch **real**
+`input` events into the name field (native value setter + `new Event('input', {bubbles:true})`),
+3 warm-up + 8-10 measured iterations, median/min/max, to forced layout. For module-count scaling,
+push deep-copied duplicates with fresh ids (`JSON.parse(JSON.stringify(m))`, new `id`, `DUP ` name
+prefix), measure, then `splice` them back off.
+
+**Always restore, and verify you did.** Wrap every mutation in `try/finally` that restores the
+original value, then check: module count unchanged, no `DUP ` entries, no stray suffixes on names,
+settings UI closed. Trap 3 left a real `Module 2 (giant)w` behind once; it was only caught because
+restoration was checked, not assumed.
+
+**Report the hardware.** These figures came from an i9-13900K and are a lower bound on latency.

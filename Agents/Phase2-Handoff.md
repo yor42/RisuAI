@@ -1,129 +1,200 @@
-# Phase 2 Initiation Brief — RAM / Rendering Performance
+# Phase 2 Initiation Brief — RAM / Rendering Performance (checkpoint 2)
 
 You are the **Opus 5 Senior Orchestrator** for the RisuAI stabilization campaign.
 Governance is in `AGENTS.md`; agent profiles are in `.claude/agents/`. Read AGENTS.md
-section 1 (routing), 1.2 (escalation ladder) and 4 (review gates) before dispatching
-anything.
+section 1 (routing), 1.2 (escalation ladder), 1.3 (investigation tiers) and 4 (review gates)
+before dispatching anything.
+
+*This brief replaces the original Phase 2 brief. The module-editor work it proposed is done,
+and it shipped a different design from the one that brief recommended — see "What is done".*
 
 ## Standing constraints
 
-- **English only** in all thinking, subagent briefs, and replies. Token budget and cache hygiene.
-- **No blind over-reading.** Do not absorb large files into your own context. Delegate.
-- **You do not write application code.** All `.ts` / `.svelte` / `.rs` / `.yml` edits go
-  through `sonnet-coder`. You may edit `AGENTS.md` and `Agents/*.md` directly.
+- **English only** in all thinking, subagent briefs, and replies.
+- **No blind over-reading.** Delegate surveys; read only what a decision needs.
+- **You do not write application code.** All `.ts` / `.svelte` / `.rs` / `.yml` edits — test files
+  included — go through `sonnet-coder` or `test-warrior`. You may edit `AGENTS.md`,
+  `Agents/*.md` and `.claude/agents/*.md` directly.
 - **Do not overwrite, revert, or clean existing uncommitted changes without asking.**
-- **COMPATIBILITY INVARIANT.** Upstream-compatible characters, modules, presets, backup
-  `.bin` files, plugins and other supported user data must keep working on this fork. Any
-  breaking proposal needs explicit user approval plus impact / migration / fallback analysis.
-- **Targeted stabilization, not a rewrite.** Perf work included; rearchitecture is a
-  user decision, not yours.
+- **Commit or push only when the maintainer asks.** Commits are local unless told otherwise.
+- **COMPATIBILITY INVARIANT.** Upstream-compatible characters, modules, presets, backup `.bin`
+  files and plugins must keep working. Any breaking proposal needs explicit approval plus
+  impact / migration / fallback analysis.
+- **Targeted stabilization, not a rewrite.**
 
 ## Repo state at handoff
 
-- Branch `fix/persistence-conflict-platform-hardening`, **22 commits ahead of origin**, HEAD `0aeae15d`.
-- Baselines, all verified: `pnpm check` 0 errors / 0 warnings; `pnpm test` **31 files, 331 passed, 3 skipped**; `cd src-tauri && cargo check` clean.
-- Working tree carries ONE deliberate exception: `src/ts/process/mcp/risuaccess/tests/__snapshots__/modules.test.ts.snap` shows modified but has an **empty content diff** (line endings only). It has been excluded from every commit this campaign. Leave it alone.
-- Phase 1 / 1.5 and three rounds of persistence fixes are done. See `Agents/Roadmap.md`.
+- Branch `fix/persistence-conflict-platform-hardening`, **56 commits ahead of `origin/main`**
+  (`669b12ce`), 0 behind. **Local commits not yet pushed** to the remote branch.
+- Baselines, verified on the committed tree: `pnpm test` **32 files, 377 passed, 3 skipped,
+  exit 0**; `pnpm check` **0 errors / 0 warnings, exit 0**. `cargo check` not run recently.
+- **History was rewritten on 2026-09-21** (a plugin-bundle purge, then a rebase back onto the
+  true main base). Every SHA on this branch changed twice that day. SHAs cited in `Agents/**.md`
+  were remapped and audited. **Find a commit by its message, not by a remembered hash.**
+- `src/ts/process/mcp/risuaccess/tests/__snapshots__/modules.test.ts.snap` sometimes shows modified
+  with an **empty, line-endings-only diff** after `pnpm test`. Never commit it, revert it, or
+  re-record it. Upstream branch `cubicj-fix-vitest-snapshot-churn` may fix this properly.
+- A dev server may still be running on port 5174 from the last session.
 
-## What Phase 2 is
+## What is done — the module-editor keystroke freeze
 
-The shared root cause behind the app's memory and responsiveness problems. It is the
-load-bearing phase — Phase 4 (Android) is gated behind it.
+Typing in a module text field froze the UI. **Fixed in two stages, and both are load-bearing.**
 
-**The central measured finding:** `$state.snapshot()` cost scales with **proxied node
-count, not payload bytes.** Measured 6-17x a plain `structuredClone`. Concretely: 4,000
-small entries cost 37ms; 4 huge entries cost 0.065ms *despite 2.8x more bytes*. Every
-optimisation instinct that targets payload size is therefore wrong here. Target node count.
+| Stage | Commit | What it did |
+|---|---|---|
+| A | `f4867e63` | Narrowed the GUI-side effect (`stores.svelte.ts:197`) to the 4 fields `moduleUpdate()` reads |
+| B | `847bb8e8` | **Partitioned** the save-side effect (`dbChangeEffects.svelte.ts:54-71`): outer effect over array shape plus one child per module |
 
-**Numbers already measured** (warm-up discarded, medians reported, floor reported alongside):
+**Measured in the live app** (module editor open, real input events, i9-13900K, dev build):
 
-| Case | Cost |
-|---|---|
-| `$state.snapshot(modules)`, module-heavy install (52 modules / 7.27MB) | 33.82 ms per call |
-| Module editor, per keystroke | ~67.6 ms (two effects track `modules`) |
-| `$state.snapshot` chat-heavy (10k messages) | 79.67 ms |
-| `botPresets`, 3 / 15 / 50 presets | 0.24 / 1.76 / 7.33 ms |
-| Frame budget | 16.7 ms |
+| Modules | Before | After |
+|---|---|---|
+| 52 | 13.2 ms | 1.9 ms |
+| 104 | 25.1 ms | 1.8 ms |
+| scaling 52→104 | 1.9x | **0.95x — flat** |
 
-The module-editor figure is the one with an independent corroborating signal: the
-community calls that text field "stuttery."
+Stage B was first planned as a **draft copy** of the edited module. That design was rejected at two
+`opus-reviewer` gates and retired after a `senior-advisor` escalation. Do not revive it as a
+performance fix. Evidence: `Agents/Reports/10-stage-b-module-draft-copy-plan.md`. What shipped:
+`Agents/Reports/11-stage-b-module-effect-partition-plan.md`.
 
-**Benchmark harness** (scratch, NOT in the repo, but still on disk):
-`C:\Users\yor42\AppData\Local\Temp\claude\C--Projects-RisuAI\65a82f70-385b-4d39-aa7e-b168c9825a15\scratchpad\save-gen\`
-— `build.ts`, `svelte-proxy-bench.svelte.ts`, `svelte-proxy-bench.spec.ts`,
-`botpreset-bench.spec.ts`, `generate-and-verify.spec.ts`. Run via
-`scratchpad\vitest.fixtures.config.ts` with `NODE_PATH="C:/Projects/RisuAI/node_modules"`.
-Seed 1337. Tiers: light / chat-heavy / module-heavy / both-heavy. **Re-read it before
-re-measuring rather than rebuilding it.** If Phase 2 needs it repeatedly, propose adding it
-to the repo — that is a user decision.
+## Doctrine learned this checkpoint — read before touching any effect
 
-## Suggested first target (not an instruction — re-verify before committing to it)
+1. **Partition, never narrow, a dirty-tracking effect.** In `dbChangeEffects.svelte.ts` the tracker
+   flags decide whether a block is encoded **at all**, so a missed mutation is never written — silent
+   data loss, not a late save. *Narrowing* (reading fewer dependencies) loses writes; the `:19-24`
+   presets comment records a real bug from exactly that (`8bc0f426`). *Partitioning* keeps the
+   dependency set identical but splits it across per-element effects. That is what made Stage B
+   safe. Roadmap Phase 2 item 2 now carries a warning against its old "shallow signals" suggestion.
+2. **`$state.snapshot` cost tracks node count, not bytes.** A 1.03 MB module holding 10k asset
+   references costs about 8x a 1.65 MB module that is mostly one large string. Target node count.
+3. **Every number here is a best case.** All measurements came from an **i9-13900K / 64 GB DDR5**.
+   This project targets Raspberry Pi self-hosting and mobile. Argue from **ratios**, which do not
+   depend on hardware when the gain comes from doing less work. **Never claim frame-budget
+   compliance without naming the hardware.**
+4. **The Node harness overstates absolute cost.** Chromium ran the same fixture about **2.6x
+   faster**, but the ratios held. Use the harness to compare designs and the live app for anything
+   user-facing.
+5. **Real profiles are larger than the fixture.** The maintainer runs **100+ modules** and reports
+   50+ as common in the community. Asset modules bundle **10,000+ images** to get around RisuRealm's
+   150 MB limit, reaching 1-2 GB on disk. The images stay in asset storage; only `[name, id, ext]`
+   references sit in `db.modules`.
+6. **Measure the premise before planning.** Three plan revisions for Stage B failed. The
+   design was retired because its central premise — that the cost was a persistence problem
+   rather than an effect-granularity problem — had never been tested; the revisions only patched
+   the layers built on top of it. The maintainer's own context (profile sizes, asset modules,
+   hardware, the character-editor comparison) settled more than either review gate did. **Ask the
+   maintainer what real usage looks like** before sizing work.
+7. **Test comments are shipped artifacts.** Tests written *before* a change, in the future tense
+   ("expected to pass once…", "this file is not modified"), become false when they land in the same
+   commit. That got a correct change rejected once. Rewrite them in the past tense before
+   committing.
 
-**The module-editor per-keystroke cost.** Reasons it is the right opening move:
+## How to measure in the live app
 
-1. Highest measured cost with a real user complaint attached.
-2. A draft-copy fix for it was designed earlier and **rejected** — correctly — because it
-   would have added a fourth draft holder to a mechanism that already mishandled three.
-3. That objection no longer applies. `src/ts/localDrafts.ts` now exists and is proven in
-   production by the multi-tab work (commit `ae167294`), with five draft holders registered
-   via `$effect` on state plus `onDestroy` backstops. It is the piece the rejected plan was missing.
+See **`Agents/Tools/README.md` → "Measuring in the live app"**. It covers the setup, how to reach
+the app's own `DBState`, the mutate-and-restore protocol, and **three traps** that each gave a
+plausible wrong number: Vite's `?t=` cache-busting handing back an empty module copy; importing
+`svelte` loading a second runtime whose `flushSync` measures 0 ms; and `requestAnimationFrame` not
+firing while the browser pane is hidden. Pass `VITE_RISU_LEGAL_CONFIGURED=TRUE` **inline, for one
+run only** — `Legal.svelte:6-8` forbids setting it automatically.
 
-Two effects track `modules`: one in `src/ts/storage/dbChangeEffects.svelte.ts` and one in
-`src/ts/stores.svelte.ts` (~195-204). **Verify both still exist and still deep-read before
-sizing anything** — the effects were relocated this session and any line number here is stale.
+## What is next — the maintainer chooses
 
-## Traps specific to this area
+Everything open is in **`Agents/Roadmap.md`**. The candidates, each with its own gate:
 
-- **`crypto.randomUUID()` is secure-context only.** It is `undefined` on plain-HTTP LAN.
-  Self-hosting RisuAI on a Raspberry Pi over `http://192.168.x.x` is popular with this
-  user's community. Use `v4()` from `uuid`. This already caused one blocker.
-- **Service workers also require a secure context**, so the LAN path falls back to base64
-  `data:` URIs — the memory-heavy asset path. Any asset-memory work must account for it.
-- **The asset cache is load-bearing for a data-loss fix.** `fileSrcCache`
-  (`parser.svelte.ts` ~431) and `blobUrlCache` (~678) are unbounded with no
-  `revokeObjectURL`, but bounding them must be checked against the invariants of the
-  asset-corruption fix this fork carries. Upstream never merged that fix; the community
-  works around it with a browser plugin. Do not bound these caches without tracing that first.
-- **Draft-aware dirty tracking exists now** (`src/ts/localDrafts.ts`,
-  `src/ts/storage/multiTabReload.ts`). If a perf fix moves editor state, it must register a
-  draft or it will reintroduce the data loss fixed in `ae167294`.
+**Phase 2 performance, still open:**
+- **Item 2 — the character and chat change-tracking effect** (the generic effect in
+  `dbChangeEffects.svelte.ts`). It is the hot path when editing character fields and chatting.
+  **Partition, do not narrow** (doctrine 1). **Plan it together with CHORE-01**, which lives in
+  the same effect.
+- **Item 3 — virtual scrolling for the chat list.** The fix that matters most for Android.
+- **Item 4 — size-based cold-storage compaction.**
 
-## Open items NOT in Phase 2 scope (documented, do not silently absorb)
+**Chores — confirmed and scoped, none fixed:**
+- **CHORE-01** — edits to a character that is **not selected** are never marked for save.
+  Occasional loss: it persists only if that character is reopened before reload. The fix surface
+  is small, centralised, and not blocked by the save format.
+- **CHORE-02** — `toSave.chat` is dead plumbing; the encoder never reads it.
+- **CHORE-03** — **the trash feature deserves a full bug hunt.** The community reports it as
+  unstable. A data-losing bug turned up there by accident and is **empirically reproduced**:
+  restore a character from trash without opening it, close the app, and it is back in the trash.
+  Reproduction: `Agents/Tools/save-gen/trash-restore-repro.svelte.harness.ts`.
+- **CHORE-04** — **enabling or disabling a module also freezes**, by a *different* mechanism that
+  Stage B did not fix. The hypothesis is a full chat re-render through `ReloadGUIPointer` (it is
+  possibly bumped twice per toggle), which would scale with chat length. It is **unverified —
+  measure first.**
+- **CHORE-05** — translation coverage, **measured**: 53 to 99 keys missing per language.
+  **This branch added 9 English-only strings — the save-conflict dialogs — and translated none of
+  them.** Those 9 are the first priority: they are small and they appear when data is at risk.
 
-- **alertStore hijack** — investigated and deliberately deferred. Full mechanism, four
-  blocking findings, and the shape of a real fix are in `Agents/Roadmap.md`. Do not attempt
-  the "obvious" mutex; it was taken to a plan gate and rejected. One instance was fixed
-  narrowly in `0d8a1cd5`.
-- `loadPages` never reset on character switch.
-- `streamingDisplayOptimizationMode` defaults to `'off'`, causing per-network-chunk full-chat clones.
+Suggested order *if the maintainer asks for one*: the 9 CHORE-05 strings are the smallest safety
+win; CHORE-04 is a measurement task with no risk; Phase 2 item 2 and CHORE-01 are the largest
+payoff and belong together.
+
+## Open items NOT in scope (documented, do not silently absorb)
+
+- **The `alertStore` hijack** — investigated and deliberately deferred. The "obvious" mutex was
+  rejected at a plan gate. Details in the Roadmap.
+- `loadPages` is never reset on character switch.
+- `streamingDisplayOptimizationMode` defaults to `'off'`.
 - Last-writer-wins whole-DB overwrite — pre-existing and architectural.
-- `Agents/Maybe-Later.md` holds out-of-campaign QOL ideas. Not scheduled.
+- **Asset-heavy modules** still exceed the frame budget while being edited. That needs its own
+  plan, and the no-narrowing rule applies.
+- `src/ts/kei/backup.ts:86` reads `db.account.kei` without optional chaining. **It is confirmed
+  live**: the dev console logs `KEI auto-backup failed` on every load. Known, and still not fixed.
+- `Agents/Maybe-Later.md` is QOL and unscheduled.
+
+## Area traps
+
+- **`crypto.randomUUID()` needs a secure context**; it is `undefined` on plain-HTTP LAN self-hosting.
+  Use `v4()` from `uuid`.
+- **Service workers also need a secure context**, so LAN falls back to base64 `data:` URIs.
+- **`fileSrcCache` and `blobUrlCache`** (`parser.svelte.ts`) are unbounded but load-bearing for this
+  fork's asset-corruption fix. Trace that fix before bounding them.
+- **Asset reads are local only on Tauri.** Non-Tauri builds with Account Sync fetch from
+  `sv.risuai.xyz`. Never make the `isAccount` branch more aggressive.
+- **`getModules()` caches on the joined enabled-id string**, and `lastModuleData` holds live proxies.
+  Its freshness is a lucky accident. `refreshModules()` has exactly one caller.
+- **Duplicate module ids are reachable.** A `.risum` import keeps the id; only JSON imports
+  regenerate it.
+- **`Agents/Evidences of Investigations/`** holds third-party plugin bundles and is gitignored on
+  purpose. Never commit it.
 
 ## Cautions earned the hard way
 
-This campaign's expensive errors have **not** been bad code. The suite was green every
-time. They were correct reasoning applied to an unverified premise:
+Every expensive error in this campaign got past a green test suite.
 
-1. **Re-verify every cited line number.** Citation drift has bitten repeatedly.
-2. **Reviewers here have been wrong.** Before propagating a reviewer's factual claim into a
-   plan, a commit message, or another agent's brief, check it against source. A false claim
-   was once made the headline of a commit message on a data-loss fix; the next reviewer
-   caught it. Worse, the correct answer had already been derived and was then abandoned in
-   deference to the reviewer.
-3. **Do not assert a path you have not traced.** Turn it into a test instead.
-4. **Write bug-fix tests against the unfixed code and confirm they FAIL first.** A test
-   written after the fix cannot distinguish "this works" from "this is shaped the way I
-   expected." Commit tests with the fix so no commit leaves the suite red.
-5. **Count, do not estimate,** when sizing. One "roughly 50" was really 83, and it inverted
-   the recommendation.
+1. **Check the exit code, not the pass count.** A run reporting matching counts once exited
+   ELIFECYCLE.
+2. **Re-verify every cited line number.** Off-by-one citations were caught at most gates,
+   including once in a reviewer's own findings.
+3. **Reviewers and investigators have been wrong.** Before propagating a factual claim into a plan,
+   a commit message, or another agent's brief, check it against source. At the first Stage B gate
+   the reviewer made two errors the Orchestrator caught: a set of citations off by one, and a
+   replacement count that did not reproduce.
+4. **Your own briefs carry errors too.** A wrong figure ("6+N+1" where the answer was 6+N) went into
+   a brief, was copied verbatim into a test comment, and was caught only at the post-implementation
+   gate. Check arithmetic before briefing.
+5. **Write bug-fix tests against the unfixed code and confirm they FAIL first.** Commit the tests
+   with the fix.
+6. **Count, do not estimate.** Cite the command that produced a count, not just the number.
+7. **Check an agent's `tools:` line before a brief promises it a tool.**
+8. **Brief investigators so that disproof is an acceptable result.** The trash reproduction was
+   useful because the agent was told a clean disproof was welcome.
 
-`investigator` / `deep-investigator`, `opus-reviewer` and `senior-advisor` were created at the end of the last
-session specifically to catch these, and are **unexercised**. Expect to tune the
-`senior-advisor` trigger bar on first real use — it may prove set too conservatively.
+## Agent tiers — all exercised now
+
+`investigator` (Sonnet) is the default. `deep-investigator` (Opus) is for escalation only.
+`opus-reviewer` handles persistence-adjacent gates. `senior-advisor` (Fable) is for direction, not
+difficulty: its one use this checkpoint retired a failing design and redirected the work
+correctly. `adversarial-reviewer` and `opus-reviewer` both have Bash and are read-only by doctrine,
+not by sandbox. Record every investigation and gate in **`Agents/Investigation-Ledger.md`**,
+including outcomes that argue against the current architecture.
 
 ## First actions
 
-1. Confirm the baselines above still hold.
-2. Dispatch `investigator` (escalating to `deep-investigator` only under 1.3) to re-verify the two `modules` effects and size the
-   module-editor fix honestly, including any load-bearing accident.
-3. Plan-gate before implementing. Persistence-adjacent work uses `opus-reviewer`.
+1. Confirm the baselines above still hold, **checking exit codes**.
+2. Ask the maintainer which Roadmap item or chore comes next. Do not pick one yourself.
+3. For whatever is chosen: measure the premise first, plan it, pass the plan gate, implement, then
+   pass the post-implementation gate. Anything persistence-adjacent uses `opus-reviewer`.
