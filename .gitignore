@@ -50,3 +50,9 @@ dist.zip
 
 # Due to Cargo.lock makes the project build fail, we ignore it
 Cargo.lock
+# Third-party community plugin bundles kept locally as investigation evidence.
+# Not ours to redistribute: this fork's origin is a public repo, and committing a
+# community plugin here would republish it. Read them in the working tree; never
+# commit them. See Agents/Maybe-Later.md.
+Agents/Evidences of Investigations/Community plugins to solve common pain points/
+Agents/Evidences of Investigations/Asset Cache/Community Mitigation_Webrowser Plugin/
