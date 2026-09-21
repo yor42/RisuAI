@@ -1,4 +1,4 @@
-# Report 13 — CHORE-07: a failed cold-storage read must never destroy data (plan, revision 3, STAGED)
+# Report 13 — CHORE-07: a failed cold-storage read must never destroy data (plan, revision 7, STAGED)
 
 **Status:** revision 3. Revisions 1 and 2 each received "approve with required changes" from
 `opus-reviewer` (ledger 23 and 25), with a new BLOCKER each time. Rev 3 **stages** the work, per
@@ -310,20 +310,164 @@ in.
    - The fix: at the start of the `sendChat` handler, before the permission prompt and before the
      push, reject when the selected chat `isColdChat`.
 
-### 5.3 7c-2 (later, own gate): recovery of chats already hit before 7b
+### 5.3 7c-2 plan (revision 7, 2026-09-21; gated, ledger 44/45; live check ledger 46): recovery of chats already hit before 7b
 
-- These chats show the old `[Cold storage data could not be loaded. Key: ...]` text as
-  `message[0]`, and 7a keeps their blobs.
-- A Retry button in the `{:else}` path (R8) reads the key with the 7c-1 reader.
-  - `ok`: restore. The messages become the restored ones plus the messages after the error text,
-    and `hypaV2Data` is kept as it is if there was activity (R5c).
-  - `missing`: show the firm notice.
-  - Refuse while `doingChat` is set or a stream is active, and apply the same character-switch
-    check as 7c-1.
+**Facts** (investigator, 2026-09-21; the Orchestrator verified F4 in source). Line numbers in this
+section refer to `d7667d80`, before 7c-2 shifted them.
+
+- **F1. The blob.** A per-chat cold blob holds exactly five fields: `message`, `hypaV2Data`,
+  `hypaV3Data`, `scriptstate` and `localLore` (`coldstorage.svelte.ts:831-837`).
+  - Making a chat cold replaces `message` with the one-element pointer and resets the other four
+    to empty: `{chunks:[],mainChunks:[],lastMainChunkID:0}`, `{summaries:[]}`, `{}` and `[]`
+    (`:853-867`).
+  - Every other `Chat` field (`note`, `supaMemoryData`, `fmIndex`, `lastMemory` and the rest)
+    never enters the blob.
+- **F2. What the old code wrote.** Before 7b, a failed read set
+  `chat.message = [{time: Date.now(), data: <error text>, role:'char'}]` and `lastDate`, and
+  touched nothing else. Upstream `main` behaves the same way.
+  - So the four side fields on such a chat start in the empty reset state.
+  - Anything non-empty in them now came from the user chatting *after* the error.
+- **F3. Sending still works.** `isColdChat` does not match the error text, so the user can keep
+  chatting after it. Later messages pile up after `message[0]`.
+  - The chat screen has no special case for it: the error text renders as an ordinary `char`
+    bubble in the `{:else}` path (`DefaultChatScreen.svelte:849-873`).
+- **F4. A pre-existing loss path (verified).**
+  - `makeColdDataForChat` skips a chat only when `message[0]` starts with the cold header
+    (`:806`), and the error text does not.
+  - So an error-text chat with at least 4 messages that sits idle past `coldTime` gets made cold
+    **again** under a new key. The error text is then buried inside the new blob.
+  - `message[0]` becomes the new pointer, so neither `listColdDataKeysFromDb` nor
+    `listRecoverableErrorKeysFromDb` sees the **original** key any more.
+    `collectColdCharacterKeysOrAbort` scans nested chats only inside *character*-level blobs.
+  - The next `cleanColdStorage` therefore deletes the original blob, which is the one Retry
+    needs.
+- **F5. After a successful restore.** Nothing references the old key, and cleanup deletes it.
+  That is correct, because the data now lives in the database. No re-pointing is needed.
+
+**Scope:**
+
+1. **Close F4 (folded in, not ticketed).**
+   - `makeColdDataForChat` also returns `false` when
+     `matchColdStorageLoadErrorKey(chat.message?.[0]?.data)` is non-null.
+   - This keeps the original key visible to `listRecoverableErrorKeysFromDb`, so the chat stays
+     retryable.
+   - Once Retry succeeds, `message[0]` is ordinary text and the chat can be made cold normally
+     again.
+   - **Accepted limit:** a chat that was *already* made cold again before this ships is not
+     protected until it is reopened. Opening it restores the new blob, the error text comes back
+     as `message[0]`, and Retry is offered again, if the original blob survived.
+     - Protecting it any earlier would mean reading every per-chat blob during cleanup, which is
+       too costly and too invasive.
+2. **A new function, `retryLegacyColdChatLoad(characterIndex, chatIndex)`,** in
+   `coldstorage.svelte.ts`.
+   - Returns `'none' | 'busy' | 'ok' | 'missing' | 'error'`.
+   - Mirrors `preLoadChat`: it is an extracted seam with no UI in it.
+   - **Before the await:**
+     - resolve the chat;
+     - capture `key = matchColdStorageLoadErrorKey(message[0].data)`, returning `'none'` if
+       there is none;
+     - capture the exact `errorText` and `chaId`;
+     - return `'busy'` if `get(doingChat)` or `chat.isStreaming` is set.
+   - **The read:** `await readColdStorageItem(key)`.
+   - **After the await:**
+     - the selected character's `chaId` must still equal the captured one;
+     - the same `chatIndex` must still have `message[0].data === errorText`;
+     - `doingChat` and `isStreaming` must still be clear.
+
+     If any check fails, return `'none'` or `'busy'` and **mutate nothing**.
+   - **`ok`:** apply the same shape check as `preLoadChat`, where a bad shape gives `'error'`.
+     - **Messages:** `tail = chat.message.slice(1)`, which drops the error text and keeps every
+       later message.
+       - A legacy array blob gives `message = [...blob, ...tail]`.
+       - An object blob gives `message = [...blob.message, ...tail]`.
+     - **Side fields (rev 7, gate finding 2).** Hypa memory links summaries to messages by
+       `chatId` memo, not by index. `startIdx` comes from the last summary's last memo
+       (`hypav3.ts:212-228`, `hypav2.ts:382-396`, verified). So keeping only the live post-error
+       memory would push every restored message before `startIdx`, and it would never be
+       summarized or prompted again. Emptiness is **semantic**, not deep-equal to the reset state.
+       - **hypaV3:**
+         - live `!summaries?.length`: take the blob's data wholesale;
+         - otherwise: `summaries = [...blob.summaries, ...live.summaries]` (memos follow message
+           order), `categories` unioned by id, and every other field kept from live.
+         - Any live summary memo equal to the dropped error message's `chatId` is removed from that
+           summary's `chatMemos` (it got a `chatId` on the first post-error send,
+           `index.svelte.ts:269-272`). Otherwise `cleanOrphanedSummary` (`hypav3.ts:1646`) would
+           delete that summary on the next send.
+       - **hypaV2:** do not concatenate, because numeric `mainChunk` ids would collide. If the blob
+         has `mainChunks`, take the blob's data: the post-error messages then sit after
+         `startIdx`, and the normal loop summarizes them again. Otherwise keep live.
+       - **localLore:** `[...blob, ...live]` (user-written entries, no dedupe).
+       - **scriptstate:** `{...blob, ...live}` (live wins).
+       - **A legacy array blob** leaves all live side fields untouched.
+       - **Accepted limit (post-implementation gate, ledger 45).** The merge protects only the
+         restored messages that the blob's own summaries cover. After the merge, the last summary
+         is a live, post-error one. So restored messages the blob never summarized (all of them, if
+         the blob has `{summaries:[]}` and the live chat has summaries) fall before `startIdx`, and
+         are never summarized or prompted again. hypaV2 has the same limit when the blob has no
+         `mainChunks` but the live chat does. This affects memory context only: no message is lost.
+       - A live summary left with no memos after the strip is dropped.
+     - **Target (gate 4a/4b).** Mutate the chat proxy captured before the `await`, and require
+       `DBState.db.characters[selected].chats[chatIndex] === chat` after it; if a plugin replaced
+       the character, return `'none'`. Compute `tail` after the `await`, from that same object.
+     - Set `lastDate`.
+   - **`missing` / `error`:** mutate nothing.
+3. **UI, in `DefaultChatScreen.svelte`'s `{:else}` path.**
+   - When `matchColdStorageLoadErrorKey(currentChat[0]?.data)` is non-null, show a small notice
+     above `<Chats>` (the chat stays visible and usable) with a **Retry** button. The button is
+     disabled while a retry is pending or `$doingChat` is set.
+   - Results:
+     - `ok`: the notice disappears, because `message[0]` changes;
+     - `missing`: a **new** notice (gate finding 3). It says the earlier messages could not be
+       found and the later messages are unaffected, and does not suggest deleting the chat or
+       restoring a `.bin`. Backups don't carry these blobs, and a restore would replace the
+       post-error messages;
+     - `error` / `busy`: a short "try again later" line;
+     - `'none'`: nothing.
+   - The result is held in component state keyed by `(chaId, errorKey)`, not the optional
+     `chat.id`, so it does not leak to another chat.
+   - The chat container is `flex-col-reverse` (`DefaultChatScreen.svelte:605`), so the notice
+     renders just above the input, below the messages.
+   - **Accepted UX limit:** a restore re-indexes the messages, and message hashes include the index
+     (`Chats.svelte:98`). So an open, unsaved message edit is discarded when Retry succeeds.
+   - New `en` keys, flagged for CHORE-05:
+     - the notice: "This chat's earlier messages failed to load before an update. You can try
+       loading them again."
+     - the button label;
+     - the retry-failed line.
+4. **No change to** `preLoadChat`, `getColdStorageItem`, `isColdChat` (the error-text chat stays
+   sendable, as it is today), `cleanColdStorage`, or the save format.
+
+**Tests** (RED first, extracted seams):
+
+- **RED:**
+  - `makeColdDataForChat` does not make an old-and-long error-text chat cold again;
+  - retry `ok` with an object blob gives the restored messages followed by the tail, and side
+    fields that are empty live values take the blob's;
+  - retry `ok` keeps non-empty live side fields;
+  - retry `ok` with a legacy array blob;
+  - `missing` and `error` return their status and mutate nothing;
+  - `'busy'` when `doingChat` is set, and also when `isStreaming` is set;
+  - a character switch during the read gives `'none'` and no mutation;
+  - `message[0]` changing during the read (a double retry) gives `'none'`;
+  - an `ok` read with a bad shape gives `'error'` and no mutation.
+- **Guards:**
+  - a non-error-text chat gives `'none'`;
+  - a near-miss error text gives `'none'`;
+  - F4 RED: keep the character hot (recent `lastInteraction`), or whole-character cold storage
+    runs first and the test passes for the wrong reason (gate 7).
+- **Added by the gate:**
+  - `'busy'` when `doingChat` turns true during the read;
+  - semantic emptiness: live `{summaries:[]}` with `modalSettings` takes the blob's summaries;
+  - a legacy array blob leaves live side fields untouched;
+  - the tail is kept by identity, `chatId` included;
+  - the hypaV3 merge strips the error message's memo, so no summary becomes orphaned;
+  - a detached proxy, or chats reordered during the read, gives `'none'`.
+  - `makeColdDataForChat` still makes an ordinary old chat cold.
 
 ### 5.4 Dropped, and accepted limits
 
-- **Side-field merges (R2b-d)** are dropped.
+- **Side-field merges (R2b-d) for pointer chats** are dropped. (7c-2's merge in §5.3 applies only
+  to legacy error-text chats.)
   - With the §5.2 item-5 guard, neither the UI nor the plugin `sendChat` can append to a pointer
     chat any more.
   - **Accepted limit (gate finding 9, pre-existing):** a plugin can still write side fields onto
@@ -377,3 +521,9 @@ be tested without a real iframe. If not, record that it wasn't tested.
   miss them (`backuplocal.ts:108`).
 - `drive.ts:312` sync is incomplete on a failed read.
 - Exports of a still-cold chat export only the pointer.
+- `.bin` backups do not carry the blobs of legacy error-text chats: `collectColdStorageBackupPayloads`
+  uses `listColdDataKeys` only (`coldstorage.svelte.ts:676`). Found by the 7c-2 gate (ledger 44).
+- Restore, then cleanup, while saves are failing (for example with the quota full), loses the blob
+  on reload. Cleanup reads the live database (`:577-581`). `preLoadChat`'s `ok` path has the same
+  window, and 7c-2's Retry inherits it. Fixing it would mean refusing cleanup while unsaved changes
+  exist. Found by the 7c-2 gate (ledger 44).
