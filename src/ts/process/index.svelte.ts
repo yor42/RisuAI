@@ -33,6 +33,7 @@ import { hypaMemoryV3 } from "./memory/hypav3";
 import { getModuleAssets, getModuleToggles } from "./modules";
 import { readImage } from "../globalApi.svelte";
 import { pluginV2 } from "../plugins/plugins.svelte";
+import { isColdChat } from "./coldstorageData";
 
 export interface OpenAIChat{
     role: 'system'|'user'|'assistant'|'function'
@@ -216,6 +217,18 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             return false
         }
     }
+
+    // CHORE-07 stage 7b: refuse to run against a chat whose first message
+    // is still a live cold-storage pointer -- it has not finished loading
+    // (or a load attempt failed and left the pointer in place), so nothing
+    // in this function has real chat data to work with yet.
+    const guardChar = DBState.db?.characters?.[get(selectedCharID)]
+    const guardChat = guardChar?.chats?.[guardChar.chatPage]
+    if(isColdChat(guardChat)){
+        alertError(language.errors.coldStorageChatStillLoading)
+        return false
+    }
+
     doingChat.set(true)
 
     if(chatProcessIndex === -1 && DBState.db.presetChain){

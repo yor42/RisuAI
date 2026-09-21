@@ -494,6 +494,7 @@ import {
     collectColdStorageBackupPayloads,
     coldStorageHeader,
 } from '../coldstorage.svelte'
+import { isColdChat, formatColdStorageLoadError } from '../coldstorageData'
 import { sweepTauriAssets, sweepForageAssetKey } from '../../storage/assetSweep'
 import { readDir, remove, BaseDirectory } from '@tauri-apps/plugin-fs'
 import { DBState } from '../../stores.svelte'
@@ -799,7 +800,7 @@ describe('CHORE-07 stage 7a: boot-time asset sweep must skip on an incomplete co
 })
 
 describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recoverable blobs', () => {
-    test('a7 RED: cleanColdStorage must keep a blob referenced only by an error-text message[0], with later messages too', async () => {
+    test('a7 / C3 CHAR: cleanColdStorage must keep a blob referenced only by an error-text message[0], with later messages too', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -814,20 +815,25 @@ describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recover
         const writeOk = await setColdStorageItem(MAIN_KEY, coldPayload)
         expect(writeOk).toBe(true)
 
+        // A chat that already holds the pre-7b error text -- this is the
+        // shape a chat is left in on an install that hit a failed cold read
+        // before CHORE-07 stage 7b shipped. Built directly with
+        // `formatColdStorageLoadError` rather than by driving the real
+        // `preLoadChat` under a simulated failure: as of stage 7b,
+        // `preLoadChat` no longer writes this text on a failed read (see the
+        // R1-R5 group below), so it can no longer produce this fixture
+        // itself. The old version of this test's assertion that
+        // `preLoadChat` wrote this exact text is now covered by R1 (which
+        // asserts the opposite -- stage 7b leaves the pointer untouched).
         DBState.db = makeDb([{
             chaId: 'a7-char',
             name: 'A7 Character',
             type: 'character',
             chatPage: 0,
-            chats: [makeColdChat('a7-chat-0', MAIN_KEY)],
+            chats: [makeErrorTextChat('a7-chat-0', MAIN_KEY)],
         } as unknown as CharacterFixture])
 
-        // The REAL preLoadChat corrupts the pointer on a transient read
-        // failure -- the error write in `preLoadChat`.
-        armTransientOpfsFailure(MAIN_KEY)
-        await preLoadChat(0, 0)
         const chat = DBState.db.characters[0].chats[0] as unknown as { message: { data: string }[] }
-        expect(chat.message[0].data).toBe(`[Cold storage data could not be loaded. Key: ${MAIN_KEY}]`)
 
         // The user kept chatting after the error -- push further messages, as
         // §2.2b requires this fixture to cover.
@@ -1198,5 +1204,347 @@ describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recover
         // backups untouched.
         expect(allSeenKeys.has(ERROR_KEY)).toBe(false)
         expect(allSeenKeys.has(REAL_KEY)).toBe(true)
+    })
+})
+
+/**
+ * CHORE-07 stage 7b -- "preLoadChat must never destroy data on a failed or
+ * unusable read, and must never reject". Agents/Reports/13-chore07-cold-read-failure-plan.md
+ * §3.
+ *
+ * R1-R5 are RED-first against pre-7b (65c90d7f): `preLoadChat` had no return
+ * value there (always resolved `undefined`) and, on a falsy/invalid read,
+ * overwrote `chat.message` with `formatColdStorageLoadError(key)` --
+ * exactly the destructive behaviour this group exists to remove. Their
+ * failing output against the pre-fix source is recorded in this round's
+ * handoff, not in this file's git history (this file is committed together
+ * with the fix). C1/C2 are CHARACTERISATION: they assert only the
+ * message/side-field restore behaviour that was already correct on pre-7b
+ * (65c90d7f) and must stay correct after the fix, so they deliberately do
+ * NOT assert on `preLoadChat`'s return value (that value did not exist yet
+ * on pre-7b (65c90d7f)).
+ * a7 above was re-fixtured into a C3-equivalent CHAR test for the same
+ * reason -- see its own comment.
+ */
+describe('CHORE-07 stage 7b: preLoadChat must not reject and must not mutate a chat on a failed/invalid read', () => {
+    test('R1 RED: a transient OPFS read failure leaves the chat untouched and resolves "error"', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'r1-cold-key'
+        await setColdStorageItem(coldKey, {
+            message: [{ time: 1, data: 'archived', role: 'user' }],
+            hypaV2Data: { chunks: [], mainChunks: [], lastMainChunkID: 0 },
+            hypaV3Data: { summaries: [] },
+            scriptstate: {},
+            localLore: [],
+        })
+
+        DBState.db = makeDb([{
+            chaId: 'r1-char',
+            name: 'R1 Character',
+            type: 'character',
+            chatPage: 0,
+            chats: [makeColdChat('r1-chat-0', coldKey)],
+        } as unknown as CharacterFixture])
+
+        const chat = DBState.db.characters[0].chats[0] as unknown as {
+            message: { data: string }[]
+            hypaV2Data?: unknown
+            hypaV3Data?: unknown
+            scriptstate?: unknown
+            localLore?: unknown
+            lastDate?: number
+        }
+        const messageBefore = JSON.parse(JSON.stringify(chat.message))
+        const hypaV2Before = chat.hypaV2Data
+        const hypaV3Before = chat.hypaV3Data
+        const scriptstateBefore = chat.scriptstate
+        const localLoreBefore = chat.localLore
+        const lastDateBefore = chat.lastDate
+
+        armTransientOpfsFailure(coldKey)
+        const result = await preLoadChat(0, 0)
+
+        // RED: on pre-7b (65c90d7f) this resolves `undefined` (no return
+        // value at all) and has already overwritten `chat.message` with the
+        // error text by the time this assertion runs.
+        expect(result).toBe('error')
+        expect(chat.message).toEqual(messageBefore)
+        expect(chat.hypaV2Data).toBe(hypaV2Before)
+        expect(chat.hypaV3Data).toBe(hypaV3Before)
+        expect(chat.scriptstate).toBe(scriptstateBefore)
+        expect(chat.localLore).toBe(localLoreBefore)
+        expect(chat.lastDate).toBe(lastDateBefore)
+    })
+
+    test('R2a RED: a blob shaped {message: string} resolves "error" with no mutation', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'r2a-string-message-key'
+        await setColdStorageItem(coldKey, { message: 'not-an-array' })
+
+        DBState.db = makeDb([{
+            chaId: 'r2a-char',
+            name: 'R2a Character',
+            type: 'character',
+            chatPage: 0,
+            chats: [makeColdChat('r2a-chat-0', coldKey)],
+        } as unknown as CharacterFixture])
+
+        const chat = DBState.db.characters[0].chats[0] as unknown as { message: { data: string }[] }
+        const messageBefore = JSON.parse(JSON.stringify(chat.message))
+
+        const result = await preLoadChat(0, 0)
+
+        expect(result).toBe('error')
+        expect(chat.message).toEqual(messageBefore)
+    })
+
+    test('R2b RED: a blob shaped {character: {...}} (no message array) resolves "error" with no mutation', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'r2b-character-only-key'
+        await setColdStorageItem(coldKey, {
+            character: { chaId: 'r2b-someone', name: 'r2b', type: 'character', chatPage: 0, chats: [] },
+        })
+
+        DBState.db = makeDb([{
+            chaId: 'r2b-char',
+            name: 'R2b Character',
+            type: 'character',
+            chatPage: 0,
+            chats: [makeColdChat('r2b-chat-0', coldKey)],
+        } as unknown as CharacterFixture])
+
+        const chat = DBState.db.characters[0].chats[0] as unknown as { message: { data: string }[] }
+        const messageBefore = JSON.parse(JSON.stringify(chat.message))
+
+        const result = await preLoadChat(0, 0)
+
+        expect(result).toBe('error')
+        expect(chat.message).toEqual(messageBefore)
+    })
+
+    test('R3 RED: an account-branch fetch throw resolves "error" instead of rejecting, with no mutation', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+        fetchProtectedResourceMock.mockClear()
+        forageStorage.isAccount = true
+        try {
+            const coldKey = 'r3-cold-key'
+            DBState.db = makeDb([{
+                chaId: 'r3-char',
+                name: 'R3 Character',
+                type: 'character',
+                chatPage: 0,
+                chats: [makeColdChat('r3-chat-0', coldKey)],
+            } as unknown as CharacterFixture])
+
+            const chat = DBState.db.characters[0].chats[0] as unknown as { message: { data: string }[] }
+            const messageBefore = JSON.parse(JSON.stringify(chat.message))
+
+            fetchProtectedResourceMock.mockRejectedValueOnce(new Error('simulated account cold-storage fetch failure'))
+
+            // RED: on pre-7b (65c90d7f), getColdStorageItem's account branch
+            // has no try/catch of its own, so this throw propagated straight
+            // out of preLoadChat as a rejection instead of resolving "error".
+            const result = await preLoadChat(0, 0)
+
+            expect(result).toBe('error')
+            expect(chat.message).toEqual(messageBefore)
+        } finally {
+            forageStorage.isAccount = false
+        }
+    })
+
+    test('R4 RED: a pointer replaced during the read is left as the newer value, resolving "none"', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'r4-cold-key'
+        await setColdStorageItem(coldKey, {
+            message: [{ time: 1, data: 'archived', role: 'user' }],
+            hypaV2Data: { chunks: [], mainChunks: [], lastMainChunkID: 0 },
+            hypaV3Data: { summaries: [] },
+            scriptstate: {},
+            localLore: [],
+        })
+
+        DBState.db = makeDb([{
+            chaId: 'r4-char',
+            name: 'R4 Character',
+            type: 'character',
+            chatPage: 0,
+            chats: [makeColdChat('r4-chat-0', coldKey)],
+        } as unknown as CharacterFixture])
+
+        const chat = DBState.db.characters[0].chats[0] as unknown as { message: { time: number, data: string, role: string }[] }
+
+        const resultPromise = preLoadChat(0, 0)
+        // Synchronously, before any microtask from the read runs, the chat
+        // pointer was replaced -- e.g. the user switched away and a new
+        // chat/message took over message[0].
+        chat.message = [{ time: 999, data: 'a brand new user message', role: 'user' }]
+
+        const result = await resultPromise
+
+        // RED: on pre-7b (65c90d7f) this branch does not exist -- the real
+        // read (once it resolves) unconditionally overwrites `chat.message`
+        // again, clobbering the replacement.
+        expect(result).toBe('none')
+        expect(chat.message).toEqual([{ time: 999, data: 'a brand new user message', role: 'user' }])
+    })
+
+    test('R5 RED: a message pushed during the read is preserved after the restored messages', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'r5-cold-key'
+        await setColdStorageItem(coldKey, {
+            message: [{ time: 1, data: 'archived', role: 'user' }],
+            hypaV2Data: { chunks: [], mainChunks: [], lastMainChunkID: 0 },
+            hypaV3Data: { summaries: [] },
+            scriptstate: {},
+            localLore: [],
+        })
+
+        DBState.db = makeDb([{
+            chaId: 'r5-char',
+            name: 'R5 Character',
+            type: 'character',
+            chatPage: 0,
+            chats: [makeColdChat('r5-chat-0', coldKey)],
+        } as unknown as CharacterFixture])
+
+        const chat = DBState.db.characters[0].chats[0] as unknown as { message: { time: number, data: string, role: string }[] }
+
+        const resultPromise = preLoadChat(0, 0)
+        // Synchronously, before the read settles, the user (or a
+        // trigger/plugin) appended a message into this still-pointer chat.
+        chat.message.push({ time: 2, data: 'sent while still loading', role: 'user' })
+
+        const result = await resultPromise
+
+        // RED: on pre-7b (65c90d7f), the restored array replaces
+        // `chat.message` wholesale with no `.slice(1)` tail, so the pushed
+        // message is silently lost.
+        expect(result).toBe('ok')
+        expect(chat.message).toEqual([
+            { time: 1, data: 'archived', role: 'user' },
+            { time: 2, data: 'sent while still loading', role: 'user' },
+        ])
+    })
+
+    test('C1 CHAR: a legacy array cold blob restores messages only, leaving side fields untouched', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'c1-cold-key'
+        const legacyMessages = [{ time: 1, data: 'legacy restored message', role: 'user' }]
+        await setColdStorageItem(coldKey, legacyMessages)
+
+        DBState.db = makeDb([{
+            chaId: 'c1-char',
+            name: 'C1 Character',
+            type: 'character',
+            chatPage: 0,
+            chats: [{
+                ...makeColdChat('c1-chat-0', coldKey),
+                hypaV2Data: { chunks: [], mainChunks: [], lastMainChunkID: 0 },
+            }],
+        } as unknown as CharacterFixture])
+
+        const chat = DBState.db.characters[0].chats[0] as unknown as {
+            message: unknown[]
+            hypaV2Data: unknown
+            lastDate?: number
+        }
+        const hypaV2Before = chat.hypaV2Data
+
+        await preLoadChat(0, 0)
+
+        // CHAR: unchanged before and after the fix -- a legacy array blob
+        // has always replaced only `chat.message` (plus `lastDate`), never
+        // touching hypaV2Data/hypaV3Data/scriptstate/localLore.
+        expect(chat.message).toEqual(legacyMessages)
+        expect(chat.hypaV2Data).toBe(hypaV2Before)
+        expect(typeof chat.lastDate).toBe('number')
+    })
+
+    test('C2 CHAR: an object cold blob restores messages and every side field', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+
+        const coldKey = 'c2-cold-key'
+        const payload = {
+            message: [{ time: 1, data: 'restored', role: 'user' }],
+            hypaV2Data: { chunks: [], mainChunks: [], lastMainChunkID: 5 },
+            hypaV3Data: { summaries: ['s'] },
+            scriptstate: { flag: true },
+            localLore: [{ key: 'k', value: 'v' }],
+        }
+        await setColdStorageItem(coldKey, payload)
+
+        DBState.db = makeDb([{
+            chaId: 'c2-char',
+            name: 'C2 Character',
+            type: 'character',
+            chatPage: 0,
+            chats: [makeColdChat('c2-chat-0', coldKey)],
+        } as unknown as CharacterFixture])
+
+        const chat = DBState.db.characters[0].chats[0] as unknown as {
+            message: unknown[]
+            hypaV2Data: unknown
+            hypaV3Data: unknown
+            scriptstate: unknown
+            localLore: unknown
+            lastDate?: number
+        }
+
+        await preLoadChat(0, 0)
+
+        // CHAR: unchanged before and after the fix -- an object blob has
+        // always restored messages plus every side field.
+        expect(chat.message).toEqual(payload.message)
+        expect(chat.hypaV2Data).toEqual(payload.hypaV2Data)
+        expect(chat.hypaV3Data).toEqual(payload.hypaV3Data)
+        expect(chat.scriptstate).toEqual(payload.scriptstate)
+        expect(chat.localLore).toEqual(payload.localLore)
+        expect(typeof chat.lastDate).toBe('number')
+    })
+})
+
+/**
+ * CHORE-07 stage 7b -- `isColdChat` is a brand-new, pure helper
+ * (`coldstorageData.ts`). It did not exist on pre-7b (65c90d7f) at all, so
+ * these cases are RED for the structural reason the task's protocol allows
+ * citing instead of a run-time assertion failure: on pre-7b (65c90d7f),
+ * `import { isColdChat } from '../coldstorageData'` resolves to `undefined`
+ * (no such export), so calling it throws `TypeError: isColdChat is not a
+ * function` rather than failing a behavioural assertion. That import error
+ * is this group's red-before-green evidence.
+ */
+describe('CHORE-07 stage 7b: isColdChat', () => {
+    test('RED: true for a chat whose first message is a live cold-storage pointer', () => {
+        const chat = makeColdChat('ic-1', 'ic-key')
+        expect(isColdChat(chat as never)).toBe(true)
+    })
+
+    test('RED: false for a chat with ordinary text', () => {
+        expect(isColdChat({ message: [{ data: 'hello', role: 'user' }] } as never)).toBe(false)
+    })
+
+    test('RED: false for a chat holding the (pre-7b) error text', () => {
+        expect(isColdChat({ message: [{ data: formatColdStorageLoadError('ic-key'), role: 'char' }] } as never)).toBe(false)
+    })
+
+    test('RED: false for an empty or missing chat', () => {
+        expect(isColdChat(undefined)).toBe(false)
+        expect(isColdChat(null)).toBe(false)
+        expect(isColdChat({ message: [] } as never)).toBe(false)
     })
 })

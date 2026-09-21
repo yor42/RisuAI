@@ -15,7 +15,7 @@ import { fetchProtectedResource } from "../sionyw"
 import { alertClear, alertConfirm, alertError, alertWait } from "../alert"
 import { language } from "src/lang"
 import type { Database, character } from "../storage/database.svelte"
-import { coldStorageHeader, getColdStorageAffectedCharacters, getColdStorageBackupName, isColdStorageBackupData, listColdDataKeysFromDb, listRecoverableErrorKeysFromDb, formatColdStorageLoadError, matchColdStorageLoadErrorKey } from "./coldstorageData"
+import { coldStorageHeader, getColdStorageAffectedCharacters, getColdStorageBackupName, isColdStorageBackupData, listColdDataKeysFromDb, listRecoverableErrorKeysFromDb, matchColdStorageLoadErrorKey } from "./coldstorageData"
 
 export {
     coldStorageHeader,
@@ -733,42 +733,89 @@ export async function makeColdData(){
     alertClear()
 }
 
-export async function preLoadChat(characterIndex:number, chatIndex:number){
-    const chat = DBState.db?.characters?.[characterIndex]?.chats?.[chatIndex]   
+/**
+ * `preLoadChat`'s outcome:
+ *   - `'none'`  -- the chat wasn't found, or its first message isn't a live
+ *                  cold-storage pointer (nothing to do). Also used when the
+ *                  pointer was replaced by something else while the read
+ *                  was in flight (see the R4 case below) -- by the time the
+ *                  read finishes, this chat is no longer a cold chat.
+ *   - `'ok'`    -- the read succeeded and the chat's messages/side fields
+ *                  were restored.
+ *   - `'error'` -- the read threw, or returned data in a shape we don't
+ *                  recognize (CHORE-07 stage 7b: unlike the pre-7b
+ *                  behaviour, this never mutates `chat.message` and never
+ *                  rejects the returned promise -- the pointer is left in
+ *                  place so the read can simply be retried by reopening the
+ *                  chat).
+ */
+export type PreLoadChatResult = 'none' | 'ok' | 'error'
+
+export async function preLoadChat(characterIndex:number, chatIndex:number): Promise<PreLoadChatResult> {
+    const chat = DBState.db?.characters?.[characterIndex]?.chats?.[chatIndex]
 
     if(!chat){
-        return
+        return 'none'
     }
 
-    if(chat.message?.[0]?.data?.startsWith(coldStorageHeader)){
-        //bring back from cold storage
-        const coldDataKey = chat.message[0].data.slice(coldStorageHeader.length)
-        const coldData = await getColdStorageItem(coldDataKey)
-        if(coldData && Array.isArray(coldData)){
-            chat.message = coldData
-            chat.lastDate = Date.now()
-        }
-        else if(coldData?.message){
-            chat.message = coldData.message
-            chat.hypaV2Data = coldData.hypaV2Data
-            chat.hypaV3Data = coldData.hypaV3Data
-            chat.scriptstate = coldData.scriptstate
-            chat.localLore = coldData.localLore
-            chat.lastDate = Date.now()
-        }
-        else{
-            // Cold storage data is missing or corrupted.
-            // Replace with an error message so the user knows what happened
-            // instead of silently showing a broken pointer.
-            console.error(`Cold storage data not found for key: ${coldDataKey}`)
-            chat.message = [{
-                time: Date.now(),
-                data: formatColdStorageLoadError(coldDataKey),
-                role: 'char'
-            }]
-            chat.lastDate = Date.now()
-            return
-        }
+    // Capture the pointer string up front -- the chat proxy itself may be
+    // mutated (or entirely replaced) while we `await` below.
+    const pointer = chat.message?.[0]?.data
+    if(typeof pointer !== 'string' || !pointer.startsWith(coldStorageHeader)){
+        return 'none'
+    }
+    const coldDataKey = pointer.slice(coldStorageHeader.length)
+
+    let coldData: unknown
+    try {
+        coldData = await getColdStorageItem(coldDataKey)
+    }
+    catch(error){
+        console.error(`Cold storage read failed for key: ${coldDataKey}`, error)
+        return 'error'
     }
 
+    const isLegacyArray = Array.isArray(coldData)
+    const isObjectBlob = !!coldData
+        && typeof coldData === 'object'
+        && Array.isArray((coldData as {message?:unknown}).message)
+
+    if(!isLegacyArray && !isObjectBlob){
+        // Cold storage data is missing or corrupted. Leave the pointer in
+        // place (no mutation) so a later retry -- e.g. reopening the chat --
+        // can still recover it if the failure was transient.
+        console.error(`Cold storage data not found or invalid for key: ${coldDataKey}`)
+        return 'error'
+    }
+
+    // The chat may have moved on entirely while we were awaiting the read
+    // (the user switched chats, or something else replaced message[0]) --
+    // only apply the restored data if it is still the same live pointer.
+    if(chat.message?.[0]?.data !== pointer){
+        return 'none'
+    }
+
+    // Keep anything appended to the chat while the read was in flight.
+    const tail = chat.message.slice(1)
+
+    if(isLegacyArray){
+        chat.message = [...(coldData as typeof chat.message), ...tail]
+    }
+    else{
+        const blob = coldData as {
+            message: typeof chat.message
+            hypaV2Data?: typeof chat.hypaV2Data
+            hypaV3Data?: typeof chat.hypaV3Data
+            scriptstate?: typeof chat.scriptstate
+            localLore?: typeof chat.localLore
+        }
+        chat.message = [...blob.message, ...tail]
+        chat.hypaV2Data = blob.hypaV2Data
+        chat.hypaV3Data = blob.hypaV3Data
+        chat.scriptstate = blob.scriptstate
+        chat.localLore = blob.localLore
+    }
+    chat.lastDate = Date.now()
+
+    return 'ok'
 }

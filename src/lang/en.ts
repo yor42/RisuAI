@@ -40,6 +40,9 @@ export const languageEnglish = {
         coldStorageCleanupAborted: (characterNames: string) =>
             `Cold storage cleanup was aborted: the cold storage data for ${characterNames || "an unknown character"} could not be verified, so nothing was deleted.`,
         coldStorageCleanupFailed: "Cold storage cleanup failed partway through. Some unused items may not have been removed; nothing else was affected.",
+        coldStorageChatStillLoading: "This chat hasn't loaded from cold storage yet (it is still loading, or loading failed — see the notice in the chat). Sending is disabled until it loads.",
+        coldStorageChatLoadFailed: (coldDataKey: string) =>
+            `This chat's stored data could not be loaded (key: ${coldDataKey}). It may be a temporary problem — try switching chats or restarting. If it keeps failing, the data may be lost and you can delete this chat. Until then, don't run "clean cold storage".`,
     },
     showHelp: "Show Help",
     help: {

@@ -28,6 +28,7 @@
     import { getInlayAsset } from 'src/ts/process/files/inlays';
     import { ConnectionOpenStore } from 'src/ts/sync/multiuser';
     import { coldStorageHeader, preLoadChat } from 'src/ts/process/coldstorage.svelte';
+    import { isColdChat } from 'src/ts/process/coldstorageData';
     import Chats from './Chats.svelte';
     import Button from '../UI/GUI/Button.svelte';
     import PluginDefinedIcon from '../Others/PluginDefinedIcon.svelte';
@@ -160,6 +161,20 @@
     }
 
     async function sendMain(continueResponse:boolean) {
+        // CHORE-07 stage 7b: refuse to run against a chat whose first
+        // message is still a live cold-storage pointer -- checked before
+        // processMultiCommand so /cut, /del, /multisend etc. can't mutate a
+        // chat that hasn't finished loading. Deliberately does not clear
+        // messageInput, unlike the empty-command-processed path below.
+        {
+            const guardChar = DBState.db.characters[$selectedCharID]
+            const guardChat = guardChar?.chats?.[guardChar.chatPage]
+            if(isColdChat(guardChat)){
+                alertError(language.errors.coldStorageChatStillLoading)
+                return
+            }
+        }
+
         let selectedChar = $selectedCharID
         if($doingChat){
             return
@@ -819,7 +834,13 @@
                         {language.loadingChatData}
                     </div>
                 {:then a}
-                    <div></div>
+                    {#if a === 'error'}
+                        <div class="w-full flex justify-center text-textcolor2 italic mb-12">
+                            {language.errors.coldStorageChatLoadFailed(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[0]?.data?.slice(coldStorageHeader.length) ?? '')}
+                        </div>
+                    {:else}
+                        <div></div>
+                    {/if}
                 {/await}
             {:else}
 
