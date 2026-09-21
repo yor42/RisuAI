@@ -190,12 +190,16 @@ This phase is the load-bearing one: it's what Phase 4 (Android) is gated behind,
 
    - **Stage A — narrow the GUI-side dependency tracking. ✅ DONE (`f4867e63`, 2026-09-21).** The `$effect` driving `moduleUpdate()` (`stores.svelte.ts:197`) deep-cloned the whole modules array on every keystroke via `$state.snapshot()` purely to register dependencies. Replaced with `trackModuleUpdateDeps()` (`src/ts/process/moduleUpdateDeps.ts`), reading only the four fields `moduleUpdate()` consumes. Measured 58.35 ms → 29.21 ms per keystroke (2.00x) on the 52-module fixture. Red-before-green tests plus a live-app verification that `hideIcon`/`backgroundEmbedding` still re-run the effect and `name` no longer does.
 
-   - **Stage B — give the editor a real local draft copy**, committing to `db.modules` only on explicit save. NOT started; needs its own plan gate and `opus-reviewer` (persistence-adjacent). Traps documented in the plan: commit by `findIndex(id)` not stored index (`ModuleSettings.svelte:192`); the eager push at `:157` exists to prevent a prior double-insert bug and its explanatory comment at `:181-184` must be rewritten, not orphaned; `refreshModules()` must be called at commit because `getModules()` caches on the enabled-id string and `lastModuleData` holds live proxies that a replaced array element would detach (~23 consumers would read stale data); register the draft in `src/ts/localDrafts.ts` or it reintroduces the data loss fixed in `ae167294`; deep-copy the whole object rather than enumerating fields.
+   - **Stage B — partition the persistence-side dirty-tracking effect. ✅ DONE (2026-09-21).** Plan and all gate records: [`Reports/11-stage-b-module-effect-partition-plan.md`](Reports/11-stage-b-module-effect-partition-plan.md). `dbChangeEffects.svelte.ts`'s modules effect deep-read the **entire** modules array on every keystroke; it is now an outer effect over array shape plus one child effect per module, so a leaf edit re-reads only that module. **A partition, not a narrowing**: the dependency closure is set-identical, `tracker.modules` stays one boolean, and save behaviour, the save format and upstream compatibility are unchanged. Measured in the live app (module editor open, real input events, i9-13900K, dev build): **52 modules 13.2 → 1.9 ms, 104 modules 25.1 → 1.8 ms, and scaling 52→104 went from 1.9x to 0.95x — cost is now flat in module count.**
 
-   **Sequencing note, recorded because it affects how Stage A should be valued.** Stage B largely *subsumes* Stage A's headline number: once keystrokes mutate a draft instead of `db.modules`, neither per-keystroke effect re-runs at all, so the 2.00x becomes moot for typing specifically. Stage A still earns its place — it shipped first and helps today; it is independent of whether Stage B ever lands (Stage B is the riskier, persistence-adjacent half and could be rejected at its gate); and it permanently removes an unbounded deep clone from a hot effect, which still pays on every *other* path that mutates modules — commit, import, delete, toggle, plugin-driven changes. But do not count the two stages' savings additively.
+     *Originally planned as a local draft copy of the module being edited. That design was rejected at two `opus-reviewer` gates and retired after a `senior-advisor` escalation: moving edits out of `db.modules` created a durability gap that needed four compensating layers (debounced commit, teardown flushes, an awaitable save, a Tauri close hook), and its final revision did not even optimise — committing a `$state` proxy into `db.modules` re-aliases it after the first debounce. The retired plan and its gate records are kept as evidence in [`Reports/10-stage-b-module-draft-copy-plan.md`](Reports/10-stage-b-module-draft-copy-plan.md).*
 
-   **Neither stage meets the 16.7 ms frame budget, and Stage A alone cannot.** The second per-keystroke snapshot, at `dbChangeEffects.svelte.ts:34`, is deliberately untouched: it sets `tracker.modules` and gates whether the modules block is re-encoded at all (`risuSave.ts:328`), so a missed mutation there is never written to disk rather than merely written late. At 29.18 ms it exceeds the whole frame budget by itself. Only Stage B removes it from the typing path — by not mutating `db.modules` at all, rather than by narrowing it.
+   **Sequencing note — Stages A and B are complementary, and both are load-bearing.** Stage A removed the whole-array snapshot from the *GUI-side* effect (`stores.svelte.ts:197`); Stage B partitioned the *persistence-side* one (`dbChangeEffects.svelte.ts`). The partition still mutates `db.modules` on every keystroke, so Stage A's narrowed effect still runs and still matters: **the measured 1.9 ms depends on both.** *Correction:* an earlier version of this note said Stage B would largely subsume Stage A's win. That was true only of the retired draft-copy design, which would have stopped mutating `db.modules` altogether; it is not true of the partition that shipped.
+
+   **Frame budget — met on a high-end desktop, not claimed elsewhere.** After both stages a keystroke costs ~1.9 ms at 52 or 104 modules on an i9-13900K (about 11% of the 16.7 ms budget), and it no longer grows with module count. The speedup ratio and the flat scaling are hardware-independent, because they come from doing less work. The absolute figures are not: **Raspberry Pi and mobile are unmeasured and no budget claim is made for them.** Asset-heavy modules (5,000+ asset references) still exceed the budget by themselves *while that module is being edited* — snapshot cost tracks node count, not bytes — though they no longer tax keystrokes in every other module. `dbChangeEffects.svelte.ts` must still never be *narrowed*: `tracker.modules` gates whether the modules block is encoded at all (`risuSave.ts:328`), so a missed mutation is never written to disk.
 2. **Narrow the `saveDb()` change-tracking effects** (`globalApi.svelte.ts:350-403`) so they stop `$state.snapshot()`-ing broad subtrees just to detect "something changed." Replace deep-clone-based dirty detection with explicit dirty-marking at actual mutation call sites, or watch only shallow identity/length/timestamp signals. **Note (corrected):** this specific effect already excludes `modules`/`botPresets`/`loadouts`/`plugins`/`pluginCustomStorage` — it's the hot path for *character-field and chat-message* edits specifically, item 1 above is the hot path for module edits. Both need fixing; they're independent, not the same effect. *(Report 01, recommendation 2 — Medium-High effort.)*
+
+   **⚠ Caution added 2026-09-21 — do not implement the "shallow identity/length/timestamp" option above as written.** That is *narrowing*, and Stage B established that narrowing this effect family loses writes: `tracker` flags gate whether a block is encoded at all, so a missed mutation is never written rather than written late (the `:19-24` presets comment in `dbChangeEffects.svelte.ts` records a real data-loss bug from exactly this, `8bc0f426`). The technique that worked for modules is **partitioning** — same dependency closure, sliced across per-element effects — and it is the natural candidate here too. Note this is also the effect containing CHORE-01's non-selected-character gap, so the two should be planned together.
 3. **Add real virtual scrolling to the chat message list** (`DefaultChatScreen.svelte`), keeping the existing incremental-load-on-scroll-up behavior for fetching history but unmounting off-screen messages so peak DOM/component count is bounded. This is the most Android-relevant fix in the whole roadmap. *(Report 01, recommendation 4 — Medium-High effort.)*
 4. **Extend cold storage to size-based (not just idle-time-based) compaction**, so very long *active* chats also get relief, reducing the size of whatever remains to be cloned/stringified by items 1-2. **Note (corrected):** cold storage already offloads old, stale chats belonging to an active character today — this item specifically targets the gap that remains: a chat that's long but still *recent* (not idle 10+ days), which today gets no relief regardless of size. *(Report 01, recommendation 5 — Low-Medium effort.)*
 5. **(Architectural, largest item — stage last, after 1-4 prove the pattern) Split `DBState.db.characters` into per-character reactive slices** so only the active character is a "hot" proxy and editing one character cannot force reactivity traversal touching others. Large surface area — every read/write site of `DBState.db.characters[i]` across `src/ts` and `src/lib` — should be scoped deliberately and probably split into its own sub-project once items 1-4 are proven. *(Report 01, recommendation 3 — High effort.)*
@@ -236,6 +240,206 @@ Once Phase 2 has landed:
 7. **[from round 2] Introduce an `isDesktop` (`isTauri && !isMobile`) flag in `src/ts/platform.ts`** and switch the four confirmed `isTauri`-conflated-with-desktop call sites to it: window maximize/fullscreen and the update-checker in `bootstrap.ts`'s startup path, and MCP's stdio transport (arbitrary local-process spawning, fundamentally incompatible with Android's sandbox regardless of gating). Cheap to do now, ahead of when it would otherwise block Android bring-up — could reasonably be pulled forward into Phase 0.5 rather than waiting for this phase, since it doesn't depend on Phase 2. *(Report 04-deepdive, Lead 3 — Low-Medium effort.)* The one-line `#[cfg(desktop)]` compile-blocker fix for the same two plugins at the Rust level is already in Phase 0.5, not repeated here.
 
 ---
+
+## Chores — confirmed bugs found during Stage B, NOT yet scheduled
+
+Found while scoping the module-editor partition (2026-09-21). All three were **verified against
+source**, none is fixed, and none was absorbed into Stage B. Recorded here so they are not lost.
+Evidence and full reasoning: `Agents/Reports/11-stage-b-module-effect-partition-plan.md` section 8.1.
+
+### CHORE-01 — Mutations to a NON-selected character are never marked for save
+
+**Confirmed bug — EMPIRICALLY REPRODUCED, not just source-traced.** Occasional loss, not
+systemic; severity depends on user behaviour. See CHORE-03 for the reproduction.
+
+`dbChangeEffects.svelte.ts:70-86` deep-reads only `DBState.db.characters[selIdState]`, and
+`tracker.character` is written in exactly one place (`:77-78`), gated on that same selection.
+`risuSave.ts:284-308` re-encodes a character only when its `chaId` is in `toSave.character`;
+otherwise the `else if(!this.blocks[character.chaId])` branch reuses the existing block. So a
+mutation to a non-selected character that already has an encoded block is silently never written.
+
+**Two mitigations, both accidents of implementation rather than designed guarantees:**
+- `requiresFullEncoderReload` re-encodes every character (`globalApi.svelte.ts:777-784` ->
+  `risuSave.ts:250-260`). Set at only 4 sites: `characters.ts`, `drive/backuplocal.ts`,
+  `kei/backup.ts`, `process/coldstorage.svelte.ts`.
+- Selecting the character later re-captures the edit, because the effect re-runs on selection
+  change and the edit is still on the live proxy. **So the real failure mode is "never persists
+  unless the user reopens that character before reload/crash/close."**
+
+**Blast radius:** 67 raw candidate writes across 24 files; ~60 resolve to the live selection and
+are not instances. Real non-selected-index writers:
+
+| Writer | Status |
+|---|---|
+| `process/coldstorage.svelte.ts:590-622` compaction sweep | self-mitigated (sets `requiresFullEncoderReload` at `:621`) |
+| `src/lib/Others/GridCatalog.svelte:142-146` restore-from-trash | **UNMITIGATED, real UI action** — see CHORE-03 |
+| `src/ts/plugins/apiV3/v3.svelte.ts:879-885` `setCharacterToIndex` | **UNMITIGATED public plugin API**, zero first-party callers, documented at `plugins/apiV3/risuai.d.ts:1326-1333` |
+| `bootstrap.ts:495-503` legacy `!db.formatversion` migration | narrow, one-time legacy path |
+
+**Fix surface: small but not proven exhaustive.** The defect is centralised in one gating
+condition and one consumer; the ~60 selection-relative writers need no change. What is missing is
+a general "mark this `chaId` dirty" primitive — today the only escape hatch is the blunt
+whole-database `requiresFullEncoderReload`. `toSaveType.character` is already `string[]` of
+arbitrary ids, so **the save format does not block a fix**; the obstacle is that these writers
+have no handle on the tracker instance. Needs its own plan and `opus-reviewer` gate.
+
+**Not settled:** whether real plugins call `setCharacterToIndex` on non-current indices
+(unknowable from this repo; the sanctioned API shape is the relevant fact), whether the
+`bootstrap.ts` legacy migration is still reachable, and MCP/risuaccess write paths were not
+exhaustively swept.
+
+### CHORE-02 — `toSave.chat` is dead plumbing in the encoder
+
+`grep -n "toSave.chat\|RisuSaveType.CHAT" src/ts/storage/risuSave.ts` returns **nothing**. The
+field is populated (`dbChangeEffects.svelte.ts:80-85`) and merged back on failed saves
+(`globalApi.svelte.ts:620-623`), but the encoder never reads it to decide anything — chats persist
+inside the whole-character `CHARACTER_WITH_CHAT` block, gated solely by `toSave.character`.
+
+Consequence: leftover/aspirational plumbing for a per-chat granularity that was never wired up.
+**Useful corollary: a CHORE-01 fix needs no parallel per-chat work.** Decide whether to wire it up
+or delete it; do not leave it looking load-bearing. Low risk either way, but deleting it touches
+`toSaveType`, so treat it as save-adjacent.
+
+### CHORE-03 — Trash: dedicated bug-hunting pass
+
+**Maintainer report: the trash implementation is known to be unstable among the community.** That
+is consistent with what fell out of CHORE-01 without anyone looking for it:
+
+`GridCatalog.svelte:142-146` restore does
+`DBState.db.characters[restoreIdx].trashTime = undefined` with
+`restoreIdx = findCharacterIndexbyId(char.chaId)` — not the selection — then calls
+`checkCharOrder()`, which mutates only `db.characterOrder`. That top-level key IS covered by the
+generic effect loop, so **a save fires** — but this character's `chaId` never enters
+`toSave.character`, so `risuSave.ts:298` reuses the stale block, which still has `trashTime` set.
+
+**Reproduction: restore a character from trash, do not open it, close the app. It is back in the
+trash on next load.**
+
+**EMPIRICALLY REPRODUCED (2026-09-21)**, driving the real `registerDbChangeEffects()` and the real
+`RisuSaveEncoder` / `decodeRisuSave` end to end and inspecting the decoded bytes — not a
+reimplementation of the logic. The agent was briefed that a clean disproof was an acceptable result.
+Orchestrator re-ran it independently and got identical values:
+
+| Step | Observed |
+|---|---|
+| Restore char-B (non-selected) exactly as `GridCatalog.svelte:142-146` does | live `trashTime` -> `undefined`; `markChanged(true)` fires from the `characterOrder` touch |
+| **Is `char-B` in `toSave.character`?** | **`false`** (`["char-A"]` only) |
+| **Decoded `trashTime` after that save** | **`1700000000000` — still trashed. Bug confirmed.** |
+| Then select char-B and save again | decoded `trashTime` -> `undefined` — the mitigation is real |
+
+Reproduce:
+```
+npx vitest run --config Agents/Tools/vitest.harness.config.ts Agents/Tools/save-gen/trash-restore-repro.svelte.harness.ts --reporter=verbose
+```
+
+The harness lives under `Agents/Tools/` as a `*.harness.ts` precisely so that a reproduction of a bug
+we are NOT fixing cannot turn the app suite red. When CHORE-01 is fixed, promote it into a real
+regression test and invert the step-7 expectation.
+
+Finding one concrete data-losing bug in the trash path *incidentally*, while investigating
+something else entirely, plus independent community reports of instability, is good evidence the
+area deserves a hypothesis-free pass of its own rather than one-off fixes. Scope should cover at
+minimum: `trashTime` set/clear paths, `removeChar` (`characters.ts:847`, including its
+`'permanent'` mode), `GridCatalog.svelte`, `checkCharOrder`, interaction with `characterOrder`,
+and what happens to a trashed character's assets and remote blocks.
+
+Relates to the Roadmap's closing "Should there be a Round 3?" question — this is a concrete,
+evidence-backed candidate area, which that note said was the missing ingredient.
+
+### CHORE-04 — Module enable/disable causes a freeze too, by a DIFFERENT mechanism
+
+**Maintainer report:** enabling a module from the chat screen (hamburger -> modules) and from
+Settings -> Modules both freeze. Deserves its own investigation.
+
+**Important: Stage B's partition does NOT fix this.** Stage B removed the per-keystroke cost of
+editing module *content*. Toggling changes `db.enabledModules`, not module content, and the freeze
+appears to come from a full GUI reload rather than from dirty-tracking.
+
+**Grounded hypothesis — NOT verified, test it before acting on it:**
+
+- Toggle in Settings (`ModuleSettings.svelte:83-89`) splices/pushes `db.enabledModules` then
+  self-assigns it.
+- Toggle in the chat menu (`ModuleChatMenu.svelte:98`, `:112`) does the same **and explicitly bumps
+  `$ReloadGUIPointer += 1`.**
+- Either way the enabled-id string changes, so `getModules()`'s cache key changes
+  (`modules.ts:417-419`) and `moduleUpdate()` **also** bumps `ReloadGUIPointer`
+  (`modules.ts:579-582`).
+- `ReloadGUIPointer` drives `{#key $ReloadGUIPointer}` blocks at `Chat.svelte:522` and
+  `BackgroundDom.svelte:15`. A `{#key}` change **destroys and recreates the entire subtree** — i.e.
+  the whole chat message list re-renders.
+
+So the suspected cost is a full chat re-render, possibly bumped **twice** per toggle (once
+explicitly, once from `moduleUpdate`). That would also explain why it is worse with long chats,
+which is a different scaling axis from module count.
+
+**What the investigation should establish first:** measure it before theorising further — the
+campaign's repeated lesson. Is the cost the `{#key}` teardown/rebuild, the module recomputation, or
+both? Is `ReloadGUIPointer` bumped once or twice per toggle? Is a full chat rebuild actually
+necessary for a module toggle, or is it a blunt instrument for a narrower need (background HTML and
+chat-icon changes)? Note `resetScriptCache()` also hangs off this pointer, so it is load-bearing for
+more than rendering — do not assume it can simply be removed.
+
+### CHORE-05 — Translation coverage: much of the UI is English-only
+
+**Maintainer report:** a lot of UI, dialogs and informational text render in English regardless of
+the selected language, which dilutes the localised experience.
+
+**Why missing keys are invisible rather than broken.** `src/lang/index.ts` builds every non-English
+locale as `merge(safeStructuredClone(languageEnglish), languageKorean)` (and likewise for the
+others) — each locale is **deep-merged over English**. A key missing from `ko.ts` therefore does not
+throw or render blank; it **silently renders the English string**. That is exactly the "shows
+English regardless of language" symptom, and it is why drift accumulates unnoticed: nothing fails.
+
+**Measured key drift (2026-09-21).** Read-only diff of the flattened exported key sets of
+`src/lang/*.ts` against `en.ts`, loaded with Node 24's native type stripping (no build, no source
+change). This replaces an earlier line-count estimate.
+
+| Locale | Keys | Missing | Missing % | Missing **and added by this branch** | Present but identical to English |
+|---|---|---|---|---|---|
+| `en` (reference) | 1529 | — | — | — | — |
+| `ko` | 1476 | 53 | 3.5% | 9 | 9 |
+| `zh-Hant` | 1464 | 65 | 4.3% | 9 | 17 |
+| `cn` | 1431 | 98 | 6.4% | 9 | 19 |
+| `de` | 1431 | 98 | 6.4% | 9 | 57 |
+| `vi` | 1431 | 98 | 6.4% | 9 | 29 |
+| `es` | 1430 | 99 | 6.5% | 9 | 35 |
+
+- **20 keys are missing from all six locales**, so they are English for every non-English user.
+- **No locale has orphaned keys** (keys absent from `en.ts`): drift is one-directional.
+- "Identical to English" counts strings that exist in the locale but are byte-identical to English
+  (filtered to alphabetic strings of 4+ letters). This is an **upper bound** on untranslated
+  copy-paste — some are legitimately identical (product names, technical terms). `de` at 57
+  stands out.
+
+**This campaign is itself a source of the drift — recorded plainly.** Comparing today's `en.ts`
+with `origin/main`'s (`git show origin/main:src/lang/en.ts`) shows **this branch added 9 keys, and
+translated none of them into any locale**:
+
+`otherTabSavedTitle`, `otherTabSavedSaveMine`, `otherTabSavedDiscardMine`,
+`otherTabSavedConflictTitle`, `otherTabSavedConflictReload`, `otherTabSavedConflictStay`,
+`savingStoppedStayMessage`, `savingStoppedNodeConflictMessage`,
+`savingStoppedAccountConflictMessage` (introduced in `ee16a995` and `b11ea06a`).
+
+These are the **multi-tab and save-conflict dialogs** — shown precisely when the user's data is at
+risk and they must choose correctly between "save mine" and "discard mine". Every non-English user
+currently gets that decision in English. They account for 9 of the 20 keys missing everywhere; the
+remaining drift (44 `ko` / 56 `zh-Hant` / 89 `cn`,`de`,`vi` / 90 `es`) predates this branch.
+
+**Recommended priority within this chore:** translate those 9 first. It is this campaign's own
+debt, it is small and bounded (9 keys x 6 locales = 54 strings), and it sits on a data-safety
+path. Everything else can follow.
+
+**Two distinct problems — do not conflate them:**
+1. **Key drift** (measured above) — mechanically detectable. A CI check that diffs each locale's
+   key set against `en.ts` would stop new drift, including the kind this campaign just added. The
+   diff above is a ready-made prototype for it.
+2. **Hardcoded English in components** — literals never routed through `language.*` at all.
+   **Not measured yet, and invisible to the diff above**, because they never enter any locale
+   file. Needs a sweep of `src/lib/**/*.svelte` for user-visible string literals. Likely the larger
+   half, and what makes the app feel English-only even where a locale file is complete.
+
+Note `src/lib/Others/Legal.svelte` deliberately carries multi-language text inline and must not be
+"fixed" into a single locale.
 
 ## Sequencing Summary
 

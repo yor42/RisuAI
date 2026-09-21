@@ -55,6 +55,24 @@ proxied data. Observed once under the verbose reporter, passing on clean runs be
 and after. It is a timing flake, not a defect. Rerun, or raise the timeout for that
 case if it becomes persistent.
 
+### Harnesses that mock the app's rune modules: keep them in ONE file
+
+Learned while building `save-gen/trash-restore-repro.svelte.harness.ts` (2026-09-21). The
+`<name>.harness.ts` + `<name>.svelte.ts` split used by the benches works when the rune module only
+defines test-local state. It **breaks** when the `vi.mock(...)` factory for an app module is split
+across files via a dynamic `import()`: the real, unmocked `src/ts/stores.svelte.ts` and
+`src/ts/parser/parser.svelte.ts` then load and fire their own top-level `$effect.root` blocks against
+the thin mocks, producing unhandled exceptions. A single self-contained file avoids it.
+
+Name such a file `<name>.svelte.harness.ts`. It still ends in `.harness.ts`, so `pnpm test`'s
+default glob never matches it, and it carries the `.svelte.` infix that vite-plugin-svelte needs to
+compile runes — the same mechanism that lets `src/ts/storage/tests/dbChangeEffects.svelte.test.ts`
+use `$state`.
+
+Also note these harnesses measure on whatever machine runs them. Campaign measurements to date were
+taken on an i9-13900K; see the Stage B plan (`Agents/Reports/11-...`, section 1.1) before quoting
+any absolute millisecond figure as a user-facing claim.
+
 ## Reference measurements (2026-09-21, this machine)
 
 Module-heavy tier, 52 modules / 7.27 MB, 3 warmup discarded + 15 measured, three
@@ -75,8 +93,15 @@ inflated the headline figure was tested and **disproven**; do not revive it.
 
 **Caveat carried from the measuring session:** these run against a standalone
 `$state({db:...})` container, not the real `DBState` wired into the effect graph. They
-are raw snapshot cost only and exclude the effects' downstream work, so the real
-per-keystroke figure is this **or higher**, never lower.
+are raw snapshot cost only and exclude the effects' downstream work.
+
+**CORRECTION (2026-09-21):** this caveat originally said the real per-keystroke figure is
+"this **or higher**, never lower". Measured in the live app, that is **wrong on engine speed**:
+Chromium ran the same seed-1337 fixture **~2.6x faster** than this Node harness (whole-array
+snapshot 11.3 ms in-browser vs 29.8 ms here), while the downstream effect work it warns about
+turned out to be only ~0.2 ms. The **ratios** between conditions held (~8x whole-array vs
+single-module on both), so these harnesses remain valid for comparing designs — just not for
+absolute frame-budget claims. Full measurement: `Agents/Reports/10-...`, section 10.5f.
 
 ## Stage A after-measurement (2026-09-21, same machine)
 
@@ -117,3 +142,34 @@ Two deviations from the older measurements above, both deliberate:
   defensible.
 
 Same standalone-container caveat as above: raw call cost, real figure is this or higher.
+
+## Stage B after-measurement (2026-09-21) — the per-keystroke cost, resolved
+
+Stage A left the frame-budget problem unsolved, as the section above says. **Stage B solved it**, by
+partitioning the surviving `dbChangeEffects.svelte.ts` modules effect into an outer effect over
+array shape plus one child effect per module — preserving the dependency closure exactly, not
+narrowing it. Plan and gate records: `Agents/Reports/11-stage-b-module-effect-partition-plan.md`.
+
+Measured in the **live app**, not this harness: module editor open, real `input` events, timed to
+forced layout, identical protocol before and after, i9-13900K, dev build.
+
+| Modules | Before | After | Speedup |
+|---|---|---|---|
+| 52 | 13.2 ms | 1.9 ms | 6.9x |
+| 104 | 25.1 ms | 1.8 ms | 13.9x |
+| scaling 52 -> 104 | 1.9x (O(modules)) | **0.95x (flat)** | — |
+
+The flat scaling is the point: cost no longer depends on module count. The ratio and the flatness
+are hardware-independent; the absolute figures are high-end-desktop numbers and are **not** a
+frame-budget claim for Raspberry Pi or mobile.
+
+Benches added for the Stage B decision, all `.harness.ts`:
+- `module-partition-bench` — whole-array vs single-module vs per-element-sum snapshot cost.
+- `module-scaling-bench` (+ `module-scaling-fixture.ts`) — asset-heavy module shapes and 52-vs-104
+  scaling. **Key result: snapshot cost tracks node count, not bytes** — a 1.03 MB asset-shaped
+  module costs ~8x a 1.65 MB cjs-heavy one. The 104 point duplicates the 52-module fixture.
+- `module-effect-overhead-bench` — `$effect` scheduling/teardown overhead of N children vs 1
+  (below measurement noise). Note: it creates children directly in `$effect.root`, not inside a
+  *re-running* parent effect; the real nested path is covered by the app test suite instead.
+- `trash-restore-repro.svelte.harness.ts` — **not a benchmark**: an end-to-end reproduction of
+  the restore-from-trash data-loss bug (Roadmap CHORE-01 / CHORE-03).
