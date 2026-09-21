@@ -52,6 +52,8 @@
     import QuickSettingsGui from "../Others/QuickSettingsGUI.svelte";
     import PluginDefinedIcon from "../Others/PluginDefinedIcon.svelte";
     import { RISU_SIDEBAR_DRAG_TYPE } from "src/ts/dragTypes";
+    import { nearViewport } from "src/ts/gui/nearViewport.svelte";
+    import { SvelteMap } from "svelte/reactivity";
   let sideBarMode = $state(0);
   let editMode = $state(false);
   let menuMode = $state(0);
@@ -71,6 +73,18 @@
   let IconRounded = $state(false)
   let openFolders:string[] = $state([])
   let currentDrag: DragData | null = $state(null)
+  // AV-2: DB character indices (shared by top-level normal items and folder
+  // members -- a given index only ever appears in one place) and folder ids
+  // near the sidebar's own scroll viewport (`:542`), each mapped to its
+  // owning element rather than a plain Set/id. `nearViewport`'s destroy
+  // calls `onChange(false, node)` on every unmount, including a folder
+  // member's when its folder closes -- mapping to the owning element means
+  // that release only clears an index/id if `node` still owns it, so
+  // closing one folder (or a grid/list/trash tab switch that reuses the
+  // same index for a different item) can never wrongly clear a DIFFERENT,
+  // still-visible item that happens to share the same key.
+  let visibleCharIndices = new SvelteMap<number, Element>()
+  let visibleFolderIds = new SvelteMap<string, Element>()
   interface Props {
     openGrid?: any;
     hidden?: boolean;
@@ -576,6 +590,13 @@
         <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
         <div
             role="button" tabindex="0"
+            use:nearViewport={{ onChange: (v, node) => {
+              if (char.type === 'normal') {
+                if (v) { visibleCharIndices.set(char.index, node) } else if (visibleCharIndices.get(char.index) === node) { visibleCharIndices.delete(char.index) }
+              } else if (char.type === 'folder') {
+                if (v) { visibleFolderIds.set(char.id, node) } else if (visibleFolderIds.get(char.id) === node) { visibleFolderIds.delete(char.id) }
+              }
+            } }}
             onclick={() => {
               if(char.type === "normal"){
                 changeChar(char.index, {reseter});
@@ -591,9 +612,10 @@
           >
           {#if char.type === 'normal'}
             {@const imgPath = char.img}
-            {@const avatarSrc = imgPath ? getCharImage(imgPath, "plain") : "/none.webp"}
+            {@const isVisible = visibleCharIndices.has(char.index)}
+            {@const avatarSrc = isVisible ? (imgPath ? getCharImage(imgPath, "plain") : "/none.webp") : undefined}
             <SidebarAvatar
-              src={avatarSrc}
+              src={avatarSrc as string | Promise<string>}
               size="56"
               rounded={IconRounded}
               name={char.name}
@@ -603,7 +625,8 @@
             {#key char.color}
             {#key char.name}
               {@const folderImgPath = char.img}
-              {@const avatarBg = folderImgPath ? getCharImage(folderImgPath, "plain") : ""}
+              {@const isFolderVisible = visibleFolderIds.has(char.id)}
+              {@const avatarBg = isFolderVisible ? (folderImgPath ? getCharImage(folderImgPath, "plain") : "") : ""}
               <SidebarAvatar src="slot" size="56" rounded={IconRounded} bordered name={char.name} color={char.color} backgroundimg={avatarBg}
               oncontextmenu={async (e) => {
                 e.preventDefault()
@@ -729,7 +752,8 @@
           }} ondragenter={preventAll}></div>
           {#each char.folder as char2, ind}
               {@const memberImgPath = char2.img}
-              {@const avatarSrc2 = memberImgPath ? getCharImage(memberImgPath, "plain") : "/none.webp"}
+              {@const isMemberVisible = visibleCharIndices.has(char2.index)}
+              {@const avatarSrc2 = isMemberVisible ? (memberImgPath ? getCharImage(memberImgPath, "plain") : "/none.webp") : undefined}
               <div class="group relative flex items-center px-2 z-10"
               role="listitem"
               draggable="true"
@@ -745,6 +769,9 @@
               <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
               <div
                   role="button" tabindex="0"
+                  use:nearViewport={{ onChange: (v, node) => {
+                    if (v) { visibleCharIndices.set(char2.index, node) } else if (visibleCharIndices.get(char2.index) === node) { visibleCharIndices.delete(char2.index) }
+                  } }}
                   onclick={() => {
                     if(char2.type === "normal"){
                       changeChar(char2.index, {reseter});
@@ -759,7 +786,7 @@
                   }}
                 >
                 <SidebarAvatar
-                  src={avatarSrc2}
+                  src={avatarSrc2 as string | Promise<string>}
                   size="56"
                   rounded={IconRounded}
                   name={char2.name}

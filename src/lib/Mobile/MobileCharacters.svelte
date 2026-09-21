@@ -5,6 +5,8 @@
     import { addCharacter, changeChar, getCharImage } from "src/ts/characters";
     import { MobileSearch } from "src/ts/stores.svelte";
     import { MessageSquareIcon, PlusIcon } from "@lucide/svelte";
+    import { nearViewport } from "src/ts/gui/nearViewport.svelte";
+    import { SvelteMap } from "svelte/reactivity";
 
     interface Props {
         endGrid?: () => void;
@@ -16,6 +18,11 @@
 
     let {endGrid = () => {}, search, hideTrash = false}: Props = $props();
     let normalizedSearch = $derived(normalizeSearch(search ?? $MobileSearch));
+    // AV-2: indices of characters near this list's own scroll viewport,
+    // mapped to their owning element (see GridCatalog.svelte's own comment
+    // on `visibleIndices` for why a Map, not a Set: it makes releasing an
+    // index on unmount safe regardless of mount/unmount order).
+    let visibleIndices = new SvelteMap<number, Element>()
 
     function normalizeSearch(value:string){
         return value.replace(/ /g,"").toLocaleLowerCase();
@@ -74,11 +81,14 @@
     {#each sortChar(DBState.db.characters) as char, i (char.i)}
         {#if normalizeSearch(char.name).includes(normalizedSearch)}
             {@const imgPath = char.image}
-            {@const avatarStyle = getCharImage(imgPath, 'css')}
+            {@const isVisible = visibleIndices.has(char.i)}
+            {@const avatarStyle = isVisible ? getCharImage(imgPath, 'css') : ''}
             <button class="flex p-2 border-t-darkborderc gap-2 w-full" class:border-t={i !== 0} onclick={() => {
                 changeChar(char.i)
                 endGrid()
-            }}>
+            }} use:nearViewport={{ onChange: (v, node) => {
+                if (v) { visibleIndices.set(char.i, node) } else if (visibleIndices.get(char.i) === node) { visibleIndices.delete(char.i) }
+            } }}>
                 <BarIcon additionalStyle={avatarStyle}></BarIcon>
                 <div class="flex flex-1 w-full flex-col justify-start items-start text-start">
                     <span>{char.name}</span>

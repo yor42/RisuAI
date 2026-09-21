@@ -18,6 +18,8 @@
     import { language } from 'src/lang';
     import { getFetchData } from 'src/ts/globalApi.svelte';
     import { alertStore, selectedCharID } from "src/ts/stores.svelte";
+    import { nearViewport } from "src/ts/gui/nearViewport.svelte";
+    import { SvelteMap } from "svelte/reactivity";
     import { tokenize } from "src/ts/tokenizer";
     import TextAreaInput from "../UI/GUI/TextAreaInput.svelte";
     import ModuleChatMenu from "../Setting/Pages/Module/ModuleChatMenu.svelte";
@@ -73,6 +75,14 @@
     let expandedLogs: Set<number> = $state(new Set())
     let allExpanded = $state(false)
     let copiedKey: string | null = $state(null)
+    // AV-2: db.characters indices near the selectChar dialog's own scroll
+    // viewport (:191), mapped to their owning element (see GridCatalog.svelte's
+    // comment on `visibleIndices` for why a Map, not a Set). Keyed by index,
+    // not chaId: this dialog never reorders or filters db.characters, but
+    // chaId uniqueness isn't guaranteed (older saves can lack it, and
+    // duplicates/copies can collide), so a chaId key risks Svelte's
+    // each_key_duplicate crash.
+    let visibleSelectChars = new SvelteMap<number, Element>()
 
     // Register JSON language for syntax highlighting
     if (!hljs.getLanguage('json')) {
@@ -382,21 +392,18 @@
                 </div>
             {:else if $alertStore.type === 'selectChar'}
                 <div class="flex w-full items-start flex-wrap gap-2 justify-start">
-                    {#each DBState.db.characters as char, i}
+                    {#each DBState.db.characters as char, i (i)}
                         {#if char.type !== 'group'}
-                            {#if char.image}
-                                {#await getCharImage(DBState.db.characters[i].image, 'css')}
-                                    <BarIcon onClick={() => {
-                                        alertStore.set({type: 'none',msg: char.chaId})
-                                    }}>
-                                        <User/>
-                                    </BarIcon>
-                                {:then im} 
-                                    <BarIcon onClick={() => {
-                                        alertStore.set({type: 'none',msg: char.chaId})
-                                    }} additionalStyle={im} />
-                                    
-                                {/await}
+                            {@const imgPath = char.image}
+                            {@const isVisible = visibleSelectChars.has(i)}
+                            {@const avatarStyle = isVisible ? getCharImage(imgPath, 'css') : ''}
+                            <div use:nearViewport={{ onChange: (v, node) => {
+                                if (v) { visibleSelectChars.set(i, node) } else if (visibleSelectChars.get(i) === node) { visibleSelectChars.delete(i) }
+                            } }}>
+                            {#if imgPath}
+                                <BarIcon onClick={() => {
+                                    alertStore.set({type: 'none',msg: char.chaId})
+                                }} additionalStyle={avatarStyle} />
                             {:else}
                                 <BarIcon onClick={() => {
                                     alertStore.set({type: 'none',msg: char.chaId})
@@ -404,6 +411,7 @@
                                 <User/>
                                 </BarIcon>
                             {/if}
+                            </div>
                         {/if}
                     {/each}
                 </div>

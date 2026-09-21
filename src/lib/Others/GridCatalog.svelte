@@ -12,6 +12,8 @@
     import { parseMultilangString } from "src/ts/util";
     import { checkCharOrder } from "src/ts/globalApi.svelte";
     import MobileCharacters from "../Mobile/MobileCharacters.svelte";
+    import { nearViewport } from "src/ts/gui/nearViewport.svelte";
+    import { SvelteMap } from "svelte/reactivity";
     interface Props {
         endGrid?: any;
     }
@@ -19,6 +21,18 @@
     let { endGrid = () => {} }: Props = $props();
     let search = $state('')
     let selected = $state(3)
+    // AV-2: indices near the grid/list/trash scroll viewport, mapped to the
+    // element currently observing that index. Grid, list and trash share one
+    // map because they render mutually exclusively (never more than one of
+    // the three is in the DOM at once, per `selected`). Mapping to the owning
+    // element (rather than a plain Set) is what makes releasing an index safe
+    // regardless of mount/unmount order: `nearViewport`'s destroy calls
+    // `onChange(false, node)` on every unmount (not just via the far band),
+    // and a release only actually clears the index if `node` is still the
+    // element that owns it -- so a grid-to-list tab switch that reuses the
+    // same `char.index` for a different DOM element can never leave the new
+    // element's index wrongly cleared by the old element's own unmount.
+    let visibleIndices = new SvelteMap<number, Element>()
 
     function formatChars(search:string, db:Database, trash = false){
         let charas:{
@@ -92,8 +106,11 @@
                 <div class="flex flex-wrap gap-2 w-full justify-center">
                     {#each formatChars(search, DBState.db) as char (char.index)}
                         {@const imgPath = char.image}
-                        {@const avatarStyle = getCharImage(imgPath, 'css')}
-                        <div class="flex items-center text-textcolor">
+                        {@const isVisible = visibleIndices.has(char.index)}
+                        {@const avatarStyle = isVisible ? getCharImage(imgPath, 'css') : ''}
+                        <div class="flex items-center text-textcolor" use:nearViewport={{ onChange: (v, node) => {
+                            if (v) { visibleIndices.set(char.index, node) } else if (visibleIndices.get(char.index) === node) { visibleIndices.delete(char.index) }
+                        } }}>
                             {#if char.image}
                                 <BarIcon onClick={() => {changeChar(char.index)}} additionalStyle={avatarStyle}></BarIcon>
                             {:else}
@@ -112,8 +129,11 @@
         {:else if selected === 1}
             {#each formatChars(search, DBState.db) as char (char.index)}
                 {@const imgPath = char.image}
-                {@const avatarStyle = getCharImage(imgPath, 'css')}
-                <div class="flex p-2 border border-darkborderc rounded-md mb-2">
+                {@const isVisible = visibleIndices.has(char.index)}
+                {@const avatarStyle = isVisible ? getCharImage(imgPath, 'css') : ''}
+                <div class="flex p-2 border border-darkborderc rounded-md mb-2" use:nearViewport={{ onChange: (v, node) => {
+                    if (v) { visibleIndices.set(char.index, node) } else if (visibleIndices.get(char.index) === node) { visibleIndices.delete(char.index) }
+                } }}>
                     <BarIcon onClick={() => {changeChar(char.index)}} additionalStyle={avatarStyle}></BarIcon>
                     <div class="flex-1 flex flex-col ml-2">
                         <h4 class="text-textcolor font-bold text-lg mb-1">{char.name || "Unnamed"}</h4>
@@ -137,8 +157,11 @@
             <span class="text-textcolor2 text-sm mb-2">{language.trashDesc}</span>
             {#each formatChars(search, DBState.db, true) as char (char.index)}
                 {@const imgPath = char.image}
-                {@const avatarStyle = getCharImage(imgPath, 'css')}
-                <div class="flex p-2 border border-darkborderc rounded-md mb-2">
+                {@const isVisible = visibleIndices.has(char.index)}
+                {@const avatarStyle = isVisible ? getCharImage(imgPath, 'css') : ''}
+                <div class="flex p-2 border border-darkborderc rounded-md mb-2" use:nearViewport={{ onChange: (v, node) => {
+                    if (v) { visibleIndices.set(char.index, node) } else if (visibleIndices.get(char.index) === node) { visibleIndices.delete(char.index) }
+                } }}>
                     <BarIcon onClick={() => {changeChar(char.index)}} additionalStyle={avatarStyle}></BarIcon>
                     <div class="flex-1 flex flex-col ml-2">
                         <h4 class="text-textcolor font-bold text-lg mb-1">{char.name || "Unnamed"}</h4>

@@ -13,7 +13,7 @@
 {#await additionalStyle}
   <button onclick={onClick} class="ico">{@render children?.()}</button>
 {:then as}
-  <button onclick={onClick} class="ico" style={as}>{@render children?.()}</button>
+  <button onclick={onClick} class="ico" style={as || null}>{@render children?.()}</button>
 {/await}
 
 <style>

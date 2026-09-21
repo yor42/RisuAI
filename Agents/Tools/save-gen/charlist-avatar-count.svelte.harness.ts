@@ -266,6 +266,69 @@ vi.mock(import('../../../src/ts/stores.svelte'), () => {
 
 //#endregion
 
+//#region AV-2 IntersectionObserver fake (see comment below)
+
+/**
+ * AV-2 (`Agents/Reports/14-av2-lazy-avatar-plan.md`, section 3.1) now gates
+ * each avatar's resolution on `nearViewport`'s use of `IntersectionObserver`,
+ * and happy-dom's own `IntersectionObserver` never invokes its callback at
+ * all (`observe()` is a no-op there), so without a fake every avatar here
+ * would stay permanently unresolved and every measurement below would read 0
+ * lookups no matter what actually changed. Per the plan's v8 ("AV-1's tests
+ * must still pass with the fake reporting all visible"), this fake reports
+ * every observed target immediately, permanently visible -- the same
+ * "everything resolves" behaviour this harness measured before AV-2 existed
+ * -- so it keeps measuring AV-1's per-change re-lookup behaviour, not AV-2's
+ * visibility gating.
+ *
+ * SYNCHRONOUS, ON PURPOSE: `nearViewport.svelte.ts` (`use:nearViewport`'s
+ * setup) reads nothing about *when* its `IntersectionObserver` callback
+ * fires -- it only registers a per-target callback and calls `observe()`;
+ * there is no code path anywhere in it, or in this file's `settle()` helper,
+ * that depends on the callback arriving asynchronously. An EARLIER version
+ * of this fake deferred its callback via `queueMicrotask`, matching the real
+ * spec's always-async delivery -- but that extra hop raced `settle()`'s own
+ * "stop once two consecutive checks agree" convergence loop: `settle()`
+ * could observe two stable-looking ticks and return BEFORE the deferred
+ * microtask had even run, letting that call land after the NEXT action's
+ * own `getFileSrcSpy.mockClear()`, misattributing it (confirmed empirically
+ * against this same fake in the sibling test file: the suite was measurably
+ * flaky with the deferred version, and merely adding unrelated
+ * `console.log` calls -- extra synchronous work shifting microtask timing
+ * -- was enough to flip failures to passes on an unchanged assertion).
+ * Firing synchronously inside `observe()` removes that hop entirely:
+ * `onChange(true)` runs in the same tick as the mount/update that called
+ * `observe()`, exactly like AV-1's pre-AV-2 behaviour (avatars started
+ * resolving synchronously at render time, no observer indirection at all),
+ * which is precisely the behaviour this harness measures. Installed before
+ * any component ever mounts (module-level, not inside a hook), per
+ * `nearViewport.svelte.ts`'s own test-seam doc comment.
+ */
+class AllVisibleIntersectionObserver implements IntersectionObserver {
+    readonly root: Element | Document | null = null
+    readonly rootMargin: string = ''
+    readonly thresholds: ReadonlyArray<number> = []
+    #callback: IntersectionObserverCallback
+
+    constructor(callback: IntersectionObserverCallback) {
+        this.#callback = callback
+    }
+
+    observe(target: Element): void {
+        this.#callback([{ target, isIntersecting: true, intersectionRatio: 1 } as IntersectionObserverEntry], this)
+    }
+
+    unobserve(): void {}
+    disconnect(): void {}
+    takeRecords(): IntersectionObserverEntry[] {
+        return []
+    }
+}
+
+vi.stubGlobal('IntersectionObserver', AllVisibleIntersectionObserver)
+
+//#endregion
+
 import { DBState } from '../../../src/ts/stores.svelte'
 import { language } from '../../../src/lang'
 import GridCatalog from '../../../src/lib/Others/GridCatalog.svelte'
