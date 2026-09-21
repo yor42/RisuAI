@@ -90,10 +90,12 @@
         {#if selected === 0}
             <div class="w-full flex justify-center">
                 <div class="flex flex-wrap gap-2 w-full justify-center">
-                    {#each formatChars(search, DBState.db) as char}
+                    {#each formatChars(search, DBState.db) as char (char.index)}
+                        {@const imgPath = char.image}
+                        {@const avatarStyle = getCharImage(imgPath, 'css')}
                         <div class="flex items-center text-textcolor">
                             {#if char.image}
-                                <BarIcon onClick={() => {changeChar(char.index)}} additionalStyle={getCharImage(char.image, 'css')}></BarIcon>
+                                <BarIcon onClick={() => {changeChar(char.index)}} additionalStyle={avatarStyle}></BarIcon>
                             {:else}
                                 <BarIcon onClick={() => {changeChar(char.index)}} additionalStyle={char.index === $selectedCharID ? 'background:var(--risu-theme-selected)' : ''}>
                                     {#if char.type === 'group'}
@@ -108,9 +110,11 @@
                 </div>
             </div>
         {:else if selected === 1}
-            {#each formatChars(search, DBState.db) as char}
+            {#each formatChars(search, DBState.db) as char (char.index)}
+                {@const imgPath = char.image}
+                {@const avatarStyle = getCharImage(imgPath, 'css')}
                 <div class="flex p-2 border border-darkborderc rounded-md mb-2">
-                    <BarIcon onClick={() => {changeChar(char.index)}} additionalStyle={getCharImage(char.image, 'css')}></BarIcon>
+                    <BarIcon onClick={() => {changeChar(char.index)}} additionalStyle={avatarStyle}></BarIcon>
                     <div class="flex-1 flex flex-col ml-2">
                         <h4 class="text-textcolor font-bold text-lg mb-1">{char.name || "Unnamed"}</h4>
                         <span class="text-textcolor2">{parseMultilangString(char.desc)['en'] || parseMultilangString(char.desc)['xx'] || 'No description'}</span>
@@ -131,9 +135,11 @@
             {/each}
         {:else if selected === 2}
             <span class="text-textcolor2 text-sm mb-2">{language.trashDesc}</span>
-            {#each formatChars(search, DBState.db, true) as char}
+            {#each formatChars(search, DBState.db, true) as char (char.index)}
+                {@const imgPath = char.image}
+                {@const avatarStyle = getCharImage(imgPath, 'css')}
                 <div class="flex p-2 border border-darkborderc rounded-md mb-2">
-                    <BarIcon onClick={() => {changeChar(char.index)}} additionalStyle={getCharImage(char.image, 'css')}></BarIcon>
+                    <BarIcon onClick={() => {changeChar(char.index)}} additionalStyle={avatarStyle}></BarIcon>
                     <div class="flex-1 flex flex-col ml-2">
                         <h4 class="text-textcolor font-bold text-lg mb-1">{char.name || "Unnamed"}</h4>
                         <span class="text-textcolor2">{parseMultilangString(char.desc)['en'] || parseMultilangString(char.desc)['xx'] || 'No description'}</span>

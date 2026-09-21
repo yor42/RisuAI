@@ -590,17 +590,21 @@
             }}
           >
           {#if char.type === 'normal'}
-            <SidebarAvatar 
-              src={char.img ? getCharImage(char.img, "plain") : "/none.webp"} 
-              size="56" 
-              rounded={IconRounded} 
+            {@const imgPath = char.img}
+            {@const avatarSrc = imgPath ? getCharImage(imgPath, "plain") : "/none.webp"}
+            <SidebarAvatar
+              src={avatarSrc}
+              size="56"
+              rounded={IconRounded}
               name={char.name}
               chaId={DBState.db.characters[char.index]?.chaId}
             />
           {:else if char.type === "folder"}
             {#key char.color}
             {#key char.name}
-              <SidebarAvatar src="slot" size="56" rounded={IconRounded} bordered name={char.name} color={char.color} backgroundimg={char.img ? getCharImage(char.img, "plain") : ""}
+              {@const folderImgPath = char.img}
+              {@const avatarBg = folderImgPath ? getCharImage(folderImgPath, "plain") : ""}
+              <SidebarAvatar src="slot" size="56" rounded={IconRounded} bordered name={char.name} color={char.color} backgroundimg={avatarBg}
               oncontextmenu={async (e) => {
                 e.preventDefault()
                 const sel = parseInt(await alertSelect([language.renameFolder,language.changeFolderColor,language.changeFolderImage,language.cancel]))
@@ -724,6 +728,8 @@
             }
           }} ondragenter={preventAll}></div>
           {#each char.folder as char2, ind}
+              {@const memberImgPath = char2.img}
+              {@const avatarSrc2 = memberImgPath ? getCharImage(memberImgPath, "plain") : "/none.webp"}
               <div class="group relative flex items-center px-2 z-10"
               role="listitem"
               draggable="true"
@@ -752,10 +758,10 @@
                     }
                   }}
                 >
-                <SidebarAvatar 
-                  src={char2.img ? getCharImage(char2.img, "plain") : "/none.webp"} 
-                  size="56" 
-                  rounded={IconRounded} 
+                <SidebarAvatar
+                  src={avatarSrc2}
+                  size="56"
+                  rounded={IconRounded}
                   name={char2.name}
                   chaId={DBState.db.characters[char2.index]?.chaId}
                 />

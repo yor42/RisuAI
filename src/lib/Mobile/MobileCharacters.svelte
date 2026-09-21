@@ -71,13 +71,15 @@
     }
 </script>
 <div class="flex flex-col items-center w-full overflow-y-auto h-full">
-    {#each sortChar(DBState.db.characters) as char, i}
+    {#each sortChar(DBState.db.characters) as char, i (char.i)}
         {#if normalizeSearch(char.name).includes(normalizedSearch)}
+            {@const imgPath = char.image}
+            {@const avatarStyle = getCharImage(imgPath, 'css')}
             <button class="flex p-2 border-t-darkborderc gap-2 w-full" class:border-t={i !== 0} onclick={() => {
                 changeChar(char.i)
                 endGrid()
             }}>
-                <BarIcon additionalStyle={getCharImage(char.image, 'css')}></BarIcon>
+                <BarIcon additionalStyle={avatarStyle}></BarIcon>
                 <div class="flex flex-1 w-full flex-col justify-start items-start text-start">
                     <span>{char.name}</span>
                     <div class="text-sm text-textcolor2 flex items-center w-full flex-wrap">
