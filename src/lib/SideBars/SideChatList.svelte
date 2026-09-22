@@ -19,7 +19,7 @@
     import { bookmarkListOpen } from "src/ts/stores.svelte";
     import { language } from "src/lang";
     import Toggles from "./Toggles.svelte";
-    import { changeChatTo, createChatCopyName } from "src/ts/globalApi.svelte";
+    import { changeChatTo, createChatCopyName, reorderChatsKeepingCurrent } from "src/ts/globalApi.svelte";
 
     interface Props {
         chara: character|groupChat;
@@ -67,8 +67,9 @@
                         }
                     })
 
-                    changeChatTo(newChats.indexOf(chara.chats[currentChatPage]))
-                    chara.chats = newChats
+                    // Order matters here; see reorderChatsKeepingCurrent in
+                    // globalApi.svelte.ts (Report 19 §9.2(b)).
+                    reorderChatsKeepingCurrent(chara, newChats, currentChatPage)
 
                     try {
                         this.destroy()
@@ -107,8 +108,9 @@
                 })
                 
                 chara.chatFolders = newFolders
-                changeChatTo(newChats.indexOf(chara.chats[currentChatPage]))
-                chara.chats = newChats
+                // Order matters here; see reorderChatsKeepingCurrent in
+                // globalApi.svelte.ts (Report 19 §9.2(b)).
+                reorderChatsKeepingCurrent(chara, newChats, currentChatPage)
                 try {
                     folderStb.destroy()
                 } catch (e) {}

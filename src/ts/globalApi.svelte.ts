@@ -13,9 +13,10 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core"
 import { v4 as uuidv4, v4 } from 'uuid';
 import { appDataDir, join } from "@tauri-apps/api/path";
 import { get } from "svelte/store";
+import { flushSync } from "svelte";
 import { open } from '@tauri-apps/plugin-shell'
 import streamSaver from 'streamsaver';
-import { setDatabase, type Database, defaultSdDataFunc, getDatabase, appVer, getCurrentCharacter, type character, type groupChat, appSubVer } from "./storage/database.svelte";
+import { setDatabase, type Database, defaultSdDataFunc, getDatabase, appVer, getCurrentCharacter, type character, type groupChat, type Chat, appSubVer } from "./storage/database.svelte";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { checkRisuUpdate } from "./update";
 import { MobileGUI, botMakerMode, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, bodyIntercepterStore, savingStoppedReason } from "./stores.svelte";
@@ -3566,7 +3567,52 @@ export function changeChatTo(IdOrIndex: string | number) {
     }
 
     DBState.db.characters[selIdState.selId].chatPage = index
+    // Flush before bumping so the bump fans its reparse out over the new
+    // (usually much smaller) window instead of the outgoing one (Report 19
+    // §9). This flush only guarantees that a write the flush itself must
+    // observe has already landed if it happened before this call; that is
+    // why `reorderChatsKeepingCurrent` assigns `chara.chats` before calling
+    // this function, not after. Writes that instead depend on the switch
+    // having happened belong after this call, as they always did: e.g.
+    // `foldChatToMessage(...)` must run after `changeChatTo(...)` at the
+    // branch-link button, not before, or it would read the outgoing chat's
+    // id and the fold would silently never happen.
+    // `changeChatTo` is a shared helper with 17 call sites, and this
+    // `flushSync()` is a global drain of all pending Svelte work, not just
+    // this chat window. No current caller reaches it from inside an effect
+    // or another flush -- that is what makes it safe today, and a future
+    // caller must not break that property without rechecking that the flush
+    // is still safe there (Report 19 §9.6).
+    flushSync()
     ReloadGUIPointer.set(Math.random())
+}
+
+/**
+ * Resolves where the currently-open chat ends up after a reorder. Returns
+ * the index of the SAME chat object (by identity) in `newChats`, not
+ * `currentPage` re-read against `newChats` -- the page index means a
+ * different chat once the array has been permuted, but the object identity
+ * survives the reorder and is what must be looked up. Returns -1 when the
+ * chat is no longer present. That is not handled specially: `changeChatTo`'s
+ * existing early return skips writing `chatPage`, so the user is left on
+ * whatever chat now occupies the stale page index. That is unchanged from
+ * the pre-change behaviour, not a new defect (Report 19 §9.2(b)).
+ */
+export function resolveReorderedChatIndex(oldChats: Chat[], newChats: Chat[], currentPage: number): number {
+    return newChats.indexOf(oldChats[currentPage])
+}
+
+/**
+ * Reorders a character or group chat's chats while keeping the user on the
+ * same chat, then switches to it. The order of the three steps is the entire
+ * point: `chara.chats` must already be the reordered array before
+ * `changeChatTo` runs, because `changeChatTo` flushes synchronously, and the
+ * target index is only meaningful against the new array (Report 19 §9.2(b)).
+ */
+export function reorderChatsKeepingCurrent(chara: character | groupChat, newChats: Chat[], currentPage: number): void {
+    const target = resolveReorderedChatIndex(chara.chats, newChats, currentPage)
+    chara.chats = newChats
+    changeChatTo(target)
 }
 
 export function createChatCopyName(originalName: string,type:'Copy'|'Branch'): string {
