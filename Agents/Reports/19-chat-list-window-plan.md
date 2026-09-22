@@ -4,8 +4,9 @@
 - Gate 1 on rev 6, Stage A: **APPROVE-WITH-FINDINGS**. All findings are folded in (§7); the
   Orchestrator verified M1 in source.
 - Stage A implemented; Gate 2: **APPROVE-WITH-FINDINGS**, findings fixed red-first (§7).
-- Stage A live check: **passed** (§7).
-- Next: the commit, when the maintainer asks.
+- Stage A live check: **passed** (§7). Committed `96311c4a` (code) and `b82470a2` (docs).
+- Containment experiment: **measured** (§8). It does not pay for itself; the recommendation is
+  to skip it and take the `changeChatTo` bump deferral instead. Maintainer decision pending.
 
 Earlier history:
 - Gate 1 rejected revs 1-5, each time finding a new edit-loss path or a false premise (§7).
@@ -219,7 +220,7 @@ Unchanged:
   - A screenshot, with and without an open editor.
   - Repeat §1's reopen row.
 
-### The containment experiment (next, measure-first)
+### The containment experiment (measured — results in §8)
 
 1. Profile one streaming write and one keystroke at 600 mounted in the Performance panel, to
    separate scripting from style, layout and paint.
@@ -236,6 +237,9 @@ Unchanged:
 Any failure decides whether the rule is unconditional or switched off during screenshots and seeks.
 The rule goes on the container `Chats` creates, never inside `Chat.svelte`'s markup. Plan and gate
 it after the measurement.
+
+**This was run on 2026-09-23; §8 has the numbers. The short version: it buys about 12% of one
+streamed write, nothing for typing, and leaves the dominant per-box layout cost untouched.**
 
 **Also measure:** a **chat-to-chat** switch at 600 mounted, as a new baseline, and the same with the
 `ReloadGUIPointer` bump in `changeChatTo` temporarily removed. If the bump is a large share, deferring
@@ -549,3 +553,108 @@ short chat whose newest message is very tall; removed afterwards through `remove
 Not exercised live: the screenshot restore (it saves a file); covered by the unit tests and
 mutants. The console buffer had overflowed before the check, so console errors were not
 verified.
+
+## 8. Containment experiment — Orchestrator, 2026-09-23
+
+**Setup.** Dev build in the Chromium 152 pane, i9-13900K — best case, so no Pi or phone claim. A
+temporary character with two 3000-message chats of about 1 KB of plain prose each; 600 messages
+mounted through the bookmark/seek path (`ScrollToMessageStore`), view at the bottom, streaming mode
+at its default `'off'`. The mounted tree held 21,612 elements, against 21,642 in the §1 run, so the
+fixture matches the one the baseline used. Sampling this save's own characters first confirmed that
+real messages here are plain prose with no markdown and no CBS, so plain filler is representative.
+The fixture was removed through `removeChar(..., 'permanentForce')` and its absence verified across
+a reload (31 characters, longest chat 2 messages).
+
+**Method.** The DevTools Performance panel is not reachable from the pane, so scripting and layout
+were separated directly: per step, time the mutation plus `flushSync()` (script), then time a forced
+`scrollHeight` read (style and layout). `long-animation-frame` was observed as a cross-check, but its
+threshold clamps at 16 ms, so it only evidences the absence of long frames. **Paint is not separated
+by this method.**
+
+### 8.1 Where the cost actually is, at 600 mounted
+
+| Step | Script | Style + layout | Total |
+|---|---|---|---|
+| Streamed chunk (`message.data` append) | 3.5 ms | 12.0-12.6 ms | ~16 ms |
+| Keystroke (a real `input` on the composer) | 3.9 ms | 3.7-3.8 ms | ~7.7 ms |
+| `ReloadGUIPointer` bump | 34.9 ms | 2.0 ms | ~37 ms |
+
+A streamed write is about **78% style and layout** — the one row containment could help. A keystroke
+is about half layout but only ~7.7 ms in total. A pointer bump is ~95% script, so containment cannot
+touch it. Typing with real key events produced **no frame over 16 ms** at 600 mounted.
+
+**These numbers sit 3-10x below §1's** (124 ms streaming, 37 ms keystroke, 295-429 ms for the bump) at
+the same window and an almost identical DOM size. The likely reason is that §1 timed **whole user
+actions** — a real streamed chunk also runs `processScriptFull` and bumps `reloadKeys`, and the bump
+row is described as "what a module toggle fires", which does much more than set the pointer — while
+§8 times **isolated mechanisms**. That is not settled, and CPU throttling in the §1 run has not been
+ruled out. It does not affect the containment decision, which turns on the script/layout split rather
+than the absolute scale. **Do not mix numbers from §1 and §8 in one comparison.**
+
+### 8.2 The containment rule, A/B/C/A, N=20 per cell
+
+The rule was injected as a stylesheet on `.chat-message-container`, the element `Chats` creates.
+
+| Condition | Streamed-chunk layout | Keystroke layout | Scroll height vs true |
+|---|---|---|---|
+| A — none | 12.0 ms | 3.7 ms | — |
+| B — `content-visibility: auto` + `contain-intrinsic-size: auto 297px` | **10.1 ms** | 3.9 ms | +0.2% |
+| C — `contain: layout style` | 14.4 ms | 3.9 ms | 0% |
+| A again | 12.0 ms | 3.8 ms | 0% |
+
+- **B saves 1.9 ms of a 15.6 ms streamed write**: 12% of the step, 16% of its layout half.
+- **B does nothing for typing** (within noise, and slightly worse).
+- **C is worse than no rule at all** (+20% layout). Plain containment without `content-visibility` is
+  not a fallback.
+- **The intrinsic-size estimate is load-bearing.** At `auto 220px` — a guess — the scroll height
+  collapsed by **25.3%** (178,138 px to 133,058 px). At the measured per-message average of 297 px the
+  error is 0.2%. A wrong estimate does not merely waste the optimisation, it distorts scroll geometry,
+  so any rule must derive its estimate from real rendered heights.
+
+### 8.3 Why the saving is small
+
+About 98% of the 600 mounted messages were off-screen, yet only ~16% of the column's layout time went
+away. `content-visibility` skips the *internal* layout of each skipped message; what remains is the
+flex column laying out 600 boxes, and containment cannot remove that. This is direct evidence for the
+advisor's DO-NOT: **containment is not a substitute for bounding N.**
+
+### 8.4 Compatibility checks, with B applied
+
+| Check | Result |
+|---|---|
+| Scroll-up anchoring in `flex-col-reverse` | **PASS** — identical with and without the rule: the same message sits at the viewport centre at every offset from -4,000 to -24,000 px, height stable, and returning to the bottom lands on the newest message |
+| `scrollToMessage` / bookmark seek to an off-screen index (2600 of 3000) | **PASS** — the element mounts and lands in the viewport |
+| Screenshot `toCanvas` over `.risu-chat` | **Not tested** (it writes a file). The screenshot already forces the full window, so the rule should simply be switched off for its duration, which avoids the question rather than answering it |
+| WebKit on Tauri | **Not tested** — no Tauri build in this environment |
+
+Note: under B the scroll height drifted 13 px over 24,000 px of scrolling (0.007%) as `auto` learned
+real heights. Chrome reports **negative** `scrollTop` for older content in this `flex-col-reverse`
+container; a first attempt using positive offsets measured nothing, and any future harness must use
+negative values.
+
+### 8.5 Chat-to-chat switch at 600 mounted (new baseline, post-Stage-A), 3 trials each
+
+| Variant | Script | Layout | Total |
+|---|---|---|---|
+| `changeChatTo` as shipped | 94.8 ms | 0.9 ms | **95.6 ms** |
+| The same switch with the `ReloadGUIPointer` bump removed | 64.7 ms | 0.9 ms | **65.6 ms** |
+
+Both variants end at 30 mounted, confirming Stage A resets the window on a chat switch. The switch is
+almost entirely script, and **the bump is about 31% of it**. The bump fans out over the *old*
+600-message window; the 682 ms character switch never runs it (Gate 1 M1). Deferring it until after
+the switch has flushed is the separate cheap fix §3 anticipated, and it is worth more than the
+containment rule.
+
+### 8.6 Recommendation
+
+**Do not ship containment as its own stage on this evidence.** It buys ~12% of one step, nothing for
+typing, needs a derived intrinsic-size estimate whose error distorts scroll geometry, and leaves the
+dominant per-box cost untouched. Two better uses of the same effort, in order:
+
+1. **Defer the `ReloadGUIPointer` bump in `changeChatTo`** until after the switch has flushed: ~31% of
+   a chat-to-chat switch, one function, no new CSS contract.
+2. **Durable drafts, then real windowing**, which removes the per-box cost containment cannot.
+
+Keep `content-visibility` on the shelf: if a later stage bounds N and the remaining cost is still
+layout-heavy, it can be revisited with the estimate derived from measured heights. **This is a
+recommendation, not a decision — §3's order was approved by the maintainer, so changing it is theirs.**
