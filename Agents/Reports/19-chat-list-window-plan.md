@@ -5,8 +5,13 @@
   Orchestrator verified M1 in source.
 - Stage A implemented; Gate 2: **APPROVE-WITH-FINDINGS**, findings fixed red-first (§7).
 - Stage A live check: **passed** (§7). Committed `96311c4a` (code) and `b82470a2` (docs).
-- Containment experiment: **measured** (§8). It does not pay for itself; the recommendation is
-  to skip it and take the `changeChatTo` bump deferral instead. Maintainer decision pending.
+- Containment experiment: **measured** (§8). It does not pay for itself; the maintainer chose to
+  skip it and take the `changeChatTo` fan-out fix instead.
+- That fix is in §9, **rev 3, implemented and gated**. Gate 1 round 1 rejected rev 1; round 2
+  approved rev 2 with findings, including a new ordering hazard at the two reorder call sites. Gate 2
+  approved the implementation with findings, then a re-review confirmed the remediation with every
+  mutant killed. Re-measured against the real build: a chat-list click at 600 mounted goes from
+  104.4 ms to 66.2 ms.
 
 Earlier history:
 - Gate 1 rejected revs 1-5, each time finding a new edit-loss path or a false premise (§7).
@@ -658,3 +663,276 @@ dominant per-box cost untouched. Two better uses of the same effort, in order:
 Keep `content-visibility` on the shelf: if a later stage bounds N and the remaining cost is still
 layout-heavy, it can be revisited with the estimate derived from measured heights. **This is a
 recommendation, not a decision — §3's order was approved by the maintainer, so changing it is theirs.**
+
+## 9. The `changeChatTo` GUI-pointer fan-out (rev 3, implemented and gated)
+
+### 9.1 What is being fixed
+
+`changeChatTo` sets `chatPage` and then calls `ReloadGUIPointer.set(...)` as two plain synchronous
+statements. `svelte/store`'s `set()` invokes every subscriber synchronously before it returns, and a
+`$state` write only schedules its effect flush on a microtask (`Batch.ensure` → `queue_micro_task` in
+`node_modules/svelte/src/internal/client/reactivity/batch.js`). So at the moment the pointer is bumped,
+**every `Chat` instance of the chat being left is still mounted**, and each one runs
+`updateDisplayedMessage()` — a full CBS and regex reparse — on content that `Chats`' effect is about to
+unmount. The cost is not the bump; it is that the bump fans out over the doomed old window.
+
+### 9.2 The change
+
+Two parts. Both are required; the second exists only because of the first.
+
+**(a) `changeChatTo` flushes the switch before bumping.** Set `chatPage`, call `flushSync()`, then bump.
+The old window is unmounted and the new one mounted first, so the bump — and any second bump a caller
+fires immediately afterwards — fans out over the new window instead of the outgoing one.
+
+`flushSync` in Svelte 5.55.1 (`batch.js`) saves and restores `is_flushing_sync` and has **no** guard that
+throws when called during a flush, so it is safe from an event handler and tolerant of nesting.
+
+**(b) The two reorder call sites must assign the array before switching.** `SideChatList`'s two drag-reorder
+`onEnd` handlers currently do:
+
+```
+changeChatTo(newChats.indexOf(chara.chats[currentChatPage]))
+chara.chats = newChats
+```
+
+The index is computed against `newChats`, but `chara.chats` is still the **old** array on the next line.
+Today both writes land in one deferred flush and are never observed apart. Once (a) forces a flush inside
+`changeChatTo`, the window would remount against the old array using an index that means something else in
+it, and render the wrong chat until the array assignment lands. The fix is to capture the chat object
+first, assign, then switch — the object, not the index, is what survives a permutation:
+
+```
+const currentChat = chara.chats[currentChatPage]
+chara.chats = newChats
+changeChatTo(newChats.indexOf(currentChat))
+```
+
+Note the capture is load-bearing: reading `chara.chats[currentChatPage]` *after* the assignment would index
+the new array with the old page number.
+
+The lookup is exported beside `changeChatTo` so it can be tested, and both handlers call it through one
+seam so that the *order* is testable too, not just the arithmetic:
+
+```ts
+export function resolveReorderedChatIndex(oldChats: Chat[], newChats: Chat[], currentPage: number): number
+export function reorderChatsKeepingCurrent(chara: character | groupChat, newChats: Chat[], currentPage: number): void
+```
+
+`resolveReorderedChatIndex` returns `newChats.indexOf(oldChats[currentPage])`, and therefore `-1` when the
+open chat is no longer in the new array. `changeChatTo(-1)` early-returns without writing `chatPage` and
+without bumping, which leaves the user on whatever chat now occupies the stale page index. **That is not a
+new defect — it is exactly what the pre-change code did** — but it is not "handled" either, and no comment
+should imply it is.
+
+No other call site needs editing — branch creation and the copy
+paths already mutate the array before switching, and the delete-then-switch paths always pass index 0,
+which is valid before and after the splice.
+
+### 9.3 Measured, at 600 mounted
+
+Procedure, fixture and limits: `Agents/Tools/chat-switch-fanout-measure.md`.
+
+| Variant | Median | Range | Trials |
+|---|---|---|---|
+| What a chat-list click does today (`changeChatTo` + the caller's own bump) | **102.4 ms** | 97.6-105 | 4 |
+| The same click with this change | **71.1 ms** | 62.2-76.1 | 4 |
+| The proposed `changeChatTo` alone | 66.8 ms | 62.5-75.1 | 4 |
+| `chatPage` set with no bump at all (the floor, §8.5) | 67.4 ms | 60.3-69.7 | 3 |
+
+The ranges of today's click and the changed click do not overlap. The change returns about **31 ms, 30% of
+the switch**, and lands within noise of the no-bump floor — it removes essentially all of the wasted fan-out
+while still bumping. Those numbers came from simulating the proposal in-page rather than building it, so they pinned
+the mechanism rather than the shipped code. **That gap is now closed** — see §9.3.1.
+
+#### 9.3.1 Post-implementation, against the real build
+
+Re-measured after the change landed, in one session, on the same fixture shape, with the pre-change
+behaviour reconstructed alongside it so both variants face the same machine state:
+
+| Variant | Median | Range | Trials |
+|---|---|---|---|
+| The pre-change click, reconstructed (write, bump, caller's bump, no flush) | **104.4 ms** | 99-119.4 | 4 |
+| The shipped click (`changeChatTo` as changed + the caller's own bump) | **66.2 ms** | 64-76.1 | 4 |
+
+Ranges do not overlap. The shipped change returns about **38 ms, 37% of the switch** — slightly better
+than the 31 ms the simulation predicted, because the flush also moves the caller's own second bump onto the
+new window. Every trial confirmed the window went from 600 mounted before the switch to 30 after.
+
+The shipped 66.2 ms and §8.5's 67.4 ms no-bump floor were measured in **different sessions** and their
+ranges overlap, so this run supports "the remaining cost is close to the floor" and **not** any claim about
+having reached it. The sound comparison is the within-session one: 104.4 ms against 66.2 ms.
+
+i9-13900K, dev build — best case. No Pi or phone claim follows from these numbers.
+
+### 9.4 Two premises that killed the obvious fixes
+
+**Not bumping at all is unsafe.** `message.chatId` is a per-message UUID assigned at creation, not the
+owning chat's id. For a switch between two independently created chats every message's hash differs and the
+window fully remounts from the `messages` dependency alone, so the bump is redundant. But **branch, copy and
+reorder preserve message `chatId`s** — `$state.snapshot` copies them verbatim and reorder reuses the same
+objects — so their hashes are unchanged and `updateChatBody` deliberately **reuses** the mounted instances.
+For those the bump, and the `resetScriptCache()` its module-level subscriber triggers, are the only thing
+that refreshes a reused instance. Gate 1 reached the same conclusion independently as B1 on rev 2 of the
+Stage A plan (§7).
+
+**Deduplicating the caller's second bump is not the fix either.** `SideChatList` calls `changeChatTo(i)` and
+then `$ReloadGUIPointer += 1` at five sites including the primary chat-list click, a leftover of the refactor
+that introduced `changeChatTo` (`58aba82be`). With two synchronous bumps the second is nearly free (100.6 ms
+against 106 ms), because the first has already done the work. **That measurement does not transfer to a
+design that defers the first bump**, which is what rev 1 proposed — see §9.7. Under this design the caller's
+second bump costs about 4 ms (71.1 against 66.8) because it lands on the new small window.
+
+### 9.5 Verified mechanism
+
+The load-bearing ordering claim — that a **freshly mounted** instance still receives the corrective bump —
+was verified by execution, not argument. Gate 1 round 2 built a Svelte tree mirroring `Chats`' imperative
+mount loop and `Chat`'s `onMount` subscription and ran it against this repo's own Svelte 5.55.1 under
+vitest. The new instance mounts and subscribes **inside** `flushSync()`, strictly before the bump is called,
+and then observes the post-reset cache generation. So the sequence is: flush mounts the new window, whose
+instances parse against a not-yet-reset script cache; the bump then resets the cache and re-runs
+`updateDisplayedMessage()` on those same instances; both happen in one synchronous segment, before paint.
+The redundant first parse is real but bounded by the new window size.
+
+### 9.6 Accepted limitations
+
+- The new window's instances parse twice on a switch: once at mount against the stale cache, once after the
+  bump resets it. Bounded by the initial window (30 by default), and invisible because both land before
+  paint.
+- `flushSync()` becomes a global drain inside a shared helper with 17 call sites. Gate 1 round 2 cleared the
+  import path, the branch-link button, branch creation, the copy paths and the delete-then-switch paths, and
+  found no call site that currently reaches `changeChatTo` from inside an effect. It remains a latent
+  fragility for **future** callers, which the implementation should note in a comment.
+- The 31 ms is only visible to a user who scrolled back deep and then switched chats. Stage A reduces how
+  often a window gets that large, but not this cost when it does.
+- **The two delete handlers write `chatPage` before splicing `chara.chats`.** They are the same
+  "index first, array second" shape as the reorder handlers, and the new flush therefore renders the
+  pre-splice array before the splice lands. It is left unfixed because it is benign where the reorder case
+  was not: `changeChatTo(0)` is valid on both sides of the splice (both handlers early-return when only one
+  chat remains), the end state is identical, and the corrected render follows in the same task, so nothing
+  wrong reaches the screen. The cost is one extra render pass of the freshly reset window when the deleted
+  chat is the open one. Gate 2 reached the same conclusion independently. **The "before paint" half of this
+  is reasoned from microtask-before-render ordering, not measured** — the same caveat Gate 1 round 2 put on
+  its equivalent claim.
+
+### 9.7 Gate record
+
+#### Gate 1 round 1 — adversarial-reviewer (fresh, Sonnet 5), 2026-09-23 — [REJECT] (rev 1)
+
+Verified from source, not from the plan: the synchronous store `set`, the microtask-scheduled effect flush,
+the per-message `chatId`, the branch/copy hash preservation, the module-level cache-reset subscriber, and
+that the script cache key carries no chat identity. The Orchestrator re-verified the cache key, the call-site
+list and the `flushSync` guard independently.
+
+- **BLOCKER 1 (design).** Deferring `changeChatTo`'s bump is defeated by the caller's own synchronous bump
+  one line later, at the primary chat-list click and four other sites: the deferred bump runs only after the
+  current synchronous segment, and that segment still contains an un-deferred bump over the still-mounted old
+  window. Rev 1 would have delivered roughly nothing on its main path while adding a second fan-out. It also
+  identified that rev 1's "the second bump is free" measurement did not transfer to a deferred-first design.
+- **BLOCKER 2 (design).** The staleness rev 1 disclosed was understated: because the cache key is
+  `data + mode + message index + script definitions` with no chat identity, a **freshly mounted** instance in
+  the new chat can read a stale entry left by the old chat at the same index — two chats of one character
+  sharing a greeting is enough.
+- **MAJOR (design).** Rev 1 never committed to a deferral mechanism, and the choice was not neutral: a
+  microtask usually resolves before paint, `requestAnimationFrame` guarantees a wrong painted frame.
+- **MINOR (citation).** The call-site count was wrong.
+- **The alternative it proposed** — `flushSync()` between the write and the bump — dissolves both blockers at
+  no extra size. Rev 2 adopted and measured it.
+
+#### Gate 1 round 2 — adversarial-reviewer (fresh, Sonnet 5), 2026-09-23 — [APPROVE-WITH-FINDINGS] (rev 2)
+
+Could not falsify the design, and verified its load-bearing ordering claim by execution (§9.5) rather than by
+reading. Cleared reentrancy and five call-site classes explicitly.
+
+- **MAJOR (design).** The two `SideChatList` drag-reorder handlers call `changeChatTo` **before** assigning
+  the reordered array, so rev 2's flush would render the wrong chat until the assignment landed. Rev 2's "no
+  call site needs editing" was wrong. Folded into rev 3 as §9.2(b), with the object-capture detail that a
+  naive statement swap would get wrong. **This was a hazard rev 2 introduced and neither the Orchestrator nor
+  round 1 had spotted.**
+- **MINOR (citation).** The count is **17 call sites across 4 files**, not 16. Round 1 had the number right
+  and the file count wrong; rev 2 then got the number wrong. Fixed in rev 3.
+- **MINOR (evidence).** §9.3's numbers had no re-runnable procedure recorded. Fixed: the fixture, the module
+  import trap, the negative `scrollTop` trap, the variants and the limits are now in
+  `Agents/Tools/chat-switch-fanout-measure.md`.
+- **MINOR (scope).** Judged "do nothing" not clearly better given the project's real message-count profile,
+  but the benefit modest relative to the helper's blast radius, and treated the MAJOR as a precondition for
+  landing.
+
+**Count for the escalation rule: 1 substantive rejection, then an approval. Streak cleared.**
+
+#### Implementation, 2026-09-23
+
+Tests first, red for the right reason: the ordering test runs a real `$effect` on `chatPage` and a real
+`ReloadGUIPointer` subscription and asserts the effect fired **before** the bump, which only a genuine
+synchronous flush between the write and the bump can satisfy — a spy on "was `flushSync` called" would
+have been satisfied by calling it in the wrong place and fixing nothing. It failed with
+`expected [ 'bump' ] to deeply equal [ 'chatPage-effect', 'bump' ]`. Three non-regression pins for the
+index/id/unresolvable-id paths passed before and after, by design.
+
+The test drives the real unmodified `changeChatTo` rather than a reimplementation. Importing
+`globalApi.svelte.ts` was checked against the known mock-isolation trap first (`Agents/Tools/README.md`);
+it is safe here because the precedent test file keeps every `vi.mock` factory inline in one file rather
+than splitting it across files.
+
+Implemented as specified: `flushSync()` between the write and the bump, `resolveReorderedChatIndex`
+exported beside `changeChatTo`, and both drag-reorder handlers computing the target against the old array
+before assigning the new one. Suite 784 passed / 4 skipped (the 775 baseline plus this file's 9);
+`pnpm check` 0 errors, 0 warnings.
+
+One honest wrinkle: once the helper existed, the test file's `@ts-expect-error` on its import became
+stale and `pnpm check` reported it. The implementer was told not to edit the test file and reported it
+instead of quietly deleting the directive; it was removed in a separate pass along with the now-false
+"does not exist yet" wording, with no assertion touched.
+
+#### Gate 2 — opus-reviewer (fresh), 2026-09-23 — [APPROVE-WITH-FINDINGS] (implementation)
+
+**Could not falsify the executable change.** It walked all 17 call sites for a dependent write after the
+call, checked re-entrancy, the throw path and the streaming path, re-derived §9.5's mount-ordering claim
+from Svelte source, and found no defect in the change itself. Every finding was in a comment, a test or
+report prose. Six mutants run; four killed.
+
+- **MAJOR (tests).** **Two mutants survived the full suite**: reverting both reorder handlers to
+  switch-then-assign, and computing the target against the new array. The suite pinned `changeChatTo` and
+  pinned the helper in isolation, but pinned nothing about how they are wired at the only two sites that
+  need it — the exact hazard the helper exists to prevent. Remediated below.
+- **MAJOR (comment).** The shipped `flushSync` comment prescribed the **opposite** of the correct rule:
+  it told callers to move dependent writes before the call. Writes that depend on the switch must stay
+  after it, and six call sites do that deliberately. Concrete failure traced: moving `foldChatToMessage`
+  above `changeChatTo` at the branch-link button makes it read the outgoing chat's id, so the validation
+  effect nulls the fold and it silently never happens. The Orchestrator verified this in source.
+- **MINORs.** The helper's citation pointed at a §9.2(b) that did not contain it; the `-1` wording implied
+  the case was handled; "unmounted / mounted" is untrue on the reorder path, which reuses instances; an
+  ambiguous parenthetical; one redundant test; no numeric `changeChatTo(-1)` assertion; and §9.3.1's "at
+  the no-bump floor" compared two overlapping ranges from different sessions.
+
+#### Gate 2 re-review — opus-reviewer (fresh), 2026-09-23 — [APPROVE-WITH-FINDINGS] (remediation)
+
+**Could not falsify the remediation. No findings in the executable change.**
+
+- **All mutants dead**, including three the reviewer devised: switch-then-assign; target against the new
+  array; the natural refactor slip of assigning before resolving; `flushSync` removed; `flushSync` moved
+  after the bump; and the early return removed. A faithful-replica control mutant stayed **alive** with all
+  tests passing, showing the harness was not failing for incidental reasons.
+- **The mid-flush observer was instrumented rather than argued about.** It samples exactly once, inside
+  `changeChatTo`'s own `flushSync()`, before the test's trailing flush — so it is genuinely what kills the
+  switch-then-assign mutant. Confirmed empirically that both end-state tests pass under that mutant, which
+  is why an end-state-only test cannot cover this.
+- Verified the refactor is behaviour-preserving at both call sites, including that the folder handler's
+  `chatFolders` assignment still precedes the seam so the flush sees folders, chats and `chatPage`
+  together, and that the flush now running before Sortable's `destroy()` is harmless because the list is
+  keyed on a counter bumped only after destroy and the inner blocks are unkeyed.
+- Fact-checked every comment claim as true, including the `foldChatToMessage` warning and the `-1`
+  description.
+- Remaining MINORs, all remediated: a stale test-file header that understated coverage; a test title
+  promising a spy contrast the body did not contain; `samples` collected but never asserted, a latent
+  vacuity in the test carrying the whole ordering contract; the §9.6 latent-fragility note that had not
+  shipped in the comment; and an opaque clause.
+
+#### Final state
+
+Suite 787 passed / 4 skipped across 56 files; `pnpm check` 0 errors, 0 warnings.
+
+**Count for the escalation rule: no streak. Gate 1 rejected once then approved; Gate 2 approved with
+findings twice.** Across both gates, **every defect in the executable change was found before
+implementation** — the code as submitted survived two adversarial passes and six mutants. What needed
+fixing was comments, citations and missing tests, which matches the pattern recorded for the Stage B
+partition work.
