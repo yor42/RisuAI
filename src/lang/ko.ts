@@ -32,13 +32,14 @@ export const languageKorean = {
         "coldStorageWriteFailed": "콜드 스토리지 저장에 실패했습니다. 채팅 데이터는 보존되었습니다.",
         "coldStorageVerifyFailed": "콜드 스토리지 검증에 실패했습니다. 채팅 데이터는 보존되었습니다.",
         "coldStorageRestoreFailed": "콜드 스토리지 데이터를 불러올 수 없습니다. 해당 캐릭터의 데이터가 영구적으로 손실되었을 수 있습니다.",
+        "coldStorageUnknownCharacterName": "알 수 없는 캐릭터",
         "coldStorageIncompleteBackupConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
-            `${characterNames || "알 수 없는 캐릭터"}의 콜드 스토리지 데이터가 없거나 손상되었습니다.${unresolvedCount > 0 ? ` 캐릭터를 확인할 수 없는 항목이 ${unresolvedCount}개 있습니다.` : ""}\n\n계속하면 이 백업에서 콜드 스토리지 항목 ${unavailableCount}개가 누락되며, 해당 캐릭터 또는 채팅 데이터를 이 백업으로 복구하지 못할 수 있습니다.\n\n그래도 불완전한 백업을 생성하시겠습니까?`,
+            `${characterNames || "알 수 없는 캐릭터"}의 콜드 스토리지 데이터가 없거나 손상되었습니다.${unresolvedCount > 0 ? ` 데이터를 확인할 수 없는 항목이 ${unresolvedCount}개 있습니다.` : ""}\n\n계속하면 이 백업에서 콜드 스토리지 항목 ${unavailableCount}개가 누락되며, 해당 캐릭터 또는 채팅 데이터를 이 백업으로 복구하지 못할 수 있습니다.\n\n그래도 불완전한 백업을 생성하시겠습니까?`,
         "coldStorageIncompleteRestoreConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
-            `${characterNames || "알 수 없는 캐릭터"}의 콜드 스토리지 데이터를 복원하지 못했습니다.${unresolvedCount > 0 ? ` 캐릭터를 확인할 수 없는 항목이 ${unresolvedCount}개 있습니다.` : ""}\n\n계속하면 콜드 스토리지 항목 ${unavailableCount}개를 사용할 수 없으며, 해당 캐릭터 또는 채팅 데이터가 영구적으로 손실될 수 있습니다.\n\n그래도 불완전한 복원을 계속하시겠습니까?`,
+            `${characterNames || "알 수 없는 캐릭터"}의 콜드 스토리지 데이터를 복원하지 못했습니다.${unresolvedCount > 0 ? ` 데이터를 확인할 수 없는 항목이 ${unresolvedCount}개 있습니다.` : ""}\n\n계속하면 콜드 스토리지 항목 ${unavailableCount}개를 사용할 수 없으며, 해당 캐릭터 또는 채팅 데이터가 영구적으로 손실될 수 있습니다.\n\n그래도 불완전한 복원을 계속하시겠습니까?`,
         "coldStorageCleanupAborted": (characterNames: string) =>
             `콜드 스토리지 정리가 중단되었습니다: ${characterNames || "알 수 없는 캐릭터"}의 콜드 스토리지 데이터를 확인할 수 없어 아무것도 삭제되지 않았습니다.`,
-        "coldStorageCleanupFailed": "콜드 스토리지 정리가 도중에 실패했습니다. 일부 사용하지 않는 항목이 제거되지 않았을 수 있으며, 그 외에는 영향이 없습니다."
+        "coldStorageCleanupFailed": "콜드 스토리지 정리가 도중에 실패했습니다. 일부 사용하지 않는 항목이 제거되지 않았을 수 있지만, 그 외에는 영향이 없습니다."
     },
     "showHelp": "도움말 보기",
     "help": {
@@ -1018,6 +1019,15 @@ export const languageKorean = {
     "updateRealmDesc": "당신은 이 캐릭터를 RisuRealm에 업데이트 하려고 합니다. 이 작업은 취소할 수 없습니다.",
     "antiClaudeOverload": "Claude 오버로드 방지",
     "activeTabChange": "현재 탭이 비활성화되었습니다. OK를 누르면 탭이 다시 활성화됩니다.",
+    "otherTabSavedTitle": "다른 탭에서 방금 변경 사항을 저장했고, 이 탭에는 아직 저장되지 않은 변경 사항이 있습니다. 어떻게 하시겠습니까?",
+    "otherTabSavedSaveMine": "내 변경 사항 저장 (다른 탭이 저장한 내용을 덮어쓸 수 있습니다)",
+    "otherTabSavedDiscardMine": "내 변경 사항을 버리고 새로고침",
+    "otherTabSavedConflictTitle": "다른 탭에서 방금 변경 사항을 저장했고, 이 탭이 가지고 있던 서버 데이터 사본은 이제 오래되었습니다. 이 탭에서는 변경 사항을 저장할 수 없습니다. 새로고침해야만 다시 저장 가능한 정상 상태가 됩니다 — 저장되지 않은 로컬 변경 사항은 모두 사라집니다.",
+    "otherTabSavedConflictReload": "지금 새로고침",
+    "otherTabSavedConflictStay": "일단 여기 머무르기 (이 탭은 저장을 시도하지 않게 됩니다. 새로고침 전까지 변경 사항은 저장되지 않습니다)",
+    "savingStoppedStayMessage": "이 탭은 저장을 멈췄습니다. 다른 탭이 변경 사항을 저장한 후 머무르기를 선택했기 때문에, 이 탭의 데이터 사본은 오래되었고 더 이상 저장할 수 없습니다. 지금부터 하는 변경 사항은 유지되지 않습니다. 새로고침하면 최신 데이터를 가져오지만, 저장되지 않은 로컬 변경 사항은 모두 사라집니다.",
+    "savingStoppedNodeConflictMessage": "이 탭은 저장을 멈췄습니다. 로컬 데이터가 셀프 호스팅 서버의 더 최신 버전과 충돌했기 때문에, 이 탭은 저장 시도를 영구적으로 중단했습니다. 지금부터 하는 변경 사항은 유지되지 않습니다. 최신 데이터를 가져오려면 앱을 새로고침하세요 — 동기화되지 않은 로컬 변경 사항은 모두 사라집니다.",
+    "savingStoppedAccountConflictMessage": "이 탭은 저장을 멈췄습니다. 로컬 데이터가 계정의 더 최신 버전과 충돌했기 때문에, 이 탭은 저장 시도를 영구적으로 중단했습니다. 지금부터 하는 변경 사항은 유지되지 않습니다. 최신 데이터를 가져오려면 앱을 새로고침하세요 — 동기화되지 않은 로컬 변경 사항은 모두 사라집니다.",
     "maxSupaChunkSize": "최대 수파메모리 청크 크기",
     "addCharacter": "캐릭터 추가",
     "importFromRealm": "RisuRealm에서 고르기",

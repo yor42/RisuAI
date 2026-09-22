@@ -32,6 +32,7 @@ export const languageGerman = {
         "coldStorageWriteFailed": "Kaltlager-Schreibvorgang fehlgeschlagen. Ihre Chat-Daten wurden beibehalten.",
         "coldStorageVerifyFailed": "Kaltlager-Überprüfung fehlgeschlagen. Ihre Chat-Daten wurden beibehalten.",
         "coldStorageRestoreFailed": "Kaltlagerdaten konnten nicht geladen werden. Die Daten des betroffenen Charakters können dauerhaft verloren sein.",
+        "coldStorageUnknownCharacterName": "Unbekannter Charakter",
         "coldStorageIncompleteBackupConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
             `Kaltlagerdaten für ${characterNames || "unbekannte Charaktere"} fehlen oder sind ungültig.${unresolvedCount > 0 ? ` ${unresolvedCount} Element(e) konnten keinem Charakter zugeordnet werden.` : ""}\n\nWenn Sie fortfahren, fehlen in dieser Sicherung ${unavailableCount} Kaltlagerelement(e). Die betroffenen Charakter- oder Chatdaten können daraus möglicherweise nicht wiederhergestellt werden.\n\nTrotzdem eine unvollständige Sicherung erstellen?`,
         "coldStorageIncompleteRestoreConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
@@ -994,6 +995,15 @@ export const languageGerman = {
     "updateRealmDesc": "Sie versuchen, Ihren Charakter auf RisuRealm zu aktualisieren. Dadurch wird Ihr Charakter auf RisuRealm aktualisiert, und Sie können dies nicht rückgängig machen.",
     "antiClaudeOverload": "Anti-Claude-Überlastung",
     "activeTabChange": "Aktueller Tab ist inaktiv, da ein anderer Tab aktiv ist. Um diesen Tab zu aktivieren, klicken Sie auf OK",
+    "otherTabSavedTitle": "Ein anderer Tab hat gerade Änderungen gespeichert, und dieser Tab hat noch eigene ungespeicherte Änderungen. Was möchten Sie tun?",
+    "otherTabSavedSaveMine": "Meine Änderungen speichern (dies kann überschreiben, was der andere Tab gespeichert hat)",
+    "otherTabSavedDiscardMine": "Meine Änderungen verwerfen und neu laden",
+    "otherTabSavedConflictTitle": "Ein anderer Tab hat gerade Änderungen gespeichert, und die Kopie der Serverdaten dieses Tabs ist jetzt veraltet. Ihre Änderungen hier können von diesem Tab nicht gespeichert werden; nur ein Neuladen stellt wieder einen funktionierenden, speicherbaren Zustand her — alle ungespeicherten lokalen Änderungen gehen verloren.",
+    "otherTabSavedConflictReload": "Jetzt neu laden",
+    "otherTabSavedConflictStay": "Vorerst hierbleiben (dieser Tab wird das Speichern nicht mehr versuchen; Ihre Änderungen werden bis zum Neuladen nicht gespeichert)",
+    "savingStoppedStayMessage": "Dieser Tab hat das Speichern eingestellt. Sie haben sich entschieden zu bleiben, nachdem ein anderer Tab Änderungen gespeichert hat, sodass die Kopie der Daten dieses Tabs veraltet ist und nicht mehr gespeichert werden kann. Ab jetzt vorgenommene Änderungen werden nicht beibehalten. Ein Neuladen ruft die aktuellen Daten ab — alle ungespeicherten lokalen Änderungen gehen verloren.",
+    "savingStoppedNodeConflictMessage": "Dieser Tab hat das Speichern eingestellt. Ihre lokalen Daten standen im Konflikt mit einer neueren Version auf dem selbst gehosteten Server, sodass dieser Tab dauerhaft aufgehört hat, das Speichern zu versuchen. Ab jetzt vorgenommene Änderungen werden nicht beibehalten. Laden Sie die App neu, um die aktuellen Daten zu erhalten — alle nicht synchronisierten lokalen Änderungen gehen verloren.",
+    "savingStoppedAccountConflictMessage": "Dieser Tab hat das Speichern eingestellt. Ihre lokalen Daten standen im Konflikt mit einer neueren Version in Ihrem Konto, sodass dieser Tab dauerhaft aufgehört hat, das Speichern zu versuchen. Ab jetzt vorgenommene Änderungen werden nicht beibehalten. Laden Sie die App neu, um die aktuellen Daten zu erhalten — alle nicht synchronisierten lokalen Änderungen gehen verloren.",
     "maxSupaChunkSize": "Maximale SupaMemory-Chunk-Größe",
     "addCharacter": "Charakter hinzufügen",
     "importFromRealm": "Aus RisuRealm auswählen",

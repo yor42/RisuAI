@@ -32,6 +32,7 @@ export const languageVietnamese = {
         "coldStorageWriteFailed": "Ghi vào bộ nhớ lạnh thất bại. Dữ liệu trò chuyện của bạn đã được bảo toàn.",
         "coldStorageVerifyFailed": "Xác minh bộ nhớ lạnh thất bại. Dữ liệu trò chuyện của bạn đã được bảo toàn.",
         "coldStorageRestoreFailed": "Không thể tải dữ liệu bộ nhớ lạnh. Dữ liệu của nhân vật bị ảnh hưởng có thể đã bị mất vĩnh viễn.",
+        "coldStorageUnknownCharacterName": "Nhân vật không xác định",
         "coldStorageIncompleteBackupConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
             `Dữ liệu bộ nhớ lạnh của ${characterNames || "nhân vật không xác định"} bị thiếu hoặc không hợp lệ.${unresolvedCount > 0 ? ` Có ${unresolvedCount} mục không thể liên kết với nhân vật.` : ""}\n\nNếu tiếp tục, bản sao lưu này sẽ thiếu ${unavailableCount} mục bộ nhớ lạnh và dữ liệu nhân vật hoặc cuộc trò chuyện bị ảnh hưởng có thể không thể khôi phục từ bản sao lưu.\n\nVẫn tạo bản sao lưu không đầy đủ?`,
         "coldStorageIncompleteRestoreConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
@@ -994,6 +995,15 @@ export const languageVietnamese = {
     "updateRealmDesc": "Bạn đang cố gắng cập nhật nhân vật của mình lên RisuRealm. Điều này sẽ cập nhật nhân vật của bạn lên RisuRealm và bạn không thể hoàn tác.",
     "antiClaudeOverload": "Chống quá tải Claude",
     "activeTabChange": "Tab hiện tại bị vô hiệu hóa vì tab khác đang hoạt động. Để kích hoạt tab này, nhấp OK",
+    "otherTabSavedTitle": "Một tab khác vừa lưu thay đổi, và tab này vẫn còn thay đổi chưa được lưu của riêng nó. Bạn muốn làm gì?",
+    "otherTabSavedSaveMine": "Lưu thay đổi của tôi (điều này có thể ghi đè lên những gì tab kia đã lưu)",
+    "otherTabSavedDiscardMine": "Bỏ thay đổi của tôi và tải lại",
+    "otherTabSavedConflictTitle": "Một tab khác vừa lưu thay đổi, và bản sao dữ liệu máy chủ của tab này giờ đã lỗi thời. Các thay đổi của bạn ở đây không thể được lưu từ tab này; chỉ có tải lại mới đưa về trạng thái hoạt động, có thể lưu được — mọi thay đổi cục bộ chưa lưu sẽ bị mất.",
+    "otherTabSavedConflictReload": "Tải lại ngay",
+    "otherTabSavedConflictStay": "Ở lại đây tạm thời (tab này sẽ ngừng cố lưu; thay đổi của bạn sẽ không được lưu cho đến khi bạn tải lại)",
+    "savingStoppedStayMessage": "Tab này đã ngừng lưu. Bạn đã chọn ở lại sau khi một tab khác lưu thay đổi, vì vậy bản sao dữ liệu của tab này đã lỗi thời và không thể lưu được nữa. Các thay đổi thực hiện từ bây giờ sẽ không được giữ lại. Tải lại sẽ lấy dữ liệu hiện tại — mọi thay đổi cục bộ chưa lưu sẽ bị mất.",
+    "savingStoppedNodeConflictMessage": "Tab này đã ngừng lưu. Dữ liệu cục bộ của bạn xung đột với một phiên bản mới hơn trên máy chủ tự lưu trữ, vì vậy tab này đã vĩnh viễn ngừng cố lưu. Các thay đổi thực hiện từ bây giờ sẽ không được giữ lại. Hãy tải lại ứng dụng để lấy dữ liệu hiện tại — mọi thay đổi cục bộ chưa đồng bộ sẽ bị mất.",
+    "savingStoppedAccountConflictMessage": "Tab này đã ngừng lưu. Dữ liệu cục bộ của bạn xung đột với một phiên bản mới hơn trên tài khoản của bạn, vì vậy tab này đã vĩnh viễn ngừng cố lưu. Các thay đổi thực hiện từ bây giờ sẽ không được giữ lại. Hãy tải lại ứng dụng để lấy dữ liệu hiện tại — mọi thay đổi cục bộ chưa đồng bộ sẽ bị mất.",
     "maxSupaChunkSize": "Kích thước SupaMemory Chunk tối đa",
     "addCharacter": "Thêm nhân vật",
     "importFromRealm": "Chọn từ RisuRealm",

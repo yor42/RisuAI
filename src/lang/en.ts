@@ -33,6 +33,7 @@ export const languageEnglish = {
         coldStorageWriteFailed: "Cold storage write failed. Your chat data has been preserved.",
         coldStorageVerifyFailed: "Cold storage verification failed. Your chat data has been preserved.",
         coldStorageRestoreFailed: "Cold storage data could not be loaded. The affected character's data may be permanently lost.",
+        coldStorageUnknownCharacterName: "Unknown character",
         coldStorageIncompleteBackupConfirm: (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
             `Cold storage data for ${characterNames || "unknown characters"} is missing or invalid.${unresolvedCount > 0 ? ` ${unresolvedCount} item(s) could not be linked to a character.` : ""}\n\nIf you continue, this backup will be missing ${unavailableCount} cold storage item(s), and the affected character or chat data may not be recoverable from it.\n\nCreate the incomplete backup anyway?`,
         coldStorageIncompleteRestoreConfirm: (characterNames: string, unavailableCount: number, unresolvedCount: number) =>

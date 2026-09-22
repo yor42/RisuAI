@@ -32,6 +32,7 @@ export const languageSpanish = {
         "coldStorageWriteFailed": "Error al escribir en almacenamiento frío. Sus datos de chat se han conservado.",
         "coldStorageVerifyFailed": "Error en la verificación del almacenamiento frío. Sus datos de chat se han conservado.",
         "coldStorageRestoreFailed": "No se pudieron cargar los datos del almacenamiento frío. Los datos del personaje afectado pueden haberse perdido permanentemente.",
+        "coldStorageUnknownCharacterName": "Personaje desconocido",
         "coldStorageIncompleteBackupConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
             `Faltan datos del almacenamiento frío de ${characterNames || "personajes desconocidos"} o no son válidos.${unresolvedCount > 0 ? ` No se pudieron asociar ${unresolvedCount} elemento(s) con un personaje.` : ""}\n\nSi continúa, a esta copia de seguridad le faltarán ${unavailableCount} elemento(s) del almacenamiento frío y puede que no sea posible recuperar los datos de los personajes o chats afectados.\n\n¿Crear de todos modos la copia de seguridad incompleta?`,
         "coldStorageIncompleteRestoreConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
@@ -994,6 +995,15 @@ export const languageSpanish = {
     "updateRealmDesc": "Estás intentando actualizar tu personaje a RisuRealm. Esto actualizará tu personaje en RisuRealm, y no podrás revertirlo.",
     "antiClaudeOverload": "Anti-Sobrecarga de Claude",
     "activeTabChange": "La pestaña actual se desactivó porque otra pestaña está activa. para activar esta pestaña, haz clic en Aceptar",
+    "otherTabSavedTitle": "Otra pestaña acaba de guardar cambios, y esta pestaña todavía tiene cambios propios sin guardar. ¿Qué te gustaría hacer?",
+    "otherTabSavedSaveMine": "Guardar mis cambios (esto puede sobrescribir lo que guardó la otra pestaña)",
+    "otherTabSavedDiscardMine": "Descartar mis cambios y recargar",
+    "otherTabSavedConflictTitle": "Otra pestaña acaba de guardar cambios, y la copia de los datos del servidor de esta pestaña ahora está desactualizada. Tus cambios aquí no se pueden guardar desde esta pestaña; solo recargar restablece un estado funcional y guardable — cualquier cambio local no guardado se perderá.",
+    "otherTabSavedConflictReload": "Recargar ahora",
+    "otherTabSavedConflictStay": "Quedarme aquí por ahora (esta pestaña dejará de intentar guardar; tus cambios no se guardarán hasta que recargues)",
+    "savingStoppedStayMessage": "Esta pestaña ha dejado de guardar. Elegiste quedarte después de que otra pestaña guardó cambios, por lo que la copia de los datos de esta pestaña está desactualizada y ya no se puede guardar. Los cambios que hagas a partir de ahora no se conservarán. Recargar obtendrá los datos actuales — cualquier cambio local no guardado se perderá.",
+    "savingStoppedNodeConflictMessage": "Esta pestaña ha dejado de guardar. Tus datos locales entraron en conflicto con una versión más reciente en el servidor autoalojado, por lo que esta pestaña ha dejado de intentar guardar de forma permanente. Los cambios que hagas a partir de ahora no se conservarán. Recarga la aplicación para obtener los datos actuales — cualquier cambio local no sincronizado se perderá.",
+    "savingStoppedAccountConflictMessage": "Esta pestaña ha dejado de guardar. Tus datos locales entraron en conflicto con una versión más reciente en tu cuenta, por lo que esta pestaña ha dejado de intentar guardar de forma permanente. Los cambios que hagas a partir de ahora no se conservarán. Recarga la aplicación para obtener los datos actuales — cualquier cambio local no sincronizado se perderá.",
     "maxSupaChunkSize": "Tamaño Máximo del Chunk de SupaMemoria",
     "addCharacter": "Agregar Personaje",
     "importFromRealm": "Elegir desde RisuRealm",

@@ -1,3 +1,4 @@
+import { language } from "../../lang"
 import { safeStructuredClone } from "../polyfill"
 import type { Database, character, groupChat, Chat } from "../storage/database.svelte"
 import type { SerializableHypaV2Data } from "./memory/hypav2"
@@ -349,7 +350,7 @@ export function getColdStorageAffectedCharacters(
         }
 
         if (isAffected) {
-            characterNames.push(character.name?.trim() || character.chaId || 'Unknown character')
+            characterNames.push(character.name?.trim() || character.chaId || language.errors.coldStorageUnknownCharacterName)
         }
     }
 

@@ -83,34 +83,37 @@ let lastKeiSave = 0
 export async function saveDbKei() {
     try{
         let db = getDatabase()
-        if(db.account.kei){
-            if(Date.now() - lastKeiSave < 60000 * 5){
-                return
-            }
-            const res = await fetch(keiServerURL() + '/autobackup/save', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    token: db.account.token,
-                    database: db
-                }),
-                // saveDb()'s main save loop awaits this function after every successful
-                // write — a KEI server that accepts the connection but never responds
-                // would otherwise suspend the loop indefinitely, turning an optional
-                // remote backup outage into an unbounded delay for the user's actual
-                // save. Bound it and treat a timeout as a failed (retryable) backup.
-                signal: AbortSignal.timeout(15000)
-            })
-            if(res.status === 200){
-                // Only advance the rate-limit gate on confirmed success — otherwise a
-                // failed backup would also block the next attempt for a full 5 minutes.
-                lastKeiSave = Date.now()
-            }
-            else{
-                console.error('KEI auto-backup failed:', res.status)
-            }
+        if(!db.account?.kei){
+            // No account, or KEI auto-backup isn't enabled on it: nothing to do.
+            // (Also avoids throwing when `account` itself is undefined.)
+            return
+        }
+        if(Date.now() - lastKeiSave < 60000 * 5){
+            return
+        }
+        const res = await fetch(keiServerURL() + '/autobackup/save', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                token: db.account.token,
+                database: db
+            }),
+            // saveDb()'s main save loop awaits this function after every successful
+            // write — a KEI server that accepts the connection but never responds
+            // would otherwise suspend the loop indefinitely, turning an optional
+            // remote backup outage into an unbounded delay for the user's actual
+            // save. Bound it and treat a timeout as a failed (retryable) backup.
+            signal: AbortSignal.timeout(15000)
+        })
+        if(res.status === 200){
+            // Only advance the rate-limit gate on confirmed success — otherwise a
+            // failed backup would also block the next attempt for a full 5 minutes.
+            lastKeiSave = Date.now()
+        }
+        else{
+            console.error('KEI auto-backup failed:', res.status)
         }
     }
     catch(e){

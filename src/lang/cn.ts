@@ -32,6 +32,7 @@ export const languageChinese = {
         "coldStorageWriteFailed": "冷存储写入失败。您的聊天数据已被保留。",
         "coldStorageVerifyFailed": "冷存储验证失败。您的聊天数据已被保留。",
         "coldStorageRestoreFailed": "无法加载冷存储数据。受影响角色的数据可能已永久丢失。",
+        "coldStorageUnknownCharacterName": "未知角色",
         "coldStorageIncompleteBackupConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
             `${characterNames || "未知角色"}的冷存储数据缺失或无效。${unresolvedCount > 0 ? `有 ${unresolvedCount} 个项目无法关联到角色。` : ""}\n\n如果继续，此备份将缺少 ${unavailableCount} 个冷存储项目，受影响的角色或聊天数据可能无法从该备份恢复。\n\n仍要创建不完整的备份吗？`,
         "coldStorageIncompleteRestoreConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
@@ -994,6 +995,15 @@ export const languageChinese = {
     "updateRealmDesc": "你正试图将角色更新至 RisuRealm。此操作将使角色更新至 RisuRealm，且无法还原。",
     "antiClaudeOverload": "防止 Claude 超载",
     "activeTabChange": "目前的标签已停用，因其他标签处于活动中。若要激活此标签，请按“确定”。",
+    "otherTabSavedTitle": "另一个标签页刚刚保存了更改，而此标签页仍有自己尚未保存的更改。您想怎么做？",
+    "otherTabSavedSaveMine": "保存我的更改（这可能会覆盖另一个标签页保存的内容）",
+    "otherTabSavedDiscardMine": "放弃我的更改并重新加载",
+    "otherTabSavedConflictTitle": "另一个标签页刚刚保存了更改，此标签页的服务器数据副本现已过期。此标签页的更改无法保存；只有重新加载才能恢复到可用、可保存的状态 — 任何未保存的本地更改都将丢失。",
+    "otherTabSavedConflictReload": "立即重新加载",
+    "otherTabSavedConflictStay": "暂时留在这里（此标签页将停止尝试保存；在您重新加载之前，您的更改不会被保存）",
+    "savingStoppedStayMessage": "此标签页已停止保存。由于另一个标签页保存了更改后您选择留下，此标签页的数据副本已过期，无法再保存。从现在起所做的更改将不会被保留。重新加载会获取当前的数据 — 任何未保存的本地更改都将丢失。",
+    "savingStoppedNodeConflictMessage": "此标签页已停止保存。您的本地数据与自托管服务器上较新的版本发生冲突，因此此标签页已永久停止尝试保存。从现在起所做的更改将不会被保留。请重新加载应用程序以获取当前的数据 — 任何未同步的本地更改都将丢失。",
+    "savingStoppedAccountConflictMessage": "此标签页已停止保存。您的本地数据与您账户上较新的版本发生冲突，因此此标签页已永久停止尝试保存。从现在起所做的更改将不会被保留。请重新加载应用程序以获取当前的数据 — 任何未同步的本地更改都将丢失。",
     "maxSupaChunkSize": "最大 SupaMemory Chunk 大小",
     "addCharacter": "新增角色",
     "importFromRealm": "从 RisuRealm 选择",

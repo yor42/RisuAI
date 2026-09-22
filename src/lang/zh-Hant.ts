@@ -32,6 +32,7 @@ export const languageChineseTraditional = {
         "coldStorageWriteFailed": "冷儲存寫入失敗。您的對話資料已被保留。",
         "coldStorageVerifyFailed": "冷儲存驗證失敗。您的對話資料已被保留。",
         "coldStorageRestoreFailed": "無法載入冷儲存資料。受影響角色的資料可能已永久遺失。",
+        "coldStorageUnknownCharacterName": "未知角色",
         "coldStorageIncompleteBackupConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
             `${characterNames || "未知角色"}的冷儲存資料遺失或無效。${unresolvedCount > 0 ? `有 ${unresolvedCount} 個項目無法連結到角色。` : ""}\n\n若繼續，此備份將缺少 ${unavailableCount} 個冷儲存項目，受影響的角色或對話資料可能無法從此備份復原。\n\n仍要建立不完整的備份嗎？`,
         "coldStorageIncompleteRestoreConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
@@ -992,6 +993,15 @@ export const languageChineseTraditional = {
     "noWaitForTranslate": "不等待翻譯",
     "antiClaudeOverload": "防止 Claude 因過載而中斷請求",
     "activeTabChange": "由於其他分頁正在運行，當前分頁已暫停。點擊「確定」以切換回此分頁。",
+    "otherTabSavedTitle": "另一個分頁剛剛儲存了變更，而此分頁仍有自己尚未儲存的變更。您想怎麼做？",
+    "otherTabSavedSaveMine": "儲存我的變更（這可能會覆蓋另一個分頁儲存的內容）",
+    "otherTabSavedDiscardMine": "捨棄我的變更並重新載入",
+    "otherTabSavedConflictTitle": "另一個分頁剛剛儲存了變更，此分頁的伺服器資料副本現已過期。此分頁的變更無法儲存；只有重新載入才能恢復到可運作、可儲存的狀態 — 任何未儲存的本機變更都將遺失。",
+    "otherTabSavedConflictReload": "立即重新載入",
+    "otherTabSavedConflictStay": "暫時留在這裡（此分頁將停止嘗試儲存；在您重新載入之前，您的變更不會被儲存）",
+    "savingStoppedStayMessage": "此分頁已停止儲存。由於另一個分頁儲存了變更後您選擇留下，此分頁的資料副本已過期，無法再儲存。從現在起所做的變更將不會被保留。重新載入會取得目前的資料 — 任何未儲存的本機變更都將遺失。",
+    "savingStoppedNodeConflictMessage": "此分頁已停止儲存。您的本機資料與自架伺服器上較新的版本發生衝突，因此此分頁已永久停止嘗試儲存。從現在起所做的變更將不會被保留。請重新載入應用程式以取得目前的資料 — 任何未同步的本機變更都將遺失。",
+    "savingStoppedAccountConflictMessage": "此分頁已停止儲存。您的本機資料與您帳戶上較新的版本發生衝突，因此此分頁已永久停止嘗試儲存。從現在起所做的變更將不會被保留。請重新載入應用程式以取得目前的資料 — 任何未同步的本機變更都將遺失。",
     "addCharacter": "新增角色",
     "importFromRealm": "從 RisuRealm 選擇",
     "importFromRealmDesc": "RisuRealm 提供超過 1000 位角色",
