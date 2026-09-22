@@ -196,6 +196,30 @@ See the "Variables" section on [[Curly-Brased-Syntaxes]] for the full explanatio
 
 These are lightweight obfuscation, not real security. Do not rely on them to hide anything from a determined user.
 
+### Example: keep a spoiler out of sight in a character description
+
+A description often holds a twist the user shouldn't read by accident, for example while opening the character to fix a typo somewhere else. You can store that part encoded, so the editor shows only an unreadable string, while the model still gets the plain text. The description is run through CBS each time the prompt is built.
+
+1. Open **Playground → Syntax**. It runs CBS on whatever you type, in a sandbox.
+2. Type the secret part wrapped in `{{xor::…}}`:
+
+   ```
+   {{xor::hello}}
+   ```
+
+   The Result box shows the encoded text, here `l5qTk5A=`.
+3. Copy the result, and put only the decoding call in the character's description:
+
+   ```
+   {{char}} is a travelling merchant. {{xordecrypt::l5qTk5A=}}
+   ```
+
+   When the prompt is built, the model reads `hello` in place of the call. Someone looking at the description sees only `l5qTk5A=`.
+
+`{{reverse::…}}` works the same way: encode in the Playground, then put `{{reverse::<reversed text>}}` in the description. It is easier to read by eye, though, and the reversed text must not contain `::`, `{{` or `}}`, because those would be read as CBS syntax. XOR output is base64 (letters, digits, `+`, `/`, `=`), so it has no such problem. Keep CBS tags such as `{{user}}` out of the encoded part and write them outside it.
+
+Anyone can paste the string back into the Playground and decode it. This keeps a user from being spoiled by accident; it does not stop one who goes looking.
+
 ## System, model, and app metadata
 
 | Syntax | Aliases | Result |
