@@ -16,6 +16,16 @@ export interface DbChangeEffectOptions {
      * fills the set and marks nothing.
      */
     seed?: Iterable<object>
+    /**
+     * TEST INSTRUMENTATION ONLY (Report 17 Stage 2 §4.3) -- production never
+     * passes this. Called at the top of every selected-character (6b) effect
+     * body, so a test can count how many times each partition piece re-runs
+     * without that count being observable through `tracker`/`markChanged`
+     * (e.g. "a chatPage change creates no message children", "replacing chat
+     * i re-runs only chat i's child"). `index` is the array index for the
+     * 'chat' and 'message' kinds, and is omitted otherwise.
+     */
+    onPartitionRun?: (kind: 'front' | 'char' | 'field' | 'chats' | 'chat' | 'message', index?: number) => void
 }
 
 export function registerDbChangeEffects(opts: DbChangeEffectOptions): void {
@@ -45,18 +55,19 @@ export function registerDbChangeEffects(opts: DbChangeEffectOptions): void {
     // effect per element, together registering the exact same dependency closure as
     // a single `$state.snapshot(DBState.db.modules)` (container, length, and every
     // index -- $state.snapshot's array branch never touches the array `version`
-    // source). Reading less than this loses writes -- see the preset comment at
-    // :19-24 for a real data-loss bug caused by exactly that. The point of splitting
+    // source). Reading less than this loses writes -- see the preset effect's
+    // comment above for a real data-loss bug caused by exactly that. The point of splitting
     // it is that a leaf edit to module k now only re-reads module k's child effect,
     // not every other module's.
     //
     // Two independent guards, neither redundant:
     //   1. `opts.tracker.modules = true` is set unconditionally by the outer AND by
-    //      every child, regardless of any `ranOnce` flag -- `risuSave.ts:328` gates
-    //      on `tracker.modules`, not on `dirtySinceLastSave`. Do not delete the
-    //      child's assignment as "redundant" with the outer's.
-    //   2. `markChanged(false)` never marks clean: `saveTimeoutExecute`
-    //      (`globalApi.svelte.ts:594-604`) only ever sets `dirtySinceLastSave = true`
+    //      every child, regardless of any `ranOnce` flag -- `risuSave.ts`'s `set()`,
+    //      the `if (toSave.modules)` gate, keys off `tracker.modules`, not off
+    //      `dirtySinceLastSave`. Do not delete the child's assignment as "redundant"
+    //      with the outer's.
+    //   2. `markChanged(false)` never marks clean: `saveTimeoutExecute` in
+    //      `globalApi.svelte.ts` only ever sets `dirtySinceLastSave = true`
     //      and re-arms the debounce timer.
     // Shape changes (push/splice/whole-array replacement) tear down and recreate
     // every child, so a recreated child's first run always passes `false` -- shape
@@ -101,7 +112,10 @@ export function registerDbChangeEffects(opts: DbChangeEffectOptions): void {
         opts.markChanged(ranOnce5)
         ranOnce5 = true
     })
-    let ranOnce6 = false
+    // 6a -- the generic top-level loop, moved unchanged out of the former
+    // merged effect 6 (Report 17 Stage 2 §4.1). Deep-reads every top-level
+    // DB key except the six handled by their own effects above/below.
+    let ranOnce6a = false
     $effect(() => {
         for (const key in DBState.db) {
             if (
@@ -111,25 +125,262 @@ export function registerDbChangeEffects(opts: DbChangeEffectOptions): void {
                 $state.snapshot(DBState.db[key])
             }
         }
-        if (DBState?.db?.characters?.[selIdState]) {
-            for (const key in DBState.db.characters[selIdState]) {
-                if (key !== 'chats') {
-                    $state.snapshot(DBState.db.characters[selIdState][key])
-                }
-            }
-            $state.snapshot(DBState.db.characters[selIdState].chats)
-            if (opts.tracker.character[0] !== DBState.db.characters[selIdState]?.chaId) {
-                opts.tracker.character.unshift(DBState.db.characters[selIdState]?.chaId)
-            }
+        opts.markChanged(ranOnce6a)
+        ranOnce6a = true
+    })
+
+    // 6b -- the selected character, partitioned (Report 17 Stage 2 §4.1,
+    // gate finding 7). Not narrowed: the union of every piece below's
+    // dependencies equals the former merged effect's closure over
+    // `characters[selIdState]` -- reading less than this loses writes (see
+    // the preset effect's comment above for a real data-loss bug caused by
+    // exactly that class of mistake).
+    //
+    // Closure-equivalence argument (§4.2, verified against Svelte 5.55.1):
+    // `$state.snapshot()`'s plain-object branch clones via
+    // `Object.keys(value)` then reads `value[key]` for each key
+    // (svelte/src/internal/shared/clone.js:92-102). `Object.keys` goes
+    // through the proxy's `ownKeys` trap, which reads the proxy's `version`
+    // source before returning the key list (proxy.js:333-334: `ownKeys(target)
+    // { get(version); ... }`). So the ORIGINAL single
+    // `$state.snapshot(chats)` call already depended on the `version` source
+    // of every chat object and every message object it reached, in addition
+    // to every key and every value -- not merely "whatever the array/object
+    // branches happen to walk". The array branch instead reads `.length` and
+    // every index (clone.js:73-78), never the array's own `version`.
+    //
+    // The partition below reads exactly that same set, split across smaller
+    // effects: `Object.keys(chat)` (+ a snapshot of every value except
+    // `message`) reproduces a chat's version/keys/values dependency;
+    // `chats.length` + `chats[i]` on the shape effect and its per-index
+    // children reproduce the chats array's length/index dependency;
+    // `message.length` + `message[j]` (array case) or
+    // `$state.snapshot(message)` (malformed non-array case) reproduce the
+    // message-level dependency the same way. Partition, never narrow (Report
+    // 11 §4, §8 method).
+    //
+    // Duplicate ids: like the former merged effect, none of the pieces below
+    // de-duplicate their front-unshift against ids the identity tracker (or
+    // a `markCharacterForSave` mark) appends at the END of
+    // `opts.tracker.character`. This is safe -- `savedId` in `risuSave.ts`'s
+    // `set()` records which ids were saved this pass, and a character's block
+    // is deleted only if its id was NOT saved this pass, so a duplicate or
+    // stale id of an existing character is harmless; it is merely re-encoded,
+    // not deleted.
+    //
+    // Every effect below (front, char outer, field children, chats-shape,
+    // per-chat, per-message) independently does the SAME front-unshift of
+    // the selected chaId, then calls `markChanged(ownRanOnce)` -- exactly
+    // the modules-partition effect's convention above: children created
+    // fresh always pass `false` on their first run, so a SHAPE change (a
+    // chat pushed/spliced/replaced, a message array replaced, the character
+    // itself replaced) is covered by the parent's own `markChanged(true)`,
+    // never by a recreated child's first run.
+    //
+    // Decision on `chats[chatPage].id` (Report 17 Stage 2 instructions):
+    // the pre-Stage-2 merged effect reads `characters[selIdState]?.chats[...chatPage].id`
+    // WITHOUT `?.` on the `chats` element itself -- if `chats[chatPage]` is
+    // undefined (an out-of-range or empty `chats`), `.id` throws. The
+    // semantics are preserved below, even though the read was rewritten into
+    // local variables: still no `?.` on that element, so it throws in the
+    // same cases. This is a partition, not a bugfix, and adding `?.` would
+    // silently change behaviour from "throws today" to "never throws" for a
+    // case this plan does not analyze.
+    //
+    // chaId re-read at fronting time, not captured (Gate 3 REJECT item 2): only
+    // 6b-front lists `chaId` itself as a tracked read (it needs the CURRENT
+    // value to decide whether to front it and to build the `tracker.chat`
+    // pair). Every other 6b piece (char outer, field/chats-shape/per-chat/
+    // per-message children) must NOT add `chaId` to its own dependency list,
+    // since their spec above does not list it -- EXCEPT the `chaId` field
+    // child, which tracks it anyway through its own generic
+    // `$state.snapshot(char[key])` read when `key === 'chaId'` (expected;
+    // that snapshot dependency is what makes the field child re-run at all
+    // when `chaId` is renamed in place). `frontUnshiftSelected` takes the
+    // live `char` object, not a `chaId` string, and does its own
+    // `untrack(() => char?.chaId)` read at the moment it is called. This
+    // matters because 6b-char and its descendants do NOT re-run on an
+    // in-place `chaId` rename (renaming an existing key's value never bumps
+    // the key-set `version` that `Reflect.ownKeys(char)` depends on, so the
+    // outer effect's closure is not torn down) -- if a child instead
+    // captured `chaId` once when the outer effect last ran and reused that
+    // captured value on every fronting call, a rename would leave every
+    // field/chats-shape/per-chat/per-message fronting call pointing at the
+    // OLD id, even though the field child that snapshots `chaId` itself
+    // re-runs and (with this fix) fronts the NEW id. Since `char` is the
+    // same object reference for the outer effect's whole lifetime, reading
+    // `char.chaId` fresh at each call, still through `untrack` so it adds no
+    // dependency, always fronts the CURRENT id instead.
+    function frontUnshiftSelected(char: { chaId?: string } | undefined): void {
+        const chaId = untrack(() => char?.chaId)
+        if (opts.tracker.character[0] !== chaId) {
+            opts.tracker.character.unshift(chaId)
+        }
+    }
+
+    // 6b-front: the only piece that reads `chatPage` as a tracked dependency,
+    // and the only piece that writes `tracker.chat`. It also reads `chaId`
+    // and `chats[chatPage].id`, but those two are not unique to this effect:
+    // the `chaId` field child (in 6b-char below) tracks `chaId` through its
+    // own generic `$state.snapshot(char[key])` read, and the per-chat child
+    // for index `chatPage` reads that chat's `id` as part of its own
+    // `Object.keys(chat)` snapshot. Kept separate so a `chatPage` change
+    // (switching the active chat) never rebuilds any message child.
+    let frontRanOnce = false
+    $effect(() => {
+        opts.onPartitionRun?.('front')
+        const char = DBState?.db?.characters?.[selIdState]
+        if (char) {
+            const chaId = char.chaId
+            frontUnshiftSelected(char)
+            const chats = char.chats
+            const chatPage = char.chatPage
             if (
-                opts.tracker.chat[0]?.[0] !== DBState.db.characters[selIdState]?.chaId ||
-                opts.tracker.chat[0]?.[1] !== DBState.db.characters[selIdState]?.chats[DBState.db.characters[selIdState]?.chatPage].id
+                opts.tracker.chat[0]?.[0] !== chaId ||
+                opts.tracker.chat[0]?.[1] !== chats[chatPage].id
             ) {
-                opts.tracker.chat.unshift([DBState.db.characters[selIdState]?.chaId, DBState.db.characters[selIdState]?.chats[DBState.db.characters[selIdState]?.chatPage].id])
+                opts.tracker.chat.unshift([chaId, chats[chatPage].id])
             }
         }
-        opts.markChanged(ranOnce6)
-        ranOnce6 = true
+        opts.markChanged(frontRanOnce)
+        frontRanOnce = true
+    })
+
+    // 6b-char: the outer effect over the selected character's shape (its key
+    // set, via `Reflect.ownKeys`, NOT `for...in`/`Object.keys` -- see below).
+    // Creates one child per non-`chats`/non-`chatPage` key, plus one
+    // chats-shape child. `chatPage` is excluded from the generic per-field
+    // loop for the same reason `chats` is: 6b-front already reads it (the
+    // comment above 6b-front calls it "the only piece that reads ...
+    // chatPage ... as a tracked dependency") and unconditionally calls
+    // `markChanged` on every run, so a dedicated `chatPage` field child would
+    // only duplicate that dependency, not add coverage -- and it would
+    // defeat the point of splitting front out in the first place, since a
+    // chatPage write would then also rerun a 6b-char child on every switch.
+    // `chaId` is never read directly by this effect -- it passes `char` itself
+    // to `frontUnshiftSelected` (see the comment block above), which does its
+    // own untracked read at fronting time -- so this effect's own dependency
+    // list stays exactly `selIdState`, `characters[selIdState]`, and the
+    // character's key set.
+    //
+    // Why `Reflect.ownKeys`, not `for...in` (verified against Svelte 5.55.1):
+    // both `for...in` and `Object.keys` list an object's keys by calling
+    // [[OwnPropertyKeys]] (the proxy's `ownKeys` trap) and then, for EACH key
+    // returned, calling [[GetOwnProperty]] (the proxy's
+    // `getOwnPropertyDescriptor` trap) to check enumerability. That second
+    // trap (proxy.js:201-206) does `if (s) descriptor.value = get(s)` --
+    // `get(s)` subscribes the running effect to that key's VALUE source, not
+    // just its existence. So `for...in char` doesn't just depend on char's
+    // key set; it depends on the VALUE of every key char already has a
+    // source for. On first mount 6b-front has already created `chats` and
+    // `chatPage` sources, so a `chatPage` change alone reruns this whole
+    // outer effect and rebuilds every field/chat/message child; after any
+    // rerun, every field has a source, so every keystroke does the same.
+    // `Reflect.ownKeys(char)` calls only the `ownKeys` trap (proxy.js:333-347:
+    // `get(version); ... return own_keys`), never `getOwnPropertyDescriptor`,
+    // so it depends on `version` (i.e. the key set) and nothing else -- no
+    // per-key value subscription. Symbols are filtered out (character
+    // objects carry only plain string data keys; Svelte's `STATE_SYMBOL` is
+    // served by the proxy's `get` trap, not stored as an own key on the
+    // target, so it never appears in `Reflect.ownKeys` here either way), and
+    // there is no inherited-enumerable-key difference to worry about since
+    // these are plain JSON-like objects with no prototype chain of their
+    // own enumerable keys -- so this reads the identical key set `for...in`
+    // did, just without the extra per-value reads.
+    let charRanOnce = false
+    $effect(() => {
+        opts.onPartitionRun?.('char')
+        const char = DBState?.db?.characters?.[selIdState]
+        if (char) {
+            for (const key of Reflect.ownKeys(char)) {
+                if (typeof key === 'string' && key !== 'chats' && key !== 'chatPage') {
+                    let fieldRanOnce = false
+                    $effect(() => {
+                        opts.onPartitionRun?.('field')
+                        $state.snapshot(char[key])
+                        frontUnshiftSelected(char)
+                        opts.markChanged(fieldRanOnce)
+                        fieldRanOnce = true
+                    })
+                }
+            }
+            // Chats-shape child: reads `chats` and its `length` only, and
+            // creates one child per index `i`. Each index child ("per-chat
+            // child") reads `chats[i]` itself, so replacing one chat re-runs
+            // only that one child, not every chat.
+            let chatsShapeRanOnce = false
+            $effect(() => {
+                opts.onPartitionRun?.('chats')
+                const chats = char.chats
+                const len = chats?.length ?? 0
+                for (let i = 0; i < len; i++) {
+                    let chatRanOnce = false
+                    $effect(() => {
+                        opts.onPartitionRun?.('chat', i)
+                        const chat = chats[i]
+                        if (chat) {
+                            // Object.keys so the read matches the
+                            // closure-equivalence argument above exactly (verified
+                            // against Svelte 5.55.1): it goes through the proxy's
+                            // `ownKeys` trap (key set / `version` dependency) AND,
+                            // per key, the `getOwnPropertyDescriptor` trap
+                            // (proxy.js:201-206), which additionally subscribes to
+                            // that key's VALUE source -- unlike the 6b-char
+                            // outer effect above, that extra per-key value
+                            // subscription is harmless here: this child
+                            // already deep-reads every key's value itself
+                            // (via `$state.snapshot(chat[key])` below, plus
+                            // `chat.message` separately), so it costs
+                            // nothing to also depend on those same values
+                            // through the descriptor trap.
+                            for (const key of Object.keys(chat)) {
+                                if (key !== 'message') {
+                                    $state.snapshot(chat[key])
+                                }
+                            }
+                            const message = chat.message
+                            if (Array.isArray(message)) {
+                                const mlen = message.length
+                                for (let j = 0; j < mlen; j++) {
+                                    let msgRanOnce = false
+                                    $effect(() => {
+                                        opts.onPartitionRun?.('message', j)
+                                        $state.snapshot(message[j])
+                                        frontUnshiftSelected(char)
+                                        opts.markChanged(msgRanOnce)
+                                        msgRanOnce = true
+                                    })
+                                }
+                            } else {
+                                // Real cold-storage stubs still hold a one-element
+                                // ARRAY, not a bare object (the whole-character stub
+                                // built in `makeColdDataForCharacter` and the
+                                // chat-level stub in `makeColdDataForChat`,
+                                // `coldstorage.svelte.ts`), so they go through the
+                                // array branch above. This non-array branch only
+                                // handles malformed data where `message` is not an
+                                // array at all -- the same case guarded against by
+                                // `throwError`'s (inside `sendChatBody` in
+                                // `index.svelte.ts`) `!Array.isArray(chatRoom.message)`
+                                // guard -- and is kept here for equivalence with the pre-Stage-2
+                                // merged effect, which snapshotted whatever `message`
+                                // was without checking its shape.
+                                $state.snapshot(message)
+                            }
+                        }
+                        frontUnshiftSelected(char)
+                        opts.markChanged(chatRanOnce)
+                        chatRanOnce = true
+                    })
+                }
+                frontUnshiftSelected(char)
+                opts.markChanged(chatsShapeRanOnce)
+                chatsShapeRanOnce = true
+            })
+            frontUnshiftSelected(char)
+        }
+        opts.markChanged(charRanOnce)
+        charRanOnce = true
     })
 
     // Identity tracker (Report 17 Stage 1 §3.2): a SEPARATE effect that only
@@ -173,8 +424,9 @@ export function registerDbChangeEffects(opts: DbChangeEffectOptions): void {
                 // First run: only elements missing from the seed are "new" (a
                 // replacement that raced encoder.init, plan §3.2 gate finding
                 // 3). Without a seed, the first run only fills the set -- this
-                // is what keeps the existing toHaveBeenCalledTimes(6) test
-                // valid in Stage 1 (§4.3 updates it in Stage 2).
+                // is what keeps the 'first run reports markChanged(false) for
+                // every effect' test's call count valid in Stage 1 (§4.3
+                // updates it in Stage 2).
                 if (identityRanOnce || identityHasSeed) {
                     const chaId = untrack(() => (c as { chaId?: string }).chaId)
                     if (chaId) {

@@ -1,7 +1,9 @@
 # CHORE-01 + Phase 2 item 2 plan — mark non-selected character edits for save, then partition the selected-character tracker
 
 Status: **Stage 1 implemented; gate 2 passed on code after three rounds (last REJECT text-only,
-fixed); live check passed; committed as `152cc563`.**
+fixed); live check passed; committed as `152cc563`. Stage 2 implemented; gate 3 approved with
+findings after three rounds (rounds 1-2 REJECT on comment accuracy, code judged correct), findings
+folded in; live check passed 2026-09-22; uncommitted.**
 Rev 1 was REJECTED at gate 1; rev 2 passed the re-review with findings F1-F11 (§10), folded in
 below. The Orchestrator re-verified rev 1's blocking findings in source before accepting them.
 Branch `fix/persistence-conflict-platform-hardening`, base HEAD `0291ea36`.
@@ -213,6 +215,9 @@ closure (Report 11 §4, §8 method).
 
 ### 4.1 Shape (gate finding 7)
 
+Line numbers in this subsection refer to `dbChangeEffects.svelte.ts` before Stage 1 (base HEAD
+`0291ea36`); the implementation notes below describe what shipped.
+
 - **6a — generic top-level loop** (`:95-102`), moved unchanged into its own effect.
 - **6b-front — a small effect** that reads `selIdState`, `characters[selIdState]`, its `chaId`,
   `chatPage` and `chats[chatPage]?.id`, and does the `tracker.character` front-unshift and the
@@ -226,7 +231,12 @@ closure (Report 11 §4, §8 method).
 - **Per-chat child:** reads every key of the chat except `message` (`Object.keys` + snapshot), then:
   - if `message` is an array: reads `message` and its `length`, and creates one grandchild per
     index `j` that reads `message[j]` itself and snapshots it;
-  - otherwise (cold-storage stub, `coldstorage.svelte.ts:771-788`): `$state.snapshot(message)`.
+  - otherwise (malformed data, `message` not an array): `$state.snapshot(message)`. Real cold-storage
+    stubs are arrays and go through the array branch above — the whole-character stub's `chats[0]`
+    (`coldstorage.svelte.ts:774`) and the chat-level stub (`:865`) both set `message` to a
+    one-element array. The non-array branch exists only for malformed data where `message` is not an
+    array, the same case `index.svelte.ts:220` guards against; it is kept to preserve equivalence
+    with the old effect, which snapshotted whatever `message` was.
 - Every effect that fires does the front-unshift of the selected `chaId` and calls
   `markChanged(ranOnce)`; recreated children pass `false`, so shape changes are covered by the
   parent's `markChanged(true)`, as in Stage B.
@@ -256,8 +266,9 @@ closure (Report 11 §4, §8 method).
   in this suite, or its calls distinguished). Classes: field write; nested write (lorebook entry
   content, emotion image list); key added and removed; chat pushed, spliced and replaced; `chats`
   array replaced; message appended; last message `data` appended (token); message edited in a
-  non-active chat; message deleted; `message` array replaced; cold-stub chat edited; `chatPage`
-  changed; selection changed; selected character replaced by identity.
+  non-active chat; message deleted; `message` array replaced; cold-stub chat (a one-element array)
+  edited; malformed non-array `message` edited; `chatPage` changed; selection changed; selected
+  character replaced by identity.
 - **Rebuild-count tests:** a `chatPage` change creates no message children; replacing chat `i`
   re-runs only chat `i`'s child.
 - **Negative control:** a write to a non-selected character is not marked by any 6b effect.
@@ -266,6 +277,63 @@ closure (Report 11 §4, §8 method).
   comment listing each effect, and the equivalence suite (not the count) is the safety evidence.
 - **Cost:** the M1 harness re-run against the partition, in the harness suite. Numbers with the
   hardware caveat.
+
+### Stage 2 implementation notes (Gate 3)
+
+- **The `for…in` entanglement, found in implementation and fixed.** A `for…in` over a Svelte 5 proxy
+  calls the `getOwnPropertyDescriptor` trap per key (`node_modules/svelte/src/internal/client/proxy.js:201-206`).
+  That trap subscribes the running effect to the value of every property whose source already
+  exists. So the 6b-char outer effect rebuilt the whole subtree on a `chatPage` change, and on every
+  field write after any re-run. It was fixed by enumerating with `Reflect.ownKeys` (the `ownKeys`
+  trap, `:333-347`, reads only `version`) and by leaving `chatPage` out of the field children,
+  because 6b-front covers it.
+- **Measured** on an i9-13900K under Node (best case; no claim for a Pi or a phone), 10k / 50k
+  messages over 10 chats, M1 (the old merged effect) → partition:
+  - keystroke: 74 / 385 → 0.67 / 3.2 ms
+  - streamed token: 74 / 385 → 0.66 / 3.4 ms
+  - message push: 74 / 385 → 8.2 / 45 ms (rebuilds that chat's per-message children once per
+    appended message)
+  - chatPage switch: 74 / 385 → 0.67 / 3.4 ms (89 / 515 ms before the `Reflect.ownKeys` fix)
+  - keystroke after a switch: 1.0 / 3.5 ms
+  - retained heap after mount (proxies, sources and effects together): 23.7 / 119 MB. The
+    commit-message reviewer ran the same harness test against the pre-Stage-2 source and reported
+    15.1 / 75.7 MB, so the new effects add about 9 / 43 MB (reviewer's scratchpad run, not kept).
+- **The residual scaling is Svelte's flush traversal** (TRACED in
+  `node_modules/svelte/src/internal/client/reactivity/batch.js:364-407`, `Batch#traverse`). It walks
+  every live plain `$effect` in the tree; the only ones skipped are clean BRANCH/ROOT effects, `INERT`
+  effects, and effects in `#skipped_branches` (`batch.js:371-374`). That
+  costs about 0.065 µs per effect. It was confirmed by
+  `Agents/Tools/save-gen/flush-traversal-scaling-bench.svelte.harness.ts`: N idle effects (each with one stable dependency, so not Svelte-`INERT`), 0.64 ms
+  at 10k and 3.08 ms at 50k. It matches the keystroke cost per message.
+- **Recorded option, not implemented:** fewer effects per message, for example chunked message
+  children (one child per K messages) or active-chat-only children, to cut both the traversal cost
+  and the retained heap. Record it as an open follow-up. The Pi and phone floor makes per-keystroke
+  traversal worth revisiting after the live measurement.
+- **`chats[chatPage]` without `?.`:** §4.1 wrote `chats[chatPage]?.id`, but the pre-Stage-2 effect
+  read `chats[chatPage].id` with no `?.`, so it threw when `chatPage` was out of range. 6b-front
+  keeps that (still throws in the same cases); a partition is not the place to change it. The
+  `db.characters` read keeps the old `DBState?.db?.characters?.[selIdState]` guard (restored in
+  Gate 3 round 2).
+- **Gate 3 finding 2:** children fronted a `chaId` captured at outer-run time, so an in-place `chaId`
+  rename re-fronted the stale id. That would be silent loss if some writer ever renames in place; no
+  production writer does today (INFERRED). Fixed by reading the id at fronting time.
+- **A behaviour change from the partition:** a write to a top-level key alone (for example
+  `characterOrder`) no longer front-unshifts the selected character. 6a
+  (`dbChangeEffects.svelte.ts:118-129`) only reads the generic top-level keys and calls
+  `opts.markChanged(ranOnce6a)`; it does not call `frontUnshiftSelected`, which now lives only in
+  6b-front and the other 6b pieces. `markChanged(true)` still runs, so the save still happens and the
+  top-level data is still saved. **Nothing different is written:** the selected character is already
+  the tracker's sticky front (every 6b piece fronts it on its first run and on each selection change,
+  and `prepareSaveIteration` keeps `character[0]` when it trims), so it is still re-encoded on that
+  save. The difference is only visible in a tracker whose front is not the selected character, as
+  in the test's sentinel. (Commit-message check, 2026-09-22, corrected an earlier claim here that
+  the re-encode was skipped.)
+- **Gate 3 round 2:** the reviewer reported a second independent old-vs-new differential fuzz
+  (250 seeds × 60 steps, run from its scratchpad and not kept) with zero misses, plus five mutants
+  each caught by the real test file; the code was judged correct. The round's rejection was for
+  comment accuracy (and one restored `?.` guard on `db.characters`). Test comments now refer to
+  effects in `dbChangeEffects.svelte.ts` by name (6a, 6b-front, 6b-char, and so on) instead of by
+  line number, since the line numbers went stale twice.
 
 ## 5. Keeping B's weakness in check
 
@@ -317,6 +385,32 @@ Harness: `Agents/Tools/save-gen/chore01-plugin-setdatabase-save-bench.svelte.har
 is CHORE-17's subject; see `Agents/Roadmap.md` CHORE-17 for the recommended re-encode-only-what-changed
 strategy, sequenced after Stage 2.
 
+### Live check (Stage 2) — completed 2026-09-22
+
+Dev server started by the maintainer, pane visible. A temporary character "Livecheck 10k (temp)"
+(10 chats × 1000 messages, cloned from a fixture character) was added through `DBState`, measured,
+then removed with `removeChar(chaId, name, 'permanentForce')`; a page reload confirmed 31 characters
+and no trace of it. Same i9-13900K, in Chromium, so best case; no claim for a Pi or a phone.
+
+- The pane throttled `requestAnimationFrame` (an idle frame took ~590 ms), so frame times were not
+  usable. Each edit was timed synchronously with the app's own `flushSync` (Vite dep instance):
+  tracker effects plus any UI effects the edit triggers, excluding the async save loop.
+- Keystroke (`desc`): 1.1 ms median (0.8-2.5). After a chatPage switch: 1.3 ms (0.8-3.5), so the
+  `Reflect.ownKeys` fix holds in the browser.
+- Streamed token on the active chat: 16.3 ms median (10.4-26.4); this includes the chat view
+  re-rendering that message (the tracker share is ~0.7 ms in the Node harness).
+- chatPage switch: 104-299 ms (5 runs); this is the chat view rendering a different 1000-message
+  chat (the tracker share is ~0.7 ms in Node).
+- Old merged effect, proxy: `snapshot(chats)` of that character took 204 ms median (129-257) in the
+  same page. That snapshot was 98.8-100% of the old per-edit cost (§1.3), so every keystroke and
+  token paid roughly that before Stage 2.
+- Selecting the character: 1.09 s to the end of the task, 4.6 s to the (throttled) frame; not
+  separable from the chat view's own render. Heap was not separable from the module-heavy fixture
+  (~1.5 GB); the Node figure stands (about +9 MB at 10k for the effects, 23.7 MB total after mount).
+- Timing without `flushSync` (setTimeout gaps) gave 280 / 470 ms medians because the async save
+  loop, which re-encodes the selected 10k-message character on each save, landed in the gaps. That
+  is the save cost, unchanged by Stage 2; recorded for CHORE-17 context.
+
 ## 7. Compatibility
 
 - **No save-format change.** The encoder's `set()` is untouched; `encoder.init` only additionally
@@ -325,7 +419,10 @@ strategy, sequenced after Stage 2.
   `setDatabaseLite` behave the same except that their writes now persist. A character removed
   through `setDatabase` still comes back on reload, as today (maintainer decision, §3.3).
 - Upstream characters, modules, presets, backups and plugins unaffected; legacy array-format cold
-  chats untouched (cold stubs get the plain-snapshot fallback in Stage 2).
+  chats untouched. Real cold-storage stubs are one-element `message` arrays
+  (`coldstorage.svelte.ts:774`, `:865-869`), so they go through the per-message (array) branch in
+  Stage 2 like any other chat, not the plain-snapshot fallback. Only malformed data where `message`
+  is not an array hits the plain-snapshot fallback (§4.1).
 - `requiresFullEncoderReload` and its four existing call sites stay; two are added (the internal
   and account backup loads).
 
