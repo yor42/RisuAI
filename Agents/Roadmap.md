@@ -226,7 +226,20 @@ This phase is the load-bearing one: it's what Phase 4 (Android) is gated behind,
    - **Not settled by Stage 2:** the top-level part of this effect family (`characterOrder` and the
      other non-character keys, handled by an unchanged loop) was not repartitioned here, so this
      status covers the selected-character effect only, not every effect this item's heading names.
-3. **Status 2026-09-21 — character-list half, in progress:** AV-1 committed `64777a34` (each avatar resolved once per character), AV-2 committed `97c3f53a` (avatars resolved only near the viewport, far ones released; live-checked, ledger 38). AV-3 committed `d6ee89db` (plain HTTP encodes each asset once, under a 64 MiB cache budget; the chat parser no longer pins its own permanent copy; Report 15 rev 2; gates ledger 48/50; red ledger 49; live check ledger 51). AV-4 (list thumbnails, 168 px short side, WebP with PNG fallback, own local store) committed `41977ac0` (Report 16 rev 2; plan gate ledger 54; gates ledger 57/58; red and mutation ledger 56/59; live check ledger 60). Thumbnailed list avatars bypass `getFileSrc`, so the lists no longer use the AV-3 cache for them; animated, small and account-hub avatars still take the full-size path. The chat-list half below is not started.
+3. **Status 2026-09-21 — character-list half, in progress:** AV-1 committed `64777a34` (each avatar resolved once per character), AV-2 committed `97c3f53a` (avatars resolved only near the viewport, far ones released; live-checked, ledger 38). AV-3 committed `d6ee89db` (plain HTTP encodes each asset once, under a 64 MiB cache budget; the chat parser no longer pins its own permanent copy; Report 15 rev 2; gates ledger 48/50; red ledger 49; live check ledger 51). AV-4 (list thumbnails, 168 px short side, WebP with PNG fallback, own local store) committed `41977ac0` (Report 16 rev 2; plan gate ledger 54; gates ledger 57/58; red and mutation ledger 56/59; live check ledger 60). Thumbnailed list avatars bypass `getFileSrc`, so the lists no longer use the AV-3 cache for them; animated, small and account-hub avatars still take the full-size path. Chat-list half, started 2026-09-23: measured and planned in Report 19; Stage A (reset the mounted window on a chat switch when no message editor is open) committed `96311c4a`, live-checked. Real windowing (unmounting off-screen messages) still waits on drafts that survive unmounting.
+
+   **Added 2026-09-22 (maintainer): the avatar track did not virtualize the character lists or the
+   sidebar.** Every character still mounts. At 1000 characters that measured 2,019 elements for the
+   grid, 10,022 for the simple layout and 15,017 for the list (ledger row 17, before AV-2 to AV-4).
+   Both of the following are worth investigating, after the chat list:
+   - **Character lists: virtual scrolling.** The grid can load very many avatars. The list and
+     trash views print each character's full creator notes. Measure the mount and re-render cost
+     at 500 and 1000 characters now that the avatar costs are fixed, then decide.
+   - **Sidebar: a rework, not just virtual scrolling.** The community already reports its
+     drag-and-drop and folders as janky. Virtual scrolling alone is complicated by the sidebar's
+     native HTML5 drag-and-drop, which needs the DOM nodes it drags between (Report 12 kept the
+     sidebar unkeyed for this reason). Investigate drag-and-drop, folders and windowing together.
+   - Related bug: CHORE-18 (creator notes overflow in the list view).
    **Add real virtual scrolling to the chat message list** (`DefaultChatScreen.svelte`), keeping the existing incremental-load-on-scroll-up behavior for fetching history but unmounting off-screen messages so peak DOM/component count is bounded. This is the most Android-relevant fix in the whole roadmap. *(Report 01, recommendation 4 — Medium-High effort.)*
 
    **Premise re-measured 2026-09-21 (ledger row 13) — corrected and widened. Scope now includes the character lists at the maintainer's request.**
@@ -1108,6 +1121,23 @@ run. No new memory; nothing plugin-visible. Plan and gate are pending; a new rep
 
 **Staging (when scheduled):** measure -> plan -> gate 1 -> layer 1 and layer 2 as separate stages ->
 live check.
+
+### CHORE-18 — Character list view: long creator notes overflow and hide the buttons
+
+**Status (2026-09-22):** reported by the maintainer; fixed in `GridCatalog.svelte` (list and trash rows: `min-w-0`, `line-clamp-3 wrap-break-word`, one `parseMultilangString` call); live-checked (a long test note: text 3,616 px wide in a 715 px row without the fix, contained and clamped with it; delete button visible); committed as `2ee8a2a9`.
+
+**Symptom.** In the character list's list view (and the trash view, which shares the markup), a
+long creator note can escape its box and spread into a wall of text. That hides the delete button.
+
+**Cause (source, `src/lib/Others/GridCatalog.svelte`, the list and trash `{#each}` rows).**
+- Each row prints the whole `creatorNotes` in a plain `<span>`, with no line clamp or height limit.
+- The text column is `flex-1 flex flex-col` without `min-w-0`, and the span has no `break-words`.
+  A long unbroken string, such as a URL, therefore widens the row past its container.
+- A long note pushes the button row far down.
+
+**Fix, as committed:** `min-w-0` on the text column, `wrap-break-word`, and a three-line clamp on
+the note, so the select and delete buttons stay visible. Each row also called
+`parseMultilangString(char.desc)` twice; that is now one call.
 
 ## Sequencing Summary
 
