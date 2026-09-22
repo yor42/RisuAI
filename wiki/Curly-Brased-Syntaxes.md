@@ -10,6 +10,8 @@ This page covers the basics, character/prompt accessors, and variables. See also
 - [[CBS-Functions]] — comparisons, string/array/dictionary functions, math, random/dice, time/date formatting, system metadata, encoding helpers.
 - [[CBS-Assets]] — displaying character assets, emotion images, inlays, and profile pictures.
 
+To try CBS as you read, use the **Syntax** tool in the [[Playground]]. Its **CBS Doc** tool lists every tag with a short description.
+
 ## How CBS is evaluated
 
 CBS is parsed by a single scanner that walks the text looking for `{{...}}` (and the block form `{{#...}}...{{/...}}`). The same parser runs whether the text is being shown on screen or sent to the model, but a few functions behave differently depending on which one is happening. For example, `{{comment}}` and `{{file}}` only produce visible markup when the text is being displayed. <!-- src/ts/parser/parser.svelte.ts:1602-1692; src/ts/cbs.ts:972-981,2130-2140 -->

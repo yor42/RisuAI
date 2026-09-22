@@ -31,6 +31,7 @@ If the sidebar is closed, open it with the arrow button in the top-left corner. 
   - **Create from Scratch**: make an empty character.
   - **Create Group Chat**: chat with several characters at once.
 - The menu button opens **Settings** and the other app pages.
+- The **Playground** icon opens a set of testing tools. See [[Playground]].
 
 <!-- src/lib/SideBars/Sidebar.svelte:147-334,631-690; src/lib/Others/AlertComp.svelte:594-670; src/ts/characterCards.ts:52-171 -->
 

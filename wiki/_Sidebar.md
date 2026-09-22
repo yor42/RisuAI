@@ -26,6 +26,9 @@
 - [[Additional Character Screen]]
 - [[TTS]]
 
+**Tools**
+- [[Playground]]
+
 **Memory**
 - [[Long Term Memory]]
   - [[HypaMemory V3]]

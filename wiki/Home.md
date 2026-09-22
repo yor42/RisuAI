@@ -31,6 +31,7 @@ How RisuAI works:
      - [[SupaMemory]]
      - [[Hanurai Memory]]
   - [[TTS]]
+  - [[Playground]]
   - Plugins
      - [[Plugin Docs]]
         - [[Plugin API Reference]]
