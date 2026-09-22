@@ -1,21 +1,40 @@
-import { describe, test, expect, vi } from 'vitest'
+import { describe, test, expect, vi, beforeEach } from 'vitest'
 
 //#region module mocks — keep the unit under test isolated from the rest of
 // the app's (heavy, side-effecting) dependency graph, matching the pattern
 // used in src/ts/process/files/tests/inlays.test.ts.
 
-const store = new Map<string, unknown>()
+// `vi.hoisted` (not plain `const`s) because `vi.mock('localforage', ...)`
+// below is itself hoisted above this file's own top-level statements, and its
+// factory runs as soon as `risuSave.ts` (imported further down this file) is
+// evaluated -- which, under ESM import hoisting, happens before plain
+// `const`s here would have run. `cacheSetItem`/`cacheGetItem`/`cacheRemoveItem`
+// are declared outside the `createInstance` factory (CHORE-17, plan Report 18
+// §4) so every call to `localforage.createInstance(...)` -- there is exactly
+// one, at risuSave.ts's module load, held in its module-level
+// `risuSaveCacheForage` -- hands out the SAME countable spies, and tests in
+// this file can assert on them directly instead of only inspecting `store`'s
+// final contents.
+const { store, cacheSetItem, cacheGetItem, cacheRemoveItem } = vi.hoisted(() => {
+    const store = new Map<string, unknown>()
+    return {
+        store,
+        cacheSetItem: vi.fn(async (key: string, value: unknown) => {
+            store.set(key, value)
+        }),
+        cacheGetItem: vi.fn(async (key: string) => store.get(key) ?? null),
+        cacheRemoveItem: vi.fn(async (key: string) => {
+            store.delete(key)
+        }),
+    }
+})
 
 vi.mock('localforage', () => ({
     default: {
         createInstance: () => ({
-            getItem: vi.fn(async (key: string) => store.get(key) ?? null),
-            setItem: vi.fn(async (key: string, value: unknown) => {
-                store.set(key, value)
-            }),
-            removeItem: vi.fn(async (key: string) => {
-                store.delete(key)
-            }),
+            getItem: cacheGetItem,
+            setItem: cacheSetItem,
+            removeItem: cacheRemoveItem,
         }),
     },
 }))
@@ -48,6 +67,22 @@ vi.mock(import('src/ts/platform'), () => ({
     isNodeServer: false,
 }))
 
+// CHORE-17 (plan Report 18 §4, A9): replaces the real yield budget
+// (`createYieldBudget`/`yieldToEventLoop`) with spies, so A9 can count
+// `maybeYield` calls directly instead of depending on real timing. Declared
+// with `vi.hoisted` for the same reason as the cache spies above.
+const { maybeYieldSpy, noteYieldedSpy } = vi.hoisted(() => ({
+    maybeYieldSpy: vi.fn(async () => {}),
+    noteYieldedSpy: vi.fn(),
+}))
+vi.mock(import('src/ts/storage/saveYield'), () => ({
+    createYieldBudget: vi.fn(() => ({
+        noteYielded: noteYieldedSpy,
+        maybeYield: maybeYieldSpy,
+    })),
+    yieldToEventLoop: vi.fn(async () => {}),
+}))
+
 vi.mock('@tauri-apps/plugin-fs', () => ({
     writeFile: vi.fn(),
     exists: vi.fn(async () => false),
@@ -61,6 +96,24 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
 import { RisuSaveEncoder, RisuSaveDecoder, decodeRisuSave } from '../risuSave'
 import type { toSaveType } from '../risuSave'
 import type { Database } from '../database.svelte'
+
+// CHORE-17 (plan Report 18 §4): the cache `store` and its spies are shared
+// module-level state across every test in this file, so each test starts
+// from a clean slate rather than one test's cached blocks leaking into
+// another's assertions (or into the corruption-recovery test's cache lookup).
+beforeEach(() => {
+    store.clear()
+    cacheSetItem.mockClear()
+    cacheGetItem.mockClear()
+    cacheRemoveItem.mockClear()
+    maybeYieldSpy.mockClear()
+    noteYieldedSpy.mockClear()
+})
+
+/** Number of times `spy` was called with `key` as its first argument. */
+function callsForKey(spy: { mock: { calls: unknown[][] } }, key: string): number {
+    return spy.mock.calls.filter((args) => args[0] === key).length
+}
 
 const ROOT_MARKER = 'ROOT_MARKER_XYZ'
 
@@ -347,5 +400,284 @@ describe('RisuSaveEncoder.takeEncodedCharacterProxies() — Report 17 Stage 1 Ga
 
         const secondTake = encoder.takeEncodedCharacterProxies()
         expect(secondTake.size).toBe(0)
+    })
+})
+
+// CHORE-17 (plan Report 18 §2, §4 —
+// Agents/Reports/18-chore17-skip-unchanged-writes-plan.md). A block's local
+// cache write is skipped when its freshly-encoded bytes are already equal to
+// the encoder's own last-written bytes for that key (`this.blocks[name]`).
+// A1 pins the skip itself. A2c additionally pins that an equal-length
+// change is still caught -- by choosing a name whose block length lands on
+// a multiple of 4, so the whole comparison runs through the word loop, with
+// no tail bytes left for a coincidental checksum difference to catch the
+// change on the word loop's behalf (see A2c's own comment for why that
+// distinction matters). A2 through A6 pin the behaviour the skip must not
+// disturb -- a changed character still writes, a failed write is still
+// retried, a round trip through encode/decode still matches, a corrupted
+// block still recovers from the cache, and a fresh encoder still writes
+// every block. A9 pins that a run of skips still yields to the event loop,
+// awaiting each yield before encoding the next block; A10 pins that a real
+// (non-skipped) write still resets the yield budget via `noteYielded`.
+describe('RisuSaveEncoder — CHORE-17 Stage A, the local cache skip', () => {
+    function buildOneCharacterDb(name = 'Test Character'): Database {
+        return {
+            formatversion: 5,
+            botPresets: [],
+            botPresetsId: 0,
+            modules: [],
+            loadouts: [],
+            plugins: [],
+            pluginCustomStorage: {},
+            characters: [
+                { chaId: 'char1', type: 'character', name, chats: [] },
+            ],
+        } as unknown as Database
+    }
+
+    function makeToSave(character: string[]): toSaveType {
+        return {
+            character,
+            chat: [],
+            botPreset: false,
+            modules: false,
+            loadouts: false,
+            plugins: false,
+            pluginCustomStorage: false,
+        }
+    }
+
+    test('A1 (red): an unchanged, marked character is not rewritten to the cache the second time set() runs', async () => {
+        const db = buildOneCharacterDb()
+        const encoder = new RisuSaveEncoder()
+        await encoder.init(db)
+
+        await encoder.set(db, makeToSave(['char1']))
+        const countAfterFirstSet = callsForKey(cacheSetItem, 'risuSaveBlock_char1')
+
+        await encoder.set(db, makeToSave(['char1']))
+        const countAfterSecondSet = callsForKey(cacheSetItem, 'risuSaveBlock_char1')
+
+        expect(countAfterSecondSet).toBe(countAfterFirstSet)
+    })
+
+    test('A2 (guard): a changed character is written, and its cache entry holds the new data', async () => {
+        const db = buildOneCharacterDb()
+        const encoder = new RisuSaveEncoder()
+        await encoder.init(db)
+
+        db.characters[0].name = 'Changed Name'
+        await encoder.set(db, makeToSave(['char1']))
+
+        const cached = store.get('risuSaveBlock_char1') as { data: string }
+        expect(JSON.parse(cached.data).name).toBe('Changed Name')
+    })
+
+    test('A2b (guard, equal length): a character change that keeps the same byte length is still written', async () => {
+        const db = buildOneCharacterDb('Test Character')
+        const encoder = new RisuSaveEncoder()
+        await encoder.init(db)
+        cacheSetItem.mockClear()
+
+        // Same length as 'Test Character' -- pins that the skip compares
+        // content, not just length. A comparator that only checked
+        // `a.length === b.length` would wrongly treat this as unchanged.
+        db.characters[0].name = 'Test CharacteR'
+        await encoder.set(db, makeToSave(['char1']))
+
+        const call = cacheSetItem.mock.calls.find((args) => args[0] === 'risuSaveBlock_char1')
+        expect(call).toBeTruthy()
+        expect(JSON.parse((call![1] as { data: string }).data).name).toBe('Test CharacteR')
+    })
+
+    /**
+     * Mirrors encodeRawBlock's own framing math (headerBytes(2+1+nameLen+4) +
+     * headerChecksum(4) + databuf + dataChecksum(4)) so the fixture below can
+     * assert its own block length instead of hard-coding a number that would
+     * go stale silently if that framing ever changed.
+     */
+    function characterBlockLength(chaId: string, character: unknown): number {
+        const nameBufLen = new TextEncoder().encode(chaId).length
+        const databufLen = new TextEncoder().encode(JSON.stringify(character)).length
+        return (2 + 1 + nameBufLen + 4) + 4 + databufLen + 4
+    }
+
+    test('A2c (guard, word-aligned): an equal-length change is still written when the block length is a multiple of 4', async () => {
+        // Gate 2 round 3 (MAJOR): deleting the `aWords[i] !== bWords[i]` word
+        // check left the whole suite passing, because A2b's 91-byte block
+        // left 3 trailing bytes for the tail loop to compare on the word
+        // loop's behalf -- coincidentally, those bytes happened to include a
+        // byte of the (CRC32) checksum that differs whenever the content
+        // does. A block length that is an exact multiple of 4 leaves zero
+        // trailing bytes, so nothing but the word loop is left to catch a
+        // difference.
+        const before = buildOneCharacterDb('Multiple4Length')
+        const after = buildOneCharacterDb('Multiple4LengtH') // same length as 'Multiple4Length'
+        expect(characterBlockLength('char1', before.characters[0])).toBe(
+            characterBlockLength('char1', after.characters[0]),
+        )
+        expect(characterBlockLength('char1', before.characters[0]) % 4).toBe(0)
+
+        const encoder = new RisuSaveEncoder()
+        await encoder.init(before)
+        cacheSetItem.mockClear()
+
+        await encoder.set(after, makeToSave(['char1']))
+
+        const call = cacheSetItem.mock.calls.find((args) => args[0] === 'risuSaveBlock_char1')
+        expect(call).toBeTruthy()
+        expect(JSON.parse((call![1] as { data: string }).data).name).toBe('Multiple4LengtH')
+    })
+
+    test('A3 (guard): after a change, a set() whose cache write throws is retried by the next set() and ends up with the new data', async () => {
+        const db = buildOneCharacterDb()
+        const encoder = new RisuSaveEncoder()
+        await encoder.init(db)
+
+        db.characters[0].name = 'First Change'
+        cacheSetItem.mockImplementationOnce(async () => {
+            throw new Error('write failed')
+        })
+        await expect(encoder.set(db, makeToSave(['char1']))).rejects.toThrow('write failed')
+
+        db.characters[0].name = 'Second Change'
+        await encoder.set(db, makeToSave(['char1']))
+
+        const cached = store.get('risuSaveBlock_char1') as { data: string }
+        expect(JSON.parse(cached.data).name).toBe('Second Change')
+    })
+
+    test('A4 (guard): a round trip through encode and decode still yields identical data after skip-worthy repeated set() calls', async () => {
+        const db = buildOneCharacterDb()
+        const encoder = new RisuSaveEncoder()
+        await encoder.init(db)
+
+        await encoder.set(db, makeToSave(['char1'])) // unchanged
+        await encoder.set(db, makeToSave(['char1'])) // unchanged again
+        db.characters[0].name = 'Changed For Round Trip'
+        await encoder.set(db, makeToSave(['char1'])) // changed
+
+        const decoded = await decodeRisuSave(new Uint8Array(encoder.encode()!))
+        expect(decoded.characters?.[0]?.name).toBe('Changed For Round Trip')
+    })
+
+    test('A5 (guard, recovery): a corrupted character data checksum recovers the right content from the cache', async () => {
+        const db = buildOneCharacterDb()
+        const encoder = new RisuSaveEncoder()
+        await encoder.init(db)
+        // set() (not just init()) is required here: init()'s root block has no
+        // `__directory` field at all, so nothing would trigger the cache
+        // fallback below -- only set() adds `__directory`, which is what
+        // RisuSaveDecoder consults to decide whether to load a missing block
+        // from the cache (plan fact 3).
+        await encoder.set(db, makeToSave(['char1']))
+
+        const encoded = new Uint8Array(encoder.encode()!)
+        const marker = '"chaId":"char1"'
+        const offset = findByteOffset(encoded, marker)
+        expect(offset).toBeGreaterThan(-1)
+        const corrupted = new Uint8Array(encoded)
+        // Flips a data byte (inside the quoted chaId value), which fails only
+        // the per-block DATA checksum, not the header/length -- the header
+        // stays intact, so the decoder still knows where this block ends and
+        // simply drops it, instead of aborting the whole decode.
+        corrupted[offset + '"chaId":"'.length] ^= 0x01
+
+        const decoded = await decodeRisuSave(corrupted)
+        const recovered = decoded.characters?.find((c: any) => c.chaId === 'char1')
+        expect(recovered).toBeTruthy()
+        expect(recovered!.name).toBe('Test Character')
+    })
+
+    test('A6 (guard): after a fresh encoder\'s init(), every block is written', async () => {
+        const db = buildOneCharacterDb()
+        const encoder = new RisuSaveEncoder()
+        await encoder.init(db)
+
+        const writtenKeys = cacheSetItem.mock.calls.map((args) => args[0]).sort()
+        expect(writtenKeys).toEqual([
+            'risuSaveBlock_char1',
+            'risuSaveBlock_config',
+            'risuSaveBlock_loadouts',
+            'risuSaveBlock_modules',
+            'risuSaveBlock_pluginStorage',
+            'risuSaveBlock_plugins',
+            'risuSaveBlock_preset',
+            'risuSaveBlock_root',
+        ])
+    })
+
+    test('A9: calls maybeYield once per skipped write', async () => {
+        const characterCount = 5
+        // toJSON hooks the one `JSON.stringify(character)` call set() makes
+        // per character, so `order` records exactly when each character's
+        // block starts encoding, without touching any non-test file.
+        const order: string[] = []
+        const db: Database = {
+            formatversion: 5,
+            botPresets: [],
+            botPresetsId: 0,
+            modules: [],
+            loadouts: [],
+            plugins: [],
+            pluginCustomStorage: {},
+            characters: Array.from({ length: characterCount }, (_, i) => ({
+                chaId: `skip-heavy-${i}`,
+                type: 'character',
+                name: `Character ${i}`,
+                chats: [],
+                toJSON() {
+                    order.push(this.chaId)
+                    return { chaId: this.chaId, type: this.type, name: this.name, chats: this.chats }
+                },
+            })),
+        } as unknown as Database
+        const encoder = new RisuSaveEncoder()
+        await encoder.init(db)
+        order.length = 0 // init() also encodes every character; only set()'s order matters here
+
+        // Holds the first maybeYield() call pending, so the test can tell
+        // whether set() actually awaits it before moving on to the next
+        // character's block, rather than merely calling it.
+        let resolveFirstYield!: () => void
+        const firstYield = new Promise<void>((resolve) => {
+            resolveFirstYield = resolve
+        })
+        maybeYieldSpy.mockImplementationOnce(async () => {
+            await firstYield
+        })
+
+        // Every character is marked but none of them changed since init(), so
+        // every one of these writes is skip-worthy.
+        const setPromise = encoder.set(db, makeToSave(db.characters.map((c) => c.chaId)))
+
+        // Flush several microtask turns while the first maybeYield() call
+        // stays pending. If set() awaits it (as it must), execution stays
+        // blocked on the first character; only a version that fired
+        // maybeYield without awaiting it would let later characters encode
+        // during this window.
+        for (let i = 0; i < 5; i++) {
+            await Promise.resolve()
+        }
+        expect(order).toEqual(['skip-heavy-0'])
+        expect(maybeYieldSpy).toHaveBeenCalledTimes(1)
+
+        resolveFirstYield()
+        await setPromise
+
+        expect(order).toEqual(db.characters.map((c) => c.chaId))
+        expect(maybeYieldSpy).toHaveBeenCalledTimes(characterCount)
+    })
+
+    test('A10 (guard): a real (non-skipped) write calls noteYielded', async () => {
+        const db = buildOneCharacterDb()
+        const encoder = new RisuSaveEncoder()
+        await encoder.init(db)
+        noteYieldedSpy.mockClear()
+
+        db.characters[0].name = 'Changed For NoteYielded'
+        await encoder.set(db, makeToSave(['char1']))
+
+        expect(noteYieldedSpy).toHaveBeenCalled()
     })
 })

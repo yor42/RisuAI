@@ -4,6 +4,7 @@ import { getDatabase, presetTemplate, type Database } from "./database.svelte";
 import localforage from "localforage";
 import { forageStorage } from "../globalApi.svelte";
 import { isNodeServer, isTauri } from "src/ts/platform"
+import { createYieldBudget } from "./saveYield"
 import {
     writeFile,
     BaseDirectory,
@@ -29,6 +30,18 @@ const disableRemoteSaving = () => {
         return true
     }
 }
+// CHORE-17 Stage B (plan Report 18 §3): remote file names this page load has
+// written successfully or confirmed to exist. `encodeRemoteBlock` skips a
+// rewrite whenever a name is already in here (except on account storage,
+// which neither reads nor records it). Module-level (not per-encoder), so
+// this also applies after `reinitEncoder()` reloads. Upstream commit
+// f484ed72 makes a full reload pass `skipRemoteSavingOnCharacters: false`,
+// which on its own rewrites every character's remote file unconditionally;
+// this set skips a file already written this page load regardless. Safe
+// because remote file names are content-addressed and nothing in this build
+// deletes them (plan fact 7); a `cleanChunks` bug in older clients sharing
+// the same Node server can still delete a hash-named file after 7 days (plan
+// fact 7, Gate 1 M3).
 const checkedRemoteExistence = new Set<string>();
 
 /**
@@ -92,6 +105,37 @@ function readUint32LE(data: Uint8Array, offset: number): number {
     const buf = new ArrayBuffer(4)
     new Uint8Array(buf).set(data.slice(offset, offset + 4))
     return new Uint32Array(buf)[0]
+}
+
+/**
+ * CHORE-17 (plan Report 18 §2): compares two block buffers for the
+ * encodeRawBlock skip. Both sides are always fresh `ArrayBuffer`s allocated
+ * at `byteOffset` 0 (see encodeRawBlock's `arrayBuf`/`buf`), so the common
+ * case can compare 4 bytes at a time via `Uint32Array` instead of one byte at
+ * a time. The `byteOffset` check is a defensive guard, not something either
+ * operand hits -- both `a` and `b` are always fresh buffers at `byteOffset`
+ * 0. If it ever fails anyway, falling back to a plain byte loop keeps this
+ * correct instead of misreading unaligned words.
+ */
+function rawBlockBytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+    if (a.length !== b.length) return false
+    const length = a.length
+    if (a.byteOffset === 0 && b.byteOffset === 0) {
+        const wordCount = length >>> 2
+        const aWords = new Uint32Array(a.buffer, 0, wordCount)
+        const bWords = new Uint32Array(b.buffer, 0, wordCount)
+        for (let i = 0; i < wordCount; i++) {
+            if (aWords[i] !== bWords[i]) return false
+        }
+        for (let i = wordCount * 4; i < length; i++) {
+            if (a[i] !== b[i]) return false
+        }
+        return true
+    }
+    for (let i = 0; i < length; i++) {
+        if (a[i] !== b[i]) return false
+    }
+    return true
 }
 
 /**
@@ -210,6 +254,13 @@ export class RisuSaveEncoder {
     // together, nothing here keeps a boot-time character object reachable
     // for this encoder's whole lifetime.
     private encodedCharacterProxies = new Set<Database['characters'][number]>();
+    // CHORE-17 (plan Report 18 §2, Gate 1 M1): one budget per encoder
+    // instance, since each instance has its own `setItem` yield history.
+    // `encodeRawBlock` calls `noteYielded()` after a real write resolves and
+    // awaits `maybeYield()` after a skipped one. A skipped write crosses no
+    // macrotask boundary, so this is what keeps a run of skips yielding
+    // periodically instead of running as one long task.
+    private yieldBudget = createYieldBudget();
 
     async init(data:Database,arg:{
         compression?: boolean,
@@ -507,11 +558,33 @@ export class RisuSaveEncoder {
         buf.set(new Uint8Array(headerChecksumBuf), headerBytes.length);
         buf.set(databuf, headerBytes.length + 4);
         buf.set(new Uint8Array(dataChecksumBuf), headerBytes.length + 4 + databuf.length);
+
+        // CHORE-17 Stage A (plan Report 18 §2): skip the cache write when
+        // these bytes are already what `this.blocks[arg.name]` holds. Safe
+        // because every assignment to `this.blocks[k]` comes from a
+        // previously *committed* `encodeRawBlock` call on this same instance
+        // (localforage resolves `setItem` only in `transaction.oncomplete`),
+        // so equal bytes here mean these exact bytes were already written
+        // under this cache key -- and since `arg.data` is always
+        // `JSON.stringify` output (well-formed, no lone surrogates),
+        // `TextEncoder` is injective on it, so equal encoded bytes also mean
+        // equal source data. The block type byte is part of the compared
+        // bytes, so two block kinds sharing a name can't false-match.
+        const existing = this.blocks[arg.name];
+        if (existing && rawBlockBytesEqual(buf, existing)) {
+            // No `setItem` this time, which was the save loop's only
+            // macrotask boundary on this path -- yield instead so a run of
+            // skips doesn't turn into one long task (plan §2, Gate 1 M1).
+            await this.yieldBudget.maybeYield();
+            return buf;
+        }
+
         await risuSaveCacheForage.setItem(`risuSaveBlock_${arg.name}`, {
             type: arg.type,
             data: arg.data,
             name: arg.name,
         });
+        this.yieldBudget.noteYielded();
         return buf;
     }
 
@@ -532,30 +605,7 @@ export class RisuSaveEncoder {
         const hash = await hashRemoteBlockContent(encoded);
         const fileName = `remotes/${arg.name}.${hash}.bin`
 
-        if(arg.skipRemoteSaving && checkedRemoteExistence.has(fileName) === false){
-            let fileExists = false;
-            if(isTauri){
-                fileExists = await exists(fileName, { baseDir: BaseDirectory.AppData });
-            }
-            else{
-                const stored = await forageStorage.keys();
-                if(stored.includes(fileName)){
-                    fileExists = true;
-                }
-            }
-            if(!fileExists){
-                console.log(`Remote file ${fileName} does not exist, disabling skipRemoteSaving for this block.`);
-                arg.skipRemoteSaving = false;
-            }
-            // Keyed by the full (content-addressed) fileName, not just
-            // arg.name — a different hash for the same character is
-            // effectively a brand-new file that's never been checked, and
-            // keying by chaId alone would have permanently skipped the
-            // existence check for every subsequent version after the first.
-            checkedRemoteExistence.add(fileName);
-        }
-
-        if(!arg.skipRemoteSaving){
+        const writeRemoteFile = async () => {
             if(isTauri){
                 if(!(await exists('remotes', { baseDir: BaseDirectory.AppData }))){
                     await mkdir('remotes', { recursive: true, baseDir: BaseDirectory.AppData });
@@ -565,7 +615,82 @@ export class RisuSaveEncoder {
             else{
                 await forageStorage.setItem(fileName, encoded);
             }
+        };
+
+        if(forageStorage.isAccount){
+            // CHORE-17 Stage B, fact 9 (plan §3): `AccountStorage.setItem` can
+            // resolve without persisting (a 403 with `x-risu-status: warn`),
+            // so a resolved write here can't be trusted the way a resolved
+            // local-cache `setItem` can. `forageStorage.isAccount` can also
+            // flip to true mid-page (`autoStorage.ts`'s "save current data to
+            // account" path), so a name recorded while writing to local or
+            // Node storage must not suppress a later upload to the account.
+            // This branch neither reads nor records `checkedRemoteExistence`
+            // for either reason -- no write is skipped beyond the boot
+            // existence check just below, which still skips a write when it
+            // finds the file already there. On Tauri, account storage still
+            // writes remote files locally through `writeFile`, not through
+            // `AccountStorage`, so the 403-warn concern doesn't apply there
+            // and this bypass is merely conservative.
+            if(arg.skipRemoteSaving){
+                let fileExists = false;
+                if(isTauri){
+                    fileExists = await exists(fileName, { baseDir: BaseDirectory.AppData });
+                }
+                else{
+                    const stored = await forageStorage.keys();
+                    if(stored.includes(fileName)){
+                        fileExists = true;
+                    }
+                }
+                if(!fileExists){
+                    arg.skipRemoteSaving = false;
+                }
+            }
+            if(!arg.skipRemoteSaving){
+                await writeRemoteFile();
+            }
         }
+        else{
+            // CHORE-17 Stage B (plan §3): `checkedRemoteExistence` holds
+            // "this page load wrote or confirmed this exact file exists", so
+            // a hit skips the write outright, whether or not the caller
+            // passed `skipRemoteSaving`. Safe because the name contains a
+            // 64-bit SHA-256 prefix of the content (hashRemoteBlockContent
+            // above) -- a collision is negligible, but on a hit the existing
+            // file is kept rather than overwritten -- and nothing in this
+            // build deletes a hash-named file within a page load (plan fact 7).
+            let shouldWrite = true;
+            if(checkedRemoteExistence.has(fileName)){
+                shouldWrite = false;
+            }
+            else if(arg.skipRemoteSaving){
+                let fileExists = false;
+                if(isTauri){
+                    fileExists = await exists(fileName, { baseDir: BaseDirectory.AppData });
+                }
+                else{
+                    const stored = await forageStorage.keys();
+                    if(stored.includes(fileName)){
+                        fileExists = true;
+                    }
+                }
+                if(fileExists){
+                    // Recorded only once the existence check has confirmed
+                    // the file; a name is never recorded before a write
+                    // whose outcome is unknown.
+                    checkedRemoteExistence.add(fileName);
+                    shouldWrite = false;
+                }
+            }
+            if(shouldWrite){
+                await writeRemoteFile();
+                // Recorded only after the write has resolved, so a throwing
+                // write leaves the name out and the next save retries it.
+                checkedRemoteExistence.add(fileName);
+            }
+        }
+
         return await this.encodeBlock({
             compression: false,
             data: JSON.stringify({
