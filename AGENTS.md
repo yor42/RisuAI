@@ -128,6 +128,7 @@ pnpm check
 
 - The project uses Prettier for code formatting
 - Ensure code is formatted before committing
+- **No in-repo line numbers in code or test comments.** Refer to code by name (function, effect, branch, test), for example "the preset effect above" or "prepareSaveIteration in globalApi.svelte.ts", never `file.ts:123`. Line numbers go stale on the next edit, reviewers here reject stale comments as false claims, and this has already cost review rounds. Exception: a pinned third-party source may be cited by line with its version (e.g. `svelte 5.55.1, proxy.js:201-206`). Reports, the roadmap and the ledger are dated snapshots and keep `file:line`; briefs may ask agents for line numbers in their reports, never in comments.
 
 ### State Management
 
