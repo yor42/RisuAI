@@ -249,6 +249,15 @@ This phase is the load-bearing one: it's what Phase 4 (Android) is gated behind,
      - V2 `pluginStorage.getItem` deep-clones the whole database on every call (`plugins.svelte.ts:717`).
      - V3 `getDatabase()` defaults to snapshotting every character.
      - How often these plugin paths fire is unmeasured.
+   - **2026-09-22 (CHORE-01 measurement; Node, pointer compression off, so upper bounds):** at
+     1000 characters / ~148k messages the boot `encoder.init` walk alone retains 524 MB against
+     117 MB plain; today's app (walk plus the selected-character effect) retains 537 MB. Reading
+     raw data instead of the proxy in that walk is the main lever for this item, and it only pays
+     off if nothing else permanently deep-reads every character. That is one reason CHORE-01
+     chose selection-scoped partitioning plus explicit marks (option B) over watching every
+     character (option A: about +170 MB, and it would lock the materialisation in). Raw data:
+     `Agents/Tools/output/chore01-item2-measure.md` (gitignored); harnesses
+     `Agents/Tools/save-gen/dbchange-*.svelte.harness.ts`.
    - **Cold storage covers little of this.** It is on by default only for installs that had no plugins at first load (`database.svelte.ts:713`), runs once per boot after the full decode (`bootstrap.ts:284`), and evicts only data idle for 10+ days. It does nothing for peak memory at boot.
    - **Relationship to other items.** Items 4 (size-based compaction) and 5 (per-character slices) are candidate mechanisms. This item states the measured problem; plan it after a live-app heap measurement confirms the proxy multiplier with pointer compression on. **Android caveat:** no Android build exists in the repo (`src-tauri/gen` has no `android/`, `[lib]` is commented out at `Cargo.toml:47`), so the OOM premise cannot be observed from this codebase.
 
@@ -437,6 +446,27 @@ more than rendering — do not assume it can simply be removed.
 
 ### CHORE-05 — Translation coverage: much of the UI is English-only
 
+**Status (2026-09-22):** the 9 save-conflict keys below are translated into all six locales
+(`0291ea36`; `ko` reviewed by the maintainer, the other five are model translations). The table
+below is the pre-fix measurement and is otherwise still current.
+
+**Next priority — the plugin permission consent prompts (verified 2026-09-22).** The seven V3
+consent strings shown by `getPluginPermission` (`src/ts/plugins/apiV3/v3.svelte.ts:614-622`;
+keys at `src/lang/en.ts:1622-1628`) are the dialogs where a user decides whether a plugin may read
+the whole database, touch the main DOM, send chats and so on. Coverage by locale:
+
+| Key | Missing from |
+|---|---|
+| `fetchLogConsent`, `getFullDatabaseConsent` | `ko` |
+| `mainDomAccessConsent` | `ko`, `es` |
+| `replacerPermissionConsent`, `providerPermissionConsent`, `sendChatConsent` | `ko`, `de`, `es`, `vi`, `cn` |
+| `inlayPermissionConsent` | all six |
+
+**Korean has none of the seven.** They are part of the pre-existing drift counted in the table,
+not this branch's, and were not singled out before. Same shape as the 9 save-conflict keys (a
+decision made under risk, rendered in English), so they go next. Related: CHORE-08 (the consent
+logic itself has two bugs).
+
 **Maintainer report:** a lot of UI, dialogs and informational text render in English regardless of
 the selected language, which dilutes the localised experience.
 
@@ -587,6 +617,86 @@ The rest of this entry is the original source trace, kept for its line reference
   "not found" from "read failed".
 - **Relevance:** this campaign targets exactly the "sudden data loss" that 1000+-character users
   report.
+
+### CHORE-08 — Plugin permission consent: session cache ignores the permission kind, and the provider prompt is not enforced
+
+Found while rewriting the plugin wiki pages (2026-09-22); both verified by the Orchestrator in
+source. Present upstream too (not fork-introduced). The hosted build is private, so frame this as
+consent that does not do what it says, not as a security hole.
+
+1. **The in-session cache is keyed by plugin name only.** `getPluginPermission`
+   (`src/ts/plugins/apiV3/v3.svelte.ts:581-638`) returns early from `permissionGivenPlugins` /
+   `permissionDeniedPlugins` (`:568-569`, checked at `:582-587`), which hold plugin **names**. Once
+   the user grants any one permission, every other kind that plugin asks for later in the session
+   is granted without a prompt, and the `reconfirm` / `'periodically'` (3-day) re-confirmation is
+   skipped. One denial likewise denies every later kind. The persistent `localforage` record is
+   correctly per kind (`pluginHash + '_' + permissionDesc`); only the session cache is wrong.
+2. **The provider consent result is discarded.** `addProvider`'s wrapper
+   (`v3.svelte.ts:701-706`) awaits `getPluginPermission(plugin.name, 'provider', 'periodically')`
+   but never checks the boolean, so the provider runs even when the user declines.
+
+**Compatibility note:** fixing either makes prompts appear where users now get silent approval.
+Decide the UX (key the cache by name + kind; on a declined provider, fail the request with a
+visible error) with the maintainer before implementing. Translations of the prompts: CHORE-05.
+
+### CHORE-09 — Scripting, regex and lorebook bugs found during the wiki rewrite (none lose data)
+
+Found by the documentation agents on 2026-09-22. All are upstream behaviour (`scriptings.ts` and
+`triggers.ts` are identical to upstream). Items marked **verified** were checked by the
+Orchestrator in source; the rest are the agents' traces, to be confirmed before fixing. The wiki
+documents current behaviour, so a fix must also update the matching wiki page.
+
+| # | Area | Bug | Evidence | Status |
+|---|---|---|---|---|
+| 1 | Triggers | The V1 `runAxLLM` effect is offered by the editor (`TriggerV1Data.svelte`) but the interpreter has no `case` for it, so it silently does nothing. | `src/ts/process/triggers.ts:164-168` | verified |
+| 2 | Lua | `setDescription(id, desc)` type-checks `data` (the outer `runScripted` argument) instead of `desc`. | `src/ts/process/scriptings.ts:687` | verified |
+| 3 | Triggers | With `lowLevelAccess`, nested run-trigger calls have no depth cap (normally 10), so a self-calling trigger can hang the tab. | `triggers.ts:1406` | verified |
+| 4 | Triggers | The deprecated V2 lorebook effects (`v2ModifyLorebook`, `v2GetLorebook`, `v2GetLorebookEntry`, `v2SetLorebookActivation`, `v2GetLorebookIndexViaName`) index `globalLore` entries as tuples (`v[0]`, `entry[1]`), but entries are `loreBook` objects, so they never match. Only `v2GetLorebookCount` works. | `triggers.ts` (agent trace) | unverified |
+| 5 | Regex | `$<name>` named-group references inside `@@move_top` / `@@move_bottom` output are never substituted (`parseInt()` on the group name). Same in the translation regex path. | `src/ts/process/scripts.ts:231-237`; `src/ts/translator/translator.ts:736-742` | unverified |
+| 6 | Regex | `@@move_top` / `@@move_bottom` strip the `g` flag (a comment calls it a "temporary fix"), so only the first match moves. | `scripts.ts` (agent trace) | unverified |
+| 7 | Regex | Regex `@@inject` always writes to the currently selected character, whichever character or group the script belongs to. | `scripts.ts` (agent trace) | unverified |
+| 8 | Regex | Settings → "Global Regex" (`db.globalscript`) is never read by the script engine; it is only an import/export staging list. The effective global list is the preset's (`db.presetRegex`). Possibly intended; confirm with the maintainer before calling it a bug. | agent trace | unverified |
+| 9 | Lorebook | "Case Sensitive" is stored and round-tripped but has no runtime effect; matching is always lowercased. | `src/ts/process/lorebook.svelte.ts` (agent trace) | unverified |
+| 10 | Lorebook | `@@inject_lore` merges run after the token-budget cut, so a merge into a dropped entry is lost and the merge is not counted against the budget (a source comment acknowledges the count). | `lorebook.svelte.ts` (agent trace) | unverified |
+| 11 | Lorebook | Regex-key mode is all-or-nothing: one key that is not `/regex/flags` makes the whole entry fail to match. | `lorebook.svelte.ts` (agent trace) | unverified |
+
+Not bugs, recorded so nobody "fixes" them: a whole-script Lua trigger ignores its `type` field and
+runs on every pass, and for manual runs its entry-point name is the trigger's name (documented on
+the wiki). `{{declare::name}}` sets a flag nothing reads (the wiki marks it unverified). The
+Pyodide `type: 'py'` path in `runScripted` has no caller.
+
+**Priority:** below CHORE-01/03/07. Items 1 and 3 are the cheapest; item 7 is the only one that
+writes to the wrong character.
+
+### CHORE-10 — Long-term memory (HypaMemory v1/V2/V3, SupaMemory, Hanurai): 21 suspected bugs
+
+Found by the wiki session while documenting the memory systems (2026-09-22). Full hand-off, with
+per-bug evidence, status and suggested investigation: **`Agents/Reports/99-long-term-memory.md`**.
+Every entry is a code-reading claim; none has been reproduced. Whether each is upstream behaviour
+has not been checked.
+
+**Why it matters to this campaign:** several entries corrupt data that is **saved** (the memory
+store persists with the chat), so they are silent, permanent loss of the kind this fork targets,
+not just prompt quality.
+
+| Group | IDs | Status in Report 99 |
+|---|---|---|
+| **Persistent loss or corruption of saved memory** | V2-1 (a failed summary batch is skipped, and a later success persists a permanent gap), V3-4 (hidden messages may make summaries look orphaned, so they are deleted), V3-2 (a non-contiguous merge can move V3's resume point back and duplicate memory) | V2-1 reviewer-confirmed; V3-4 and V3-2 need repro |
+| **Wrong prompt content every request** | HAN-1 (the "still in prompt" skip never matches: `substring(16)` against a 17-character prefix, so retrieval duplicates context), V2-2 (index-0 skip assumes the NewChat marker; example turns are summarised as story, or the first message is dropped), V2-3 (the summary section keeps the oldest summaries and drops the newest) | reviewer-confirmed |
+| **Unrecoverable errors** | SUPA-3 (deleting the resume message breaks SupaMemory permanently), V3-1 (the rate limiter throws for concurrency > RPM, which the UI allows), SUPA-5 (legacy davinci/curie values call retired models) | unverified |
+| **Budget and accounting** | SUPA-1, HAN-2, V2-4, TOK-1 | mixed |
+| **Low / cosmetic / dead code** | V2-5, SUPA-2, SUPA-4, V3-3, V3-5, SHARED-1, SHARED-2, UI-1 | mostly unverified |
+
+- **Orchestrator spot check (2026-09-22):** HAN-1 confirmed in source
+  (`src/ts/process/memory/hanuraiMemory.ts:33,37` build `` `search_document: ${…}` ``, 17
+  characters; `:76,83,90` use `.substring(16)`). V2-1's failure branch
+  (`src/ts/process/memory/hypav2.ts:495-508`) `continue`s with no rollback, as described.
+- **Priority:** the persistent-loss group (V2-1, V3-4, V3-2) ranks with CHORE-03/07, after
+  CHORE-01. Start with a repro of V3-4 (it may delete saved summaries on an ordinary action:
+  hiding a message) and a red test for V2-1 (a summarizer that fails once, then succeeds). HAN-1 is
+  a one-line fix with a clear test. The rest can follow in one batch.
+- **Wiki coupling:** the wiki's Long Term Memory page documents current behaviour; a fix must update
+  it too.
 
 ## Sequencing Summary
 

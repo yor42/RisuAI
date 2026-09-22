@@ -273,6 +273,28 @@ You are the **Opus 5 Senior Orchestrator**. To prevent token bleeding and maximi
 8. **Deep Investigation (escalation only)** -> Delegate to `deep-investigator` (powered by **Claude Opus 5**) under the triggers in 1.3. Its question is not "what happens" but *"are we sure that is what happens"*. It is handed the prior investigation as an evidence packet and is required to re-open primary source itself for every decision-critical claim. It is an exception path, not the standard route for a hard question.
 9. **High-Rigor Adversarial Review (expensive-to-reverse changes)** -> Delegate to `opus-reviewer` (powered by **Claude Opus 5**). Use instead of `adversarial-reviewer` when the failure mode is silent data loss or the change touches save/persistence, the save format, the reactive database, or asset caching. Unlike the Sonnet tier it also fact-checks the commit message, code comments, and whether the tests would genuinely fail against the pre-change code.
 10. **Strategic Escalation (stuck, contradicted, or a foundational fork)** -> Escalate to `senior-advisor` (powered by **Fable 5.1**) under the triggers in 1.2. It gives direction only and never writes code.
+11. **Reading an Implementation for Documentation** -> Delegate to `code-reader` (powered by **Claude Sonnet 5**). Use it when the question is *"describe all of it"*: every syntax, tag, function, option, default and edge case of a subsystem, enumerated from the dispatch point, cited, and marked TRACED or INFERRED. It is exhaustive by design, unlike `investigator`, which answers one decision question and cuts everything else. It lists suspected bugs and fork differences separately and never documents a suspected bug as intended behaviour. It is read-only and may dispatch `code-searcher`.
+12. **Writing Documentation** -> Delegate to `doc-writer` (powered by **Claude Sonnet 5**). This covers reports, Roadmap and ledger entries, wiki pages, plugin and API docs, and commit-message drafts. It writes Markdown only, in named files, and only from supplied evidence or source it opened itself. It keeps confidence levels as the evidence states them, preserves line endings, and leaves `TODO(evidence)` rather than filling gaps. It never edits code, `src/lang/*`, or governance files unless named, and it never commits.
+13. **Fact-Checking Documentation** -> Delegate to `doc-verifier` (powered by **Claude Sonnet 5**). It checks every claim against source and gives one verdict per claim: VERIFIED, WRONG, STALE CITATION, OVERSTATED, INCOMPLETE or UNVERIFIABLE. It is dispatched by the Orchestrator, never by the author, and it is read-only. For persistence-touching commits, `opus-reviewer` still owns the commit-message check.
+
+14. **Translating UI Strings** -> Delegate to `translator` (powered by **Claude Sonnet 5**). It adds missing keys and fixes untranslated or stale entries in `src/lang/*.ts`, from `en.ts` into ko, cn, zh-Hant, vi, de and es. It preserves keys, `${…}` interpolations, CBS tags and CRLF line endings exactly. It never reverts the maintainer's own edits in those files. Warnings and consent strings must keep their full force. A new English source string goes to `sonnet-coder`, together with its call site, not to `translator`.
+
+**Documentation flow:** `code-reader -> doc-writer -> doc-verifier -> Orchestrator`. When the evidence already exists (an investigator packet, a gate record or a measurement), skip `code-reader` and hand the packet straight to `doc-writer`. Documentation separates the author from the checker for the same reason code review does.
+
+**Which code-reading agent?** Four agents read code, and each answers a different question. Pick by the shape of the answer you need, not by how hard the code is:
+
+| Agent | Question | Output | Interprets code? | Completeness | Typical brief |
+|---|---|---|---|---|---|
+| `code-searcher` (Haiku 4.5) | *Where is X?* | A location map: `file:line` plus the literal matching line, and the command used | **No.** It must not say what code does | Exhaustive over **matches** of a query | "every call site of `setDatabase(` in `src/ts`" |
+| `investigator` (Sonnet 5) | *What happens here, and does it matter for this decision?* | An evidence packet: refuted premises, findings with consequences, blast radius | Yes | **Selective:** keeps only what bears on the decision | "does a non-selected character edit reach the save file?" |
+| `code-reader` (Sonnet 5) | *Describe everything this subsystem offers a user* | A reference packet: one row per syntax/function/option, with behaviour, defaults, aliases and citations | Yes | Exhaustive over **features**, enumerated from the dispatch point | "every CBS tag and its arguments", "the whole V3 plugin API surface" |
+| `deep-investigator` (Opus 5) | *Are we sure that is what happens?* | A challenge to a prior packet | Yes | Selective | Only under the triggers in 1.3 |
+
+Rules of thumb:
+- If the answer is a list of places, use `code-searcher`. If it is a list of behaviours, use `code-reader`. If it is a yes/no or a number that drives a decision, use `investigator`.
+- `code-searcher` counts **occurrences**, for example "14 call sites". `code-reader` counts **capabilities**, for example "N CBS tags" enumerated from the matcher, and describes each one. A grep for a tag name cannot tell you how the tag behaves, and a reference page cannot be built from a location map.
+- `code-reader` and `investigator` may both dispatch `code-searcher` for a mechanical survey. Neither may dispatch the other.
+- A `code-reader` packet is documentation input. When a finding in it drives a code change (a `SUSPECTED BUG`), the change goes through the usual `investigator` → plan → review path. The reference packet is not the evidence for the fix.
 
 #### 1.1 Dynamic Subagent Generation (Autonomy Rule)
 - If a task requires highly specialized domain knowledge not covered by existing subagents (e.g., Rust/Tauri backend native bridging, complex data migration scripts, security isolation checks), you (Opus 5) have the authority to dynamically create a new subagent.
@@ -294,6 +316,10 @@ Route to the cheapest tier that can answer the question. Escalating early wastes
 | Are we sure that is what actually happens | `deep-investigator` | Opus 5 |
 | Review where a defect is expensive to reverse | `opus-reviewer` | Opus 5 |
 | Direction when stuck or at a foundational fork | `senior-advisor` | Fable 5.1 |
+| Describe a whole subsystem, for docs | `code-reader` | Sonnet 5 |
+| Write or edit a document | `doc-writer` | Sonnet 5 |
+| Fact-check a document | `doc-verifier` | Sonnet 5 |
+| Translate UI strings | `translator` | Sonnet 5 |
 
 **Escalate to `senior-advisor` when at least one holds:**
 - Two materially different solution attempts have failed.
