@@ -14,6 +14,7 @@ import { doingChat } from "./process/index.svelte";
 import { importCharacter } from "./characterCards";
 import { PngChunk } from "./pngChunk";
 import { getColdStorageItem } from "./process/coldstorage.svelte";
+import { getAvatarThumbSrc, isThumbEligible } from "./media/avatarThumb";
 
 export function createNewCharacter() {
     DBState.db.characters.push(createBlankChar())
@@ -51,31 +52,37 @@ export function createNewGroup(){
     return DBState.db.characters.length - 1
 }
 
-export async function getCharImage(loc:string, type:'plain'|'css'|'contain'|'lgcss') {
+export async function getCharImage(loc:string, type:'plain'|'css'|'contain'|'lgcss'|'thumb'|'thumbcss') {
     const db = DBState.db
-    
+
+    // 'thumb'/'thumbcss' only change how the src is resolved below; every
+    // existing branch (hideAllImages, empty loc, wrapping) compares against
+    // the type it already knows, so behaviour stays identical to 'plain'/'css'.
+    const thumb = type === 'thumb' || type === 'thumbcss'
+    const wrapType = type === 'thumb' ? 'plain' : type === 'thumbcss' ? 'css' : type
+
     // Return placeholder when hideAllImages is enabled
     if(db.hideAllImages){
-        if(type === 'plain'){
+        if(wrapType === 'plain'){
             return '/none.webp'
         }
         return ''  // For CSS types, return empty to show default ? icon
     }
-    
+
     if(!loc || loc === ''){
-        if(type ==='css'){
+        if(wrapType ==='css'){
             return ''
         }
         return null
     }
-    const filesrc = await getFileSrc(loc)
-    if(type === 'plain'){
+    const filesrc = (thumb && isThumbEligible(loc) ? await getAvatarThumbSrc(loc) : null) ?? await getFileSrc(loc)
+    if(wrapType === 'plain'){
         return filesrc
     }
-    else if(type ==='css'){
+    else if(wrapType ==='css'){
         return `background: url("${filesrc}");background-size: cover;`
     }
-    else if(type === 'lgcss'){
+    else if(wrapType === 'lgcss'){
         return `background: url("${filesrc}");background-size: cover;height: 10.66rem;`
 
     }

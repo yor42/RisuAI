@@ -25,9 +25,11 @@
  * (`localforage`, `src/ts/globalApi.svelte`'s `getFileSrc` as a counting spy,
  * `src/ts/storage/database.svelte`'s `getDatabase`, `src/ts/platform` forced to
  * the plain-HTTP branch, `@tauri-apps/plugin-fs`, a reactive `stores.svelte`
- * stand-in, and a partial `src/ts/characters` mock with only `changeChar`
- * replaced). `getCharImage` is real. See that file for the full rationale;
- * it is not repeated line-by-line here.
+ * stand-in, a partial `src/ts/characters` mock with only `changeChar`
+ * replaced, and a partial `src/ts/media/avatarThumb` mock with only
+ * `getAvatarThumbSrc` replaced by a spy resolving `null` by default).
+ * `getCharImage` and `isThumbEligible` are both real. See that file for the
+ * full rationale; it is not repeated line-by-line here.
  *
  * THE FAKE INTERSECTION OBSERVER (plan section 3.1 "test seam"): AV-2's design
  * reads `globalThis.IntersectionObserver` at use time, specifically so tests can
@@ -68,7 +70,7 @@
  *     `FakeIntersectionObserver.instances` stays empty throughout. Each of
  *     those tests asserts, as an explicit precondition, that at least one
  *     instance (of the right band) exists; that precondition itself is what
- *     fails today. This is acceptable per the task brief, but it means these
+ *     fails today. This is an accepted tradeoff, but it means these
  *     three are weaker regression proof than v1/v2/v6/v10 until the feature
  *     exists: a test harness bug that made the fake wholly inert would produce
  *     the same failure. v4 and v7 are CHAR (already true today, must keep
@@ -80,7 +82,7 @@
  */
 import { flushSync, mount, unmount } from 'svelte'
 import { writable } from 'svelte/store'
-import { describe, test, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest'
+import { describe, test, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest'
 import type { Database } from '../../ts/storage/database.svelte'
 import type { RisuEnvironmentLabel } from '../../ts/platform'
 
@@ -96,10 +98,19 @@ vi.mock('localforage', () => ({
     },
 }))
 
-const { getFileSrcSpy, changeCharSpy } = vi.hoisted(() => ({
-    getFileSrcSpy: vi.fn(async (loc: string) => `data:mock-image;loc=${loc}`),
-    changeCharSpy: vi.fn(),
-}))
+// `thumbOverride` backs the T12 avatarThumb spy below: keyed by `loc`, empty
+// (every loc resolves `null`, i.e. "no thumbnail, fall back to getFileSrc")
+// unless a T12 test sets an entry for the one loc it wants to render as a
+// thumbnail.
+const { getFileSrcSpy, changeCharSpy, avatarThumbSpy, thumbOverride } = vi.hoisted(() => {
+    const thumbOverride: Record<string, string> = {}
+    return {
+        getFileSrcSpy: vi.fn(async (loc: string) => `data:mock-image;loc=${loc}`),
+        changeCharSpy: vi.fn(),
+        thumbOverride,
+        avatarThumbSpy: vi.fn(async (loc: string) => thumbOverride[loc] ?? null),
+    }
+})
 
 vi.mock(
     import('src/ts/globalApi.svelte'),
@@ -199,6 +210,29 @@ vi.mock(import('../../ts/characters'), async (importOriginal) => {
     return {
         ...actual,
         changeChar: changeCharSpy,
+    }
+})
+
+// T12 (AV-4, `Agents/Reports/16-av4-list-avatar-thumbnails-plan.md` §4): the
+// real `avatarThumb` module adds genuine async hops on top of a call
+// `getCharImage` never used to make -- a store lookup, a queue and (once per
+// session) a canvas readback probe -- none of which this file's `settle()`
+// convergence loop was designed to absorb; it predates AV-4 and only ever
+// measured `getFileSrc` call counts through an immediately-resolving
+// 'plain'/'css' path. `getAvatarThumbSrc` is replaced with a spy that
+// resolves `null` by default, i.e. "no thumbnail, fall back to
+// `getFileSrc`" -- exactly today's 'plain'/'css' behaviour -- so every
+// existing `getFileSrcSpy` count assertion in this file keeps measuring what
+// it always measured. `isThumbEligible` is left real: it is a pure,
+// synchronous predicate over already-mocked state
+// (`loc.startsWith('assets/') && !forageStorage.isAccount`), adds no async
+// hop of its own, and keeping it real exercises the real eligibility check
+// against this file's own fixture locs rather than assuming it.
+vi.mock(import('../../ts/media/avatarThumb'), async (importOriginal) => {
+    const actual = await importOriginal()
+    return {
+        ...actual,
+        getAvatarThumbSrc: avatarThumbSpy,
     }
 })
 
@@ -1380,8 +1414,8 @@ describe('v12: entries must leave the visible set when items unmount', () => {
 
                 // CHAR: fail-open calls `onChange(true)` unconditionally at every
                 // mount, tab switch or not (v4 covers the single-layout case; this
-                // is the grid -> list hop specifically, called out by name in the
-                // task brief as v12b's fail-open variant).
+                // is the grid -> list hop specifically, tested here as v12b's
+                // fail-open variant).
                 expect(resolvedAvatarButtons(target).length).toBe(V_N)
                 expect(getFileSrcSpy.mock.calls.length).toBeGreaterThanOrEqual(V_N)
 
@@ -1461,6 +1495,110 @@ describe('v12: entries must leave the visible set when items unmount', () => {
         )
         await settle(target)
         expect((Array.from(target.querySelectorAll('img.sidebar-avatar')) as HTMLImageElement[]).length).toBe(5)
+
+        await teardown(target, app)
+    })
+})
+
+// Covers only the grid layout (`GridCatalog.svelte:110`) and Sidebar's
+// normal-row avatar (`Sidebar.svelte:616`) -- proving that the wiring also
+// survives THIS file's real, margin-banded `IntersectionObserver` fake
+// (`fireOn`/`instancesByMargin`/`orderedTargets`), not just the simpler
+// "everything visible immediately" fake `charlistAvatarLookups.svelte.test.ts`
+// uses. The other six call sites (`GridCatalog.svelte:133` list, `:161`
+// trash, `Sidebar.svelte:629` folder, `:756` folder member,
+// `AlertComp.svelte:399` selectChar, `MobileCharacters.svelte:85`) are NOT
+// covered here: each would need its own fixture (a trashed-character DB, a
+// folder DB, an AlertComp mount, a mobile-layout mount) PLUS this file's own
+// margin-band bookkeeping threaded through it, which is disproportionate to
+// what it would add -- the wiring itself (does this call site route through
+// `getAvatarThumbSrc`/`isThumbEligible` at all) is already proven for every
+// one of those six sites by
+// `charlistAvatarLookups.svelte.test.ts`'s own T12, against the same real
+// `getCharImage`/`characters.ts` source. Re-proving that here would only
+// additionally confirm that the margin-band observer doesn't somehow block
+// the call, which grid+Sidebar-normal below already establish for both a
+// CSS-background site and an `<img src>` site -- the two rendering shapes
+// every other site's avatar also uses.
+describe('T12: getAvatarThumbSrc is wired into the grid layout and Sidebar (AV-4, plan §4)', () => {
+    afterEach(() => {
+        for (const key of Object.keys(thumbOverride)) {
+            delete thumbOverride[key]
+        }
+        avatarThumbSpy.mockClear()
+    })
+
+    test("grid layout: firing near entries makes the spy receive each newly-visible character's loc", async () => {
+        DBState.db = buildDb(V_N, 0)
+        getFileSrcSpy.mockClear()
+        const { target, app } = mountGridCatalog()
+        await settle(target)
+        clickLayoutButton(target, 0)
+        await settle(target)
+
+        const targets = orderedTargets(instancesByMargin(NEAR_MARGIN))
+        fireOn(
+            instancesByMargin(NEAR_MARGIN),
+            targets.map((t) => ({ target: t, isIntersecting: true })),
+        )
+        await settle(target)
+
+        const calledLocs = avatarThumbSpy.mock.calls.map((c) => c[0])
+        for (const c of DBState.db.characters) {
+            expect(calledLocs).toContain(c.image)
+        }
+
+        await teardown(target, app)
+    })
+
+    test('grid layout: a non-null thumbnail result renders as the background-url, bypassing the getFileSrc fallback', async () => {
+        DBState.db = buildDb(V_N, 0)
+        const targetLoc = DBState.db.characters[1].image as string
+        thumbOverride[targetLoc] = 'data:image/webp;base64,thumb-for-lazy-grid-1'
+        getFileSrcSpy.mockClear()
+        const { target, app } = mountGridCatalog()
+        await settle(target)
+        clickLayoutButton(target, 0)
+        await settle(target)
+
+        const targets = orderedTargets(instancesByMargin(NEAR_MARGIN))
+        fireOn(
+            instancesByMargin(NEAR_MARGIN),
+            targets.map((t) => ({ target: t, isIntersecting: true })),
+        )
+        await settle(target)
+
+        const buttons = resolvedAvatarButtons(target)
+        const thumbButton = buttons.find((b) => (b.getAttribute('style') ?? '').includes(`url("${thumbOverride[targetLoc]}")`))
+        expect(thumbButton).toBeTruthy()
+        expect(getFileSrcSpy.mock.calls.some((c) => c[0] === targetLoc)).toBe(false)
+
+        await teardown(target, app)
+    })
+
+    test("Sidebar: firing near entries makes the spy receive each visible character's loc, and a non-null result renders as the <img> src", async () => {
+        DBState.db = buildSidebarDb(V_N)
+        const targetLoc = DBState.db.characters[0].image as string
+        thumbOverride[targetLoc] = 'data:image/webp;base64,thumb-for-lazy-sidebar-0'
+        getFileSrcSpy.mockClear()
+        const { target, app } = mountSidebar()
+        await settle(target)
+
+        const targets = orderedTargets(instancesByMargin(NEAR_MARGIN))
+        fireOn(
+            instancesByMargin(NEAR_MARGIN),
+            targets.map((t) => ({ target: t, isIntersecting: true })),
+        )
+        await settle(target)
+
+        const calledLocs = avatarThumbSpy.mock.calls.map((c) => c[0])
+        for (const c of DBState.db.characters) {
+            expect(calledLocs).toContain(c.image)
+        }
+
+        const imgs = Array.from(target.querySelectorAll('img.sidebar-avatar')) as HTMLImageElement[]
+        expect(imgs.some((img) => img.getAttribute('src') === thumbOverride[targetLoc])).toBe(true)
+        expect(getFileSrcSpy.mock.calls.some((c) => c[0] === targetLoc)).toBe(false)
 
         await teardown(target, app)
     })

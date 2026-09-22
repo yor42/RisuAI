@@ -50,6 +50,9 @@ vi.mock(import('../../globalApi.svelte'), () => ({
   // (which is covered directly by globalApiFileCacheAv3.svelte.test.ts's T11).
   isPlainHttpFileSrc: vi.fn(() => false),
   setUsingSw: vi.fn(),
+  // AV-4 (Report 16 §4): avatarThumb.ts imports readImage eagerly at module
+  // load, through characters.ts's own import graph.
+  readImage: vi.fn(),
 }))
 
 vi.mock(import('../../stores.svelte'), () => {

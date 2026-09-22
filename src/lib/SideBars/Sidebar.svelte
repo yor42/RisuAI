@@ -613,7 +613,7 @@
           {#if char.type === 'normal'}
             {@const imgPath = char.img}
             {@const isVisible = visibleCharIndices.has(char.index)}
-            {@const avatarSrc = isVisible ? (imgPath ? getCharImage(imgPath, "plain") : "/none.webp") : undefined}
+            {@const avatarSrc = isVisible ? (imgPath ? getCharImage(imgPath, "thumb") : "/none.webp") : undefined}
             <SidebarAvatar
               src={avatarSrc as string | Promise<string>}
               size="56"
@@ -626,7 +626,7 @@
             {#key char.name}
               {@const folderImgPath = char.img}
               {@const isFolderVisible = visibleFolderIds.has(char.id)}
-              {@const avatarBg = isFolderVisible ? (folderImgPath ? getCharImage(folderImgPath, "plain") : "") : ""}
+              {@const avatarBg = isFolderVisible ? (folderImgPath ? getCharImage(folderImgPath, "thumb") : "") : ""}
               <SidebarAvatar src="slot" size="56" rounded={IconRounded} bordered name={char.name} color={char.color} backgroundimg={avatarBg}
               oncontextmenu={async (e) => {
                 e.preventDefault()
@@ -753,7 +753,7 @@
           {#each char.folder as char2, ind}
               {@const memberImgPath = char2.img}
               {@const isMemberVisible = visibleCharIndices.has(char2.index)}
-              {@const avatarSrc2 = isMemberVisible ? (memberImgPath ? getCharImage(memberImgPath, "plain") : "/none.webp") : undefined}
+              {@const avatarSrc2 = isMemberVisible ? (memberImgPath ? getCharImage(memberImgPath, "thumb") : "/none.webp") : undefined}
               <div class="group relative flex items-center px-2 z-10"
               role="listitem"
               draggable="true"

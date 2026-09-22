@@ -82,7 +82,7 @@
         {#if normalizeSearch(char.name).includes(normalizedSearch)}
             {@const imgPath = char.image}
             {@const isVisible = visibleIndices.has(char.i)}
-            {@const avatarStyle = isVisible ? getCharImage(imgPath, 'css') : ''}
+            {@const avatarStyle = isVisible ? getCharImage(imgPath, 'thumbcss') : ''}
             <button class="flex p-2 border-t-darkborderc gap-2 w-full" class:border-t={i !== 0} onclick={() => {
                 changeChar(char.i)
                 endGrid()

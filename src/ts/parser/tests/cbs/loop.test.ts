@@ -21,6 +21,9 @@ vi.mock(import('../../../globalApi.svelte'), () => ({
   getFileSrc: () => Promise.resolve(''),
   // AV-3 (Report 15 §2.2, gate L6): getFileSrcCached calls this predicate.
   isPlainHttpFileSrc: () => false,
+  // AV-4 (Report 16 §4): avatarThumb.ts imports readImage eagerly at module
+  // load, through characters.ts's own import graph.
+  readImage: () => Promise.resolve(undefined),
 }))
 
 vi.mock(import('../../../stores.svelte'), () => {

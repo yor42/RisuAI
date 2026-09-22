@@ -44,14 +44,19 @@
  *     passed, without the real `changeChar` mutating the fixture characters
  *     via `characterFormatUpdate` (default-field backfill) as a side effect
  *     of a click assertion that only cares about the index. `getCharImage`
- *     is untouched and real, per the task brief.
+ *     is left untouched and real.
+ *   - `src/ts/media/avatarThumb` -- a PARTIAL mock (T12 only): every export
+ *     is the REAL one (via `importOriginal`), except `getAvatarThumbSrc`,
+ *     which is replaced with `avatarThumbSpy`, resolving `null` by default
+ *     (see the inline comment at that mock for why).
  *
- * NOT mocked: `src/ts/characters`'s `getCharImage` (real), `src/lang`,
- * `src/ts/util.ts`, `GridCatalog.svelte`, `MobileCharacters.svelte`,
- * `BarIcon.svelte`, `TextInput.svelte`, `Button.svelte`, the lucide icon
- * components, and everything `characters.ts` drags in transitively (this is
- * the same ~13-17s one-time Vite transform cost the harness documents; only
- * the first test below pays it).
+ * NOT mocked: `src/ts/characters`'s `getCharImage` (real), `src/ts/media/
+ * avatarThumb`'s `isThumbEligible` (real), `src/lang`, `src/ts/util.ts`,
+ * `GridCatalog.svelte`, `MobileCharacters.svelte`, `BarIcon.svelte`,
+ * `TextInput.svelte`, `Button.svelte`, the lucide icon components, and
+ * everything else `characters.ts` drags in transitively (this is the same
+ * ~13-17s one-time Vite transform cost the harness documents; only the
+ * first test below pays it).
  *
  * RED BEFORE GREEN: every assertion below is written against the AFTER
  * state described in the plan's section 2.5 table. Comments say what
@@ -62,8 +67,8 @@
  */
 import { flushSync, mount, unmount } from 'svelte'
 import { writable } from 'svelte/store'
-import { describe, test, expect, vi, beforeAll, afterAll } from 'vitest'
-import type { Database } from '../../ts/storage/database.svelte'
+import { describe, test, expect, vi, beforeAll, afterAll, afterEach } from 'vitest'
+import type { Database, folder } from '../../ts/storage/database.svelte'
 import type { RisuEnvironmentLabel } from '../../ts/platform'
 
 //#region module mocks (kept in this one file -- see header)
@@ -82,10 +87,19 @@ vi.mock('localforage', () => ({
 // harness. vi.mock factories are hoisted above ordinary top-level
 // const/let, so the spy must live in vi.hoisted() to be visible to the
 // factory below at the time it runs.
-const { getFileSrcSpy, changeCharSpy } = vi.hoisted(() => ({
-    getFileSrcSpy: vi.fn(async (loc: string) => `data:mock-image;loc=${loc}`),
-    changeCharSpy: vi.fn(),
-}))
+// `thumbOverride` backs the T12 avatarThumb spy below: keyed by `loc`, empty
+// (every loc resolves `null`, i.e. "no thumbnail, fall back to getFileSrc")
+// unless a T12 test sets an entry for the one loc it wants to render as a
+// thumbnail.
+const { getFileSrcSpy, changeCharSpy, avatarThumbSpy, thumbOverride } = vi.hoisted(() => {
+    const thumbOverride: Record<string, string> = {}
+    return {
+        getFileSrcSpy: vi.fn(async (loc: string) => `data:mock-image;loc=${loc}`),
+        changeCharSpy: vi.fn(),
+        thumbOverride,
+        avatarThumbSpy: vi.fn(async (loc: string) => thumbOverride[loc] ?? null),
+    }
+})
 
 vi.mock(
     import('src/ts/globalApi.svelte'),
@@ -212,6 +226,29 @@ vi.mock(import('../../ts/characters'), async (importOriginal) => {
     return {
         ...actual,
         changeChar: changeCharSpy,
+    }
+})
+
+// T12 (AV-4, `Agents/Reports/16-av4-list-avatar-thumbnails-plan.md` §4): the
+// real `avatarThumb` module adds genuine async hops on top of a call
+// `getCharImage` never used to make -- a store lookup, a queue and (once per
+// session) a canvas readback probe -- none of which this file's `settle()`
+// convergence loop was designed to absorb; it predates AV-4 and only ever
+// measured `getFileSrc` call counts through an immediately-resolving
+// 'plain'/'css' path. `getAvatarThumbSrc` is replaced with a spy that
+// resolves `null` by default, i.e. "no thumbnail, fall back to
+// `getFileSrc`" -- exactly today's 'plain'/'css' behaviour -- so every
+// existing `getFileSrcSpy` count assertion in this file keeps measuring what
+// it always measured. `isThumbEligible` is left real: it is a pure,
+// synchronous predicate over already-mocked state
+// (`loc.startsWith('assets/') && !forageStorage.isAccount`), adds no async
+// hop of its own, and keeping it real exercises the real eligibility check
+// against this file's own fixture locs rather than assuming it.
+vi.mock(import('../../ts/media/avatarThumb'), async (importOriginal) => {
+    const actual = await importOriginal()
+    return {
+        ...actual,
+        getAvatarThumbSrc: avatarThumbSpy,
     }
 })
 
@@ -381,6 +418,62 @@ function buildSidebarDb(n: number): Database {
         characters,
         hideAllImages: false,
     } as unknown as Database
+}
+
+/**
+ * A single-folder Sidebar fixture (`Sidebar.svelte:629` for the folder's own
+ * avatar, `:756` for its members' avatars once opened): `characterOrder`
+ * holds one `folder` entry (rather than the flat chaId strings
+ * `buildSidebarDb` uses) whose `data` lists every member's chaId, and whose
+ * `imgFile` is the folder's own thumbnail-eligible loc.
+ */
+function buildSidebarDbWithFolder(memberCount: number): Database {
+    const members: CharacterFixture[] = []
+    for (let i = 0; i < memberCount; i++) {
+        members.push({
+            chaId: `sb-folder-member-${i}`,
+            name: `Folder Member ${i}`,
+            type: 'character',
+            image: `assets/sb-folder-member-${i}.png`,
+            creatorNotes: '',
+            chatPage: 0,
+            lastInteraction: i,
+            chats: [{ id: `sb-folder-member-${i}-chat-0`, message: [], note: '', name: '', localLore: [] }],
+            trashTime: undefined,
+        } as unknown as CharacterFixture)
+    }
+    const folderEntry = {
+        id: 'sb-folder-1',
+        name: 'Sidebar Folder',
+        color: 'default',
+        data: members.map((c) => c.chaId),
+        imgFile: 'assets/sb-folder.png',
+    } as unknown as folder
+    return {
+        formatversion: 5,
+        botPresetsId: 0,
+        botPresets: [],
+        modules: [],
+        loadouts: [],
+        plugins: [],
+        pluginCustomStorage: {},
+        characterOrder: [folderEntry],
+        characters: members,
+        hideAllImages: false,
+    } as unknown as Database
+}
+
+/** The folder's own avatar span, distinguished from a normal/member avatar
+ *  span by the absence of `data-char-id` (`SidebarAvatar` is only ever given
+ *  a `chaId` prop for normal characters and folder members, `Sidebar.svelte`
+ *  `:622`/`:793` -- never for a folder itself). */
+function folderAvatarSpan(root: HTMLElement): HTMLElement {
+    const spans = Array.from(root.querySelectorAll('span.avatar[role="button"]')) as HTMLElement[]
+    const found = spans.find((s) => !s.hasAttribute('data-char-id'))
+    if (!found) {
+        throw new Error('folder avatar span not found')
+    }
+    return found
 }
 
 function countAvatarEls(root: HTMLElement): number {
@@ -750,6 +843,203 @@ describe('AlertComp selectChar dialog: avatar lookups (observation only, per pla
         // (section 2.2), AlertComp is changed only if it churns; this
         // component does not, so no source change is proposed for it here.
         expect(getFileSrcSpy.mock.calls.length).toBe(0)
+
+        await teardown(target, app)
+        alertStore.set({ type: 'none', msg: '' } as never)
+    })
+})
+
+// Every `getCharImage(loc, 'thumb'|'thumbcss')` call site in the app, as of
+// this writing (confirmed by grep): `GridCatalog.svelte:110` (grid),
+// `:133` (list), `:161` (trash), `MobileCharacters.svelte:85` (simple),
+// `Sidebar.svelte:616` (a normal row), `:629` (a folder's own avatar), `:756`
+// (a folder member once its folder is open), and `AlertComp.svelte:399` (the
+// selectChar dialog). Every one of these eight is covered below, each
+// against this file's simpler "everything reports visible immediately"
+// `IntersectionObserver` fake -- proving the WIRING at every site, not the
+// AV-2 visibility-gating behaviour itself (that is
+// `charlistAvatarLazy.svelte.test.ts`'s job, and its own T12 only covers a
+// subset of these sites for that reason -- see its own comment).
+describe('T12: getAvatarThumbSrc is wired into every list site (AV-4, plan §4)', () => {
+    afterEach(() => {
+        for (const key of Object.keys(thumbOverride)) {
+            delete thumbOverride[key]
+        }
+        avatarThumbSpy.mockClear()
+    })
+
+    test("grid layout: the spy receives every visible character's loc", async () => {
+        DBState.db = buildDb(5, 0)
+        getFileSrcSpy.mockClear()
+        const { target, app } = mountGridCatalog()
+        await settle(target)
+        // The default tab (simple/`MobileCharacters.svelte`) already resolved
+        // every one of these same locs before the switch below; clear so the
+        // assertion below can only be satisfied by the GRID tab's own calls.
+        avatarThumbSpy.mockClear()
+        clickLayoutButton(target, 0)
+        await settle(target)
+
+        const calledLocs = avatarThumbSpy.mock.calls.map((c) => c[0])
+        for (const c of DBState.db.characters) {
+            expect(calledLocs).toContain(c.image)
+        }
+
+        await teardown(target, app)
+    })
+
+    test('grid layout: a non-null thumbnail result renders as the background-url, bypassing the getFileSrc fallback', async () => {
+        DBState.db = buildDb(5, 0)
+        const targetLoc = DBState.db.characters[2].image as string
+        thumbOverride[targetLoc] = 'data:image/webp;base64,thumb-for-grid-2'
+        getFileSrcSpy.mockClear()
+        const { target, app } = mountGridCatalog()
+        await settle(target)
+        clickLayoutButton(target, 0)
+        await settle(target)
+
+        const buttons = resolvedAvatarButtons(target)
+        const thumbButton = buttons.find((b) => (b.getAttribute('style') ?? '').includes(`url("${thumbOverride[targetLoc]}")`))
+        expect(thumbButton).toBeTruthy()
+        // The thumbnailed character's own loc never reaches getFileSrc, since
+        // getAvatarThumbSrc's non-null result short-circuits the fallback
+        // (`characters.ts`'s `getCharImage`, `?? await getFileSrc(loc)`).
+        expect(getFileSrcSpy.mock.calls.some((c) => c[0] === targetLoc)).toBe(false)
+
+        await teardown(target, app)
+    })
+
+    test("Sidebar: the spy receives every visible character's loc, and a non-null result renders as the <img> src", async () => {
+        DBState.db = buildSidebarDb(5)
+        const targetLoc = DBState.db.characters[1].image as string
+        thumbOverride[targetLoc] = 'data:image/webp;base64,thumb-for-sidebar-1'
+        getFileSrcSpy.mockClear()
+        const { target, app } = mountSidebar()
+        await settle(target)
+
+        const calledLocs = avatarThumbSpy.mock.calls.map((c) => c[0])
+        for (const c of DBState.db.characters) {
+            expect(calledLocs).toContain(c.image)
+        }
+
+        const imgs = Array.from(target.querySelectorAll('img.sidebar-avatar')) as HTMLImageElement[]
+        expect(imgs.some((img) => img.getAttribute('src') === thumbOverride[targetLoc])).toBe(true)
+        expect(getFileSrcSpy.mock.calls.some((c) => c[0] === targetLoc)).toBe(false)
+
+        await teardown(target, app)
+    })
+
+    test('Sidebar folder: the folder\'s own visible avatar resolves its imgFile through the thumbnail path', async () => {
+        DBState.db = buildSidebarDbWithFolder(3)
+        const folderLoc = 'assets/sb-folder.png'
+        thumbOverride[folderLoc] = 'data:image/webp;base64,thumb-for-sidebar-folder'
+        getFileSrcSpy.mockClear()
+        const { target, app } = mountSidebar()
+        await settle(target)
+
+        expect(avatarThumbSpy.mock.calls.map((c) => c[0])).toContain(folderLoc)
+
+        const folderStyle = folderAvatarSpan(target).querySelector('.sidebar-avatar')?.getAttribute('style') ?? ''
+        expect(folderStyle).toContain(`url("${thumbOverride[folderLoc]}")`)
+        expect(getFileSrcSpy.mock.calls.some((c) => c[0] === folderLoc)).toBe(false)
+
+        await teardown(target, app)
+    })
+
+    test("Sidebar folder members: opening the folder resolves each member's loc through the thumbnail path", async () => {
+        DBState.db = buildSidebarDbWithFolder(3)
+        const targetLoc = (DBState.db.characters[1] as CharacterFixture).image as string
+        thumbOverride[targetLoc] = 'data:image/webp;base64,thumb-for-sidebar-folder-member-1'
+        getFileSrcSpy.mockClear()
+        const { target, app } = mountSidebar()
+        await settle(target)
+
+        // Members are not in the DOM at all until the folder is opened.
+        expect(avatarThumbSpy.mock.calls.map((c) => c[0])).not.toContain(targetLoc)
+
+        folderAvatarSpan(target).dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        await settle(target)
+
+        const calledLocs = avatarThumbSpy.mock.calls.map((c) => c[0])
+        for (const c of DBState.db.characters) {
+            expect(calledLocs).toContain(c.image)
+        }
+
+        const imgs = Array.from(target.querySelectorAll('img.sidebar-avatar')) as HTMLImageElement[]
+        expect(imgs.some((img) => img.getAttribute('src') === thumbOverride[targetLoc])).toBe(true)
+        expect(getFileSrcSpy.mock.calls.some((c) => c[0] === targetLoc)).toBe(false)
+
+        await teardown(target, app)
+    })
+
+    test("simple layout (MobileCharacters.svelte): the spy receives every visible character's loc", async () => {
+        DBState.db = buildDb(5, 0) // GridCatalog defaults to selected=3 (simple)
+        getFileSrcSpy.mockClear()
+        const { target, app } = mountGridCatalog()
+        await settle(target)
+
+        const calledLocs = avatarThumbSpy.mock.calls.map((c) => c[0])
+        for (const c of DBState.db.characters) {
+            expect(calledLocs).toContain(c.image)
+        }
+
+        await teardown(target, app)
+    })
+
+    test("list layout: the spy receives every visible character's loc", async () => {
+        DBState.db = buildDb(5, 0)
+        getFileSrcSpy.mockClear()
+        const { target, app } = mountGridCatalog()
+        await settle(target)
+        // The default tab (simple/`MobileCharacters.svelte`) already resolved
+        // every one of these same locs before the switch below; clear so the
+        // assertion below can only be satisfied by the LIST tab's own calls.
+        avatarThumbSpy.mockClear()
+        clickLayoutButton(target, 1)
+        await settle(target)
+
+        const calledLocs = avatarThumbSpy.mock.calls.map((c) => c[0])
+        for (const c of DBState.db.characters) {
+            expect(calledLocs).toContain(c.image)
+        }
+
+        await teardown(target, app)
+    })
+
+    test("trash layout: the spy receives every visible trashed character's loc", async () => {
+        DBState.db = buildDb(0, 5)
+        getFileSrcSpy.mockClear()
+        const { target, app } = mountGridCatalog()
+        await settle(target)
+        clickLayoutButton(target, 2)
+        await settle(target)
+
+        const calledLocs = avatarThumbSpy.mock.calls.map((c) => c[0])
+        for (const c of DBState.db.characters) {
+            expect(calledLocs).toContain(c.image)
+        }
+
+        await teardown(target, app)
+    })
+
+    test("AlertComp selectChar dialog: the spy receives every visible character's loc, and a non-null result renders as the background-url", async () => {
+        DBState.db = buildDb(5, 0)
+        const targetLoc = DBState.db.characters[1].image as string
+        thumbOverride[targetLoc] = 'data:image/webp;base64,thumb-for-alertcomp-1'
+        getFileSrcSpy.mockClear()
+        alertStore.set({ type: 'selectChar', msg: '' } as never)
+        const { target, app } = mountAlertComp()
+        await settle(target)
+
+        const calledLocs = avatarThumbSpy.mock.calls.map((c) => c[0])
+        for (const c of DBState.db.characters) {
+            expect(calledLocs).toContain(c.image)
+        }
+
+        const buttons = resolvedAvatarButtons(target)
+        const thumbButton = buttons.find((b) => (b.getAttribute('style') ?? '').includes(`url("${thumbOverride[targetLoc]}")`))
+        expect(thumbButton).toBeTruthy()
+        expect(getFileSrcSpy.mock.calls.some((c) => c[0] === targetLoc)).toBe(false)
 
         await teardown(target, app)
         alertStore.set({ type: 'none', msg: '' } as never)

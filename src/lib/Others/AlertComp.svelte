@@ -396,7 +396,7 @@
                         {#if char.type !== 'group'}
                             {@const imgPath = char.image}
                             {@const isVisible = visibleSelectChars.has(i)}
-                            {@const avatarStyle = isVisible ? getCharImage(imgPath, 'css') : ''}
+                            {@const avatarStyle = isVisible ? getCharImage(imgPath, 'thumbcss') : ''}
                             <div use:nearViewport={{ onChange: (v, node) => {
                                 if (v) { visibleSelectChars.set(i, node) } else if (visibleSelectChars.get(i) === node) { visibleSelectChars.delete(i) }
                             } }}>

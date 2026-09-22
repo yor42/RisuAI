@@ -107,7 +107,7 @@
                     {#each formatChars(search, DBState.db) as char (char.index)}
                         {@const imgPath = char.image}
                         {@const isVisible = visibleIndices.has(char.index)}
-                        {@const avatarStyle = isVisible ? getCharImage(imgPath, 'css') : ''}
+                        {@const avatarStyle = isVisible ? getCharImage(imgPath, 'thumbcss') : ''}
                         <div class="flex items-center text-textcolor" use:nearViewport={{ onChange: (v, node) => {
                             if (v) { visibleIndices.set(char.index, node) } else if (visibleIndices.get(char.index) === node) { visibleIndices.delete(char.index) }
                         } }}>
@@ -130,7 +130,7 @@
             {#each formatChars(search, DBState.db) as char (char.index)}
                 {@const imgPath = char.image}
                 {@const isVisible = visibleIndices.has(char.index)}
-                {@const avatarStyle = isVisible ? getCharImage(imgPath, 'css') : ''}
+                {@const avatarStyle = isVisible ? getCharImage(imgPath, 'thumbcss') : ''}
                 <div class="flex p-2 border border-darkborderc rounded-md mb-2" use:nearViewport={{ onChange: (v, node) => {
                     if (v) { visibleIndices.set(char.index, node) } else if (visibleIndices.get(char.index) === node) { visibleIndices.delete(char.index) }
                 } }}>
@@ -158,7 +158,7 @@
             {#each formatChars(search, DBState.db, true) as char (char.index)}
                 {@const imgPath = char.image}
                 {@const isVisible = visibleIndices.has(char.index)}
-                {@const avatarStyle = isVisible ? getCharImage(imgPath, 'css') : ''}
+                {@const avatarStyle = isVisible ? getCharImage(imgPath, 'thumbcss') : ''}
                 <div class="flex p-2 border border-darkborderc rounded-md mb-2" use:nearViewport={{ onChange: (v, node) => {
                     if (v) { visibleIndices.set(char.index, node) } else if (visibleIndices.get(char.index) === node) { visibleIndices.delete(char.index) }
                 } }}>

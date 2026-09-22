@@ -36,6 +36,7 @@ import { makeColdData } from "./process/coldstorage.svelte";
 import { verifyAssetCacheEntry } from "./storage/assetIntegrity";
 import { getRemoteSaveCleanupAction, getRemoteSavePayloadName } from "./storage/remoteSaveCleanup";
 import { sweepTauriAssets, sweepForageAssetKey } from "./storage/assetSweep";
+import { startAvatarThumbSweep } from "./media/avatarThumb";
 import {
     forageStorage,
     saveDb,
@@ -291,6 +292,9 @@ export async function loadData() {
             saveDb()
             moduleUpdate()
             cleanChunks()
+            // Detached: its own store, its own try/catch, never awaited so a
+            // slow or failing sweep can't hold up boot.
+            void startAvatarThumbSweep()
             alertTOS().then((a) => {
                 if (a === false) {
                     location.reload()
