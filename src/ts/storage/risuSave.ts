@@ -194,6 +194,22 @@ export class RisuSaveEncoder {
 
     private blocks: { [key: string]: Uint8Array } = {};
     private compression: boolean = false;
+    // Fork-specific internal API (Report 17 Stage 1 §3.1/§3.2): the set of
+    // character objects THIS init() call actually encoded (by identity, not a
+    // copy). Consumed by saveDb() to seed the identity tracker's WeakSet
+    // (dbChangeEffects.svelte.ts) so a replacement that happens WHILE init()
+    // is still running isn't treated as "already seen" once that effect
+    // starts, and by prepareSaveIteration()'s post-reload filter, so a full
+    // reload doesn't double-encode an already-marked character the same save
+    // iteration (plan §3.2, gate finding F1). Purely additional bookkeeping;
+    // does not change what init() encodes or how. Released via
+    // `takeEncodedCharacterProxies()` (Report 17 Stage 1, Gate 2 should-fix
+    // (memory)) once each consumer above has read it -- and each consumer in
+    // turn drops its own copy afterward (saveDb() releases its `seed`
+    // argument, and registerDbChangeEffects releases `opts.seed`) -- so
+    // together, nothing here keeps a boot-time character object reachable
+    // for this encoder's whole lifetime.
+    private encodedCharacterProxies = new Set<Database['characters'][number]>();
 
     async init(data:Database,arg:{
         compression?: boolean,
@@ -204,6 +220,7 @@ export class RisuSaveEncoder {
             skipRemoteSavingOnCharacters = true
         } = arg;
         this.compression = compression;
+        this.encodedCharacterProxies = new Set();
         let obj:Record<any,any> = {}
         let keys = Object.keys(data)
         for(const key of keys){
@@ -257,6 +274,7 @@ export class RisuSaveEncoder {
             }, {
                 remote: 'prefer'
             });
+            this.encodedCharacterProxies.add(character);
         }
         this.blocks['config'] = await this.encodeBlock({
             compression,
@@ -266,6 +284,28 @@ export class RisuSaveEncoder {
             type: RisuSaveType.CONFIG,
             name: "config"
         })
+    }
+
+    /**
+     * Fork-specific internal API -- see the field comment above `init()`.
+     * Takes (returns, then replaces with a fresh empty Set) rather than just
+     * reading, so each consumer's call releases this encoder's references to
+     * the character objects it just encoded once it's done with them --
+     * otherwise the encoder would keep every boot-time character object
+     * reachable for as long as it lives (Report 17 Stage 1, Gate 2
+     * should-fix (memory), replacing the earlier, rejected WeakSet approach).
+     * This only releases the encoder's own copy -- each consumer (saveDb()'s
+     * `seed` argument, registerDbChangeEffects' `opts.seed`) must separately
+     * drop its own reference once it has built whatever it needed from the
+     * returned Set, or that consumer becomes the new thing pinning every
+     * boot-time character reachable instead. Callers that need
+     * the set more than once within the same logical use must save the
+     * returned reference themselves; a second take comes back empty.
+     */
+    takeEncodedCharacterProxies(): Set<object> {
+        const proxies = this.encodedCharacterProxies;
+        this.encodedCharacterProxies = new Set();
+        return proxies;
     }
 
     async set(data:Database, toSave:toSaveType){

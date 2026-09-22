@@ -1,6 +1,7 @@
 import { allowedDbKeys, customProviderStore, getV2PluginAPIs, handlePluginInstallViaPlugin, pluginV2, type PluginV2ProviderArgument, type PluginV2ProviderOptions, type RisuPlugin } from "../plugins.svelte";
 import { SandboxHost } from "./factory";
 import { getDatabase } from "src/ts/storage/database.svelte";
+import { markCharacterForSave } from "src/ts/storage/characterSaveMarks";
 import { SafeLocalPluginStorage, tagWhitelist } from "../pluginSafeClass";
 import DOMPurify from 'dompurify';
 import { additionalChatMenu, additionalFloatingActionButtons, additionalHamburgerMenu, additionalSettingsMenu, bodyIntercepterStore, chatPanelStore, DBState, selectedCharID, type MenuDef } from "src/ts/stores.svelte";
@@ -650,6 +651,26 @@ const authorizationHeaders = [
     'proxy-authorization',
 ]
 
+/**
+ * Extracted from the V3 plugin API object below for testability (Report 17
+ * Stage 1 §3.3): `setChatToIndex` on a non-selected character was an in-place
+ * write invisible to both the selected-character tracker and the identity
+ * tracker (element/whole-array replacement only), so it never persisted.
+ * Marks the target character for save after the write.
+ */
+export function setChatToIndexImpl(characterIndex: number, chatIndex: number, chat: any): void {
+    const db = DBState.db
+    const charIds = Object.keys(db.characters);
+    const charId = charIds[characterIndex];
+    if(charId){
+        const chats = db.characters[charId].chats;
+        if(chats && chats[chatIndex]){
+            DBState.db.characters[charId].chats[chatIndex] = chat
+            markCharacterForSave(DBState.db.characters[charId]?.chaId)
+        }
+    }
+}
+
 // Exported (only) so CHORE-07 stage 7c-1's `sendChat` cold-chat guard can be
 // driven directly in tests without going through the iframe/SandboxHost
 // bridge -- see `src/ts/process/tests/pluginSendChatColdGuard.svelte.test.ts`.
@@ -944,17 +965,7 @@ export const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
 
             return (await processScriptFull(char, parsed, 'editprocess', chatID, cbsConditions)).data;
         },
-        setChatToIndex: (characterIndex:number, chatIndex:number, chat:any) => {
-            const db = DBState.db
-            const charIds = Object.keys(db.characters);
-            const charId = charIds[characterIndex];
-            if(charId){
-                const chats = db.characters[charId].chats;
-                if(chats && chats[chatIndex]){
-                    DBState.db.characters[charId].chats[chatIndex] = chat
-                }
-            }
-        },
+        setChatToIndex: setChatToIndexImpl,
         getCurrentCharacterIndex: () => {
             return get(selectedCharID)
         },

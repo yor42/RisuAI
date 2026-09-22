@@ -28,6 +28,7 @@ import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from
 import { loadRisuAccountData } from "./drive/accounter";
 import { decodeRisuSave, encodeRisuSaveLegacy, RisuSaveEncoder, type toSaveType } from "./storage/risuSave";
 import { registerDbChangeEffects } from "./storage/dbChangeEffects.svelte";
+import { installCharacterSaveMarks } from "./storage/characterSaveMarks";
 import { AutoStorage } from "./storage/autoStorage";
 import { updateAnimationSpeed } from "./gui/animation";
 import { updateColorScheme, updateTextThemeAndCSS } from "./gui/colorscheme";
@@ -705,6 +706,273 @@ export async function acquireExclusiveStorageMigrationLock(timeoutMs = 5000): Pr
     }
 }
 
+export interface BootSaveSequenceOptions {
+    tracker: toSaveType
+    installMarks: (opts: { tracker: toSaveType, schedule: () => void }) => void
+    init: () => Promise<void>
+    createRealScheduler: () => (markDirty?: boolean) => void
+}
+
+/**
+ * Extracted from saveDb()'s startup (Report 17 Stage 1 §3.1 "named seams", so
+ * S13 can drive the real sequence with a slow fake `init`): install
+ * character-save marks with a scheduler that only records "pending" while
+ * `encoder.init` (a seconds-long window at 1000 characters, ledger row 61) is
+ * still running, then create and swap in the real scheduler
+ * (`saveTimeoutExecute`) and flush once if a mark arrived during that window.
+ * `saveTimeout` (the `let` `saveTimeoutExecute` reads) and
+ * `saveTimeoutExecute` itself are both declared in saveDb() before this
+ * function is even called, so there is no TDZ window here to worry about.
+ * What the pending/real split actually does: it makes sure a mark made while
+ * `init` is still running is recorded (`tracker` gets the mark either way,
+ * since it's written directly by the mark call, not by either scheduler) and
+ * that exactly one save gets requested for it once `init` finishes, instead
+ * of a debounced write firing mid-`init` against a database `encoder.init()`
+ * hasn't finished encoding yet -- the save loop itself hasn't started at that
+ * point regardless, so no debounced write could fire during this window even
+ * without the split. The pending scheduler exists to turn "a mark arrived
+ * during init" into a single deferred `realSchedule(true)` call once `init`
+ * completes, rather than to prevent an otherwise-possible premature write.
+ */
+export async function bootSaveSequence(opts: BootSaveSequenceOptions): Promise<void> {
+    let pendingSave = false
+    opts.installMarks({ tracker: opts.tracker, schedule: () => { pendingSave = true } })
+    await opts.init()
+    const realSchedule = opts.createRealScheduler()
+    opts.installMarks({ tracker: opts.tracker, schedule: () => realSchedule() })
+    if (pendingSave) {
+        realSchedule(true)
+    }
+}
+
+export interface PrepareSaveIterationOptions {
+    tracker: toSaveType
+    encoder: RisuSaveEncoder
+    reloadFlag: { state: boolean }
+    reinitEncoder: () => Promise<RisuSaveEncoder>
+    getDatabase: () => Database
+    /**
+     * Called right after the snapshot is taken, before the live tracker is
+     * trimmed -- saveDb() uses it to reset `dirtySinceLastSave`, preserving
+     * the original inline statement order exactly.
+     */
+    onSnapshotTaken?: () => void
+    /**
+     * Called once, right after `reinitEncoder()` throws and the snapshot has
+     * been folded back into the live tracker via `mergeUnsavedChanges` --
+     * before the error is rethrown. That merge-back means nothing is lost,
+     * but saveDb() still needs a signal that this iteration failed to reload
+     * so it can flag itself dirty again for a retry (a multi-tab auto-reload
+     * must not treat this tab as clean and silently discard its edits by
+     * reloading out from under it). saveDb() wires this to
+     * `dirtySinceLastSave = true` (Report 17 Stage 1, second Gate 2 REJECT,
+     * item A).
+     */
+    onSnapshotRestored?: () => void
+}
+
+export interface PrepareSaveIterationResult {
+    encoder: RisuSaveEncoder
+    toSave: toSaveType
+}
+
+/**
+ * Extracted from saveDb()'s per-iteration setup (Report 17 Stage 1 §3.1
+ * "named seams", driven directly by S11), with the reorder documented below
+ * and the presence filtering documented further down -- both behaviour
+ * changes, not a pure extraction: the snapshot-and-trim of the live tracker, the
+ * full-reload branch (`requiresFullEncoderReload`), and the post-reload
+ * filter (§3.2) that keeps a full reload from double-encoding a character
+ * already marked before this same iteration started.
+ *
+ * The snapshot and trim run BEFORE `reinitEncoder()` (gate 2 finding B1, was
+ * after): `reinitEncoder()` can take seconds at 1000 characters (ledger row
+ * 61), and if something edits a character IN PLACE during that window (same
+ * proxy `init()` already recorded) and marks it, that mark must not be
+ * confused with "already encoded by this reload" just because it arrived
+ * before the OLD snapshot-after-reinit ordering took its snapshot. Doing the
+ * snapshot/trim first means such a mark instead lands in the live tracker,
+ * behind the sticky front, entirely outside what the filter below ever sees
+ * -- it gets folded into `toSave` unfiltered afterward instead.
+ */
+export async function prepareSaveIteration(opts: PrepareSaveIterationOptions): Promise<PrepareSaveIterationResult> {
+    let encoder = opts.encoder
+
+    const toSave = safeStructuredClone(opts.tracker)
+    opts.onSnapshotTaken?.()
+
+    // Trim/reset the live tracker right away, so edits made by effects while this
+    // write is in flight accumulate fresh (rather than being clobbered by a naive
+    // post-write reset that doesn't know about them). If this attempt doesn't end
+    // up persisting `toSave` — because it bails out below or the write throws —
+    // saveDb()'s mergeUnsavedChanges folds it back in without discarding anything
+    // newer.
+    opts.tracker.character = opts.tracker.character.length === 0 ? [] : [opts.tracker.character[0]]
+    opts.tracker.chat = opts.tracker.chat.length === 0 ? [] : [opts.tracker.chat[0]]
+    opts.tracker.botPreset = false
+    opts.tracker.modules = false
+    opts.tracker.loadouts = false
+    opts.tracker.plugins = false
+    opts.tracker.pluginCustomStorage = false
+
+    if (opts.reloadFlag.state) {
+        // Cleared BEFORE the await, not after (second Gate 2 REJECT, item B):
+        // if something racing this reload (e.g. removeChar(), or a backup
+        // load) sets the flag again WHILE `reinitEncoder()` is still running,
+        // clearing it here first means that later write always wins -- a
+        // post-await `= false` would instead clobber it back to false and
+        // silently swallow the request for another full reload.
+        opts.reloadFlag.state = false
+        try {
+            encoder = await opts.reinitEncoder()
+        } catch (error) {
+            // Something requested a reload during this failed attempt (or the
+            // reload itself was never satisfied) -- restore the flag so the
+            // next iteration still reloads instead of silently treating this
+            // as handled.
+            opts.reloadFlag.state = true
+            // The snapshot/trim above already ran, so a throw here (gate 2
+            // finding B1) must not silently drop `toSave` the way it would
+            // have under the old post-reinit ordering (where nothing had
+            // been touched yet). Fold it back into the live tracker --
+            // same rule saveDb()'s own catch uses for a failed write --
+            // before propagating, so the caller's existing catch still has
+            // nothing extra to merge.
+            mergeUnsavedChanges(opts.tracker, toSave)
+            // An additional signal for saveDb()'s `dirtySinceLastSave`
+            // (second Gate 2 REJECT, item A): the merge-back above already
+            // makes sure nothing is lost, but saveDb() still needs to know
+            // this iteration failed to reload so a later multi-tab
+            // auto-reload doesn't treat this tab as clean and reload out
+            // from under its restored edits.
+            opts.onSnapshotRestored?.()
+            throw error
+        }
+
+        // Filter the SNAPSHOT taken above (never the live tracker): drop ids
+        // whose CURRENT proxy this reload's own `init()` just encoded, since
+        // the reload already wrote their latest state as of init (plan §3.2,
+        // gate finding F1). A mark added WHILE `reinitEncoder()` was still
+        // running -- e.g. an in-place edit to a character on the very proxy
+        // `init()` already recorded -- was never part of this snapshot (it
+        // landed in the live tracker, behind the sticky front, after the
+        // trim above), so it can never be wrongly dropped here for "already
+        // being encoded" when its edit actually happened after that encode
+        // (gate 2 finding B1).
+        // take (not read): releases the fresh encoder's references to the
+        // character objects it just encoded once this filter is done with
+        // them (Report 17 Stage 1, Gate 2 should-fix (memory)).
+        const encodedProxies = encoder.takeEncodedCharacterProxies()
+        const db = opts.getDatabase()
+        // Built once per call instead of re-scanning `db.characters` for
+        // every id below (three separate O(N) scans over a potentially
+        // 1000+-character array otherwise -- ledger row 61). Entries with a
+        // falsy/missing chaId are skipped, same as the `.find`/`.some` calls
+        // this replaces, which could never match such an entry either.
+        const charactersById = new Map<string, character | groupChat>()
+        for (const c of db?.characters ?? []) {
+            if (c?.chaId) {
+                charactersById.set(c.chaId, c)
+            }
+        }
+        toSave.character = toSave.character.filter((chaId) => {
+            const char = charactersById.get(chaId)
+            return !(char && encodedProxies.has(char))
+        })
+
+        // Fold any such mark into `toSave` so THIS save iteration still picks
+        // it up -- then re-trim the live tracker back down to just its
+        // (possibly new) sticky front now that the rest has been captured
+        // here. Also put these through the same presence filter as the
+        // no-reload branch below (one consistent rule, chosen over branch-
+        // dependent exceptions): a reload's own `init()` above already
+        // rebuilds every character present in `db` regardless, so this is
+        // harmless/a no-op safety net for the reload path specifically.
+        //
+        // The actual rule (second Gate 2 REJECT: "an id in `toSave.character`
+        // is always present in `db.characters`" is FALSE, and always has
+        // been): without a reload this iteration, only present ids ever
+        // reach `set()` -- the no-reload branch below filters on exactly
+        // that. After a reload, the snapshot filter above deliberately does
+        // NOT presence-filter: an id absent from `db.characters` (e.g. a
+        // character the backup load just deleted) is deliberately KEPT in
+        // `toSave.character` (S11 asserts this). In THAT case it's a no-op:
+        // the fresh encoder's own `init()` never had a block for an id
+        // absent from the db it just built from, so `set()`'s "probably
+        // deleted characters" branch has nothing to delete either way.
+        // Making the post-reload snapshot presence-filter too was considered
+        // (it would make the rule uniform across both branches) but rejected
+        // for a narrower race instead: `removeChar()` (or a similar splice)
+        // can remove a character from `db.characters` WHILE `reinitEncoder()`
+        // is still running, AFTER its `init()` already encoded that
+        // character's block. Presence-filtering here would drop that id from
+        // `toSave` too, and `set()` (risuSave.ts) would then never see it in
+        // `toSave.character` to run its delete branch -- leaving the block
+        // `init()` just made for a character that no longer exists sitting
+        // in the encoded output. Keeping the id unfiltered instead lets
+        // `set()`'s delete branch remove that now-stale block.
+        for (const chaId of opts.tracker.character.slice(1)) {
+            if (!toSave.character.includes(chaId) && charactersById.has(chaId)) {
+                toSave.character.push(chaId)
+            }
+        }
+        opts.tracker.character = opts.tracker.character.length === 0 ? [] : [opts.tracker.character[0]]
+    } else {
+        // B2 fix (Report 17 Stage 1 gate 2): without a reload this
+        // iteration, `RisuSaveEncoder.set()` (risuSave.ts) can't tell a
+        // genuinely removed character apart from an id that's merely stale
+        // in `toSave.character` for some unrelated reason -- its "probably
+        // deleted characters" branch deletes the block outright either way.
+        // Filtering `toSave.character` down to ids still present in the
+        // current db, before `set()` ever sees them, is what keeps that
+        // delete branch from ever running without a reload. Contract: every
+        // INTENTIONAL character removal must set `requiresFullEncoderReload`
+        // so it's handled by the reload branch above instead.
+        const db = opts.getDatabase()
+        // Built once per call instead of an O(N) `.some()` scan over
+        // `db.characters` for every id (ledger row 61) -- only presence is
+        // needed here, so a Set of ids is enough. Falsy/missing chaId
+        // entries are skipped, same as the `.some()` call this replaces,
+        // which could never match such an entry either.
+        const presentIds = new Set<string>()
+        for (const c of db?.characters ?? []) {
+            if (c?.chaId) {
+                presentIds.add(c.chaId)
+            }
+        }
+        toSave.character = toSave.character.filter((chaId) => presentIds.has(chaId))
+    }
+
+    return { encoder, toSave }
+}
+
+/**
+ * Merges a snapshot of a tracker back into the live tracker, without discarding
+ * whatever the live tracker has accumulated since the snapshot was taken (e.g.
+ * from edits made while a write was in flight). Used whenever a save attempt
+ * captured `toSave` but didn't end up persisting it, so nothing pending gets
+ * silently dropped. Pure — takes the live tracker explicitly instead of closing
+ * over saveDb()'s `changeTracker`, so it can be driven directly by tests
+ * (Report 17 Stage 1 §3.1 "named seams", S14).
+ */
+export function mergeUnsavedChanges(liveTracker: toSaveType, toSave: toSaveType): void {
+    for (const chaId of toSave.character) {
+        if (!liveTracker.character.includes(chaId)) {
+            liveTracker.character.push(chaId)
+        }
+    }
+    for (const pair of toSave.chat) {
+        if (!liveTracker.chat.some(([c, ch]) => c === pair[0] && ch === pair[1])) {
+            liveTracker.chat.push(pair)
+        }
+    }
+    liveTracker.botPreset ||= toSave.botPreset
+    liveTracker.modules ||= toSave.modules
+    liveTracker.loadouts ||= toSave.loadouts
+    liveTracker.plugins ||= toSave.plugins
+    liveTracker.pluginCustomStorage ||= toSave.pluginCustomStorage
+}
+
 export async function saveDb() {
     let changed = false
     syncDrive()
@@ -740,9 +1008,6 @@ export async function saveDb() {
     }
 
     let encoder = new RisuSaveEncoder()
-    await encoder.init(getDatabase(), {
-        compression: forageStorage.isAccount
-    })
 
     const debounceTime = 500; // 500 milliseconds
     let saveTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -759,31 +1024,42 @@ export async function saveDb() {
         }, debounceTime);
     }
 
-    $effect.root(() => {
-        registerDbChangeEffects({ tracker: changeTracker, markChanged: saveTimeoutExecute })
+    // Character-save marks (CHORE-01 / Report 17 Stage 1 §3.1) are installed
+    // BEFORE `encoder.init`, which can take seconds at 1000 characters (ledger
+    // row 61) while the UI is already live (bootstrap.ts un-awaits saveDb()
+    // after loadedStore.set(true)). A mark made during that window is kept
+    // either way, via characterSaveMarks' own pre-install queue -- see
+    // bootSaveSequence's own comment for what this two-phase install
+    // (pending, then real) actually buys: coalescing any save requests made
+    // during init into a single deferred one, once init completes.
+    await bootSaveSequence({
+        tracker: changeTracker,
+        installMarks: installCharacterSaveMarks,
+        init: () => encoder.init(getDatabase(), {
+            compression: forageStorage.isAccount
+        }),
+        createRealScheduler: () => saveTimeoutExecute
     })
 
-    // Merges a snapshot of changeTracker back into the live tracker, without discarding
-    // whatever the live tracker has accumulated since the snapshot was taken (e.g. from
-    // edits made while a write was in flight). Used whenever a save attempt captured
-    // `toSave` but didn't end up persisting it, so nothing pending gets silently dropped.
-    function mergeUnsavedChanges(toSave: toSaveType) {
-        for (const chaId of toSave.character) {
-            if (!changeTracker.character.includes(chaId)) {
-                changeTracker.character.push(chaId)
-            }
-        }
-        for (const pair of toSave.chat) {
-            if (!changeTracker.chat.some(([c, ch]) => c === pair[0] && ch === pair[1])) {
-                changeTracker.chat.push(pair)
-            }
-        }
-        changeTracker.botPreset ||= toSave.botPreset
-        changeTracker.modules ||= toSave.modules
-        changeTracker.loadouts ||= toSave.loadouts
-        changeTracker.plugins ||= toSave.plugins
-        changeTracker.pluginCustomStorage ||= toSave.pluginCustomStorage
-    }
+    $effect.root(() => {
+        registerDbChangeEffects({
+            tracker: changeTracker,
+            markChanged: saveTimeoutExecute,
+            // Seeds the identity tracker's WeakSet with exactly the character
+            // proxies the `encoder.init` above encoded, so a whole-db/element
+            // replacement that happened DURING that init window isn't treated
+            // as "already seen" the first time this effect runs (plan §3.2).
+            // take (not read): registerDbChangeEffects only ever needs this
+            // once, at registration, and taking here releases the encoder's
+            // own references to these boot-time character objects.
+            // registerDbChangeEffects then releases its own copy (`opts.seed
+            // = undefined`) once it has built the WeakSet from it -- between
+            // the two releases, nothing here is left holding every boot-time
+            // character strongly reachable for the app's whole lifetime
+            // (Report 17 Stage 1, Gate 2 should-fix (memory)).
+            seed: encoder.takeEncodedCharacterProxies()
+        })
+    })
 
     let savetrys = 0
     let lastDbData = new Uint8Array(0)
@@ -930,33 +1206,35 @@ export async function saveDb() {
         let primaryCommitted = false
         try {
 
-            if (requiresFullEncoderReload.state) {
-                encoder = new RisuSaveEncoder()
-                await encoder.init(getDatabase(), {
-                    compression: forageStorage.isAccount,
-                    skipRemoteSavingOnCharacters: false
-                })
-                requiresFullEncoderReload.state = false
-            }
-
-            toSave = safeStructuredClone(changeTracker)
-            dirtySinceLastSave = false
-            // Trim/reset the live tracker right away, so edits made by effects while this
-            // write is in flight accumulate fresh (rather than being clobbered by a naive
-            // post-write reset that doesn't know about them). If this attempt doesn't end
-            // up persisting `toSave` — because it bails out below or the write throws —
-            // mergeUnsavedChanges folds it back in without discarding anything newer.
-            changeTracker.character = changeTracker.character.length === 0 ? [] : [changeTracker.character[0]]
-            changeTracker.chat = changeTracker.chat.length === 0 ? [] : [changeTracker.chat[0]]
-            changeTracker.botPreset = false
-            changeTracker.modules = false
-            changeTracker.loadouts = false
-            changeTracker.plugins = false
-            changeTracker.pluginCustomStorage = false
+            const prepared = await prepareSaveIteration({
+                tracker: changeTracker,
+                encoder,
+                reloadFlag: requiresFullEncoderReload,
+                reinitEncoder: async () => {
+                    const freshEncoder = new RisuSaveEncoder()
+                    await freshEncoder.init(getDatabase(), {
+                        compression: forageStorage.isAccount,
+                        skipRemoteSavingOnCharacters: false
+                    })
+                    return freshEncoder
+                },
+                getDatabase,
+                onSnapshotTaken: () => { dirtySinceLastSave = false },
+                // A failed reload already gets its snapshot folded back into
+                // the live tracker (nothing is lost), but that alone doesn't
+                // tell this outer scope the attempt failed -- without this,
+                // a peer tab's broadcast could see `dirtySinceLastSave` still
+                // false from the `onSnapshotTaken` reset above and reload
+                // this tab out from under its restored, still-unsaved edits
+                // (second Gate 2 REJECT, item A).
+                onSnapshotRestored: () => { dirtySinceLastSave = true }
+            })
+            encoder = prepared.encoder
+            toSave = prepared.toSave
 
             let db = getDatabase()
             if (!db.characters) {
-                mergeUnsavedChanges(toSave)
+                mergeUnsavedChanges(changeTracker, toSave)
                 await sleep(1000)
                 continue
             }
@@ -964,7 +1242,7 @@ export async function saveDb() {
             await encoder.set(db, toSave)
             const encoded = encoder.encode()
             if (!encoded) {
-                mergeUnsavedChanges(toSave)
+                mergeUnsavedChanges(changeTracker, toSave)
                 await sleep(1000)
                 continue
             }
@@ -1062,13 +1340,23 @@ export async function saveDb() {
                 savetrys += 1
                 // The write failed after the tracker was already trimmed above, so fold
                 // `toSave` back in — merged with whatever's accumulated since — instead of
-                // losing it. `toSave` is only set once the snapshot line above has actually
-                // run; an error before that (e.g. during encoder re-init) has nothing to
-                // merge, since the live tracker was never touched this iteration.
+                // losing it. `toSave` (this outer, saveDb()-local variable) is only set
+                // once prepareSaveIteration() has fully returned; a throw from inside it
+                // (e.g. reinitEncoder() failing mid-reload) never reaches that assignment,
+                // but prepareSaveIteration() already merges its own in-flight snapshot
+                // back into the live tracker itself before propagating such an error, AND
+                // calls `onSnapshotRestored` (wired above to `dirtySinceLastSave = true`)
+                // -- so this branch's own merge only has something left to do when
+                // `toSave` WAS assigned (the failure happened after prepareSaveIteration()
+                // returned, e.g. encoder.set()/encode()/the write itself throwing).
+                // `dirtySinceLastSave` is still set unconditionally right below,
+                // belt-and-braces: this attempt failed either way, and a multi-tab
+                // auto-reload must never mistake a failed attempt for a clean tab just
+                // because this particular failure happened to leave `toSave` unset.
                 if (toSave) {
-                    mergeUnsavedChanges(toSave)
-                    dirtySinceLastSave = true
+                    mergeUnsavedChanges(changeTracker, toSave)
                 }
+                dirtySinceLastSave = true
                 changed = true
             } else {
                 // Primary write already succeeded and was already broadcast; only
@@ -2923,6 +3211,10 @@ export async function loadInternalBackup() {
     setDatabase(
         await decodeRisuSave(Buffer.from(data) as unknown as Uint8Array)
     )
+    // A backup load is an explicit user action to replace everything, so a
+    // full reload (and dropping characters absent from the backup) is
+    // intended -- the other three call sites already do this (plan §3.3).
+    requiresFullEncoderReload.state = true
 
     alertNormal('Loaded backup')
 

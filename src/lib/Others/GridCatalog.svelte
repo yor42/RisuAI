@@ -1,8 +1,7 @@
 <script lang="ts">
-    import { changeChar, getCharImage, removeChar } from "../../ts/characters";
+    import { changeChar, getCharImage, removeChar, restoreCharacterFromTrash } from "../../ts/characters";
     import { type Database } from "../../ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
-    import { findCharacterIndexbyId } from "../../ts/util";
     import BarIcon from "../SideBars/BarIcon.svelte";
     import { ArrowLeft, User, Users, SquareMousePointer, TrashIcon, Undo2Icon } from "@lucide/svelte";
     import { selectedCharID } from "../../ts/stores.svelte";
@@ -10,7 +9,6 @@
     import Button from "../UI/GUI/Button.svelte";
     import { language } from "src/lang";
     import { parseMultilangString } from "src/ts/util";
-    import { checkCharOrder } from "src/ts/globalApi.svelte";
     import MobileCharacters from "../Mobile/MobileCharacters.svelte";
     import { nearViewport } from "src/ts/gui/nearViewport.svelte";
     import { SvelteMap } from "svelte/reactivity";
@@ -168,11 +166,7 @@
                         <span class="text-textcolor2">{parseMultilangString(char.desc)['en'] || parseMultilangString(char.desc)['xx'] || 'No description'}</span>
                         <div class="flex gap-2 justify-end">
                             <button class="hover:text-textcolor text-textcolor2" onclick={() => {
-                                const restoreIdx = findCharacterIndexbyId(char.chaId)
-                                if (restoreIdx !== -1) {
-                                    DBState.db.characters[restoreIdx].trashTime = undefined
-                                    checkCharOrder()
-                                }
+                                restoreCharacterFromTrash(char.chaId)
                             }}>
                                 <Undo2Icon />
                             </button>

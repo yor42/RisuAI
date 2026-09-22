@@ -11,6 +11,7 @@ import { checkCodeSafety } from "./pluginSafety";
 import { SafeDocument, SafeIdbFactory, SafeLocalStorage } from "./pluginSafeClass";
 import { loadV3Plugins } from "./apiV3/v3.svelte";
 import { pluginCodeTranspiler } from "./apiV3/transpiler";
+import { markCharacterForSave } from "../storage/characterSaveMarks";
 
 export const customProviderStore = writable([] as string[])
 
@@ -761,6 +762,23 @@ export const getV2PluginAPIs = () => {
                 }
             }
             DBState.db = db;
+            // CHORE-01 / Report 17 Stage 1 §3.3 (maintainer decision, re-review
+            // F3): mark every character, don't reload. V2's getDatabase() is a
+            // live wrapper over DBState.db (see getDatabase above), so a plugin
+            // edits live elements in place and this loop's self-assignment
+            // notifies nothing -- invisible to both the selected-character
+            // effect and the identity tracker. Never deletes: a character this
+            // call's own `characters` array omits still keeps its block and
+            // comes back on reload (§8) -- the guarantee that a save iteration
+            // without a reload can never delete a block now lives in
+            // `prepareSaveIteration`'s no-reload filter (globalApi.svelte.ts),
+            // not here (Report 17 Stage 1 gate 2 finding B2, re-review: the
+            // earlier fix here only covered these two plugin setters).
+            if (Array.isArray(newDb.characters)) {
+                for (const char of db.characters ?? []) {
+                    markCharacterForSave(char?.chaId);
+                }
+            }
         },
         setDatabase: async (newDb: any) => {
             const db = getDatabase();
@@ -770,7 +788,7 @@ export const getV2PluginAPIs = () => {
                     console.warn('[WARN] Plugin attempted to access plugin directly. this would be blocked in future versions. Instead, use the provided APIs to manage plugins. Attempting to handle plugin installation via plugin for new plugins in the provided database object.')
                     newDb[key] = await handlePluginInstallViaPlugin(newDb.plugins)
                 }
-                
+
                 if (allowedDbKeys.includes(key)) {
                     (db as any)[key] = newDb[key];
                 }
@@ -779,6 +797,21 @@ export const getV2PluginAPIs = () => {
                 }
             }
             setDatabase(db);
+            // Same reasoning as setDatabaseLite above -- this setter is shared by
+            // both V2 (live wrapper, in-place edits) and V3 (getDatabase()
+            // returns fresh snapshots; this same function is re-exported
+            // as-is for V3 by apiV3/v3.svelte.ts's makeRisuaiAPIV3()), so mark
+            // unconditionally rather than special-case which API version called
+            // in. V3's fresh `characters` array is also new-identity to the
+            // identity tracker (dbChangeEffects.svelte.ts), so this is redundant
+            // (but harmless, see appendIfAbsent) for that case specifically.
+            // Never deletes: see setDatabaseLite's comment above -- the
+            // no-reload guarantee lives in prepareSaveIteration's filter now.
+            if (Array.isArray(newDb.characters)) {
+                for (const char of db.characters ?? []) {
+                    markCharacterForSave(char?.chaId);
+                }
+            }
         },
         SafeFunction: new Proxy(Function, {
             construct(target, args) {

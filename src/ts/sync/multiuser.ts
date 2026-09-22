@@ -313,15 +313,28 @@ export async function joinMultiuserRoom(){
                     break
                 }
                 case 'receive-chat':{
-                    const db = getDatabase({
-                        snapshot: true
-                    })
+                    // Fork-specific hardening (Report 17 Stage 1 §3.2, gate 1
+                    // finding 5): write the received chat in place into the
+                    // live selected character, instead of replacing the whole db
+                    // with a fresh snapshot (`setDatabase(getDatabase({snapshot:
+                    // true}))`, as before). That gave every character a new proxy
+                    // identity on every received chat, so the identity tracker
+                    // (dbChangeEffects.svelte.ts) would mark every character for
+                    // save on every guest message, not just the selected one --
+                    // a real performance regression for guests. `isStreaming` /
+                    // `activeStreamingDisplayOptimizationMode` reset (re-review
+                    // finding F8) matches what `setDatabase` did for every
+                    // character's chats (database.svelte.ts:714-719);
+                    // `latestSyncChat` aliasing and the throw when nothing is
+                    // selected (accessing `.chats` off an out-of-range character)
+                    // are unchanged.
                     const selectedCharId = get(selectedCharID)
-                    const char = safeStructuredClone(db.characters[selectedCharId])
-                    char.chats[char.chatPage] = data.data
-                    db.characters[selectedCharId] = char
-                    latestSyncChat = data.data
-                    setDatabase(db)
+                    const character = getDatabase().characters[selectedCharId]
+                    const chat = data.data
+                    chat.isStreaming = false
+                    chat.activeStreamingDisplayOptimizationMode = undefined
+                    character.chats[character.chatPage] = chat
+                    latestSyncChat = chat
                     break
                 }
                 case 'request-chat-safe':{

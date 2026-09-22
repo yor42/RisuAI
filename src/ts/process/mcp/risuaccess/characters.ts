@@ -3,8 +3,8 @@ import { alertConfirm } from 'src/ts/alert'
 import { type character, type groupChat, type loreBook } from 'src/ts/storage/database.svelte'
 import { DBState } from 'src/ts/stores.svelte'
 import { pickHashRand } from 'src/ts/util'
-import { type MCPTool, MCPToolHandler, type RPCToolCallContent } from '../mcplib'
-import { getCharacter } from './utils'
+import { type MCPTool, MCPToolHandler, type MCPToolCallContext, type RPCToolCallContent } from '../mcplib'
+import { getCharacter, getCharacterForWrite } from './utils'
 
 export class CharacterHandler extends MCPToolHandler {
   private promptAccess(tool: string, action: string) {
@@ -330,7 +330,7 @@ export class CharacterHandler extends MCPToolHandler {
     ]
   }
 
-  async handle(toolName: string, args: any): Promise<RPCToolCallContent[] | null> {
+  async handle(toolName: string, args: any, ctx: MCPToolCallContext): Promise<RPCToolCallContent[] | null> {
     switch (toolName) {
       case 'risu-get-character-info':
         return await this.getCharacterInfo(args.id, args.fields)
@@ -339,7 +339,7 @@ export class CharacterHandler extends MCPToolHandler {
       case 'risu-get-character-lorebook':
         return await this.getCharacterLorebook(args.id, args.names)
       case 'risu-set-character-info':
-        return await this.setCharacterInfo(args.id, args.data)
+        return await this.setCharacterInfo(args.id, args.data, ctx)
       case 'risu-set-character-lorebook':
         return await this.setCharacterLorebook(
           args.id,
@@ -347,10 +347,11 @@ export class CharacterHandler extends MCPToolHandler {
           args.content,
           args.keys,
           args.newName,
-          args.alwaysActive
+          args.alwaysActive,
+          ctx
         )
       case 'risu-delete-character-lorebook':
-        return await this.deleteCharacterLorebook(args.id, args.name)
+        return await this.deleteCharacterLorebook(args.id, args.name, ctx)
       case 'risu-get-character-regex-scripts':
         return await this.getCharacterRegexScripts(args.id)
       case 'risu-set-character-regex-scripts':
@@ -362,18 +363,19 @@ export class CharacterHandler extends MCPToolHandler {
           args.out,
           args.type,
           args.flag,
-          args.ableFlag
+          args.ableFlag,
+          ctx
         )
       case 'risu-delete-character-regex-scripts':
-        return await this.deleteCharacterRegexScripts(args.id, args.name)
+        return await this.deleteCharacterRegexScripts(args.id, args.name, ctx)
       case 'risu-get-character-additional-assets':
         return await this.getCharacterAdditionalAssets(args.id)
       case 'risu-get-character-lua-script':
         return await this.getCharacterLuaScript(args.id)
       case 'risu-set-character-lua-script':
-        return await this.setCharacterLuaScript(args.id, args.code)
+        return await this.setCharacterLuaScript(args.id, args.code, ctx)
       case 'risu-delete-character-additional-assets':
-        return await this.deleteCharacterAdditionalAssets(args.id, args.assetName)
+        return await this.deleteCharacterAdditionalAssets(args.id, args.assetName, ctx)
       case 'risu-list-characters':
         return await this.listCharacters(args.count, args.offset)
     }
@@ -521,8 +523,8 @@ export class CharacterHandler extends MCPToolHandler {
     ]
   }
 
-  async setCharacterInfo(id: string, data: any): Promise<RPCToolCallContent[]> {
-    const char: character | groupChat = getCharacter(id)
+  async setCharacterInfo(id: string, data: any, ctx: MCPToolCallContext): Promise<RPCToolCallContent[]> {
+    const char: character | groupChat = getCharacterForWrite(id, ctx)
     if (!char) {
       return [
         {
@@ -584,12 +586,13 @@ export class CharacterHandler extends MCPToolHandler {
   async setCharacterLorebook(
     id: string,
     name: string,
-    content?: string,
-    keys?: string[],
-    newName?: string,
-    alwaysActive?: boolean
+    content: string | undefined,
+    keys: string[] | undefined,
+    newName: string | undefined,
+    alwaysActive: boolean | undefined,
+    ctx: MCPToolCallContext
   ): Promise<RPCToolCallContent[]> {
-    const char: character | groupChat = getCharacter(id)
+    const char: character | groupChat = getCharacterForWrite(id, ctx)
     if (!char) {
       return [
         {
@@ -671,8 +674,8 @@ export class CharacterHandler extends MCPToolHandler {
     ]
   }
 
-  async deleteCharacterLorebook(id: string, name: string): Promise<RPCToolCallContent[]> {
-    const char: character | groupChat = getCharacter(id)
+  async deleteCharacterLorebook(id: string, name: string, ctx: MCPToolCallContext): Promise<RPCToolCallContent[]> {
+    const char: character | groupChat = getCharacterForWrite(id, ctx)
     if (!char) {
       return [
         {
@@ -768,14 +771,15 @@ export class CharacterHandler extends MCPToolHandler {
   async setCharacterRegexScripts(
     id: string,
     name: string,
-    newName?: string,
-    regexIn?: string,
-    regexOut?: string,
-    type?: string,
-    flag?: string,
-    ableFlag?: boolean
+    newName: string | undefined,
+    regexIn: string | undefined,
+    regexOut: string | undefined,
+    type: string | undefined,
+    flag: string | undefined,
+    ableFlag: boolean | undefined,
+    ctx: MCPToolCallContext
   ): Promise<RPCToolCallContent[]> {
-    const char: character | groupChat = getCharacter(id)
+    const char: character | groupChat = getCharacterForWrite(id, ctx)
     if (!char) {
       return [
         {
@@ -851,8 +855,8 @@ export class CharacterHandler extends MCPToolHandler {
     ]
   }
 
-  async deleteCharacterRegexScripts(id: string, name: string): Promise<RPCToolCallContent[]> {
-    const char: character | groupChat = getCharacter(id)
+  async deleteCharacterRegexScripts(id: string, name: string, ctx: MCPToolCallContext): Promise<RPCToolCallContent[]> {
+    const char: character | groupChat = getCharacterForWrite(id, ctx)
     if (!char) {
       return [
         {
@@ -944,8 +948,8 @@ export class CharacterHandler extends MCPToolHandler {
     ]
   }
 
-  async deleteCharacterAdditionalAssets(id: string, assetName: string): Promise<RPCToolCallContent[]> {
-    const char: character | groupChat = getCharacter(id)
+  async deleteCharacterAdditionalAssets(id: string, assetName: string, ctx: MCPToolCallContext): Promise<RPCToolCallContent[]> {
+    const char: character | groupChat = getCharacterForWrite(id, ctx)
     if (!char) {
       return [
         {
@@ -1041,8 +1045,8 @@ export class CharacterHandler extends MCPToolHandler {
     ]
   }
 
-  async setCharacterLuaScript(id: string, code: string): Promise<RPCToolCallContent[]> {
-    const char: character | groupChat = getCharacter(id)
+  async setCharacterLuaScript(id: string, code: string, ctx: MCPToolCallContext): Promise<RPCToolCallContent[]> {
+    const char: character | groupChat = getCharacterForWrite(id, ctx)
     if (!char) {
       return [
         {

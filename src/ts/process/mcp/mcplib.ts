@@ -72,9 +72,22 @@ export type RPCToolCallContentResource = {
 
 export type RPCToolCallContent = RPCToolCallTextContent | RPCToolCallImageAudioContent | RPCToolCallContentResource
 
+/**
+ * Fork-specific internal API (Report 17 Stage 1 §3.3): an optional per-call
+ * context threaded through `MCPToolHandler.handle()` so a handler that
+ * mutates something can report exactly what it touched back to its caller
+ * (today, risuaccess's character-write tracking -- see
+ * `risuaccess/client.ts`'s `callTool` and `risuaccess/utils.ts`'s
+ * `getCharacterForWrite`) without a module-level side channel that could leak
+ * between overlapping calls. Most handlers don't need it.
+ */
+export interface MCPToolCallContext {
+    touched: Set<string>
+}
+
 export abstract class MCPToolHandler {
     abstract getTools(): MCPTool[];
-    abstract handle(toolName: string, args: any): Promise<RPCToolCallContent[] | null>;
+    abstract handle(toolName: string, args: any, ctx?: MCPToolCallContext): Promise<RPCToolCallContent[] | null>;
 }
 
 export class MCPClient{

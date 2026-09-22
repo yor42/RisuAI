@@ -1,7 +1,7 @@
 import { hubURL } from "../characterCards"
 import { getDatabase, setDatabase } from "../storage/database.svelte"
 import { alertConfirm, alertError, alertMd, alertNormal, alertSelect, alertWait } from "../alert"
-import { AppendableBuffer } from "../globalApi.svelte"
+import { AppendableBuffer, requiresFullEncoderReload } from "../globalApi.svelte"
 import { decodeRisuSave } from "../storage/risuSave"
 import { language } from "src/lang"
 import { fetchProtectedResource } from "../sionyw"
@@ -134,7 +134,11 @@ export async function loadRisuAccountBackup() {
         setDatabase(
             await decodeRisuSave(buf.buffer)
         )
-    
+        // A backup load is an explicit user action to replace everything, so a
+        // full reload (and dropping characters absent from the backup) is
+        // intended -- the other three call sites already do this (plan §3.3).
+        requiresFullEncoderReload.state = true
+
         alertNormal('Loaded backup')
     }
 

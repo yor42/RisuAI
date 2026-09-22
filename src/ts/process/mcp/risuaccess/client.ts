@@ -1,8 +1,9 @@
 import { MCPClientLike } from '../internalmcp'
-import type { MCPTool, MCPToolHandler, RPCToolCallContent } from '../mcplib'
+import type { MCPTool, MCPToolHandler, MCPToolCallContext, RPCToolCallContent } from '../mcplib'
 import { CharacterHandler } from './characters'
 import { ChatHandler } from './chats'
 import { ModuleHandler } from './modules'
+import { markCharacterForSave } from '../../../storage/characterSaveMarks'
 
 export class RisuAccessClient extends MCPClientLike {
   private handlers: MCPToolHandler[]
@@ -82,9 +83,17 @@ backgroundEmbedding is an HTML string mainly for custom styling. It can, and mos
   }
 
   async callTool(toolName: string, args: any): Promise<RPCToolCallContent[]> {
+    // Fork-specific internal API (Report 17 Stage 1 §3.3): per-call context,
+    // not a module-level one, so overlapping calls touching different
+    // characters can't clear each other's marks. Marking must happen AFTER
+    // the handler settles (success or throw), not before the mutation --
+    // every mutating handler's write follows an awaited promptAccess(), so a
+    // save could otherwise encode the pre-mutation state and the trim would
+    // then drop the id.
+    const ctx: MCPToolCallContext = { touched: new Set() }
     try {
       for (const handler of this.handlers) {
-        const result = await handler.handle(toolName, args)
+        const result = await handler.handle(toolName, args, ctx)
         if (result) {
           return result
         }
@@ -96,6 +105,10 @@ backgroundEmbedding is an HTML string mainly for custom styling. It can, and mos
           text: `Error: ${error.message}`,
         },
       ]
+    } finally {
+      for (const chaId of ctx.touched) {
+        markCharacterForSave(chaId)
+      }
     }
 
     return [

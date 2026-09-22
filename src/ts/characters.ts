@@ -15,6 +15,7 @@ import { importCharacter } from "./characterCards";
 import { PngChunk } from "./pngChunk";
 import { getColdStorageItem } from "./process/coldstorage.svelte";
 import { getAvatarThumbSrc, isThumbEligible } from "./media/avatarThumb";
+import { markCharacterForSave } from "./storage/characterSaveMarks";
 
 export function createNewCharacter() {
     DBState.db.characters.push(createBlankChar())
@@ -853,6 +854,23 @@ export async function removeChar(identifier:string|number,name:string, type:'nor
     DBState.db.characters = chars
     requiresFullEncoderReload.state = true
     selectedCharID.set(-1)
+}
+
+/**
+ * Extracted from GridCatalog.svelte's trash-restore button for testability
+ * (Report 17 Stage 1 §3.3): restoring a non-selected character is an in-place
+ * field write (`trashTime = undefined`), invisible to both the
+ * selected-character tracker and the identity tracker (element/whole-array
+ * replacement only), so it never persisted without an explicit mark.
+ */
+export function restoreCharacterFromTrash(chaId: string): void {
+    const restoreIdx = findCharacterIndexbyId(chaId)
+    if (restoreIdx === -1) {
+        return
+    }
+    DBState.db.characters[restoreIdx].trashTime = undefined
+    checkCharOrder()
+    markCharacterForSave(chaId)
 }
 
 export async function addCharacter(arg:{

@@ -3,6 +3,7 @@ import { writable } from 'svelte/store'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { Database } from '../database.svelte'
 import { registerDbChangeEffects } from '../dbChangeEffects.svelte'
+import type { DbChangeEffectOptions } from '../dbChangeEffects.svelte'
 import type { RisuModule } from '../../process/modules'
 import type { toSaveType } from '../risuSave'
 
@@ -806,5 +807,246 @@ describe('registerDbChangeEffects — modules partition red-before-green proof (
         flushSync()
 
         expect(jHits).toBe(0)
+    })
+})
+
+// Tests below are for Agents/Reports/17-chore01-item2-plan.md Stage 1 §3.2
+// (S7): the identity tracker -- a SEPARATE $effect inside
+// registerDbChangeEffects that only reacts to a character being REPLACED
+// (element or whole-array), never to an in-place field edit, and marks the
+// replaced element's chaId into opts.tracker via the shared appendIfAbsent
+// rule. These tests drive the REAL registerDbChangeEffects() (unmodified
+// from the suites above) with a populated `characters` array and, where
+// relevant, the new `seed` option.
+
+describe('registerDbChangeEffects — identity tracker (Report 17 Stage 1 §3.2, S7)', () => {
+
+    function makeChar(chaId: string, name: string): Record<string, unknown> {
+        return { chaId, name, type: 'character', chatPage: 0, chats: [] }
+    }
+
+    function installDbWithCharacters(characters: Record<string, unknown>[]) {
+        installDb()
+        DBState.db.characters = characters as unknown as Database['characters']
+    }
+
+    test('seeded first run marks nothing, even though the seed is otherwise empty of tracking state', () => {
+        installDbWithCharacters([makeChar('char-A', 'A'), makeChar('char-B', 'B')])
+        // Capture the exact live proxies BEFORE registering the effect, so the
+        // seed matches identity with what the effect will read on its first run.
+        const seed = [DBState.db.characters[0], DBState.db.characters[1]]
+        const { tracker, markChanged } = freshTrackerAndMarker()
+
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged, seed })
+        })
+        flushSync()
+
+        expect(tracker.character).toEqual([])
+    })
+
+    test('an element replaced after seeding but before the first run IS marked (boot-window race, plan gate finding 3)', () => {
+        installDbWithCharacters([makeChar('char-A', 'A'), makeChar('char-B', 'B')])
+        // Seed captures the ORIGINAL proxies (as if RisuSaveEncoder.init had
+        // already encoded them)...
+        const seed = [DBState.db.characters[0], DBState.db.characters[1]]
+        // ...but before the identity effect's first run, char-A's element is
+        // replaced (e.g. a plugin or backup load raced the encoder.init window).
+        DBState.db.characters[0] = makeChar('char-A', 'A-replaced-during-init') as unknown as Database['characters'][number]
+
+        const { tracker, markChanged } = freshTrackerAndMarker()
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged, seed })
+        })
+        flushSync()
+
+        expect(tracker.character).toEqual(['char-A'])
+    })
+
+    test('without a seed, the first run only fills the seen set and marks nothing (keeps the existing markChanged(6) count test valid)', () => {
+        installDbWithCharacters([makeChar('char-A', 'A'), makeChar('char-B', 'B')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+
+        expect(tracker.character).toEqual([])
+    })
+
+    test('splice (element removal) marks nothing: surviving elements keep their identity', () => {
+        installDbWithCharacters([makeChar('char-A', 'A'), makeChar('char-B', 'B'), makeChar('char-C', 'C')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+
+        DBState.db.characters.splice(1, 1) // removes char-B; char-A and char-C keep their proxies
+        flushSync()
+
+        expect(tracker.character).toEqual([])
+    })
+
+    test('reorder (swap) marks nothing: only existing proxies move', () => {
+        installDbWithCharacters([makeChar('char-A', 'A'), makeChar('char-B', 'B')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+
+        const chars = DBState.db.characters
+        const first = chars[0]
+        const second = chars[1]
+        chars[0] = second
+        chars[1] = first
+        flushSync()
+
+        expect(tracker.character).toEqual([])
+    })
+
+    test('element replacement marks exactly that chaId', () => {
+        installDbWithCharacters([makeChar('char-A', 'A'), makeChar('char-B', 'B')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+
+        DBState.db.characters[1] = makeChar('char-B', 'B-replaced') as unknown as Database['characters'][number]
+        flushSync()
+
+        expect(tracker.character).toEqual(['char-B'])
+    })
+
+    test('whole-array replacement marks all new elements', () => {
+        installDbWithCharacters([makeChar('char-A', 'A'), makeChar('char-B', 'B')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+
+        DBState.db.characters = [
+            makeChar('char-X', 'X'),
+            makeChar('char-Y', 'Y'),
+            makeChar('char-Z', 'Z'),
+        ] as unknown as Database['characters']
+        flushSync()
+
+        expect(tracker.character).toEqual(expect.arrayContaining(['char-X', 'char-Y', 'char-Z']))
+        expect(tracker.character).toHaveLength(3)
+    })
+
+    test('in-place field write marks nothing: the identity effect never reads element properties', () => {
+        installDbWithCharacters([makeChar('char-A', 'A'), makeChar('char-B', 'B')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+
+        ;(DBState.db.characters[0] as unknown as { name: string }).name = 'renamed-in-place'
+        flushSync()
+
+        expect(tracker.character).toEqual([])
+    })
+
+    test('falsy chaId on a replaced element is skipped (not appended), without throwing', () => {
+        installDbWithCharacters([makeChar('char-A', 'A')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+
+        DBState.db.characters[0] = { chaId: '', name: 'no-id', type: 'character', chatPage: 0, chats: [] } as unknown as Database['characters'][number]
+
+        expect(() => flushSync()).not.toThrow()
+        expect(tracker.character).toEqual([])
+    })
+
+    // Svelte-facts premise (gate 1, verified against 5.55.1): reading
+    // chars[i] returns the SAME child proxy on every read (stable per
+    // underlying object), and a self-assignment of the same array reference
+    // notifies nothing -- so it must not mark anything either.
+    test('same-proxy premise: re-reading the same array/elements and self-assigning the array marks nothing', () => {
+        installDbWithCharacters([makeChar('char-A', 'A'), makeChar('char-B', 'B')])
+        const firstRead = DBState.db.characters[0]
+        const secondRead = DBState.db.characters[0]
+        expect(firstRead).toBe(secondRead) // same proxy identity on repeated reads
+
+        const { tracker, markChanged } = freshTrackerAndMarker()
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+
+        DBState.db.characters = DBState.db.characters // self-assignment, same reference
+        flushSync()
+
+        expect(tracker.character).toEqual([])
+    })
+
+    test('does not go through the module-global installed characterSaveMarks tracker (F7): marks land only in opts.tracker', async () => {
+        const { installCharacterSaveMarks, resetCharacterSaveMarksForTest } = await import('../characterSaveMarks')
+        const globalTracker = makeTracker()
+        const globalSchedule = vi.fn()
+        installCharacterSaveMarks({ tracker: globalTracker, schedule: globalSchedule })
+
+        installDbWithCharacters([makeChar('char-A', 'A')])
+        const { tracker, markChanged } = freshTrackerAndMarker()
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects({ tracker, markChanged })
+        })
+        flushSync()
+
+        DBState.db.characters[0] = makeChar('char-A', 'A-replaced') as unknown as Database['characters'][number]
+        flushSync()
+
+        expect(tracker.character).toEqual(['char-A'])
+        // The module-global tracker (a different, "installed" one) must be
+        // completely untouched by this effect.
+        expect(globalTracker.character).toEqual([])
+        expect(globalSchedule).not.toHaveBeenCalled()
+
+        resetCharacterSaveMarksForTest()
+    })
+
+    // Report 17 Stage 1, second Gate 2 REJECT, item C: `opts.seed` is a
+    // strong Iterable (in production, a Set of every boot-time character)
+    // used only to seed the identity tracker's WeakSet below. The effect
+    // closures above all capture `opts` itself (they read opts.tracker and
+    // call opts.markChanged), so as long as `opts.seed` stays populated on
+    // that same object, every character it references stays strongly
+    // reachable for as long as the effects live -- i.e. forever, in
+    // production. The fix is for registerDbChangeEffects to release it
+    // (`opts.seed = undefined`) once the WeakSet has been built from it.
+    //
+    // A real reachability proof (WeakRef + global.gc()) is not included here:
+    // it requires vitest to run with `--expose-gc`, which this project's
+    // normal `pnpm test` / `vitest run` invocation does not enable (verified
+    // against Agents/Tools/save-gen/*-bench.svelte.harness.ts, whose own
+    // comments call out that same NODE_OPTIONS=--expose-gc requirement for
+    // their retained-heap measurements). Asserting `opts.seed === undefined`
+    // directly is the reachability proof available in the normal suite.
+    test('registering releases the seed: opts.seed is undefined afterward, while the seeded behaviour still holds (Report 17 Stage 1 second Gate 2 REJECT, item C)', () => {
+        installDbWithCharacters([makeChar('char-A', 'A'), makeChar('char-B', 'B')])
+        const seed = [DBState.db.characters[0], DBState.db.characters[1]]
+        const opts: DbChangeEffectOptions = { tracker: makeTracker(), markChanged: vi.fn(), seed }
+
+        cleanup = $effect.root(() => {
+            registerDbChangeEffects(opts)
+        })
+        flushSync()
+
+        // Seeded behaviour still holds: a seeded element is not marked on the
+        // first run (same guarantee as the "seeded first run marks nothing"
+        // test above), proving the WeakSet built from the seed is intact even
+        // though `opts.seed` itself has been released.
+        expect(opts.tracker.character).toEqual([])
+        expect(opts.seed).toBeUndefined()
     })
 })

@@ -1,10 +1,21 @@
+import { untrack } from "svelte"
 import { DBState, selectedCharID } from "../stores.svelte"
 import type { toSaveType } from "./risuSave"
+import { appendIfAbsent } from "./characterSaveMarks"
 
 export interface DbChangeEffectOptions {
     tracker: toSaveType
     /** Called by every effect. `markDirty` is false on an effect's first run. */
     markChanged: (markDirty: boolean) => void
+    /**
+     * Character proxies to seed the identity tracker's "already seen" set
+     * with (Report 17 Stage 1 §3.2) -- normally the set `RisuSaveEncoder.init`
+     * just encoded, so a replacement that happened WHILE that init was still
+     * running isn't treated as new the first time the identity tracker below
+     * runs. Without a seed (tests, or any other caller), the first run only
+     * fills the set and marks nothing.
+     */
+    seed?: Iterable<object>
 }
 
 export function registerDbChangeEffects(opts: DbChangeEffectOptions): void {
@@ -119,5 +130,61 @@ export function registerDbChangeEffects(opts: DbChangeEffectOptions): void {
         }
         opts.markChanged(ranOnce6)
         ranOnce6 = true
+    })
+
+    // Identity tracker (Report 17 Stage 1 §3.2): a SEPARATE effect that only
+    // watches for a character being REPLACED (element or whole-array), not for
+    // in-place field edits -- it reads DBState.db.characters, its length and
+    // each chars[i], and no property of any element (chaId is read through
+    // `untrack` below specifically so it never becomes a dependency; letting it
+    // would make this effect re-run on a chaId edit, which never happens in
+    // practice, but reading it untracked keeps the closure exactly "identity
+    // only" as designed and verified against Svelte 5.55.1, plan §3.2).
+    // Covers: V3 setCharacterToIndex, V3 setDatabase(Lite) with characters,
+    // backup loads, and any future element/whole-db replacement -- writers this
+    // plan's "option B" design (§2) does not otherwise see, because they never
+    // touch the selected-character effect above. V2 in-place edits are NOT
+    // seen by this identity tracker (they replace no element, so nothing here
+    // fires) -- those are covered instead by the explicit marks the V2 plugin
+    // setters make directly.
+    //
+    // Deliberately does NOT go through the module-global installed tracker
+    // (characterSaveMarks.ts) -- it writes straight into opts.tracker with the
+    // same `appendIfAbsent` rule `markCharacterForSave` uses, so tests stay
+    // isolated from production installation state (re-review F7).
+    let identityRanOnce = false
+    const identitySeen = new WeakSet<object>(opts.seed ?? [])
+    const identityHasSeed = !!opts.seed
+    // The effect closures below all capture `opts` itself (they read
+    // opts.tracker and call opts.markChanged), so as long as `opts.seed`
+    // stayed populated on that same object, every character it references
+    // would stay strongly reachable for as long as the effects live -- i.e.
+    // forever, in production. `identitySeen` already copied everything it
+    // needs out of `opts.seed` above, so release it here (Report 17 Stage 1,
+    // second Gate 2 REJECT, item C).
+    opts.seed = undefined
+    $effect(() => {
+        const chars = DBState.db.characters
+        const len = chars?.length ?? 0
+        for (let i = 0; i < len; i++) {
+            const c = chars[i]
+            if (!c) continue
+            if (!identitySeen.has(c)) {
+                // First run: only elements missing from the seed are "new" (a
+                // replacement that raced encoder.init, plan §3.2 gate finding
+                // 3). Without a seed, the first run only fills the set -- this
+                // is what keeps the existing toHaveBeenCalledTimes(6) test
+                // valid in Stage 1 (§4.3 updates it in Stage 2).
+                if (identityRanOnce || identityHasSeed) {
+                    const chaId = untrack(() => (c as { chaId?: string }).chaId)
+                    if (chaId) {
+                        appendIfAbsent(opts.tracker, chaId)
+                        opts.markChanged(true)
+                    }
+                }
+                identitySeen.add(c)
+            }
+        }
+        identityRanOnce = true
     })
 }

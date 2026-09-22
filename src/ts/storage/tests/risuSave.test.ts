@@ -59,6 +59,7 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
 //#endregion
 
 import { RisuSaveEncoder, RisuSaveDecoder, decodeRisuSave } from '../risuSave'
+import type { toSaveType } from '../risuSave'
 import type { Database } from '../database.svelte'
 
 const ROOT_MARKER = 'ROOT_MARKER_XYZ'
@@ -228,5 +229,123 @@ describe('RisuSave per-block checksum (Phase 1 item 11)', () => {
         full.set(block, header.length)
 
         await expect(decodeRisuSave(full)).rejects.toThrow()
+    })
+})
+
+// Report 17 ("CHORE-01 + Phase 2 item 2") Stage 1 §3.4, S8 (guard): a marked
+// id whose character still exists in `data.characters` is RE-ENCODED by
+// set(), never deleted -- deletion (risuSave.ts's "Deleting character data"
+// branch) only drops ids that are in `toSave.character` but NOT found in
+// `data.characters` this pass (i.e. genuinely removed characters), never an
+// id that is simply marked-and-still-present. This is the invariant CHORE-01
+// leans on: marking a character "extra" (e.g. every character on a plugin
+// setDatabase call, or a duplicate identity-tracker + explicit mark) is
+// always safe.
+describe('RisuSaveEncoder.set() — marked-but-still-present characters are re-encoded, not deleted (Report 17 Stage 1 S8)', () => {
+    function buildTwoCharacterDb(): Database {
+        return {
+            formatversion: 5,
+            botPresets: [],
+            botPresetsId: 0,
+            modules: [],
+            loadouts: [],
+            plugins: [],
+            pluginCustomStorage: {},
+            characters: [
+                { chaId: 'char1', type: 'character', name: 'Character One', chats: [] },
+                { chaId: 'char2', type: 'character', name: 'Character Two', chats: [] },
+            ],
+        } as unknown as Database
+    }
+
+    function makeToSave(character: string[]): toSaveType {
+        return {
+            character,
+            chat: [],
+            botPreset: false,
+            modules: false,
+            loadouts: false,
+            plugins: false,
+            pluginCustomStorage: false,
+        }
+    }
+
+    test('marking BOTH ids (one redundantly) re-encodes both; neither is deleted', async () => {
+        const db = buildTwoCharacterDb()
+        const encoder = new RisuSaveEncoder()
+        await encoder.init(db)
+
+        // Mutate char1 in place, then mark BOTH ids -- char2 didn't change at
+        // all, so marking it here is the "extra, redundant mark" case
+        // (identity tracker + explicit mark both firing, or a plugin
+        // setDatabase marking every character) that must stay harmless.
+        db.characters[0].name = 'Character One (edited)'
+        const toSave = makeToSave(['char1', 'char2'])
+
+        await encoder.set(db, toSave)
+        const decoded = await decodeRisuSave(new Uint8Array(encoder.encode()!))
+
+        const decodedChar1 = decoded.characters?.find((c: any) => c.chaId === 'char1')
+        const decodedChar2 = decoded.characters?.find((c: any) => c.chaId === 'char2')
+        expect(decodedChar1).toBeTruthy()
+        expect(decodedChar1!.name).toBe('Character One (edited)')
+        expect(decodedChar2).toBeTruthy()
+        expect(decodedChar2!.name).toBe('Character Two') // unchanged, but still present -- not deleted
+    })
+
+    test('a genuinely removed character (in toSave.character but absent from data.characters) IS deleted', async () => {
+        const db = buildTwoCharacterDb()
+        const encoder = new RisuSaveEncoder()
+        await encoder.init(db)
+
+        // char2 removed from the live array entirely (e.g. removeChar's
+        // 'permanent' path), and its id is still in toSave.character (e.g. it
+        // was marked before being removed in the same save cycle).
+        const dbAfterRemoval: Database = { ...db, characters: [db.characters[0]] } as unknown as Database
+        const toSave = makeToSave(['char2'])
+
+        await encoder.set(dbAfterRemoval, toSave)
+        const decoded = await decodeRisuSave(new Uint8Array(encoder.encode()!))
+
+        expect(decoded.characters?.find((c: any) => c.chaId === 'char2')).toBeUndefined()
+        expect(decoded.characters?.find((c: any) => c.chaId === 'char1')).toBeTruthy()
+    })
+})
+
+// Report 17 Stage 1 Gate 2 should-fix (memory) (proxy release): `takeEncodedCharacterProxies()`
+// replaces `getEncodedCharacterProxies()` -- instead of a read-only peek, it
+// hands the caller the recorded set AND resets the internal one to a fresh,
+// empty `Set`, so each recorded proxy is consumed exactly once. Used once for
+// the identity-tracker seed at boot, and once per reload by
+// `prepareSaveIteration`'s post-reload filter (see globalApi.saveSequence.svelte.test.ts).
+describe('RisuSaveEncoder.takeEncodedCharacterProxies() — Report 17 Stage 1 Gate 2 (B2 fix, proxy release)', () => {
+    function buildTwoCharacterDbForProxyTest(): Database {
+        return {
+            formatversion: 5,
+            botPresets: [],
+            botPresetsId: 0,
+            modules: [],
+            loadouts: [],
+            plugins: [],
+            pluginCustomStorage: {},
+            characters: [
+                { chaId: 'char1', type: 'character', name: 'Character One', chats: [] },
+                { chaId: 'char2', type: 'character', name: 'Character Two', chats: [] },
+            ],
+        } as unknown as Database
+    }
+
+    test('after init() on a 2-character database, the first call returns both character objects; a second call returns an empty set', async () => {
+        const db = buildTwoCharacterDbForProxyTest()
+        const encoder = new RisuSaveEncoder()
+        await encoder.init(db)
+
+        const firstTake = encoder.takeEncodedCharacterProxies()
+        expect(firstTake.size).toBe(2)
+        expect(firstTake.has(db.characters[0])).toBe(true)
+        expect(firstTake.has(db.characters[1])).toBe(true)
+
+        const secondTake = encoder.takeEncodedCharacterProxies()
+        expect(secondTake.size).toBe(0)
     })
 })
