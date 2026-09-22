@@ -1,6 +1,6 @@
 <script lang="ts">
     import type { character, groupChat, Message, StreamingDisplayOptimizationMode } from 'src/ts/storage/database.svelte';
-    import { mount, onDestroy, unmount } from 'svelte';
+    import { mount, onDestroy, unmount, untrack } from 'svelte';
     import Chat from './Chat.svelte';
     import { getCharImage } from 'src/ts/characters';
     import { createSimpleCharacter, DBState, selectedCharID, ReloadChatPointer } from 'src/ts/stores.svelte';
@@ -23,6 +23,7 @@
         currentUsername,
         userIcon,
         loadPages,
+        windowResetToken = 0,
         userIconPortrait,
         hasNewUnreadMessage = $bindable(false)
     }:{
@@ -33,9 +34,19 @@
         currentUsername: string
         userIcon: string
         loadPages: number
+        windowResetToken?: number
         userIconPortrait?: boolean
         hasNewUnreadMessage?: boolean
     } = $props();
+
+    // Stage A (A-lite) of the chat-list-window plan: bumped by
+    // DefaultChatScreen only when a chat-window reset lowered loadPages.
+    // Not reactive state -- it's plain instance-local bookkeeping,
+    // read and written only from inside the $effect below. Initialized from
+    // the prop's value at component creation, so a freshly mounted Chats
+    // (e.g. after a cold-storage switch destroys the old one) never replays a
+    // stale scroll for a token bump it wasn't present for.
+    let lastHandledResetToken = untrack(() => windowResetToken);
 
     let chatBody: HTMLDivElement;
     let hashes: Set<number> = new Set();
@@ -202,7 +213,21 @@
         void $ReloadChatPointer; // Make $effect track ReloadChatPointer changes
         const wasAtBottom = checkIfAtBottom();
         updateChatBody()
-        
+
+        // Scroll-to-bottom after a window reset that actually lowered
+        // loadPages (Stage A, A-lite). Reading windowResetToken here makes it
+        // a dependency of this effect, which is fine: it changes in the same
+        // flush as loadPages, so this effect already reruns for that reset.
+        // Deliberately not scrollToLatestMessage: its scrollIntoView hides a
+        // tall newest message and the composer, and drifts once the async
+        // ChatBody parse settles.
+        if(windowResetToken !== lastHandledResetToken){
+            lastHandledResetToken = windowResetToken;
+            if(chatBody?.parentElement){
+                chatBody.parentElement.scrollTop = 0;
+            }
+        }
+
         const currentChatRoomId = getCurrentChatRoomId();
         const isSameChat = currentChatRoomId === previousChatRoomId;
         

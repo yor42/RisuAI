@@ -3,7 +3,7 @@
     import Suggestion from './Suggestion.svelte';
     import { CameraIcon, DatabaseIcon, DicesIcon, GlobeIcon, ImagePlusIcon, LanguagesIcon, Laugh, MenuIcon, MicOffIcon, PackageIcon, Plus, RefreshCcwIcon, ReplyIcon, Send, StepForwardIcon, XIcon, BrainIcon, ArrowDown, SparkleIcon } from "@lucide/svelte";
     import { selectedCharID, PlaygroundStore, createSimpleCharacter, hypaV3ModalOpen, ScrollToMessageStore, additionalChatMenu, additionalFloatingActionButtons, easyPanelStore, chatPanelStore } from "../../ts/stores.svelte";
-    import { tick, onDestroy } from 'svelte';
+    import { tick, onDestroy, untrack } from 'svelte';
     import Chat from "./Chat.svelte";
     import { type Message } from "../../ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
@@ -33,7 +33,8 @@
     import Button from '../UI/GUI/Button.svelte';
     import PluginDefinedIcon from '../Others/PluginDefinedIcon.svelte';
     import { getAdditionalChatLoadPages, getInitialChatLoadPages } from 'src/ts/chatLoadPages';
-    import { registerDraft, unregisterDraft } from 'src/ts/localDrafts';
+    import { COMPOSER_DRAFT_KIND, hasMessageEditorDrafts, onDraftsChanged, registerDraft, unregisterDraft } from 'src/ts/localDrafts';
+    import { chatWindowKey, createChatWindowPolicy, runWithFullWindow } from 'src/ts/chatWindowPolicy';
 
     const loadPlaygroundMenu = () => import('../Playground/PlaygroundMenu.svelte').then(m => m.default);
     
@@ -47,6 +48,15 @@
     let messageInputTranslate:string = $state('')
     let openMenu = $state(false)
     let loadPages = $state(getInitialChatLoadPages(DBState.db))
+    // Stage A (A-lite) of the chat-list-window plan: bounds loadPages back to
+    // its initial value on a chat-identity change, but only when no message
+    // editor is open. The window-reset token below signals Chats to scroll to
+    // the bottom only when a reset actually lowered the window.
+    let windowResetToken = $state(0)
+    const chatWindowPolicyInstance = createChatWindowPolicy({
+        initial: () => getInitialChatLoadPages(DBState.db),
+        editorsOpen: hasMessageEditorDrafts,
+    })
     let autoMode = $state(false)
     let rerolls:Message[][] = []
     let rerollid = -1
@@ -60,6 +70,45 @@
     let { openModuleList = $bindable(false), openChatList = $bindable(false), customStyle = '' }: Props = $props();
     let currentCharacter = $derived(DBState.db.characters[$selectedCharID])
     let currentChat = $derived(currentCharacter?.chats[currentCharacter.chatPage]?.message ?? [])
+
+    // Reads the same currentCharacter/chatPage expressions as currentChat
+    // above, so the key and the messages can never diverge. This effect's
+    // reactive dependencies are those underlying values -- currentCharacter,
+    // its chats array, chatPage, the chat object, and its .id -- not the key
+    // string itself, so the effect can re-run for reasons that leave the key
+    // unchanged (e.g. a chat being added to the array). The policy only
+    // resets loadPages when the resulting key string actually changes.
+    // loadPages and the policy's initial-value read are wrapped in untrack,
+    // so they don't add extra dependencies of their own.
+    $effect.pre(() => {
+        const key = chatWindowKey(currentCharacter?.chaId, currentCharacter?.chats?.[currentCharacter.chatPage])
+        untrack(() => {
+            const { next, lowered } = chatWindowPolicyInstance.onKey(key, loadPages)
+            if(next !== loadPages){
+                loadPages = next
+            }
+            if(lowered){
+                windowResetToken += 1
+            }
+        })
+    })
+
+    // Applies a pending screenshot restore (Stage A, A-lite) once every
+    // message editor has closed. Only a pending screenshot restore can lower
+    // loadPages here -- a draft closing by itself never does, since
+    // policy.onDraftsChanged() returns null unless a restore is pending.
+    // This never bumps windowResetToken: going from Infinity back to the
+    // pre-screenshot value only removes the oldest messages, and the scroll
+    // origin is the bottom, so the view stays put; bumping here would jump
+    // the user away from a message they just saved. windowResetToken is
+    // bumped only by a reset in onKey that lowered the window.
+    const unsubscribeDraftsChanged = onDraftsChanged(() => {
+        const restored = chatWindowPolicyInstance.onDraftsChanged()
+        if(restored !== null){
+            loadPages = restored
+        }
+    })
+    onDestroy(unsubscribeDraftsChanged)
 
     // CHORE-07 stage 7c-2: retry state for a legacy error-text chat (one
     // that hit a failed cold read before stage 7b shipped), keyed by
@@ -110,7 +159,7 @@
     const composerDraftKey = v4();
     $effect(() => {
         if (messageInput !== '' || messageInputTranslate !== '' || fileInput.length > 0) {
-            registerDraft(composerDraftKey);
+            registerDraft(composerDraftKey, COMPOSER_DRAFT_KIND);
             return () => unregisterDraft(composerDraftKey);
         }
     });
@@ -523,54 +572,54 @@
 
     async function screenShot(){
         try {
-            loadPages = Infinity
-            const html2canvas = await import('html-to-image');
-            const chats = document.querySelectorAll('.default-chat-screen .risu-chat')
-            alertWait("Taking screenShot...")
-            let canvases:HTMLCanvasElement[] = []
+            await runWithFullWindow(chatWindowPolicyInstance, () => loadPages, (v) => { loadPages = v }, async () => {
+                const html2canvas = await import('html-to-image');
+                const chats = document.querySelectorAll('.default-chat-screen .risu-chat')
+                alertWait("Taking screenShot...")
+                let canvases:HTMLCanvasElement[] = []
 
-            for(const chat of chats){
-                const cnv = await html2canvas.toCanvas(chat as HTMLElement)
-                alertWait("Taking screenShot... "+canvases.length+"/"+chats.length)
-                canvases.push(cnv)
-            }
+                for(const chat of chats){
+                    const cnv = await html2canvas.toCanvas(chat as HTMLElement)
+                    alertWait("Taking screenShot... "+canvases.length+"/"+chats.length)
+                    canvases.push(cnv)
+                }
 
-            canvases.reverse()
+                canvases.reverse()
 
-            alertWait("Merging images...")
+                alertWait("Merging images...")
 
-            let mergedCanvas = document.createElement('canvas');
-            mergedCanvas.width = 0;
-            mergedCanvas.height = 0;
-            let mergedCtx = mergedCanvas.getContext('2d');
+                let mergedCanvas = document.createElement('canvas');
+                mergedCanvas.width = 0;
+                mergedCanvas.height = 0;
+                let mergedCtx = mergedCanvas.getContext('2d');
 
-            let totalHeight = 0;
-            let maxWidth = 0;
-            for(let i = 0; i < canvases.length; i++) {
-                let canvas = canvases[i];
-                totalHeight += canvas.height;
-                maxWidth = Math.max(maxWidth, canvas.width);
+                let totalHeight = 0;
+                let maxWidth = 0;
+                for(let i = 0; i < canvases.length; i++) {
+                    let canvas = canvases[i];
+                    totalHeight += canvas.height;
+                    maxWidth = Math.max(maxWidth, canvas.width);
 
-                mergedCanvas.width = maxWidth;
-                mergedCanvas.height = totalHeight;
-            }
+                    mergedCanvas.width = maxWidth;
+                    mergedCanvas.height = totalHeight;
+                }
 
-            mergedCtx.fillStyle = 'var(--risu-theme-bgcolor)'
-            mergedCtx.fillRect(0, 0, maxWidth, totalHeight);
-            let indh = 0
-            for(let i = 0; i < canvases.length; i++) {
-                let canvas = canvases[i];
-                indh += canvas.height
-                mergedCtx.drawImage(canvas, 0, indh - canvas.height);
-                canvases[i].remove();
-            }
+                mergedCtx.fillStyle = 'var(--risu-theme-bgcolor)'
+                mergedCtx.fillRect(0, 0, maxWidth, totalHeight);
+                let indh = 0
+                for(let i = 0; i < canvases.length; i++) {
+                    let canvas = canvases[i];
+                    indh += canvas.height
+                    mergedCtx.drawImage(canvas, 0, indh - canvas.height);
+                    canvases[i].remove();
+                }
 
-            if(mergedCanvas){
-                await downloadFile(`chat-${v4()}.png`, Buffer.from(mergedCanvas.toDataURL('png').split(',').at(-1), 'base64'))
-                mergedCanvas.remove();
-            }
-            alertNormal(language.screenshotSaved)
-            loadPages = getInitialChatLoadPages(DBState.db)
+                if(mergedCanvas){
+                    await downloadFile(`chat-${v4()}.png`, Buffer.from(mergedCanvas.toDataURL('png').split(',').at(-1), 'base64'))
+                    mergedCanvas.remove();
+                }
+                alertNormal(language.screenshotSaved)
+            })
         } catch (error) {
             console.error(error)
             alertError("Error while taking screenshot")
@@ -937,6 +986,7 @@
                 bind:this={chatsInstance}
                 messages={currentChat}
                 loadPages={loadPages}
+                windowResetToken={windowResetToken}
                 onReroll={reroll}
                 unReroll={unReroll}
                 currentCharacter={currentCharacter}

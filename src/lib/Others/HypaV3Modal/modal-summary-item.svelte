@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick, untrack, onDestroy } from "svelte";
   import { v4 } from "uuid";
-  import { registerDraft, unregisterDraft } from "src/ts/localDrafts";
+  import { HYPA_DRAFT_KIND, registerDraft, unregisterDraft } from "src/ts/localDrafts";
   import {
     LanguagesIcon,
     StarIcon,
@@ -92,7 +92,7 @@
   const rerolledDraftKey = v4();
   $effect(() => {
     if (rerolled !== null) {
-      registerDraft(rerolledDraftKey);
+      registerDraft(rerolledDraftKey, HYPA_DRAFT_KIND);
       return () => unregisterDraft(rerolledDraftKey);
     }
   });
