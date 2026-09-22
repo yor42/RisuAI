@@ -1,0 +1,95 @@
+# Wiki Sync
+#
+# What this does: mirrors the flat Markdown pages in this repo's `wiki/`
+# folder onto this repository's GitHub wiki (the separate git repo
+# `<owner>/<repo>.wiki.git`), whenever `wiki/` changes on the default
+# branch (or on manual dispatch).
+#
+# One-time setup: enable the wiki in repo Settings, then create any first
+# page through the GitHub web UI. GitHub only creates the `.wiki.git` repo
+# after that first page exists, so this workflow will fail with a clear
+# `::error::` until it has been done once.
+#
+# Source of truth: `wiki/` in this repository. Edits made directly in the
+# GitHub wiki web UI are NOT preserved - they will be overwritten (or the
+# page deleted) on the next sync from `wiki/`.
+#
+# This workflow is fork-specific and intentionally guarded to only run in
+# the `yor42/RisuAI` fork, never in upstream `kwaroran/RisuAI` or in a
+# fork that copies this file verbatim.
+
+name: Wiki Sync
+
+on:
+  push:
+    paths:
+      - 'wiki/**'
+      - '.github/workflows/wiki-sync.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: wiki-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync wiki
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.repository_owner == 'yor42' && github.ref_name == (github.event.repository.default_branch || 'fix/persistence-conflict-platform-hardening')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout source repo
+        uses: actions/checkout@v4
+
+      - name: Checkout wiki repo
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! git clone --depth 1 "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.wiki.git" wiki-repo; then
+            echo "::error::Enable the wiki in repo Settings and create any first page, then re-run."
+            exit 1
+          fi
+
+      - name: Mirror wiki/ into the wiki repo
+        run: |
+          set -euo pipefail
+          rsync -a --delete \
+            --exclude ".git" \
+            --exclude ".*" \
+            --include "*/" \
+            --include "*.md" \
+            --include "*.png" \
+            --include "*.jpg" \
+            --include "*.jpeg" \
+            --include "*.gif" \
+            --include "*.svg" \
+            --include "*.webp" \
+            --include "*.ico" \
+            --include "*.pdf" \
+            --exclude "*" \
+            "wiki/" "wiki-repo/"
+
+      - name: Commit and push if changed
+        working-directory: wiki-repo
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
+
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "wiki already up to date"
+            exit 0
+          fi
+
+          WIKI_BRANCH="$(git symbolic-ref --short HEAD)"
+          COMMIT_SUBJECT="$(git -C .. log -1 --pretty=%s)"
+
+          git add -A
+          git commit \
+            -m "Sync from ${{ github.repository }}@${{ github.sha }}" \
+            -m "${COMMIT_SUBJECT}"
+          git push origin "HEAD:${WIKI_BRANCH}"

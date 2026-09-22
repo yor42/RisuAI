@@ -56,6 +56,3 @@ Cargo.lock
 # commit them. See Agents/Maybe-Later.md.
 Agents/Evidences of Investigations/Community plugins to solve common pain points/
 Agents/Evidences of Investigations/Asset Cache/Community Mitigation_Webrowser Plugin/
-
-# Local clone of the project wiki (docs work); not part of this repo
-/wiki/

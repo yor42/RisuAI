@@ -444,6 +444,14 @@ necessary for a module toggle, or is it a blunt instrument for a narrower need (
 chat-icon changes)? Note `resetScriptCache()` also hangs off this pointer, so it is load-bearing for
 more than rendering — do not assume it can simply be removed.
 
+**Related finding (CHORE-12, 2026-09-22):** `moduleUpdate()`'s dependency tracker
+(`src/ts/process/moduleUpdateDeps.ts:11-18`) is deliberately narrowed to `id`, `namespace`,
+`hideIcon` and `backgroundEmbedding` — editing a module's lorebook, regex, triggers or assets does
+NOT bump `ReloadGUIPointer` at all (saving is unaffected). That is the opposite-direction version of
+this same mechanism: this chore is about the pointer firing too often on a toggle; MOD-6 in
+`Agents/Reports/99-modules.md` is about it not firing enough on a content edit. Read both before
+changing anything on `ReloadGUIPointer`.
+
 ### CHORE-05 — Translation coverage: much of the UI is English-only
 
 **Status (2026-09-22):** the 9 save-conflict keys below are translated into all six locales
@@ -523,6 +531,9 @@ path. Everything else can follow.
    **Not measured yet, and invisible to the diff above**, because they never enter any locale
    file. Needs a sweep of `src/lib/**/*.svelte` for user-visible string literals. Likely the larger
    half, and what makes the app feel English-only even where a locale file is complete.
+   **Concrete example (CHORE-15, 2026-09-22):** TTS-4's ElevenLabs API-key hint
+   (`src/lib/SideBars/CharConfig.svelte:792`) is a hardcoded, unlocalized string — one instance of
+   exactly this category.
 
 Note `src/lib/Others/Legal.svelte` deliberately carries multi-language text inline and must not be
 "fixed" into a single locale.
@@ -697,6 +708,169 @@ not just prompt quality.
   a one-line fix with a clear test. The rest can follow in one batch.
 - **Wiki coupling:** the wiki's Long Term Memory page documents current behaviour; a fix must update
   it too.
+
+### CHORE-11 — Character display (emotion images, image generation): 5 suspected bugs
+
+Found by the wiki session while rewriting the [[Additional Character Screen]] wiki page
+(2026-09-22). Full hand-off, with per-bug evidence, status and suggested investigation:
+**`Agents/Reports/99-character-display.md`**. Every entry is a code-reading claim; none has been
+reproduced.
+
+**Why it matters to this campaign:** CD-4 can silently overwrite a character's saved emotion/
+image-gen prompts (`newGenData`) with mode defaults whenever the mode or Inlay Screen toggle
+changes, discarding hand-edited text with no warning and no way back — a real, if narrow, path to
+losing saved character data. The other four (CD-1, CD-2, CD-3, CD-5) are dead code, an unreachable
+UI branch, or a cosmetic label; none touch saved data.
+
+| Group | IDs (gist) | Status per Report 99 |
+|---|---|---|
+| Silent loss of saved prompt data | CD-4 — toggling the emotion/image-gen mode or Inlay Screen overwrites hand-edited prompts with mode defaults | Reported |
+| Dead or unreachable code | CD-1 — the `special.emotion` response path nothing ever sets; CD-2 — the `waifuMobile` theme branch can't be selected; CD-5 — `groupChat.emotionImages` may never be read | CD-1, CD-2 Orchestrator-confirmed; CD-5 Reported (not searched exhaustively) |
+| Cosmetic UI mismatch | CD-3 — the emotion Inlay Screen box is labelled "Image Generation Instructions" | Orchestrator-confirmed |
+
+- **Spot check (doc-writer, 2026-09-22):** CD-4 confirmed in source. `updateInlayScreen()`
+  (`src/ts/process/inlayScreen.ts:52-96`) unconditionally replaces `char.newGenData` with a fixed
+  literal for the current `viewScreen`/`inlayViewScreen` combination; it never checks whether the
+  existing fields already hold custom text. It is called directly on
+  `DBState.db.characters[$selectedCharID]` from `src/lib/SideBars/CharConfig.svelte:476,558,575`
+  (the mode/Inlay Screen controls) and from `src/ts/characters.ts:622`, so the overwrite lands on
+  the saved character. Matches the report.
+- **Priority:** low relative to CHORE-01/03/07/10's persistent-loss groups — this needs a user to
+  actively change the mode or Inlay Screen setting, not an ordinary save/reload path. Cheap once
+  picked up: only fill a default when the field is empty, per the report's own suggestion.
+- **Wiki coupling:** per the report, the wiki page already documents both quirks — it warns users
+  about CD-4's prompt reset and mentions CD-3's shared label. If either is fixed, update the page to
+  match the new behaviour.
+
+### CHORE-12 — Modules: 6 suspected bugs (none lose data)
+
+Found by the wiki session while writing the [[Modules]] wiki page (2026-09-22). Full hand-off, with
+per-bug evidence, status and suggested investigation: **`Agents/Reports/99-modules.md`**. MOD-1 and
+MOD-2 also had a doc-verifier pass on the wiki page itself; the rest are the agent's own trace.
+
+**Why it matters to this campaign:** none of the six lose or corrupt saved data. MOD-1's persona-
+embedded module has no effect on chats, but the report confirms its assets are still protected from
+cleanup, so the data itself survives — it is inert, not lost. The rest are dead code, a display-order
+mismatch, a missing editor control, or a GUI-refresh lag; none touch what's saved.
+
+| Group | IDs (gist) | Status |
+|---|---|---|
+| Feature silently inert (no data loss) | MOD-1 — a persona's embedded module (lorebook, regex, triggers, assets) is never applied to chats, though its data is kept | Reviewer- and Orchestrator-confirmed |
+| Design/UX gap | MOD-2 — modules merge in storage order, but the settings list displays them sorted by name; MOD-5 — `RisuModule.icon` has no editing UI | MOD-2 Reviewer- and Orchestrator-confirmed; MOD-5 Reported |
+| Dead code / unused fields | MOD-3 — `RisuModule.cjs` is declared but never read; MOD-4 — two module strings in `src/lang` have no consumers | Orchestrator-confirmed |
+| GUI doesn't refresh after edit (saving unaffected) | MOD-6 — editing a module's lorebook, regex, triggers or assets doesn't bump `ReloadGUIPointer`, so an open chat may keep showing stale rendering | Reported; the narrowing is intentional per a source comment |
+
+- **Spot check (doc-writer, 2026-09-22):** MOD-1 confirmed in source. `getModules()`
+  (`src/ts/process/modules.ts:398-427`) appends `persona.embeddedModule.id` (normally `'$embedded'`)
+  to `ids`, then calls `getModuleByIds(ids)` (`:374-381`), which only filters `db.modules` — the
+  persona's embedded module never lives there. `getModuleById()` (`:357-372`) is the only function
+  that special-cases the `'$embedded'` id back to `persona.embeddedModule`, and `getModules()` never
+  calls it. Matches the report exactly.
+- **Priority:** MOD-1 is the only Medium-severity entry here and is worth picking up first among
+  these six, but it still ranks behind CHORE-01/03/07/10's data-loss groups since nothing is lost.
+  **See CHORE-04** (module enable/disable freeze) for a related but distinct mechanism: that chore
+  is about `ReloadGUIPointer` firing too often on a toggle; MOD-6 here is the opposite-direction
+  problem, that content edits don't fire it at all. Read both before touching that pointer.
+- **Wiki coupling:** the Modules wiki page documents MOD-1 and MOD-2 as current behaviour (per
+  Report 99); a fix to either must update the page.
+
+### CHORE-13 — Prompt template: 2 suspected bugs (none lose data)
+
+Found by the wiki session while rewriting the [[Prompt Template]] wiki page (2026-09-22). Full
+hand-off: **`Agents/Reports/99-prompt-template.md`**. Every entry is a code-reading claim; none has
+been reproduced.
+
+**Why it matters to this campaign:** neither loses or corrupts saved data. PT-1 only inflates a
+token-count estimate; PT-2 is an inert setting field with a default and a translated label but no
+reader.
+
+| Group | IDs (gist) | Status |
+|---|---|---|
+| Wrong token estimate (no data effect) | PT-1 — `tokenizePreset()` counts `innerFormat` tokens for `lorebook` and `postEverything` items, but the prompt-build switch never applies `innerFormat`/`role2` for those two types, so the estimate is inflated for imported/hand-edited presets | Orchestrator-confirmed (token-count side); build side Reported |
+| Inert setting | PT-2 — `promptSettings.assistantPrefill` has a type, default and translated label, but no UI binding and no reader | Orchestrator-confirmed |
+
+- **Spot check (doc-writer, 2026-09-22):** PT-1 confirmed in source on both sides. Token side:
+  `tokenizePreset()`'s `case 'lorebook': case 'postEverything':` branch
+  (`src/ts/process/prompt.ts:77-87`) counts `prompt.innerFormat` when present. Build side:
+  `src/ts/process/index.svelte.ts:782-795` shows `case 'lorebook'` tokenizing `unformated.lorebook`
+  directly and `case 'postEverything'` tokenizing `unformated.postEverything` directly (plus the
+  separate `promptSettings.postEndInnerFormat` setting, which is not the item's own `innerFormat`)
+  — neither case reads the item's `innerFormat` or `role2`. Matches the report.
+- **Priority:** low; both are cosmetic/dead-code issues, not correctness or data-safety bugs. Could
+  be folded into the same batch as CHORE-09 — both are small, wiki-coupled findings from the same
+  documentation pass. TODO(evidence): whether PT-1/PT-2 are upstream behaviour was not checked by
+  the report.
+- **Wiki coupling:** unlike the other four reports from this session, this one has no explicit
+  wiki-coupling note. TODO(evidence): check whether the Prompt Template wiki page documents PT-1 or
+  PT-2's behaviour before fixing either.
+
+### CHORE-14 — Settings and main UI: 2 suspected bugs (none lose data)
+
+Found by the wiki session while rewriting the [[RisuAI Basics]] and [[Creating a Basic Bot]] wiki
+pages (2026-09-22). Full hand-off: **`Agents/Reports/99-settings-ui.md`**. Every entry is a
+code-reading claim; none has been reproduced.
+
+**Why it matters to this campaign:** neither loses or corrupts saved data. UI-1's stranded data
+(Global Lorebook entries, `db.globalscript`) was already unused by the runtime before this finding —
+it just becomes unviewable and unexportable too. The more consequential half of UI-1 is that the
+unreachable Files page holds the fork's own Phase 1 item 5 and item 7 asset-integrity controls
+(the `checkCorruption` startup-warning toggle, the asset-cache-verify action, and the OPFS
+enable/disable buttons) — those Phase 1 entries assumed the page was reachable through the UI. This
+brief is scoped to this file's chore section only, so Phase 1's item text is unchanged here; flagged
+for the Orchestrator to decide whether it needs its own note.
+
+| Group | IDs (gist) | Status |
+|---|---|---|
+| Unreachable settings pages | UI-1 — Files, Communities, Global Lorebook and Global Regex have render cases (`SettingsMenuIndex` 5/7/8/9) but no menu button ever sets those indices; Files holds the Phase 1 item 5/7 integrity controls, Global Lorebook/Global Regex hold data the runtime already doesn't read | Orchestrator-confirmed |
+| Missing/hidden control | UI-2 — the character sidebar's close (X) button is commented out; the sidebar still closes via an empty-area click or the backdrop | Reported |
+
+- **Spot check (doc-writer, 2026-09-22):** UI-1 confirmed in source. `src/lib/Setting/Settings.svelte:36-192`'s
+  menu buttons set `$SettingsMenuIndex` to 0, 1, 2, 3, 4, 6, 10, 11, 12, 14, 15 and 77 (index 16
+  opens `easyPanelStore` instead of setting the index); none sets it to 5, 7, 8 or 9. The render
+  switch at `:208-217` has `=== 5` → `FilesSettings`, `=== 7` → `Communities`, `=== 8` →
+  `GlobalLoreBookSettings`, `=== 9` → `GlobalRegex`. A repo-wide search for
+  `SettingsMenuIndex\s*=\s*(5|7|8|9)` found no other writer anywhere in `src/`. Matches the report
+  exactly.
+- **Priority:** Medium for the Files page specifically, since it strands the fork's own Phase 1
+  integrity work — the cheapest fix is one new menu button, or folding Files into Account & Files
+  (`UserSettings.svelte`). Global Lorebook/Global Regex are lower priority since their data was
+  already inert; decide whether to expose or retire them. UI-2 is Low.
+- **Wiki coupling:** the Lorebook wiki page already says the Global Lorebook settings page can't be
+  opened (per the report); a fix to UI-1 must update that page.
+
+### CHORE-15 — TTS: 7 suspected bugs (none lose data)
+
+Found by the wiki session while rewriting the [[TTS]] wiki page (2026-09-22). Full hand-off, with
+per-bug evidence, status and suggested investigation: **`Agents/Reports/99-tts.md`**. Every entry is
+a code-reading claim; none has been reproduced.
+
+**Why it matters to this campaign:** none of the seven lose or corrupt saved data — TTS operates on
+generated/spoken text, not stored character or chat state. TTS-1 and TTS-2 are Medium because they
+break the feature outright (wrong output language; an uncapped retry loop), not because anything is
+lost.
+
+| Group | IDs (gist) | Status |
+|---|---|---|
+| Feature broken outright | TTS-1 — Huggingface "Language" translates the reply *into* English instead of *from* it, so a non-English model receives English text; TTS-2 — the Huggingface 503 retry loop has no cap and re-translates the text on every retry, feeding the previous translation back in | Orchestrator-confirmed |
+| UI/label mismatch | TTS-3 — "Stop TTS" is hidden for every provider except Web Speech and ElevenLabs, though it works for all; TTS-4 — the ElevenLabs hint text points to a settings path that doesn't exist and is hardcoded, unlocalized text (a concrete instance of CHORE-05's "hardcoded English in components" category) | Orchestrator-confirmed |
+| Dead code | TTS-5 — `FixNAITTS` has no callers, and its hardcoded voice disagrees with the UI's default; TTS-7 — a dead `ttsMode !== 'none'` comparison (disabled is `''`, not `'none'`) | Orchestrator-confirmed (TTS-5's default-mismatch half is Reported) |
+| CBS spoken literally | TTS-6 — the per-message play button reads the raw stored message, not the CBS-parsed display text, so tags like `{{user}}` are spoken literally | Reported |
+
+- **Spot check (doc-writer, 2026-09-22):** TTS-1 confirmed in source. The call
+  (`src/ts/process/tts.ts:255`) is `runTranslator(text, false, 'en', character.hfTTS.language)`.
+  `runTranslator(text, reverse, from, target)` (`src/ts/translator/translator.ts:61-67`) builds
+  `arg.from = reverse ? from : target` and `arg.to = reverse ? target : from`. With `reverse=false`,
+  `arg.from` resolves to `target` (`hfTTS.language`) and `arg.to` resolves to `from` (`'en'`) — the
+  call translates the reply *from* the target language *into* English, the opposite of what a
+  non-English Huggingface TTS model needs. Matches the report exactly. The same read also confirmed
+  TTS-2: the translation step and the `while(true)` retry loop are both inside `tts.ts:252-288`, so
+  a retry re-translates the already-translated text.
+- **Priority:** below every data-loss chore. Within this chore, TTS-1 and TTS-2 are worth doing
+  first and together — both touch the same `while(true)` block at `tts.ts:252-288`: move the
+  translation above the loop, add a retry cap, and swap the translate direction. The rest are small,
+  independent, low-risk fixes.
+- **Wiki coupling:** the report says the TTS wiki page documents current behaviour, including TTS-1
+  and TTS-3; fixing either must update the page.
 
 ## Sequencing Summary
 
