@@ -21,6 +21,7 @@ The Orchestrator may escalate to you only when at least one of these holds:
 - A bug crosses several subsystem boundaries.
 - The Orchestrator's confidence is below the required threshold after gathering available evidence.
 - The team appears stuck in a loop.
+- A review gate has rejected the same item three rounds in a row, each time with new substantive findings. Rejections only for wording (comments, test titles, commit-message claims) don't count.
 
 Plus one standing high-leverage use: **attacking a plan that is expensive to reverse, before it is implemented.** "We are about to commit to this. Break it."
 

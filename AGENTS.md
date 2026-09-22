@@ -331,6 +331,13 @@ Route to the cheapest tier that can answer the question. Escalating early wastes
 - A bug crosses several subsystem boundaries.
 - Your confidence is below the required threshold after gathering available evidence.
 - The team appears stuck in a loop.
+- **A review gate has rejected the same item three rounds in a row, each time with new findings.**
+  This is the concrete test for "stuck in a loop". Count plan gates and implementation gates
+  alike. Escalate before writing the fourth revision, not after it; do not keep iterating between
+  the Orchestrator and the reviewer.
+  - **Only substantive rejections count:** a design, logic, data-safety or test defect. A round
+    rejected only for wording (false or stale comments, test titles, commit-message claims) is
+    fixed and re-gated as usual. It neither counts toward the three nor breaks a streak.
 
 Plus one standing use: **attacking a plan that is expensive to reverse, before implementing it.**
 
