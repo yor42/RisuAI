@@ -121,7 +121,7 @@ run only** — `Legal.svelte:6-8` forbids setting it automatically.
 | AV-2 | **Committed `97c3f53a`** (Report 14; gates ledger 30/35/37; step-0 memory probe ledger 31; red ledger 36; live check ledger 38) | none |
 | CHORE-07 7a | **Committed `c66c9f4b`** (Report 13 §2; gates ledger 29/33/34; red ledger 32) | none |
 | AV-3 | **Committed `d6ee89db`** (Report 15 rev 2; plan gate ledger 48; red ledger 49; post-impl gate ledger 50; live check ledger 51) | none |
-| AV-4 | constraints only (Report 12 §5), measure first | after AV-3 |
+| AV-4 | **Committed `41977ac0`** (Report 16 rev 2; measure ledger 53; plan gate ledger 54; red ledger 56; gates ledger 57/58, fixes ledger 59; live check ledger 60) | none |
 | CHORE-07 7b | **Committed `3e17c8a3`** (minimal core; Report 13 §4; gates ledger 39/40) | none |
 | CHORE-07 7c-1 | **Committed `be3633bd`** (Report 13 §5 rev 5; gates ledger 41/42; live check ledger 43) | none |
 | CHORE-07 7c-2 | **committed `4a4dfae1`** (Report 13 §5.3 rev 7; ledger 44-46) | none |
