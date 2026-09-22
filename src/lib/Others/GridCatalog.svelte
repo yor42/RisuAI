@@ -129,13 +129,14 @@
                 {@const imgPath = char.image}
                 {@const isVisible = visibleIndices.has(char.index)}
                 {@const avatarStyle = isVisible ? getCharImage(imgPath, 'thumbcss') : ''}
+                {@const parsedDesc = parseMultilangString(char.desc)}
                 <div class="flex p-2 border border-darkborderc rounded-md mb-2" use:nearViewport={{ onChange: (v, node) => {
                     if (v) { visibleIndices.set(char.index, node) } else if (visibleIndices.get(char.index) === node) { visibleIndices.delete(char.index) }
                 } }}>
                     <BarIcon onClick={() => {changeChar(char.index)}} additionalStyle={avatarStyle}></BarIcon>
-                    <div class="flex-1 flex flex-col ml-2">
-                        <h4 class="text-textcolor font-bold text-lg mb-1">{char.name || "Unnamed"}</h4>
-                        <span class="text-textcolor2">{parseMultilangString(char.desc)['en'] || parseMultilangString(char.desc)['xx'] || 'No description'}</span>
+                    <div class="flex-1 flex flex-col ml-2 min-w-0">
+                        <h4 class="text-textcolor font-bold text-lg mb-1 break-words">{char.name || "Unnamed"}</h4>
+                        <span class="text-textcolor2 line-clamp-3 wrap-break-word">{parsedDesc['en'] || parsedDesc['xx'] || 'No description'}</span>
                         <div class="flex gap-2 justify-end">
                             <button class="hover:text-textcolor text-textcolor2" onclick={() => {
                                 changeChar(char.index)
@@ -157,13 +158,14 @@
                 {@const imgPath = char.image}
                 {@const isVisible = visibleIndices.has(char.index)}
                 {@const avatarStyle = isVisible ? getCharImage(imgPath, 'thumbcss') : ''}
+                {@const parsedDesc = parseMultilangString(char.desc)}
                 <div class="flex p-2 border border-darkborderc rounded-md mb-2" use:nearViewport={{ onChange: (v, node) => {
                     if (v) { visibleIndices.set(char.index, node) } else if (visibleIndices.get(char.index) === node) { visibleIndices.delete(char.index) }
                 } }}>
                     <BarIcon onClick={() => {changeChar(char.index)}} additionalStyle={avatarStyle}></BarIcon>
-                    <div class="flex-1 flex flex-col ml-2">
-                        <h4 class="text-textcolor font-bold text-lg mb-1">{char.name || "Unnamed"}</h4>
-                        <span class="text-textcolor2">{parseMultilangString(char.desc)['en'] || parseMultilangString(char.desc)['xx'] || 'No description'}</span>
+                    <div class="flex-1 flex flex-col ml-2 min-w-0">
+                        <h4 class="text-textcolor font-bold text-lg mb-1 break-words">{char.name || "Unnamed"}</h4>
+                        <span class="text-textcolor2 line-clamp-3 wrap-break-word">{parsedDesc['en'] || parsedDesc['xx'] || 'No description'}</span>
                         <div class="flex gap-2 justify-end">
                             <button class="hover:text-textcolor text-textcolor2" onclick={() => {
                                 restoreCharacterFromTrash(char.chaId)
