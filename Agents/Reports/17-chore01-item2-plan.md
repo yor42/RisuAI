@@ -313,7 +313,9 @@ milliseconds. It is a one-off per plugin `setDatabase`/`setDatabaseLite` call (a
 no repetition in `plugins.svelte.ts`), but a plugin that calls it every turn pays it every turn. On
 target hardware expect several times this: a multi-second main-thread stall on a 1000-character
 profile. Recorded for the maintainer as a follow-up decision (the mark-every-character choice, F3).
-Harness: `Agents/Tools/save-gen/chore01-plugin-setdatabase-save-bench.svelte.harness.ts`.
+Harness: `Agents/Tools/save-gen/chore01-plugin-setdatabase-save-bench.svelte.harness.ts`. This cost
+is CHORE-17's subject; see `Agents/Roadmap.md` CHORE-17 for the recommended re-encode-only-what-changed
+strategy, sequenced after Stage 2.
 
 ## 7. Compatibility
 

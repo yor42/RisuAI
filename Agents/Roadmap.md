@@ -924,6 +924,91 @@ button, dead code, and a settings field shared with live long-term-memory settin
   chat appears in the character grid) and PG-4 (the Embedding tool shares memory settings) as
   current behaviour; a fix to either must update the page.
 
+### CHORE-17 — Plugin `setDatabase` re-encodes every character (a cost, not data loss)
+
+**Status (2026-09-22):** Sequenced after CHORE-01 Stage 2, by the maintainer's decision.
+
+**Problem:** since Stage 1 (`152cc563`), the shared plugin setters `setDatabase`/`setDatabaseLite`
+(`src/ts/plugins/plugins.svelte.ts`, about 777-814) mark every character whenever the payload has a
+`characters` array. That is the maintainer's F3 decision, for safety: V2 edits in place and can't
+be seen; V3 hands back fresh copies. The next save re-encodes all N.
+
+- **Measured** in Node on an i9 (Report 17 §6): `set()` about 1.18 s and about 117 MB transient at
+  1000 characters and 150k messages.
+- **This is a FLOOR:** the harness mocked localforage, but each re-encoded block is also written to
+  IndexedDB (`risuSaveCacheForage.setItem`, `src/ts/storage/risuSave.ts` about 510-514). That's
+  unmeasured.
+- Cold storage defaults to off for users with plugins (`src/ts/storage/database.svelte.ts:713`), so
+  exactly these users have full chats in memory.
+- The full `database.bin` is written on every save anyway (`risuSave.ts` `encode()`, about 413-435).
+- Remote block saving is opt-in (`risuSave.ts` 24-31). When it's enabled, `set()` never passes
+  `skipRemoteSaving`, so unchanged characters are rewritten even though `encodeRemoteBlock` already
+  computes the hash (about 532-568).
+
+**Real plugin evidence (investigator; ledger row 70):**
+- **AssetGod** (`AssetGod v3_alt.js`) calls `setDatabase` 7 times, never the narrow APIs. Four calls
+  (lines 778, 1186, 1477, 1921) pass the entire cached `characters` array with exactly one character
+  changed. All are user-triggered: rename, delete, folder move, dedupe, thumbnail, paste. It also
+  calls `getDatabase()` with no `includeOnly` on panel open (3322, 3353), which is a full deep
+  snapshot.
+- **Fast Character Import** (`fast-character-import-v3_2.0.0.js`) appends via
+  `setCharacterToIndex` (177, cheap today; the identity tracker marks just that one), and falls back
+  to `setDatabaseLite` with the full array only when the list is empty (127-134). Its own comment
+  calls the fallback slow and able to conflict with an in-progress chat.
+- **Neither plugin calls a setter per chat turn, on a timer, or at load.** So this is a quality
+  item, not per-turn stabilisation.
+- **Plugin-side risk** (not fixable host-side, recorded for awareness): AssetGod caches the database
+  at panel open and writes that copy back on later saves, so an edit made elsewhere in between is
+  overwritten. The recommended fix neither worsens nor fixes that.
+
+**Recommended strategy (senior-advisor; ledger row 71).** The maintainer's goal "re-encode only
+what changed" is endorsed, but at the setter layer, not the encoder:
+
+- **Layer 1, boundary reconcile** in the shared setter, `characters` key only. For each incoming
+  element vs the live element at the same index:
+  - the **same object (`===`)** is marked (the V2 in-place case, as today);
+  - a **different object** is deep-compared to the live element with JSON semantics, including
+    chats. If equal, keep the live element (identity preserved, not marked). If different, install
+    the new object (the identity tracker marks it).
+  - **Any shape difference** (length, or chaId at any index) falls back to today's wholesale assign
+    plus mark-all.
+  - Soundness notes: Svelte `proxy()` returns an existing proxy unchanged
+    (`node_modules/svelte/src/internal/client/proxy.js:40-42`); the identity tracker reads every
+    index (`src/ts/storage/dbChangeEffects.svelte.ts` about 166-189); comparing against LIVE is
+    correct because live-vs-saved divergence is already in the tracker.
+  - The only under-mark risk is a compare that reports "equal" for different content, which is
+    testable with random deep mutations.
+  - Side benefit: the character grid stops re-rendering every card after a V3 plugin call.
+- **Layer 2, encoder exact-bytes skip:** if a re-encoded block's payload length and CRC32 match the
+  cached block AND a full byte compare confirms it, reuse the cached block and skip the IndexedDB
+  write and the remote write. No collision risk and no new memory. It helps every all-N path
+  (backup loads, reload `init`), and complements layer 1 rather than replacing it.
+- **Not now:** a worker, or frame-yielding.
+
+**DO NOT (from the advisor):**
+- don't use `lastInteraction`/`lastDate` as a change signal (the chat path only; that would be
+  silent loss);
+- don't keep the last JSON per character (duplicates the database in memory);
+- don't skip on a non-cryptographic hash alone;
+- never treat a `===` element as unchanged;
+- always verify chaId at every index, and compare deep, including chats;
+- don't snapshot V2 `getDatabase()` to diff later (V2 stays mark-all);
+- don't branch on API version (the setter function object is shared);
+- no worker (a `$state` proxy can't be posted, memory doubles, it's a rewrite);
+- no frame-yielding as the fix (it lengthens the save window);
+- don't revisit "reload instead of mark" (F3: a stale plugin snapshot becomes a
+  permanent-deletion path).
+
+**Measure first, in the browser** with the 1000-character / 150k-message fixture:
+- (A) a per-character phase breakdown of one all-N `set()` (stringify; TextEncoder + CRC + copies;
+  the IndexedDB `setItem`), plus the cost and transient heap of one layer-1 deep-compare walk;
+- (B) plugin setter call frequency (a counter: plugin, setter, whether `characters` is present, and
+  later how many elements differed);
+- (C) how often V3 setters carry `characters` at all.
+
+**Staging (when scheduled):** measure -> plan -> gate 1 -> layer 1 and layer 2 as separate stages ->
+live check.
+
 ## Sequencing Summary
 
 ```
