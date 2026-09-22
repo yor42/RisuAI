@@ -39,7 +39,7 @@ Function names are matched case-insensitively with spaces, underscores and hyphe
 | `{{lower::str}}` | — | Locale-aware lowercase |
 | `{{upper::str}}` | — | Locale-aware uppercase |
 | `{{capitalize::str}}` | — | Uppercases only the first character |
-| `{{reverse::str}}` | — | Reverses by Unicode code point (`[...str].reverse()`), not by grapheme cluster. A single-code-point emoji survives; a multi-code-point cluster (e.g. a ZWJ family emoji, or a base character plus combining marks) comes out visually broken, because nothing special-cases grapheme clusters. |
+| `{{reverse::str}}` | — | Reverses by Unicode code point (`[...str].reverse()`), not by grapheme cluster. A single-code-point emoji survives; a multi-code-point cluster (e.g. a ZWJ family emoji, or a base character plus combining marks) comes out visually broken, because nothing special-cases grapheme clusters. Card authors use it to lightly obfuscate spoilers in a description; applying it again restores the text (code point by code point). For something less readable at a glance, see `{{xor}}` (XOR + base64, reversed by `{{xordecrypt}}`) or `{{crypt}}`. None of these is encryption. |
 | `{{unicodeencode::str[::index]}}` | `unicode_encode` | Char code (decimal) of the character at `index` (default `0`) |
 | `{{unicodedecode::code}}` | `unicode_decode` | Character for a decimal char code |
 | `{{u::hex}}` | `unicodedecodefromhex` | Character for a **hex** char code |
