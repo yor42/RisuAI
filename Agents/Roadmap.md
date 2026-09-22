@@ -200,6 +200,32 @@ This phase is the load-bearing one: it's what Phase 4 (Android) is gated behind,
 2. **Narrow the `saveDb()` change-tracking effects** (`globalApi.svelte.ts:350-403`) so they stop `$state.snapshot()`-ing broad subtrees just to detect "something changed." Replace deep-clone-based dirty detection with explicit dirty-marking at actual mutation call sites, or watch only shallow identity/length/timestamp signals. **Note (corrected):** this specific effect already excludes `modules`/`botPresets`/`loadouts`/`plugins`/`pluginCustomStorage` — it's the hot path for *character-field and chat-message* edits specifically, item 1 above is the hot path for module edits. Both need fixing; they're independent, not the same effect. *(Report 01, recommendation 2 — Medium-High effort.)*
 
    **⚠ Caution added 2026-09-21 — do not implement the "shallow identity/length/timestamp" option above as written.** That is *narrowing*, and Stage B established that narrowing this effect family loses writes: `tracker` flags gate whether a block is encoded at all, so a missed mutation is never written rather than written late (the `:19-24` presets comment in `dbChangeEffects.svelte.ts` records a real data-loss bug from exactly this, `8bc0f426`). The technique that worked for modules is **partitioning** — same dependency closure, sliced across per-element effects — and it is the natural candidate here too. Note this is also the effect containing CHORE-01's non-selected-character gap, so the two should be planned together.
+
+   **Status (2026-09-22) — done for the selected-character effect, not the item as a whole.** The
+   selected-character half of this effect family (`dbChangeEffects.svelte.ts`, the effect covering
+   `characters[selIdState]` and its `chats`) is now split into a partition, following the caution
+   above: a **partition, not a narrowing** — the union of the new effects' dependencies equals the
+   old effect's closure, and the save format and the save loop are unchanged. Implemented, gated
+   (Gate 3, three rounds) and live-checked as CHORE-01 Stage 2, committed as `fbf799a7`
+   (`Reports/17-chore01-item2-plan.md`; ledger rows 72-77).
+   - **Measured (Node, i9-13900K, 10k / 50k messages over 10 chats; best case, no claim for a Pi or
+     a phone), before → after:** keystroke 74 / 385 → 0.67 / 3.2 ms; streamed token 74 / 385 →
+     0.66 / 3.4 ms; chatPage switch 74 / 385 → 0.67 / 3.4 ms (89 / 515 ms before a fix for a
+     `for…in`/proxy entanglement found during implementation); message push 74 / 385 → 8.2 / 45 ms.
+   - **Live-checked in the browser** (dev server, pane visible; frame times were not usable there
+     because the pane throttled `requestAnimationFrame`, so edits were timed with the app's own
+     `flushSync`): keystroke 1.1 ms median, 1.3 ms after a chatPage switch — still an i9-13900K, so
+     best case, not a Pi/phone claim. The old merged effect's `snapshot(chats)` on the same
+     10k-message character took 204 ms in the same page.
+   - **Retained heap after mount:** the new effects add about 9 / 43 MB at 10k / 50k messages
+     (23.7 / 119 MB total after mount, against about 15.1 / 75.7 MB on the old source).
+   - **Open follow-up, not implemented:** the residual per-keystroke/per-token cost scales with
+     Svelte's flush traversal walking every live effect (~0.06 µs each). If that proves too costly
+     on a Raspberry Pi or a phone, the recorded option is fewer effects per message — chunked
+     message children (one per K messages) or active-chat-only children.
+   - **Not settled by Stage 2:** the top-level part of this effect family (`characterOrder` and the
+     other non-character keys, handled by an unchanged loop) was not repartitioned here, so this
+     status covers the selected-character effect only, not every effect this item's heading names.
 3. **Status 2026-09-21 — character-list half, in progress:** AV-1 committed `64777a34` (each avatar resolved once per character), AV-2 committed `97c3f53a` (avatars resolved only near the viewport, far ones released; live-checked, ledger 38). AV-3 committed `d6ee89db` (plain HTTP encodes each asset once, under a 64 MiB cache budget; the chat parser no longer pins its own permanent copy; Report 15 rev 2; gates ledger 48/50; red ledger 49; live check ledger 51). AV-4 (list thumbnails, 168 px short side, WebP with PNG fallback, own local store) committed `41977ac0` (Report 16 rev 2; plan gate ledger 54; gates ledger 57/58; red and mutation ledger 56/59; live check ledger 60). Thumbnailed list avatars bypass `getFileSrc`, so the lists no longer use the AV-3 cache for them; animated, small and account-hub avatars still take the full-size path. The chat-list half below is not started.
    **Add real virtual scrolling to the chat message list** (`DefaultChatScreen.svelte`), keeping the existing incremental-load-on-scroll-up behavior for fetching history but unmounting off-screen messages so peak DOM/component count is bounded. This is the most Android-relevant fix in the whole roadmap. *(Report 01, recommendation 4 — Medium-High effort.)*
 
@@ -245,7 +271,7 @@ This phase is the load-bearing one: it's what Phase 4 (Android) is gated behind,
      **These Chromium figures supersede the Node multipliers above for any user-facing claim.** Proxy overhead is structural, about 1 KB per message whatever the text length, so real roleplay messages (longer than the fixture's ~730 B) have a lower multiplier but the same absolute overhead. All data is resident for the session.
    - **What the measurement narrowed.** Asset and inlay bytes are **not** in chat data or in the database: inlays are in the separate `inlay` store, and assets are stored as paths. CSS and HTML weight sits on characters and modules, not chats. With a 200 KB background per character, chats fall to 34% of the heap.
    - **Related Tauri-slowdown candidates, measured or verified.**
-     - `dbChangeEffects.svelte.ts:109` snapshots all of the **active** character's chats on every tracked change, including every streaming chunk, since `streamingDisplayOptimizationMode` defaults to `'off'`. That costs ~5.3 µs/message (10k messages ≈ 53 ms). This belongs to item 2 and must be **partitioned**, never narrowed.
+     - `dbChangeEffects.svelte.ts:109` snapshots all of the **active** character's chats on every tracked change, including every streaming chunk, since `streamingDisplayOptimizationMode` defaults to `'off'`. That costs ~5.3 µs/message (10k messages ≈ 53 ms). This belongs to item 2 and must be **partitioned**, never narrowed. **Resolved by item 2 / CHORE-01 Stage 2 (`fbf799a7`).**
      - V2 `pluginStorage.getItem` deep-clones the whole database on every call (`plugins.svelte.ts:717`).
      - V3 `getDatabase()` defaults to snapshotting every character.
      - How often these plugin paths fire is unmeasured.
@@ -260,6 +286,13 @@ This phase is the load-bearing one: it's what Phase 4 (Android) is gated behind,
      `Agents/Tools/save-gen/dbchange-*.svelte.harness.ts`.
    - **Cold storage covers little of this.** It is on by default only for installs that had no plugins at first load (`database.svelte.ts:713`), runs once per boot after the full decode (`bootstrap.ts:284`), and evicts only data idle for 10+ days. It does nothing for peak memory at boot.
    - **Relationship to other items.** Items 4 (size-based compaction) and 5 (per-character slices) are candidate mechanisms. This item states the measured problem; plan it after a live-app heap measurement confirms the proxy multiplier with pointer compression on. **Android caveat:** no Android build exists in the repo (`src-tauri/gen` has no `android/`, `[lib]` is commented out at `Cargo.toml:47`), so the OOM premise cannot be observed from this codebase.
+
+9. **[added 2026-09-22, CHORE-17 measurement] Per-chat save blocks: every save re-encodes the whole selected character.**
+   - Each character, with all of its chats, is one save block (`RisuSaveType.CHARACTER_WITH_CHAT` in `risuSave.ts`), and the selected character is re-encoded on every save it's marked for — it's the tracker's sticky front. So during an ordinary chat, each save re-encodes every chat that character has, not only the one that changed.
+   - **Evidence:** CHORE-01 Stage 2 live check (ledger row 77) — with a 10k-message character, without `flushSync` the save loop's re-encode of that character dominated at 280/470 ms. CHORE-17 measurement — a single large character's re-encode is one uninterrupted 16-44 ms slice (i9, best case). This matters more day to day than plugin saves.
+   - The encoder already carries an unused per-chat hook: `toSave.chat` is dead plumbing (CHORE-02).
+   - A per-chat block split is a **save-format change**: it needs the maintainer's explicit approval plus the impact/migration/fallback analysis the compatibility invariant requires (upstream builds, backup `.bin` files and legacy saves must all keep loading). Not started; measure and plan before anything else.
+   - **Relationship:** item 8 (resident chat data) and CHORE-02.
 
 **Exit criterion for this phase** (relevant to Phase 4/Android gating): a long chat session with a large module set no longer shows the reported keystroke stutter, and peak memory for an active long conversation is bounded rather than growing monotonically with scroll-back depth.
 
@@ -304,8 +337,11 @@ Evidence and full reasoning: `Agents/Reports/11-stage-b-module-effect-partition-
 
 ### CHORE-01 — Mutations to a NON-selected character are never marked for save
 
-**Status (2026-09-22):** Stage 1 implemented and gated; live check passed; committed as `152cc563`. See
-`Reports/17-chore01-item2-plan.md` §10 (Gate 2) and ledger rows 64-69.
+**Status (2026-09-22):** Stage 1 implemented and gated; live check passed; committed as `152cc563`.
+Stage 2 (partition of the selected-character tracker, Phase 2 item 2) is implemented, gated (Gate 3,
+three rounds), live-checked and committed as `fbf799a7`. Both stages of the plan are now complete
+(`Reports/17-chore01-item2-plan.md` §9's staging list), so nothing in this plan is outstanding. See
+`Reports/17-chore01-item2-plan.md` §10 (Gate 2), "Stage 2 implementation notes (Gate 3)", and ledger rows 64-69, 72-77.
 
 **Real plugin exposure (2026-09-21).** Two community plugins, provided by the maintainer
 (`Agents/Evidences of Investigations/`, gitignored, never commit), write the database through the
@@ -926,7 +962,26 @@ button, dead code, and a settings field shared with live long-term-memory settin
 
 ### CHORE-17 — Plugin `setDatabase` re-encodes every character (a cost, not data loss)
 
-**Status (2026-09-22):** Sequenced after CHORE-01 Stage 2, by the maintainer's decision.
+**Status (2026-09-22):** Sequenced after CHORE-01 Stage 2, by the maintainer's decision. Stage 2 is
+now implemented, gated and committed as `fbf799a7`, so CHORE-17 was unblocked and measured in real
+Chromium (see "Measured" below). Based on that measurement, the maintainer chose to build **layer 2
+only** (the encoder's exact-bytes skip) plus a **remote content-hash write dedupe**, now. **Layer 1
+(the setter boundary reconcile) is ON HOLD** — see "Why layer 1 is on hold" below.
+
+**Layer 2 status (2026-09-22):** implemented, gated, live-checked and committed as `dfabaa15`.
+- Plan: `Reports/18-chore17-skip-unchanged-writes-plan.md` rev 2. Gate 1 approved it with
+  findings; Gate 2 took three rounds.
+- Ledger: rows 78-87.
+- Result (headless Chrome, i9, best case), for an all-N `set()` with every character unchanged:
+  1155 → ~710-746 ms. The IndexedDB writes go from 418 ms to 0, and the byte compare costs
+  13.5 ms in total.
+- The longest slice is unchanged on the same fixture: 43.9 → 45.0 ms.
+- Live: a plugin `setDatabase` that changes one character writes one block, where it previously
+  wrote all of them. A preset edit no longer rewrites the selected character.
+- Also fixed on the way: `checkedRemoteExistence` recorded a remote file before the write that
+  could still fail.
+- Remaining cost: stringify and encoding still run for every re-encoded character, and one
+  large character's re-encode is still one uninterrupted slice. See Phase 2 item 9.
 
 **Problem:** since Stage 1 (`152cc563`), the shared plugin setters `setDatabase`/`setDatabaseLite`
 (`src/ts/plugins/plugins.svelte.ts`, about 777-814) mark every character whenever the payload has a
@@ -964,7 +1019,7 @@ be seen; V3 hands back fresh copies. The next save re-encodes all N.
 **Recommended strategy (senior-advisor; ledger row 71).** The maintainer's goal "re-encode only
 what changed" is endorsed, but at the setter layer, not the encoder:
 
-- **Layer 1, boundary reconcile** in the shared setter, `characters` key only. For each incoming
+- **Layer 1, boundary reconcile (on hold, see below)** in the shared setter, `characters` key only. For each incoming
   element vs the live element at the same index:
   - the **same object (`===`)** is marked (the V2 in-place case, as today);
   - a **different object** is deep-compared to the live element with JSON semantics, including
@@ -983,6 +1038,11 @@ what changed" is endorsed, but at the setter layer, not the encoder:
   cached block AND a full byte compare confirms it, reuse the cached block and skip the IndexedDB
   write and the remote write. No collision risk and no new memory. It helps every all-N path
   (backup loads, reload `init`), and complements layer 1 rather than replacing it.
+  **Correction (2026-09-22, investigator, verified by the Orchestrator):** it does NOT help backup
+  loads, reloads or boot. Each of those constructs a fresh `RisuSaveEncoder` with empty
+  `this.blocks`, so there is nothing to compare against. It helps only `set()` on a live encoder:
+  the plugin mark-all save, and the selected character re-encoded unchanged. See
+  `Reports/18-chore17-skip-unchanged-writes-plan.md` §1.
 - **Not now:** a worker, or frame-yielding.
 
 **DO NOT (from the advisor):**
@@ -1005,6 +1065,46 @@ what changed" is endorsed, but at the setter layer, not the encoder:
 - (B) plugin setter call frequency (a counter: plugin, setter, whether `characters` is present, and
   later how many elements differed);
 - (C) how often V3 setters carry `characters` at all.
+
+**Measured (2026-09-22, headless Chrome 154, real IndexedDB, i9-13900K; best case, no Pi/phone
+claim), 1000 characters / ~150k messages:**
+- One all-N `set()`: 1155 ms median (1113-1163 ms). Phases: `JSON.stringify` through the `$state`
+  proxy 351 ms (30%); `TextEncoder` + CRC32 + buffer assembly 372 ms (32%); the real IndexedDB write
+  (`risuSaveCacheForage.setItem`) 418 ms (36%); other 5 ms. A raw-object `JSON.stringify` of the same
+  data took 69 ms, so the proxy makes stringify about 5.1x slower. The Node "about 1.18 s" figure
+  above (mocked storage, slower JS) matched this only by coincidence — cite 1155 ms with this
+  composition instead.
+- The encoder retains every encoded block in `this.blocks` for the session: about 109 MB at this
+  size — a standing cost, not transient.
+- Today's save yields at each character's IndexedDB await: 1002 slices in this run; the longest
+  44 ms median (43-63 ms); 10 slices over 16 ms per run, which are the fixture's 10 large characters
+  (1% of characters, 70% of messages).
+- Today's synchronous cost of the plugin call itself: V3-style `setDatabase` with a fresh
+  `characters` array took 119 ms synchronous (the host `setDatabase`'s per-chat loop over every
+  character, not the identity-tracker marks) plus a 2.6 ms effect flush; V2 in-place plus
+  `setDatabaseLite` took 1.6 ms. Character-grid rendering was not measured.
+- **Layer 1 compare** (JSON semantics, verified against a stringify oracle on 1000 characters plus
+  10 edge cases): 267 ms synchronous for a full pass, equal or one-different alike; chunked every
+  100 characters, 83 ms wall with a 5 ms longest slice; interleaved per character inside the save
+  loop, about 18 ms compute (measured after warm-up, so optimistic).
+- Harnesses: `Agents/Tools/save-gen/chore17-*` (drivers `chore17-run.mjs` and
+  `chore17-followup-run.mjs`; need a throwaway `playwright-core` install, not in `package.json`; the
+  plugin wrapper is a documented replica of the `getV2PluginAPIs` setters over the real
+  `database.svelte.ts` setters). Raw logs under `Agents/Tools/output/` (gitignored).
+
+**Why layer 1 is on hold.** The reconcile has to run inside the plugin call itself, before the new
+objects are installed, so it can't be chunked there: doing so would take the V3 call from about
+119 ms to about 386 ms of one uninterrupted block. Deferring the compare into the save loop is cheap
+(about 18 ms), but it needs the replaced objects kept around until the save runs, and a write into a
+replaced object in the meantime could make a changed character compare equal and never get written.
+Not worth that risk for a user-triggered plugin save. Revisit only if plugin saves still feel slow
+after layer 2 ships.
+
+**Layer 2 scope, as decided.** After a character block is encoded in `set()`, skip the IndexedDB
+cache write if its bytes equal the previous `this.blocks` entry; with remote saving on, also skip
+rewriting a content-addressed `remotes/<name>.<hash>.bin` that was already written this session.
+This removes about a third of an all-N `set()` (the IndexedDB share) — stringify and encode still
+run. No new memory; nothing plugin-visible. Plan and gate are pending; a new report will follow.
 
 **Staging (when scheduled):** measure -> plan -> gate 1 -> layer 1 and layer 2 as separate stages ->
 live check.
