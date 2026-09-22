@@ -304,6 +304,9 @@ Evidence and full reasoning: `Agents/Reports/11-stage-b-module-effect-partition-
 
 ### CHORE-01 — Mutations to a NON-selected character are never marked for save
 
+**Status (2026-09-22):** Stage 1 implemented and gated; live check passed; committed as `152cc563`. See
+`Reports/17-chore01-item2-plan.md` §10 (Gate 2) and ledger rows 64-69.
+
 **Real plugin exposure (2026-09-21).** Two community plugins, provided by the maintainer
 (`Agents/Evidences of Investigations/`, gitignored, never commit), write the database through the
 plugin API:
@@ -406,6 +409,11 @@ area deserves a hypothesis-free pass of its own rather than one-off fixes. Scope
 minimum: `trashTime` set/clear paths, `removeChar` (`characters.ts:847`, including its
 `'permanent'` mode), `GridCatalog.svelte`, `checkCharOrder`, interaction with `characterOrder`,
 and what happens to a trashed character's assets and remote blocks.
+
+- **Found during CHORE-01 Stage 1 gate 2, pass 3 (2026-09-22, non-blocking).** A
+  `removeChar('permanent')` splice during an in-flight `set()` can skip a character, deleting its
+  block for one write. It heals on the next save, which reloads. Pre-existing, but more likely now
+  that `toSave` can hold all N characters after a plugin `setDatabase`. Ledger row 68.
 
 Relates to the Roadmap's closing "Should there be a Round 3?" question — this is a concrete,
 evidence-backed candidate area, which that note said was the missing ingredient.
@@ -871,6 +879,50 @@ lost.
   independent, low-risk fixes.
 - **Wiki coupling:** the report says the TTS wiki page documents current behaviour, including TTS-1
   and TTS-3; fixing either must update the page.
+
+### CHORE-16 — Playground: 4 suspected bugs
+
+Found by the wiki session while writing the [[Playground]] wiki page (2026-09-22). Full hand-off,
+with per-bug evidence, status and suggested investigation: **`Agents/Reports/99-playground.md`**.
+Every entry is a code-reading claim; none has been reproduced.
+
+**Why it matters to this campaign:** PG-1 is the only entry that can lose saved data. The
+Playground chat is a normal saved character (`chaId: '§playground'`); it is hidden from the
+sidebar but not from `GridCatalog`'s character grid, so a user who doesn't recognize the stray
+"assistant" entry can delete it and lose the Playground chat history (a new one is created
+automatically the next time Chat is opened, so the character itself always comes back, but its
+history does not). The other three (PG-2, PG-3, PG-4) don't touch saved data: a dead Delete
+button, dead code, and a settings field shared with live long-term-memory settings.
+
+| Group | IDs (gist) | Status per Report 99 |
+|---|---|---|
+| Stray grid entry can lose saved chat history | PG-1 — the Playground character is excluded from the sidebar's `characterOrder` but not from the character grid, where it can be searched, opened and deleted | Orchestrator-confirmed |
+| Dead / non-functional UI | PG-2 — Prompt Convertion's per-file Delete button has no `onclick`; PG-3 — a dead `PlaygroundStore === 2` branch and an empty `PlaygroundRegex.svelte` | PG-2 Orchestrator-confirmed; PG-3 Reported |
+| Shared live setting | PG-4 — the Embedding tool's OpenAI/Custom options bind directly to the same `supaMemoryKey`/`hypaCustomSettings` fields that long-term memory uses, so a change made while testing there silently changes chat memory too; may be intended, and the wiki page tells users | Orchestrator-confirmed |
+
+- **Spot check (doc-writer, 2026-09-22):** PG-1 confirmed in source, with one citation to correct.
+  `GridCatalog.svelte`'s `formatChars()` (`src/lib/Others/GridCatalog.svelte:35-65`) loops over
+  `db.characters` and only skips entries on `trashTime` (`:47-52`); it never checks `chaId`, so
+  `'§playground'` is not filtered out. `checkCharOrder()` does skip it, but not at the report's
+  cited `src/ts/globalApi.svelte.ts:2109` — that line falls inside `addUncleanable`'s asset-cleanup
+  pass and is unrelated. The actual exclusion is `src/ts/globalApi.svelte.ts:2237`, inside
+  `checkCharOrder()` (`:2213-2241`): `if (charId !== '§temp' && charId !== '§playground' &&
+  !char.trashTime) { DBState.db.characterOrder.push(charId) }`. The claim holds; only the line
+  citation is wrong. The `chaId`/name assignment also checks out:
+  `src/lib/Playground/PlaygroundMenu.svelte:44` sets `character.chaId = '§playground'`, `:34` sets
+  `char.name = 'assistant'`, `:33` sets `char.utilityBot = true`.
+- **Priority:** low relative to CHORE-01/03/07/10 — PG-1 needs a user to notice and delete a
+  look-alike grid entry, not an ordinary save/reload path. The report's own fix is cheap: skip
+  `'§playground'`/`'§temp'` in `formatChars()` the same way `checkCharOrder()` does. Per the report,
+  `GridCatalog.svelte` had uncommitted changes in the working tree from another session at the time
+  of writing; coordinate before editing it.
+- **Overlap:** PG-4 touches the same settings fields as CHORE-10's long-term-memory findings
+  (`supaMemoryKey`, `hypaCustomSettings`), but it is a UI-sharing issue, not one of CHORE-10's
+  cataloged memory-computation bugs — read both before touching those settings. No overlap found
+  with CHORE-05, CHORE-09 or CHORE-14.
+- **Wiki coupling:** the Playground wiki page (`wiki/Playground.md`) documents PG-1 (the Playground
+  chat appears in the character grid) and PG-4 (the Embedding tool shares memory settings) as
+  current behaviour; a fix to either must update the page.
 
 ## Sequencing Summary
 

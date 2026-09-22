@@ -1,7 +1,7 @@
 # CHORE-01 + Phase 2 item 2 plan — mark non-selected character edits for save, then partition the selected-character tracker
 
-Status: **rev 3 — GATE 1 PASSED (re-review [APPROVE-WITH-FINDINGS], 2026-09-22); all findings folded
-in, F3 decided by the maintainer. Nothing implemented.**
+Status: **Stage 1 implemented; gate 2 passed on code after three rounds (last REJECT text-only,
+fixed); live check passed; committed as `152cc563`.**
 Rev 1 was REJECTED at gate 1; rev 2 passed the re-review with findings F1-F11 (§10), folded in
 below. The Orchestrator re-verified rev 1's blocking findings in source before accepting them.
 Branch `fix/persistence-conflict-platform-hardening`, base HEAD `0291ea36`.
@@ -285,6 +285,36 @@ closure (Report 11 §4, §8 method).
 - Stage 2: keystroke and streaming frame times on a 10k-message character before and after; time a
   `chatPage` switch; heap after selecting it. All numbers best-case hardware.
 
+### Live check (Stage 1) — completed 2026-09-22
+
+Run by the Orchestrator against the maintainer's dev server, pane visible, on the 31-character
+module-heavy fixture. All three Stage 1 checks passed after a page reload: trash restore through
+the catalog trash tab without opening the character; V3 `setCharacterToIndex`, `setChatToIndex`, a
+V3-style `setDatabase` with a fresh `characters` array, and a V2-style in-place edit plus
+`setDatabaseLite`, each on a different non-selected character; and a generation (built-in Echo
+model, non-streaming) with the selection switched mid-generation via `selectedCharID.set` (Ctrl+]
+did not switch while focus was in the input) — the reply persisted in the original character. A
+save after a plugin `setDatabase` on 31 characters completed about 0.8 s after the call, including
+the debounce. Test markers remain in the fixture. Ledger row 69.
+
+**Large-fixture measurement (perf-analyzer, Node, i9-13900K; best case, not a Pi/phone claim).**
+One save iteration with no reload, real `prepareSaveIteration` + real `RisuSaveEncoder.set()` on a
+warmed encoder, real `$state` proxy, `buildManyCharactersFixture`; median of 6 (max in brackets):
+
+| Fixture | `prepareSaveIteration` all-N / 1 | `set()` all-N (plugin `setDatabase`) | `set()` 1 id (normal) | Transient heap, all-N `set()` |
+|---|---|---|---|---|
+| 500 chars, ~20k messages | 0.94 / 0.62 ms | 165 ms (179) | 14 ms | ~18 MB |
+| 1000 chars, ~150k messages | 2.27 / 1.60 ms | ~1.18 s (1.34 s) | 49 ms | ~117 MB |
+
+The all-N cost tracks message volume (7.5x more messages, 7.1x the time), because every character's
+chats are serialised and compressed again. perf-analyzer's report attributed the growth to the
+`indexOf` scan in `set()`; the Orchestrator rejected that: about 500k comparisons at N=1000 is a few
+milliseconds. It is a one-off per plugin `setDatabase`/`setDatabaseLite` call (a single mark loop,
+no repetition in `plugins.svelte.ts`), but a plugin that calls it every turn pays it every turn. On
+target hardware expect several times this: a multi-second main-thread stall on a 1000-character
+profile. Recorded for the maintainer as a follow-up decision (the mark-every-character choice, F3).
+Harness: `Agents/Tools/save-gen/chore01-plugin-setdatabase-save-bench.svelte.harness.ts`.
+
 ## 7. Compatibility
 
 - **No save-format change.** The encoder's `set()` is untouched; `encoder.init` only additionally
@@ -366,3 +396,57 @@ rev-1 blocking findings resolved; option B as written safe to implement. Confirm
   `activeStreamingDisplayOptimizationMode` (§3.2). **F9** guard on `Array.isArray` (§3.3, S3d).
   **F10** citations (`:265`, risuaccess range, `chats.ts` read-only) (§1.2). **F11** S12 with the
   identity tracker enabled (§3.4).
+
+### Gate 2 — Stage 1 implementation, three rounds, 2026-09-22
+
+**Pass 1 — opus-reviewer, fresh — [REJECT].** Two blocking findings, both proven with a probe: **B1**
+`prepareSaveIteration` reloaded before snapshotting, and the post-reload filter dropped in-place
+edits made during the reload (same object) — a decode showed the original text. **B2** plugin
+setters marked every character, so a stale second plugin `setDatabase` made `encoder.set()` delete
+a character's block permanently — reproduced through the real V2 API. Should-fix: a strong `Set` of
+boot proxies kept alive; S12 red for a mock artifact; backup-load wiring untested; the registry
+test overpromised; stale boot comments; drifted citations. Five commit-message corrections. The
+Orchestrator re-verified B1 and B2 in source.
+
+Between passes, an `investigator` checked the B2 fix premise ("every intentional removal sets the
+reload flag"). The premise as worded was **REFUTED**, in favour of the fix: the only removals
+without a reload are the plugin setters and V3 `setCharacterToIndex` re-keying, and those must not
+delete. A first fix attempt by `sonnet-coder` re-appended plugin-removed characters to
+`db.characters`; the Orchestrator **rejected** it because it changes plugin-visible behaviour and
+covers only the setters. The approach was reverted after the tests were restructured (a
+plugin-level "removal honoured" test, and a save-level no-reload presence filter), and the pass-1
+WeakSet should-fix (infeasible; the seed must be iterable) was replaced by
+`takeEncodedCharacterProxies()`.
+
+**Pass 2 — opus-reviewer, fresh — [REJECT].** 1: `onSnapshotTaken` cleared `dirtySinceLastSave`
+before the reload, so a throwing reload left the tab looking clean, and the multi-tab path could
+auto-reload and discard edits without a prompt; fixed with `onSnapshotRestored` plus an
+unconditional flag set in the outer catch. 2: `opts.seed` was retained by effect closures, pinning
+boot-time characters (a WeakRef probe showed them still alive); fixed with `opts.seed = undefined`.
+3: misleading test and comment text. Also folded in: O(N²) proxy scans (70 ms at 1000 characters,
+279 ms at 2000, i9) replaced by a per-call Map/Set, and the reload flag cleared before the await so
+a removal during the reload is not erased. Red tests were written before each fix.
+
+**Pass 3 — opus-reviewer, fresh — [REJECT, on text only].** No data-loss, crash or build defect
+found. Four false comments fixed as comment-only edits; the Orchestrator verified with a diff that
+only comment lines changed. Commit-message corrections applied. Non-blocking finding recorded for
+CHORE-03 (§8): a `removeChar('permanent')` splice during an in-flight `set()` can skip a character,
+deleting its block for one write; it heals on the next save, which reloads. Accepted behaviour,
+disclosed in the commit message: a V3 `setCharacterToIndex` re-key keeps the old block, so both
+versions appear after a reload.
+
+Ledger rows 64-68.
+
+**Design changes versus rev 3 §3** (all made in response to the above):
+
+- The snapshot in `prepareSaveIteration` now moves before the reload, instead of after it.
+- A no-reload presence filter: the save never asks the encoder to delete a character outside a
+  reload, so a stale plugin `setDatabase` cannot delete a block.
+- `takeEncodedCharacterProxies()` replaces the WeakSet-of-boot-proxies should-fix, and the seed is
+  released (`opts.seed = undefined`) so boot-time character proxies are not pinned by effect
+  closures.
+- `onSnapshotRestored` replaces the earlier "clear `dirtySinceLastSave` before the reload"
+  behaviour, so a throwing reload and the multi-tab auto-reload path cannot look clean while edits
+  are discarded.
+- The reload flag is cleared before the `await`, not after, so a removal that happens during the
+  reload itself is not erased.
