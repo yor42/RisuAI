@@ -6,6 +6,7 @@
     import { getVersionString, openURL } from "src/ts/globalApi.svelte";
     import { language } from "src/lang";
     import { getRisuHub, hubAdditionalHTML } from "src/ts/characterCards";
+    import { handleHubHtmlClick, sanitizeHubHtml } from "src/ts/hubHtml";
     import RisuHubIcon from "./Realm/RealmHubIcon.svelte";
     import Title from "./Title.svelte";
 
@@ -65,7 +66,12 @@
                   sort: 'recommended'
               }) then charas}
             {#if charas.length > 0}
-              {@html hubAdditionalHTML}
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <!-- A keyboard Enter on a focused anchor dispatches a bubbling click, so this delegated handler already covers keyboard activation; see hubHtml.ts. -->
+              <div onclick={handleHubHtmlClick}>
+                {@html sanitizeHubHtml(hubAdditionalHTML)}
+              </div>
               <div class="w-full flex gap-4 p-2 flex-wrap justify-center">
                   {#each charas as chara}
                       <RisuHubIcon onClick={() => {

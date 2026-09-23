@@ -9,10 +9,11 @@
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
     import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
     import Help from "src/lib/Others/Help.svelte";
-    import { type triggerEffectV2, type triggerEffect, type triggerscript, displayAllowList, requestAllowList, type triggerV2IfAdvanced } from "src/ts/process/triggers";
+    import { type triggerEffectV2, type triggerEffect, type triggerscript, type triggerV2IfAdvanced } from "src/ts/process/triggers";
     import { onDestroy, onMount } from "svelte";
     import { DBState } from "src/ts/stores.svelte";
     import { RISU_EFFECT_DRAG_TYPE, RISU_TRIGGER_DRAG_TYPE } from "src/ts/dragTypes";
+    import { checkSupported as checkSupportedEffect, formatEffectDisplay, formatEffectLabel, type EffectSupportContext } from "src/ts/triggerEffectDisplay";
 
     interface Props {
         value?: triggerscript[];
@@ -562,25 +563,19 @@
         selectMode = 0
     }
 
-    const checkSupported = (e:string) => {
-        if(!value || value.length === 0 || selectedIndex < 0 || selectedIndex >= value.length || !value[selectedIndex]){
-            return false
-        }
-        if(value[selectedIndex].type === 'display'){
-            return displayAllowList.includes(e)
-        }
-        if(value[selectedIndex].type === 'request'){
-            return requestAllowList.includes(e)
-        }
-        if(effectCategories['Special'].includes(e)){
-            return false
-        }
+    // checkSupported's logic now lives in src/ts/triggerEffectDisplay.ts so formatEffectDisplay
+    // and formatEffectLabel can share the exact same predicate instead of a second copy. This
+    // builds the context object that predicate needs from the component's own reactive state
+    // and menu data, so every call site below keeps its original (e:string) => boolean shape.
+    const effectSupportContext = (): EffectSupportContext => ({
+        value,
+        selectedIndex,
+        lowLevelAble,
+        specialEffects: effectCategories['Special'],
+        lowLevelEffects: effectCategories['Low Level']
+    })
 
-        if(lowLevelAble){
-            return true
-        }
-        return !effectCategories['Low Level'].includes(e)
-    }
+    const checkSupported = (e:string) => checkSupportedEffect(e, effectSupportContext())
     const makeDefaultEditType = (type:string) => {
         switch(type){
             case 'v2SetVar':
@@ -2195,55 +2190,6 @@
         e.stopPropagation()
     }
 
-    const formatEffectDisplay = (effect:triggerEffect) => {
-        const type = effect.type
-
-        if(!checkSupported(type)){
-            return `<span class="text-red-500">${language.triggerDesc.v2UnsupportedTriggerDesc}</span>`
-        }
-
-        const txt = (language.triggerDesc[type + 'Desc'] as string || type).replace(/{{(.+?)}}/g, (match, p1) => {
-            const d = effect[p1]
-            
-            if(type === 'v2Comment' && p1 === 'value') {
-                return `<span class="text-gray-400">${d || ''}</span>`
-            }
-            
-            if(typeof d === 'boolean'){
-                return `<span class="text-blue-500">${d ? 'true' : 'false'}</span>`
-            }
-            
-            if(p1.endsWith('Type')){
-                return `<span class="text-blue-500">${d || 'null' }</span>`
-            }
-            if(p1 === 'condition' || p1 === 'operator'){
-                return `<span class="text-green-500">${d || 'null'}</span>`
-            }
-            if(effect[p1 + 'Type'] === 'var'){
-                return `<span class="text-yellow-500">${d || 'null'}</span>`
-            }
-            if(effect[p1 + 'Type'] === 'value'){
-                return `<span class="text-green-500">"${d}"</span>`
-            }
-            if(effect.type === 'v2If' && p1 === 'source'){
-                return `<span class="text-yellow-500">${d || 'null'}</span>`
-            }
-            if(effect.type === 'v2SetVar' && p1 === 'var'){
-                return `<span class="text-yellow-500">${d || 'null'}</span>`
-            }
-            if(effect.type === 'v2DeclareLocalVar' && p1 === 'var'){
-                return `<span class="text-cyan-500">${d || 'null'}</span>`
-            }
-            return `<span class="text-blue-500">${d || 'null'}</span>`
-        })
-
-        if(type === 'v2Comment') {
-            return `<div class="text-gray-500 italic line-clamp-4" style="margin-left:${(effect as triggerEffectV2).indent}rem; word-break: break-all; overflow-wrap: break-word;">// ${txt}</div>`
-        }
-
-        return `<div class="text-purple-500 line-clamp-4" style="margin-left:${(effect as triggerEffectV2).indent}rem; word-break: break-all; overflow-wrap: break-word;">${txt}</div>`
-    }
-    
     const updateGuideLines = () => {
         guideLineKey += 1
     }
@@ -2802,7 +2748,7 @@
                                     {#if effect.type === 'v2EndIndent'}
                                         <div class="text-textcolor" style:margin-left={effect.indent + 'rem'}>...</div>
                                     {:else}
-                                        {@html formatEffectDisplay(effect)}
+                                        {@html formatEffectDisplay(effect, effectSupportContext())}
                                     {/if}
                                 </button>
                                 
@@ -2825,7 +2771,7 @@
                                              markEffectDrag(e, i)
                                              
                                              const dragElement = document.createElement('div')
-                                             dragElement.textContent = formatEffectDisplay(effect).replace(/<[^>]*>/g, '') || 'Effect'
+                                             dragElement.textContent = formatEffectLabel(effect, effectSupportContext()) || 'Effect'
                                              dragElement.className = 'absolute -top-96 -left-96 px-4 py-2 bg-darkbg text-textcolor2 rounded-sm text-sm whitespace-nowrap shadow-lg pointer-events-none z-50'
                                              document.body.appendChild(dragElement)
                                              e.dataTransfer?.setDragImage(dragElement, 10, 10)

@@ -1,5 +1,6 @@
 <script lang="ts">
     import { downloadRisuHub, getRisuHub, hubAdditionalHTML, type hubType } from "src/ts/characterCards";
+    import { handleHubHtmlClick, sanitizeHubHtml } from "src/ts/hubHtml";
     import { ArrowLeft, ArrowRight, MenuIcon, SearchIcon, XIcon } from "@lucide/svelte";
     import { alertInput } from "src/ts/alert";
     import { language } from "src/lang";
@@ -141,7 +142,12 @@
         </button>
     </div>
 {/if}
-{@html hubAdditionalHTML}
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- A keyboard Enter on a focused anchor dispatches a bubbling click, so this delegated handler already covers keyboard activation; see hubHtml.ts. -->
+<div onclick={handleHubHtmlClick}>
+    {@html sanitizeHubHtml(hubAdditionalHTML)}
+</div>
 <div class="w-full flex gap-4 p-2 flex-wrap justify-center">
     {#key charas}
         {#each charas as chara}
