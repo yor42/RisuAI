@@ -1289,6 +1289,339 @@ scope they gave it: an offer to review is not a restriction on editing.
 
 ---
 
+### MC-059 — The realm announcement banner moves below the Related Links grid
+
+- **Tag:** decision
+- **Date:** 2026-09-23
+- **Sweep ref:** none (stated directly this session)
+- **Source:** stated by the maintainer directly, 2026-09-23, answering the one design question
+  Stage 2 could not settle on its own.
+- **Reasoning:** implicit in the option chosen, and recorded here as the argument that was put to
+  them: the banner is arbitrary-height content, so it cannot sit inside a card whose whole purpose
+  is a committed height; placing it last means it renders nothing in the common case (the string
+  is empty), and when it does arrive late there is nothing below it to push.
+- **Alternatives rejected:** three were offered. (a) Inside the realm card as a clamped, scrolling
+  region — rejected: clips long announcements and competes with the preview list for the card's
+  space. (b) Above the grid as today — rejected: it still arrives async above everything and still
+  shifts the grid, which is the Change 1 behaviour the stage exists to remove. (c) Realm screen
+  only — rejected: this was the option that quietly reduces the reach of what the maintainer had
+  called upstream's live announcement channel.
+- **Related:** MC-053 (the card this banner cannot live inside), MC-056, MC-057.
+
+**Consequence for Stage 2.** `MainMenu.svelte`'s `{@html sanitizeHubHtml(hubAdditionalHTML)}` sink
+moves out of the realm block and becomes a sibling after the Related Links grid. Stage 1's
+security properties must survive the move intact: the sanitizer call, the delegated
+`handleHubHtmlClick` wrapper, and the `a11y` ignore comments travel together, and
+`src/lib/UI/MainMenu.hubHtmlSink.svelte.test.ts` is the guard that proves it — it fails if the
+sink is disconnected, which is exactly the risk a move introduces.
+
+**One mechanism this move must not break, and today relies on by accident.**
+`hubAdditionalHTML` is a plain module binding in a `.ts` file, not a rune. `MainMenu` reads a
+fresh value today only because that read sits *inside* the `{#await … then}` body, which Svelte
+creates after the promise resolves. Moved outside that block, the read becomes an ordinary
+template expression whose only dependency is non-reactive, and it will render the value as of
+mount — empty on first load, and never updated. This is the same defect `RealmMain.svelte`
+already has. The move therefore requires the banner's value to become reactive state driven by
+the same fetch, not merely a relocated `{@html}`.
+
+---
+
+### MC-060 — An offline device short-circuits the realm fetch instead of timing out
+
+- **Tag:** decision
+- **Date:** 2026-09-23
+- **Sweep ref:** none (stated directly this session)
+- **Source:** stated by the maintainer directly, 2026-09-23, unprompted, while Stage 2's data layer
+  was being built.
+- **Reasoning:** stated in the answer — the realm cannot work without the internet, so spending the
+  timeout to discover that is wasted, and repeated retries against a known-offline device are worse
+  than wasted.
+- **Alternatives rejected:** none offered; this was volunteered, not chosen from options.
+- **Related:** MC-056 (the state set this extends), MC-057 (the pending state it replaces when
+  offline), MC-053.
+
+> I think there should be a early return in case of when the device is offline. realm won't work
+> without the internet. and I think realm button could disable itself and turn grayed out early
+> with 'device is offline' message if device is not connected to internet instead of wasting time
+> trying again multiple times.
+
+**This makes it five states, not four.** `MC-056` opened the set with failed and empty, `MC-057`
+added pending; offline is the fifth, and it is reached before any request is issued rather than
+after one fails.
+
+**One asymmetry the implementation must respect, and it happens to favour this decision.**
+`navigator.onLine === false` is reliable: it means there is definitely no network. `=== true` is
+not: it means the device is attached to *a* network, not that the internet or the realm host is
+reachable. So the check is sound as an early return and unsound as a precondition — `false`
+short-circuits, `true` must fall through to the ordinary fetch, timeout and failure handling with
+nothing skipped. The maintainer's phrasing ("early return in case of when the device is offline")
+is already on the reliable side of that line; recorded here so a later change does not "simplify"
+it into a reachability test.
+
+**The maintainer drew the boundary themselves, unprompted, in the same exchange**, which settles it
+rather than leaving it as an implementation inference:
+
+> the goal of offline check is for when it is certain that device is offline. I think net
+> reachability case should be covered by 'failed' state. not offline state.
+
+So: **offline is a certainty state, not a diagnosis.** Only `navigator.onLine === false` reaches it.
+A device attached to a network that cannot reach the realm host — captive portal, DNS failure, host
+down, firewall — is a `failed` or `timeout`, arrived at through the ordinary request path. Nothing
+in this stage probes reachability, and nothing should be added that does.
+
+**Two consequences the maintainer did not state, decided at implementation.** The card must leave
+the offline state by itself when connectivity returns, via an `online` listener removed on
+teardown, or the user is stranded until they find the retry control. And the greyed-out retry
+control uses `aria-disabled` rather than the `disabled` attribute, so it stays in the tab order and
+a keyboard or screen-reader user can reach it and hear why it does nothing — the same
+accessibility standard `MC-057` sets for the pending state and the stage brief sets for Stage 3.
+
+---
+
+### MC-061 — The realm card has no separate browse button: the card body is the browse target
+
+- **Tag:** decision
+- **Date:** 2026-09-23
+- **Sweep ref:** none (stated directly this session)
+- **Source:** a Figma prototype the maintainer made — file `Realm Button design`, key
+  `RNE62KHJJwu1lz0pdn3SGu`, frame `3:3` ("Android Compact - 1", 412×917) — plus four notes written
+  on the canvas and two answers given when the prototype was read back to them. The maintainer
+  flagged it as their first time using Figma; the geometry is nonetheless unambiguous and is what
+  this entry records.
+- **Reasoning:** stated in the notes themselves, quoted below.
+- **Alternatives rejected:** a separate "Browse RisuRealm" button in the card header, which is what
+  Stage 2 had already built — rejected explicitly ("remove the separate button entirely").
+- **Related:** MC-053 (the card this refines), MC-057, MC-060.
+
+**The prototype's geometry.** Four 91×91 placeholder squares in a 2×2 block, and the realm card at
+133×191 beside them spanning both rows. Inside the card: a title, a description line, a frame named
+"Scrollable entries", and a semi-transparent compass icon bleeding off the bottom-right.
+
+**The canvas notes, verbatim:**
+
+> 1. 'Browse risurealm' button overshoots the right edge
+> 2. New button would be in brightest color of current colorset
+> 3. Clicking each entry would take user directly to each entry. while clicking outside of the
+>    scrollable zone would act same as the original "Browse Risurealm" Button.
+
+**Two ambiguities were put back to the maintainer and answered.**
+
+*The 91×91 squares are placeholders*, not a request to resize the four Related Links cards. Those
+cards, and the grid, are unchanged by this decision. Only the realm card is new.
+
+*Note 1 is a bug report about existing behaviour, not a layout instruction.* In their words:
+"overshooting is more like a bug report of what is already there. goal is to remove the separate
+button entirely and doing what note 3 says."
+
+**Three further clarifications, given unprompted:**
+
+> description and lucide icon is to match the design of how other buttons(emails, discord, etc)
+> looks. so copying hovering animation too would be a good idea.
+
+> hiderealm would preferrably hide this new one widget entirely.
+
+> description should be a description for what this button does. like 'browse more characters
+> using risurealm'.
+
+**What this means for the implementation, including one reversal.** The card carries no separate
+browse button; a click anywhere outside the scrollable entries opens RisuRealm, and each entry
+opens that character. Because the whole card is now clickable, the card-level hover lift is honest
+and is restored — an earlier instruction had moved it onto the child buttons precisely because a
+non-clickable card should not imply otherwise, and that reasoning no longer applies.
+
+**The card stays a `<div>` regardless.** The rows inside it are buttons, and interactive children
+inside a `<button>` are invalid and break keyboard navigation — which would silently disable
+`realmDirectOpen`, a persisted setting shipping help text in seven locales that names this exact
+behaviour. A delegated click handler on the card gives the mouse behaviour; the title is a
+focusable control carrying `hubBrowseMore` as its accessible name, so the keyboard path survives
+the loss of the visible button.
+
+**Two constraints the design cannot have anticipated, decided at implementation and flagged.**
+"Brightest color of current colorset" maps to the user-customisable `--risu-theme-primary-*` scale
+rather than the mock's literal blue. On that background the link cards' `textcolor2` description
+token lands near 1.3:1 and is effectively unreadable, so the secondary line reproduces the
+*relationship* with reduced-opacity `textcolor` instead of copying the token. And "hide this new
+one widget entirely" was read as covering the announcement banner as well as the card, because the
+banner is realm-server content and sat inside the `hideRealm` guard before Stage 2 moved it. That
+was flagged as an interpretation rather than the maintainer's words, put back to them, and
+**confirmed**: "I approve that 'hiderealm' should hide the banner too."
+
+---
+
+### MC-062 — The realm announcement must be visibly labelled as coming from RisuRealm
+
+- **Tag:** decision
+- **Date:** 2026-09-23
+- **Sweep ref:** none (stated directly this session)
+- **Source:** stated by the maintainer directly after running the Stage 2 build and looking at the
+  home screen.
+- **Reasoning:** stated in the answer — an unlabelled announcement can be misread.
+- **Related:** MC-059 (which moved this banner below the grid), MC-061, MC-053.
+
+> we should do something about banner's decoration as it does not have any decoration at all. main
+> menu currently looks like this, and "we are looking for feedback" just left there with no labels
+> or titles such as "announcement from risurealm" can be misreading.
+
+**The misreading is a provenance problem, not only a styling one.** `hubAdditionalHTML` is HTML
+supplied by **upstream's** realm server and rendered on this app's own home screen. Unlabelled, a
+message like "We are looking for feedback!" reads as first-party — as though RisuAI were asking.
+The fix is a container in the cards' visual language plus a heading naming the source, rendered
+only when the announcement is non-empty, so an empty labelled box never appears.
+
+The container is **not** clickable and takes no hover lift: only the links inside it are
+interactive, through the delegated handler Stage 1 established. Nothing about the sanitization
+changes.
+
+**This is also the first time the maintainer has run the Stage 2 build**, and the screenshot
+confirmed `MC-061`'s note 1 literally — the "Browse RisuRealm" button overflowed the card's right
+edge, in Korean, exactly as the canvas note described. That button is removed by the same pass.
+
+---
+
+### MC-063 — In `cn.ts` the product name is Latin "Risuai", not the 叡苏 transliteration
+
+- **Tag:** decision
+- **Date:** 2026-09-23
+- **Sweep ref:** none (stated directly this session)
+- **Source:** stated by the maintainer directly, answering a question raised by a locale survey.
+- **Reasoning:** stated in the answer — RisuAI is a proper noun.
+- **Alternatives rejected:** standardising on 叡苏, which had the larger share of existing usage
+  (roughly 14 occurrences against 3).
+- **Related:** MC-058 (translations are editable, not off limits), MC-061.
+
+> As I said up above: RisuAI is proper noun, so I think Latin Risuai seems more fitting in cn.
+
+**What prompted it.** `src/lang/cn.ts` was internally split: the transliteration 叡苏 in about
+fourteen places and the Latin form in about three — including the plugin security warnings, which
+are among the highest-stakes strings in the file. The split was an accident rather than a
+convention, so a canonical form had to be chosen before ~98 new keys were added on top of it.
+
+**This is a canonical-form decision, so it applies to existing strings too**, which makes it a
+deliberate, authorised exception to the standing rule against modifying existing translations. The
+exception covers **the product name only** — not wording, punctuation or register in those strings.
+
+**The `welcome` gloss stays.** That string reads "Risu（叡苏）", glossing the transliteration in
+parentheses. Dropping a gloss from a welcome message is a different kind of edit from harmonising a
+label, so it was referred back rather than decided by an agent, and the maintainer kept it: *"gloss
+can stay there."* A one-time introduction of the name survives fine alongside Latin being canonical
+everywhere else.
+
+---
+
+### MC-064 — `cn.ts` uses 人设 for the persona concept, not 用户
+
+- **Tag:** decision
+- **Date:** 2026-09-23
+- **Sweep ref:** none (stated directly this session)
+- **Source:** stated by the maintainer directly, in the same exchange as `MC-063`.
+- **Reasoning:** stated in the answer — the community standard is the more sensible choice.
+- **Alternatives rejected:** leaving the existing 用户-based wording, which was internally
+  consistent and had been recorded as "not a defect" before this decision.
+- **Related:** MC-063 (the other authorised exception in the same file), MC-058.
+
+> following community standard in terms of persona seems more sensible.
+
+`src/lang/cn.ts` rendered the persona concept — the profile representing the user in a roleplay —
+with 用户 wording across roughly fourteen keys, where `zh-Hant.ts` uses 人設. Internally consistent,
+but generic enough that a user would not connect "用户信息" to "the character profile I use to
+represent myself".
+
+**Like `MC-063`, this is an authorised exception to the rule against modifying existing
+translations, and it is scoped to the persona concept only** — not the surrounding wording,
+punctuation or register.
+
+**It is a judgement per key, not a search and replace.** `zh-Hant.ts` is the reference because it
+draws the line: 人設 for `persona`, `largePersonaPortrait`, `includePersonaName`, `bindPersona` and
+the bind/unbind messages, but 使用者設定 for `exportPersona`/`importPersona` and 使用者備註 for
+`personaNote`, where the string really does mean user settings. `personality` is the character's
+personality and is untouched at both of its keys.
+
+---
+
+### MC-065 — The GitHub card becomes the Source & Issues disclosure; Communities gets only the invite fix
+
+- **Tag:** decision
+- **Date:** 2026-09-23
+- **Sweep ref:** none (stated directly this session)
+- **Source:** stated by the maintainer directly, answering the two questions a Stage 3 evidence
+  packet could not resolve from source.
+- **Reasoning:** for the second half, stated in the answer — the fork has no Discord server of its
+  own.
+- **Alternatives rejected:** a separate sixth card beside the existing GitHub one (would put two
+  GitHub-ish cards side by side and grow the grid the realm card was just fitted into); folding
+  Discord into the same disclosure (would bury the Discord link a level deeper). For Communities:
+  giving that page the same four destinations, and leaving it untouched entirely.
+- **Related:** MC-054 (the invite standardisation this executes), MC-053, MC-061.
+
+**On the home screen, the existing GitHub card *becomes* the disclosure** rather than gaining a
+neighbour. Same position in the Related Links grid; activating it reveals four destinations — this
+fork's repository and issues, upstream's repository and issues — instead of navigating straight to
+upstream.
+
+**On the Communities settings page, only the stale Discord invite is corrected** — `JzP8tB9ZK8`
+becomes `Exy3NrqkGm`, per `MC-054`. That page's GitHub button keeps pointing at upstream and gains
+no fork links.
+
+> just fix the invite - fork does not have discord server.
+
+**Two consequences worth carrying into implementation.**
+
+The `RelatedLink` type in `MainMenu.svelte` assumes every entry is a direct-navigate URL —
+`onclick={() => openURL(relatedLink.href)}`. One entry now reveals a sub-list instead, so that
+assumption breaks and the `{#each}` render must handle both shapes. It looks like a one-line change
+and is not.
+
+**There is no accessible disclosure pattern in this codebase to reuse.** A repo-wide search for
+`aria-expanded`, `aria-haspopup` and `aria-controls` across `src/lib` returns **zero** matches.
+`Accordion.svelte` is a real `<button>`, so Tab and Enter work by native HTML semantics, but it
+announces no expand/collapse state; `LoadoutModal.svelte` has no `role="dialog"`, no focus trap and
+no Escape handler at all. No accessible-primitives dependency exists — no `bits-ui`, `radix`,
+`melt`, `headlessui` or `floating-ui`. So the maintainer's standing constraint for this stage —
+*"It must work by tap and by keyboard. Hover may be an enhancement, never the only path"* — has to
+be met by building the pattern, not composing one. The `Accordion` is the component most likely to
+be copied forward precisely because it is the only reveal-on-click control here, and copying it
+would carry its accessibility gap into the one component whose purpose is accessibility.
+
+---
+
+### MC-066 — The Email card becomes a disclosure carrying the maintainer's own address
+
+- **Tag:** decision
+- **Date:** 2026-09-23
+- **Sweep ref:** none (stated directly this session)
+- **Source:** stated by the maintainer directly, unprompted, after seeing the Source & Issues
+  disclosure working.
+- **Reasoning:** implicit in the request — the same fork-versus-upstream split the GitHub card
+  makes, applied to contact. Someone with a bug in *this* build should be able to reach the person
+  who maintains it rather than upstream's support.
+- **Alternatives rejected:** none offered; volunteered.
+- **Related:** MC-065 (the disclosure this reuses), MC-054 (the upstream marker).
+
+> currently E-mail only points to upstream. I think it can have fork submenu too, which should
+> point to my email(yoonch1022@naver.com)
+
+The Email card gains two destinations: `mailto:yoonch1022@naver.com` first, then
+`mailto:support@risuai.net` carrying the grey upstream marker.
+
+**This entry exists because its absence was caught at a gate.** The implementation shipped the
+address while `MC-065` covered only the GitHub card and the plan still described Email as an
+untouched plain link. A reviewer reading the records — correctly — flagged it as an implementer
+publishing a personal address outside approved scope, and recommended getting an explicit yes
+before committing. The decision was real; the record was missing.
+
+The failure was the Orchestrator's: the maintainer gave the decision in conversation and it was
+implemented without being written down. **An authorised change that is not recorded is
+indistinguishable from drift**, and this campaign already tracks three cases of a claim widening
+because nobody could check it against a record. Recording a decision is not bookkeeping after the
+fact; it is what makes the difference between the two visible later.
+
+**Worth noting because it is effectively one-way:** a personal address in shipped UI lands in git
+history and in every built artifact. That is the maintainer's call to make about their own
+application, and they made it — but it is the kind of change that should never reach a commit on an
+implementer's initiative.
+
+---
+
 ## Open questions
 
 The three entries below are questions addressed to the maintainer that were still unresolved as of

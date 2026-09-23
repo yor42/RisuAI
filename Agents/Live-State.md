@@ -13,159 +13,143 @@ decisions and context, see `Agents/Maintainer-Context.md`.
 
 ## Branch and commit state
 
-Branch `fix/persistence-conflict-platform-hardening`, **6 commits ahead of origin, nothing pushed.**
+Branch `fix/persistence-conflict-platform-hardening`, **10 commits ahead of origin, nothing
+pushed.**
 
-- `65ca6c0`, `4db160d7`, `094bf505`, `adc838c4` — the documentation restructure and the AGENTS.md
-  fact-check.
-- `5367a3b8` — three over-propagated claims corrected, six maintainer decisions recorded.
-- `0558f775` — Stage 1 of the home-screen rework: three unsanitized `{@html}` sinks closed.
+- `65ca6c0`, `4db160d7`, `094bf505`, `adc838c4`, `5367a3b8`, `6717547d` — the documentation
+  restructure, the AGENTS.md fact-check, and the corrections that preceded this work.
+- `0558f775` — home-screen Stage 1: three unsanitized `{@html}` sinks closed.
+- `d6379a6b` — home-screen Stage 2: the realm preview rebuilt as a Related Links card.
+- `131fdcd5` — the locale pass: 510 missing keys filled, nine broken strings repaired.
+- `deb873b2` — home-screen Stage 3: the fork-aware Source & Issues disclosure.
 
-**The only uncommitted work is the paused durable-drafts source.** See the last section.
+## The home-screen rework is COMPLETE
 
-## Home-screen rework
+All three stages are committed. What remains is **one live browser check**, below.
 
-`src/lib/UI/MainMenu.svelte`, mounted from `src/lib/ChatScreens/DefaultChatScreen.svelte` and from
-nowhere else. Three stages, each with its own plan gate.
+**Stage 1** closed three unsanitized `{@html}` sinks, not the two the brief named. The third —
+`formatEffectDisplay` in `TriggerV2List.svelte` — was the severe one, reachable by importing a
+character card rather than by compromising a server.
 
-### Stage 1 — DONE, committed as `0558f775`
+**Stage 2** replaced the realm block with a card inside the Related Links grid. Five states
+(offline, pending, failed, empty, populated) where there had been one; `getRisuHub` returns a
+discriminated `RisuHubResult` with an 8-second `AbortController` bound; `export let
+hubAdditionalHTML` deleted and the announcement moved below the grid into a labelled container.
 
-Three unsanitized `{@html}` sinks, not the two the brief named. A sweep found 15 `{@html}` sites
-across 12 files; three carried unsanitized input.
+**Stage 3** turned the GitHub card into a disclosure revealing this fork's repository and issues
+alongside upstream's, gave the Email card the same treatment, and marked every upstream-owned link.
 
-- `src/ts/hubHtml.ts` — sanitizes the realm feed (`hubAdditionalHTML`) through a DOMPurify
-  allowlist on a **private instance** (`createDOMPurify(window)`), because `parser.svelte.ts`
-  registers three global hooks at import time that measurably altered this boundary. Anchors route
-  through `openURL`, restricted to http/https locally rather than inside `openURL`, because
-  `MainMenu`'s own `relatedLinks` opens a `mailto:`.
-- `src/ts/triggerEffectDisplay.ts` — escapes `formatEffectDisplay`'s interpolated holes. This was
-  the severe sink: `characterCards.ts` imports `triggerscript` from character cards with **no
-  validation**, so an imported card was a stored-XSS carrier. The realm sinks by contrast need
-  control of upstream's realm server.
+### What only a browser can still check
 
-72 tests, every one mutation-verified, including three component tests that fail when a sink is
-disconnected — the modules had been thoroughly tested while the wiring had no guard at all.
+`happy-dom` performs no layout and models neither paint order, pointer interception, nor native
+focus traversal. Stage 2 produced **four layout defects that passed 941 tests**. These remain
+unverified:
 
-**Round 1 rejected this stage, and the reason is worth carrying forward.** The fix escaped the ten
-`{{…}}` holes and missed the eleventh interpolation — the template itself.
-`(language.triggerDesc[type + 'Desc'] || type)` falls back to the raw, card-controlled
-`effect.type`; `.replace` rewrites nothing because a payload contains no holes; and
-`checkSupported` treats every unknown effect name as supported. Two artifacts asserted the
-escaping invariant while it was false.
+1. **Enter and Space on the disclosure trigger.** Provably untestable here — `happy-dom` does not
+   implement the browser's Enter/Space-to-click default action for synthetic events, and real
+   browsers fire it only for trusted ones, so a test would behave identically against a correct
+   implementation and a deleted `onclick`. **This is the only verification that behaviour will
+   ever get.**
+2. **The slide/fade transitions**, and again with `prefers-reduced-motion` set. They never run
+   under test at all: the component collapses their duration to zero when
+   `Element.prototype.animate` is absent, which is how the suite passes.
+3. **The tap target.** A trigger stretched over the whole card would intercept taps on the links it
+   reveals. Closed-state screenshots look perfect and every DOM test passes.
+4. **The Email card's grid reflow.** Opening a disclosure grows its row; the sibling card shares
+   that row and is `justify-center`, so its content will drift. Predicted from the markup, not
+   observed. If it reads badly, `items-start` on the grid or `self-start` on the card fixes it —
+   but either changes how all five cards size.
+5. **Contrast** on the grey `upstream` pill and the `bg-black/30` panel. Stage 2 hit exactly this:
+   `textcolor2` on the realm card measured about 1.3:1 and had to be replaced.
 
-**Open follow-up, deliberately deferred (maintainer decision, 2026-09-23).** `openURL` does a bare
-`window.open(url, "_blank")` with no `noopener`, so an opened page keeps a `window.opener` handle
-on the app window, and Stage 1 makes realm-controlled URLs a consumer of that path for the first
-time. **Deferred because `src/ts/globalApi.svelte.ts` carries uncommitted durable-drafts work** —
-fixing it there would entangle two independent stages in one file — **not because it was judged
-unimportant.** Do it once durable drafts unblocks that file.
+**The maintainer starts the dev server (port 5174) and the pane must be visible.** The built-in
+browser pane **cannot boot this app** — its service-worker registration fails and `registerSw()` is
+awaited unguarded, so the bootstrap dies at "Checking Service Worker...". Use Claude in Chrome. A
+phone-width RDP session cannot reach the `md` or `lg` breakpoints; the window must also not be
+maximised, or Chrome ignores resize requests.
 
-### Stage 2 — home-screen layout. Not started.
-
-Per `MC-053`, the realm block becomes a **card inside the Related Links grid** — a taller card
-holding a compact preview list — rather than a full-width section above it. That dissolves the
-mobile-fold problem by construction instead of by reordering.
-
-Per `MC-057`, the widget renders a visible pending state: a spinner plus "loading...". No new
-`src/lang` key is needed (`language.loading` exists, `animate-spin` is already used in `src/lib`).
-The spinner must sit **inside** the card's committed height so it does not reintroduce the shift
-`MC-053` removes, and needs `role="status"` or an `aria-live` region to be announced at all.
-
-Per `MC-056`, the feed must distinguish a failed fetch from an empty result. **This is not a
-wording change confined to `MainMenu.svelte`:** `getRisuHub` destroys the distinction inside
-`src/ts/characterCards.ts` by catching everything and returning `[]`, so its contract changes, and
-`RealmMain.svelte` is a second consumer that moves with it. The plan gate should settle all four
-states at once — in flight, failed, empty, populated — including the missing fetch timeout, rather
-than fixing the wording and leaving two states indistinguishable.
-
-### Stage 3 — a "Source & Issues" disclosure. Not started.
-
-Must work by tap and by keyboard; hover may only ever be an enhancement. Per `MC-054`, standardise
-on the `Exy3NrqkGm` Discord invite (`Communities.svelte` still carries the stale `JzP8tB9ZK8`) and
-mark upstream-owned links with a grey `upstream` label.
-
-### Realm-fetch defects, recorded and not yet fixed
-
-`getRisuHub` has no fetch timeout. It returns `jso.cards`, which is `undefined` on a 200 response
-lacking a `cards` key, and `MainMenu.svelte` then calls `charas.length` with no `{:catch}` branch
-anywhere in the block. `hubAdditionalHTML` is a plain module binding in a `.ts` file, not a rune —
-`RealmMain.svelte` reads it at top-level template position, so its copy is frozen at mount and
-never updates when sort/search/NSFW refetch. **The `{#await}` does not re-invoke on re-render** —
-traced through Svelte's compiled `await.js`, not assumed.
-
-## Durable drafts stage — PAUSED, verified incomplete
+## Durable drafts — PAUSED, verified incomplete
 
 **Do not re-open the question of whether this stage is finished.** It was checked against
-`Agents/Reports/20-durable-drafts-plan.md` on 2026-09-23 and is not. See `MC-055`. Resume **after**
-the home-screen rework, per the same decision.
+`Agents/Reports/20-durable-drafts-plan.md` and is not. See `MC-055`. It resumes **now** that the
+rework is done, per the same decision.
 
-Built, complete, and matching the plan section by section — the main message editor only:
-
-- `src/ts/draftContents.ts` — LRU-bounded (200 records), identity-keyed, no index fallback.
-- `src/ts/draftContentOrphanGate.ts` — 60s registration cap, swept on `saveDb`'s existing cadence,
-  no new timer. The two bounds are independent, as §6.1 specifies.
-- `src/lib/ChatScreens/Chat.svelte` — identity frozen at open, seeding precedence, both edit
-  surfaces bound to the buffer, §5.5 deliberately not adopted.
-
-`src/ts/localDrafts.ts` and its test are byte-untouched — confirmed by git, not by reading. That is
-the stage's own falsifier for the two-map split.
+Built and matching the plan section by section, for the main message editor only:
+`src/ts/draftContents.ts` (LRU-bounded, identity-keyed), `src/ts/draftContentOrphanGate.ts` (60s
+cap, swept on `saveDb`'s existing cadence), and `src/lib/ChatScreens/Chat.svelte`.
 
 **Genuinely missing:**
 
 1. **The translation editor's capture is entirely unwired.** `draftContents.ts` implements
    `TranslationIdentity` and has namespacing tests for it, but `Chat.svelte` imports only
-   `MessageIdentity` and never constructs the other. `loadTranslationForEdit` and
-   `saveTranslationEdit` contain no draft-store call at all.
+   `MessageIdentity`. `loadTranslationForEdit` and `saveTranslationEdit` contain no draft-store
+   call at all.
 2. **The visible restore marker and one-click revert exist on neither surface** — this is
-   `MC-042`, a maintainer decision. A case-insensitive search for `revert` or `restored` in
-   `Chat.svelte` returns nothing.
-3. **Gate 2 (the `opus-reviewer` mutant gate) never ran.** Report 20 §11 stops at "proceeding to
-   ... Gate 2". The author's own tests do encode the plan's named mutants, which is real
-   red-before-green coverage — but that is not the same artefact as the gate.
+   `MC-042`, a maintainer decision.
+3. **Gate 2 (the `opus-reviewer` mutant gate) never ran.**
 4. **No live check in the browser pane.**
 
-No unscoped additions were found: every function, constant and comment traces to a numbered section
-of Report 20. `git stash list` is empty; every dangling commit predates the stage.
+## Deferred, and both blocked on the same file
 
-## Composer stage
+`src/ts/globalApi.svelte.ts` carries the uncommitted durable-drafts work, so neither of these has
+been touched. Do them when that file unblocks:
 
-Split out of durable drafts by maintainer decision. Needs flush-under-the-old-key-then-restore-
-under-the-new-key ordering; all three values (`messageInput`, `messageInputTranslate`,
-`fileInput`); and a generation token for the async translate writes. The composer mis-send remains
-live until this lands.
+- **`openURL` has no `noopener`.** It is a bare `window.open(url, "_blank")`, and Stage 1 made
+  realm-controlled URLs a consumer of it. Deferred by maintainer decision, **not** because it was
+  judged unimportant.
+- **`window.open` with a `mailto:` leaves a blank tab** once the OS mail client takes over. Stage 3
+  added two `mailto:` destinations that route through it.
 
-## Report 21 (deferral re-review)
+## Other open items
 
-Findings awaiting prioritisation: `updateInlayScreen` destroying hand-edited custom prompts
-(confirmed data loss); remote-block read verification; `removeChar`'s missing `doingChat` guard;
-plugin permission caching (needs verification first); `saveTimeoutExecute`'s missing ceiling; doc
-corrections.
+- **The `.gitignore` entry** for `Asset Cache/Community Mitigation_Webrowser Plugin/` names a path
+  that no longer exists, so `Asset Cache/` itself is not ignored. Nothing is exposed today, but a
+  plugin bundle landing there would not be covered.
+- **Composer stage** — split out of durable drafts by maintainer decision. Needs
+  flush-under-the-old-key-then-restore-under-the-new ordering, all three values, and a generation
+  token for the async translate writes. The composer mis-send remains live until it lands.
+- **Report 21 findings** awaiting prioritisation: `updateInlayScreen` destroying hand-edited custom
+  prompts (confirmed data loss), remote-block read verification, `removeChar`'s missing `doingChat`
+  guard, plugin permission caching, `saveTimeoutExecute`'s missing ceiling.
 
-## Documentation
+## Locales
 
-D1 and D2 of the restructure are complete and committed; D3 was assessed and deliberately skipped.
-`AGENTS.md` was fact-checked against source in `094bf505` — eleven claims were wrong, stale or
-materially incomplete.
+All seven files are at **1560 leaf keys**, zero missing, zero present that `en.ts` lacks, and 50
+CBS tag names each with none unknown to English. Two verification scripts live in the session
+scratchpad and should be rewritten if needed rather than trusted from memory: one evaluates each
+module with the repo's own esbuild and compares keys and placeholders; the other audits CBS tag
+names. **A line-based parser cannot do this** — `en.ts` has 74 arrow-function values whose braces
+drift a brace-counting stack, and the first attempt reported ~77 missing and ~56 stale keys per
+locale, uniformly, including a key English plainly has.
 
-`5367a3b8` corrected three instances of one recurring failure — a true maintainer statement widened
-by one step, with the widening never marked. `MC-026` (a referent slipped between this fork's
-maintainer and upstream's developer), `MC-052` (a comparison to other forks became a claim about
-this fork), `MC-058` (an offer to review ko/en became a ban on editing `src/lang`). **When
-restating something the maintainer said, keep the scope they gave it.**
-
-**One open item is not documentation:** the `.gitignore` entry for
-`Asset Cache/Community Mitigation_Webrowser Plugin/` names a path that no longer exists, so
-`Asset Cache/` itself is not ignored. Nothing is exposed today — `git status --untracked-files=all`
-is clean there — but a plugin bundle landing in that folder would not be covered.
+Three changes this session modify existing translations rather than adding to them, each on an
+explicit maintainer decision and each recorded as an authorised exception: `MC-063` (Latin
+`Risuai`), `MC-064` (人设), and the Spanish register harmonisation.
 
 ## Test suite
 
-**64 files, 906 passed, 4 skipped, 0 failed.** `pnpm check` clean. Run with
-`npx vitest run --exclude "**/.claude/**" --exclude "**/node_modules/**"` — a stray worktree under
-`.claude/worktrees/` produces phantom failures otherwise.
+**70 files, 972 passed, 4 skipped, 0 failed.** `pnpm check` clean. Run with
+`npx vitest run --exclude "**/.claude/**" --exclude "**/node_modules/**"` — the bare command picks
+up a stray worktree under `.claude/` and reports phantom failures.
 
 ## Uncommitted work
 
-**Durable drafts only** (paused, incomplete — see above): `src/lib/ChatScreens/Chat.svelte`,
+**Durable drafts only**, exactly as described above: `src/lib/ChatScreens/Chat.svelte`,
 `src/ts/globalApi.svelte.ts`, `src/ts/draftContents.ts`, `src/ts/draftContents.test.ts`,
 `src/ts/draftContentOrphanGate.ts`, `src/ts/draftContentOrphanGate.test.ts`,
 `src/lib/ChatScreens/Chat.messageEditor.svelte.test.ts`.
+
+## What this session established about its own method
+
+Five gate rounds ran across two stages. **Four rejected.** Three found defects no test could have
+caught: a Tailwind cascade bug proved by compiling the classes through the repo's own build, an
+accessibility regression that two tests had pinned as correct, and a plan instructing an agent to
+violate its own documented contract.
+
+Three separate artifacts shipped false statements before being caught — a code comment, a test
+header, and the commit message. None affected runtime; all three would have misled the next reader.
+**Gate the prose the same way as the code.**
+
+And twice a measurement that looked authoritative was wrong: the line-based locale parser above,
+and a `grep` for `\r` that reports zero regardless of truth in this shell. Count bytes with
+`tr -cd '\r' | wc -c` instead.
