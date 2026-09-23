@@ -1,0 +1,260 @@
+<script module lang="ts">
+    export interface Destination {
+        label: string;
+        href: string;
+        upstream: boolean;
+    }
+</script>
+
+<script lang="ts">
+    import { ChevronDownIcon, FolderCodeIcon } from "@lucide/svelte";
+    import { fade, slide } from "svelte/transition";
+    import { openURL } from "src/ts/globalApi.svelte";
+    import { language } from "src/lang";
+
+    // A plain disclosure, not an ARIA menu: the revealed region is an
+    // ordinary list of links that navigate away, not a set of in-page
+    // commands, so this carries no role="menu"/role="menuitem"/
+    // aria-haspopup. `aria-expanded` and `aria-controls` on the trigger are
+    // the only ARIA this control needs; they are the first uses of either
+    // attribute in src/lib, so there is no existing pattern here to copy.
+    //
+    // Four separately-observable close paths, none of which is left
+    // implicit:
+    //   - Escape (window-scoped, so it fires no matter which item holds
+    //     focus) closes and returns focus to the trigger.
+    //   - Activating an item closes, then calls openURL.
+    //   - Clicking outside the card closes, without moving focus.
+    //   - Focus leaving the card (via `focusout` with a `relatedTarget`
+    //     containment check, not `blur`) closes. A bare `blur` would fight
+    //     Escape's own focus-return, since moving focus back to the trigger
+    //     blurs whatever the user was last focused on.
+
+    interface Props {
+        title: string;
+        description: string;
+        cardClass: string;
+        triggerClass: string;
+        iconClass: string;
+        // Defaults to the GitHub repo icon below: the only other caller
+        // (the Email disclosure in MainMenu.svelte) passes its own icon
+        // rather than this component guessing from the destinations.
+        icon?: typeof FolderCodeIcon;
+        // Defaults to the four GitHub destinations below. The Email
+        // disclosure in MainMenu.svelte passes its own two mailto
+        // destinations instead -- that reuse is exactly why
+        // `destinations` and `icon` exist as optional props here: the
+        // discriminated `RelatedLink` union in MainMenu.svelte gained
+        // them for this component's sake (`MC-065` records the
+        // disclosure variant itself, not these two fields), not the
+        // other way around.
+        destinations?: Destination[];
+    }
+
+    // Fork entries first: this build's own source is the more likely
+    // destination for someone looking at this build. Constants, not derived
+    // from git remotes -- a built app has no git to read them from.
+    const defaultDestinations: Destination[] = [
+        { label: language.homeSourceRepoLabel, href: "https://github.com/yor42/RisuAI", upstream: false },
+        { label: language.homeSourceIssuesLabel, href: "https://github.com/yor42/RisuAI/issues", upstream: false },
+        { label: language.homeSourceRepoLabel, href: "https://github.com/kwaroran/RisuAI", upstream: true },
+        { label: language.homeSourceIssuesLabel, href: "https://github.com/kwaroran/RisuAI/issues", upstream: true }
+    ];
+
+    let {
+        title,
+        description,
+        cardClass,
+        triggerClass,
+        iconClass,
+        icon: Icon = FolderCodeIcon,
+        destinations = defaultDestinations
+    }: Props = $props();
+
+    // Unique per instance, so aria-controls never risks colliding between
+    // the GitHub and Email disclosures that now both mount this component.
+    const listId = `source-disclosure-list-${Math.random().toString(36).slice(2)}`;
+
+    let open = $state(false);
+    let cardEl: HTMLDivElement | undefined = $state();
+    let triggerEl: HTMLButtonElement | undefined = $state();
+
+    // Respects prefers-reduced-motion for the open/close transitions below:
+    // nothing else in this codebase reads that preference yet, but
+    // animating a height change (the slide on the revealed list) is exactly
+    // the motion it exists to suppress. The open/close behaviour itself
+    // (aria-expanded, the list mounting/unmounting) is unaffected -- only
+    // the transition duration collapses to zero.
+    let reduceMotion = $state(false);
+
+    $effect(() => {
+        const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
+        reduceMotion = mql.matches;
+        function handleChange(event: MediaQueryListEvent) {
+            reduceMotion = event.matches;
+        }
+        mql.addEventListener("change", handleChange);
+        return () => mql.removeEventListener("change", handleChange);
+    });
+
+    // Svelte's CSS-based transitions (slide and fade both are) build their
+    // keyframes through the Web Animations API, calling the element's own
+    // `animate()`. That method is absent from the DOM implementation the
+    // component tests below run under (happy-dom has no
+    // `Element.prototype.animate`), and Svelte does not feature-detect it
+    // itself -- a zero duration is the one input that makes the transition
+    // engine skip that call entirely and finish synchronously instead, so
+    // it is reused here for both reduced motion and missing WAAPI support.
+    const supportsAnimate = typeof Element !== "undefined" && typeof Element.prototype.animate === "function";
+
+    const transitionDuration = $derived(reduceMotion || !supportsAnimate ? 0 : 300);
+
+    function close() {
+        open = false;
+    }
+
+    function closeAndReturnFocus() {
+        open = false;
+        triggerEl?.focus();
+    }
+
+    function toggle() {
+        open = !open;
+    }
+
+    // The items are <a href> elements, not bare buttons: that gives native
+    // keyboard activation, lets a user right-click to copy the repository
+    // or email address, and (together with rel="noopener noreferrer" below)
+    // keeps the real href in place for a middle-click, which fires auxclick
+    // rather than click and so never reaches this handler. target="_blank"
+    // is part of that same fallback, but only for http(s) hrefs -- a
+    // mailto: href never gets it (see the anchor below), because opening it
+    // in a new tab leaves that tab on a permanent blank page once the OS
+    // mail client takes over. That fallback path is the only thing the
+    // anchor's own target attribute affects here: this handler always
+    // intercepts a plain left-click first, calling openURL below instead of
+    // letting the browser navigate. On the web, openURL still opens mailto:
+    // links via `window.open(url, "_blank")`, which carries the same
+    // stray-tab quirk for that primary path; fixing that would mean
+    // changing openURL's own scheme handling in globalApi.svelte.ts, which
+    // is out of scope here.
+    function activate(event: MouseEvent, href: string) {
+        event.preventDefault();
+        close();
+        openURL(href);
+    }
+
+    function handleWindowKeydown(event: KeyboardEvent) {
+        if (event.key === "Escape") {
+            event.preventDefault();
+            closeAndReturnFocus();
+        }
+    }
+
+    // With two instances of this component mounted at once (the Source &
+    // Issues and Email disclosures on the home screen), a click on one
+    // instance's trigger is an outside click from the other instance's own
+    // handler here, so opening one closes the other. That single-open
+    // behaviour is emergent, not shared state, but it is intended and tests
+    // depend on it.
+    function handleDocumentClick(event: MouseEvent) {
+        const target = event.target as Node | null;
+        if (cardEl && target && !cardEl.contains(target)) {
+            close();
+        }
+    }
+
+    function handleFocusOut(event: FocusEvent) {
+        const next = event.relatedTarget as Node | null;
+        if (!cardEl) {
+            return;
+        }
+        if (!next || !cardEl.contains(next)) {
+            close();
+        }
+    }
+
+    $effect(() => {
+        if (!open) {
+            return;
+        }
+        window.addEventListener("keydown", handleWindowKeydown);
+        document.addEventListener("click", handleDocumentClick);
+        return () => {
+            window.removeEventListener("keydown", handleWindowKeydown);
+            document.removeEventListener("click", handleDocumentClick);
+        };
+    });
+</script>
+
+<div class={cardClass} bind:this={cardEl} onfocusout={handleFocusOut}>
+    <button
+        class={triggerClass}
+        aria-expanded={open}
+        aria-controls={listId}
+        bind:this={triggerEl}
+        onclick={toggle}
+    >
+        <div class="relative z-10 w-[68%] sm:w-[70%]">
+            <h2 class="text-2xl font-bold tracking-tight text-textcolor">{title}</h2>
+            <span class="mt-2 block text-base leading-relaxed text-textcolor2">
+                {description}
+            </span>
+        </div>
+
+        <div aria-hidden="true" class="pointer-events-none absolute -right-12 top-1/2 -translate-y-1/2 text-textcolor">
+            <Icon class={iconClass} strokeWidth={1} />
+        </div>
+
+        <!--
+          The visual echo of aria-expanded, not a substitute for it: the
+          chevron is aria-hidden and rotates on open with the same
+          transition duration the other cards' hover motion uses, but the
+          state itself is carried to assistive tech by aria-expanded above.
+        -->
+        <div
+            aria-hidden="true"
+            class={"pointer-events-none absolute right-4 top-4 z-10 text-textcolor2 transition-transform duration-300" + (open ? " rotate-180" : "")}
+        >
+            <ChevronDownIcon class="h-5 w-5" strokeWidth={1.5} />
+        </div>
+    </button>
+    {#if open}
+        <!--
+          slide on this wrapper animates the height, which is what makes the
+          card's own background (overflow-hidden, so it clips to that
+          height) visibly expand downward on open and collapse on close;
+          fade on the <ul> inside fades the revealed links in and out. Both
+          collapse to a zero-length transition when the user has asked for
+          reduced motion, but the open/close state above is unaffected
+          either way -- only the animation is skipped.
+        -->
+        <div transition:slide={{ duration: transitionDuration }}>
+            <ul
+                id={listId}
+                class="relative z-10 mt-2 flex flex-col gap-1 rounded-lg bg-black/30 p-2"
+                transition:fade={{ duration: transitionDuration }}
+            >
+                {#each destinations as destination}
+                    <li>
+                        <a
+                            href={destination.href}
+                            target={destination.href.startsWith("mailto:") ? undefined : "_blank"}
+                            rel="noopener noreferrer"
+                            class="flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm text-textcolor transition-colors duration-200 hover:bg-selected/50 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600"
+                            aria-label={destination.upstream ? `${destination.label} (${language.homeSourceUpstreamLabel})` : undefined}
+                            onclick={(event) => activate(event, destination.href)}
+                        >
+                            <span>{destination.label}</span>
+                            {#if destination.upstream}
+                                <span aria-hidden="true" class="rounded-full bg-textcolor2/20 px-2 py-0.5 text-xs text-textcolor2">
+                                    {language.homeSourceUpstreamLabel}
+                                </span>
+                            {/if}
+                        </a>
+                    </li>
+                {/each}
+            </ul>
+        </div>
+    {/if}
+</div>

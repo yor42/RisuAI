@@ -2,48 +2,117 @@
     import { DBState } from 'src/ts/stores.svelte';
     import Hub from "./Realm/RealmMain.svelte";
     import { OpenRealmStore, RealmInitialOpenChar } from "src/ts/stores.svelte";
-    import { ArrowLeft, ArrowRight, Compass, FolderCodeIcon, GlobeIcon, MailIcon, Send } from "@lucide/svelte";
+    import { ArrowLeft, ArrowRight, Compass, GlobeIcon, MailIcon, Send } from "@lucide/svelte";
     import { getVersionString, openURL } from "src/ts/globalApi.svelte";
     import { language } from "src/lang";
     import { getRisuHub, type hubType } from "src/ts/characterCards";
     import { handleHubHtmlClick, sanitizeHubHtml } from "src/ts/hubHtml";
     import RealmPreviewRow from "./Realm/RealmPreviewRow.svelte";
+    import SourceDisclosure, { type Destination } from "./SourceDisclosure.svelte";
     import Title from "./Title.svelte";
 
-    type RelatedLink = {
-      title: string;
-      description: string;
-      href: string;
-      logoIcon: "source" | "globe" | "mail" | "paper-airplane";
-    };
+    // Discriminated on `kind` rather than a bare optional `href`, so a
+    // disclosure entry can never also carry a direct-navigate href and vice
+    // versa -- `MC-065` records that this looked like a one-line change and
+    // was not one, precisely because the GitHub card's root element has to
+    // change shape (see the shared class constants and the {#each} below).
+    //
+    // `upstream` on the `link` variant and `destinations`/`icon` on the
+    // `disclosure` variant are additions, not a reshape of the union
+    // itself: `upstream` drives the same grey marker treatment
+    // `SourceDisclosure` already renders per-destination, generalised here
+    // to the Discord and Website cards per `MC-054` ("the upstream label
+    // generalises... to every home-screen link owned by upstream").
+    // `destinations`/`icon` let the Email card reuse `SourceDisclosure` for
+    // its two addresses instead of duplicating the disclosure machinery.
+    type RelatedLink =
+      | {
+          kind: 'link';
+          title: string;
+          description: string;
+          href: string;
+          logoIcon: "globe" | "mail" | "paper-airplane";
+          upstream?: boolean;
+        }
+      | {
+          kind: 'disclosure';
+          title: string;
+          description: string;
+          destinations?: Destination[];
+          icon?: typeof MailIcon;
+        };
 
     const relatedLinkIconClass =
       "h-40 w-40 md:h-44 md:w-44 origin-right -rotate-12 opacity-[0.12] transition-all duration-500 group-hover:scale-105 group-hover:opacity-[0.22]";
 
+    // Expressed once and composed by both branches of the {#each} below
+    // (the plain link <button>, and the disclosure's outer <div> plus its
+    // inner trigger <button>) rather than copy-pasted, so the two card
+    // shapes cannot drift the first time either is restyled.
+    //
+    // relatedCardClass carries the card's visual chrome -- border, rounded
+    // corners, background, overflow clipping (which the decorative icon's
+    // bleed-past-the-edge relies on) and the hover lift/border/background/
+    // shadow motion every card in this grid shares.
+    //
+    // relatedCardTriggerClass carries the sizing: `min-h-[140px]` and
+    // `flex flex-col justify-center` are what give a link card its
+    // collapsed footprint, and `group`+`relative` are what the decorative
+    // icon's `group-hover` and `absolute` positioning need from their
+    // nearest ancestor. For the plain link card, chrome and trigger sizing
+    // sit on the same root <button>. For the disclosure, only the trigger
+    // sizing sits on the inner <button>; the chrome sits on the outer
+    // <div> so the revealed list stays inside the same bordered card
+    // rather than looking like an unstyled panel bolted beneath it.
+    const relatedCardClass =
+      "rounded-2xl border border-borderc/10 bg-darkbg overflow-hidden p-6 transition-all duration-300 hover:-translate-y-1 hover:border-borderc/30 hover:bg-selected/50 hover:shadow-xl hover:shadow-darkbg/50";
+    const relatedCardTriggerClass =
+      "group relative flex min-h-[140px] w-full flex-col justify-center text-left";
+
+    // Fork entries first, matching the GitHub disclosure's own ordering:
+    // this build's own address is the more likely destination for someone
+    // looking at this build.
+    const emailDestinations: Destination[] = [
+      { label: language.homeSourceEmailForkLabel, href: "mailto:yoonch1022@naver.com", upstream: false },
+      { label: language.homeSourceEmailUpstreamLabel, href: "mailto:support@risuai.net", upstream: true }
+    ];
+
     const relatedLinks: RelatedLink[] = [
       {
+        kind: 'link',
         title: language.homeLinkDiscordTitle,
         description: language.homeLinkDiscordDescription,
         href: "https://discord.gg/Exy3NrqkGm",
-        logoIcon: "paper-airplane"
+        logoIcon: "paper-airplane",
+        // Upstream's own Discord, with no fork equivalent (`MC-054`).
+        upstream: true
       },
       {
+        kind: 'link',
         title: language.homeLinkWebsiteTitle,
         description: language.homeLinkWebsiteDescription,
         href: "https://risuai.net",
-        logoIcon: "globe"
+        logoIcon: "globe",
+        // Upstream's own website, with no fork equivalent (`MC-054`).
+        upstream: true
       },
       {
+        // The Source & Issues disclosure (`MC-065`): four fixed GitHub
+        // destinations rendered by SourceDisclosure.svelte, not a
+        // direct-navigate href.
+        kind: 'disclosure',
         title: language.homeLinkGithubTitle,
-        description: language.homeLinkGithubDescription,
-        href: "https://github.com/kwaroran/RisuAI",
-        logoIcon: "source"
+        description: language.homeLinkGithubDescription
       },
       {
+        // The Email card is a disclosure too, for the same reason the
+        // GitHub card is: there are two addresses (fork and upstream), not
+        // one, and a plain link can only ever carry one href.
+        kind: 'disclosure',
         title: language.homeLinkEmailTitle,
         description: language.homeLinkEmailDescription,
-        href: "mailto:support@risuai.net",
-        logoIcon: "mail"
+        destinations: emailDestinations,
+        icon: MailIcon
       }
     ];
 
@@ -160,28 +229,71 @@
       {#if !$OpenRealmStore}
         <div class="grid w-full grid-cols-1 gap-4 p-2 md:grid-cols-2 lg:grid-cols-3">
           {#each relatedLinks as relatedLink}
-            <button class="group relative flex min-h-[140px] flex-col justify-center overflow-hidden rounded-2xl border border-borderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 hover:border-borderc/30 hover:bg-selected/50 hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
-              openURL(relatedLink.href)
-            }}>
-              <div class="relative z-10 w-[68%] sm:w-[70%]">
-                  <h2 class="text-2xl font-bold tracking-tight text-textcolor">{relatedLink.title}</h2>
-                  <span class="mt-2 block text-base leading-relaxed text-textcolor2">
-                    {relatedLink.description}
-                  </span>
-              </div>
+            {#if relatedLink.kind === 'disclosure'}
+              <!--
+                The disclosure entry's root is a <div>, not a <button>: its
+                revealed region is a list of <a href> links, and links
+                cannot live inside a <button> -- nested interactive content
+                is invalid, and the parser would implicitly close an open
+                <button> at the next <button> start tag, silently
+                fragmenting the DOM. The realm card below already documents
+                this exact constraint for the same reason.
+              -->
+              <SourceDisclosure
+                title={relatedLink.title}
+                description={relatedLink.description}
+                cardClass={relatedCardClass}
+                triggerClass={relatedCardTriggerClass}
+                iconClass={relatedLinkIconClass}
+                destinations={relatedLink.destinations}
+                icon={relatedLink.icon}
+              />
+            {:else}
+              <button
+                class={`${relatedCardClass} ${relatedCardTriggerClass}`}
+                onclick={() => {
+                  openURL(relatedLink.href)
+                }}
+              >
+                <div class="relative z-10 w-[68%] sm:w-[70%]">
+                    <div class="flex items-center gap-2">
+                        <h2 class="text-2xl font-bold tracking-tight text-textcolor">{relatedLink.title}</h2>
+                        {#if relatedLink.upstream}
+                            <!--
+                              Decorative pill, aria-hidden: this button
+                              carries no aria-label (that would replace,
+                              not add to, its accessible name -- dropping
+                              the description below from what a screen
+                              reader announces). The sr-only span after
+                              the description instead joins the marker to
+                              the name that title and description already
+                              build, so the announced order is title,
+                              description, marker.
+                            -->
+                            <span aria-hidden="true" class="rounded-full bg-textcolor2/20 px-2 py-0.5 text-xs text-textcolor2">
+                                {language.homeSourceUpstreamLabel}
+                            </span>
+                        {/if}
+                    </div>
+                    <span class="mt-2 block text-base leading-relaxed text-textcolor2">
+                      {relatedLink.description}
+                    </span>
+                    {#if relatedLink.upstream}
+                        <span class="sr-only">({language.homeSourceUpstreamLabel})</span>
+                    {/if}
+                </div>
 
-              <div aria-hidden="true" class="pointer-events-none absolute -right-12 top-1/2 -translate-y-1/2 text-textcolor">
-                  {#if relatedLink.logoIcon === "globe"}
-                    <GlobeIcon class={relatedLinkIconClass} strokeWidth={1} />
-                  {:else if relatedLink.logoIcon === "mail"}
-                    <MailIcon class={relatedLinkIconClass} strokeWidth={1} />
-                  {:else if relatedLink.logoIcon === "paper-airplane"}
-                    <Send class={relatedLinkIconClass} strokeWidth={1} />
-                  {:else if relatedLink.logoIcon === "source"}
-                    <FolderCodeIcon class={relatedLinkIconClass} strokeWidth={1} />
-                  {/if}
-              </div>
-            </button>
+                <div aria-hidden="true" class="pointer-events-none absolute -right-12 top-1/2 -translate-y-1/2 text-textcolor">
+                    {#if relatedLink.logoIcon === "globe"}
+                      <GlobeIcon class={relatedLinkIconClass} strokeWidth={1} />
+                    {:else if relatedLink.logoIcon === "mail"}
+                      <MailIcon class={relatedLinkIconClass} strokeWidth={1} />
+                    {:else if relatedLink.logoIcon === "paper-airplane"}
+                      <Send class={relatedLinkIconClass} strokeWidth={1} />
+                    {/if}
+                </div>
+              </button>
+            {/if}
           {/each}
           {#if !realmHidden}
             <!--
