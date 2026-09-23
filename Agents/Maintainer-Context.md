@@ -1162,6 +1162,10 @@ stage, so there is no lost commit to recover.
 seeing the *main editor half*, which is genuinely finished — that is precisely what made the work
 look complete from the outside.
 
+**Superseded in part (2026-09-24).** The stage resumed after the home-screen rework, as decided
+here. The translation editor's capture and the restore marker were then built (`MC-068`), so the
+gaps named above describe the tree as of 2026-09-23 only. The sequencing decision itself stands.
+
 ---
 
 ### MC-056 — The realm feed must distinguish failure from empty; fix it as part of Stage 2
@@ -1677,6 +1681,89 @@ opens its menu.
 on the strength of a "control" button that did not respond either. The control had been injected
 into the same page, so the same document-level hotkey swallowed its Space too. The maintainer's hand
 test is what caught it. A control has to be isolated from the thing under test.
+
+---
+
+### MC-068 — The durable-draft restore marker: a bar above the editor, immediate revert, draft age shown
+
+- **Tag:** decision
+- **Date:** 2026-09-23
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the Orchestrator proposed a concrete design for the affordance `MC-042` requires; the
+  maintainer chose the recommended option on all three questions.
+- **Reasoning:** `MC-042` fixed *that* a restored draft is visible and one-click revertible, not how.
+  Report 20 section 5.4's failure case is text typed long ago that the user has forgotten, so the
+  marker has to be noticeable and say how old the draft is.
+- **Alternatives rejected:** a small "Restored" pill in the message's button row (less noticeable,
+  which defeats the purpose); a revert followed by a five-second Undo (more machinery and tests to
+  guard against a misclick on text that was never saved as a message).
+- **Related:** MC-042 (the marker and revert exist), MC-055 (the stage's sequencing), MC-067 (Space
+  and Enter reach the Revert button).
+
+**What was approved:**
+- **Placement:** a thin bar directly above the text box, shown only when an editor was seeded from a
+  stored draft. It stays up until the editor is saved or left, including while the user types,
+  because the text is still based on the draft.
+- **Surfaces:** all three: `textBox()`'s original-text editor, `textBox()`'s translation editor,
+  and `cardboard`'s own raw textarea for the original text. (`cardboard` has no translation-edit
+  button; its `textBox()` shows the translation editor only if the theme is switched while that
+  editor is open, and the marker covers that case too.)
+- **Look:** a lucide `History` icon, the text "Unsaved edit restored" and the draft's age, and a
+  `RotateCcw` Revert button. Default themes use theme tokens. `cardboard` and `mobilechat` use
+  fixed greys, because the card and the chat bubble they render in are always light (Gate 2 round 1
+  found `mobilechat` at about 2.6:1 with theme tokens). A `customHTML` layout's `<RISUTEXTBOX>`
+  sits on the user's own CSS, which the marker cannot know, so it keeps theme tokens. About 150ms
+  fade-in, none under `prefers-reduced-motion`.
+  Contrast is measured in the browser against 4.5:1.
+- **Accessibility:** the bar is a live status region; Revert is a native `<button>`.
+- **Revert:** immediate, one click. It replaces the buffer with the saved message text (for a `tr:`
+  record, the cached translation `loadTranslationForEdit` seeded), deletes the stored record, and
+  hides the bar. The editor stays open.
+- **Draft age:** the record gains a last-edited timestamp, formatted with `Intl.RelativeTimeFormat`
+  in the UI language, so the age needs no new locale strings.
+- **Strings:** the marker text and the Revert label are new keys in all seven locales.
+
+**Two rules the design surfaced.** They are rules, not mechanisms; how the code meets them is the
+code's business.
+
+1. **Nothing unchanged is ever offered as a restore.** Opening and leaving an editor untouched must
+   not show "Unsaved edit restored" on the next open. "Unchanged" means equal to what the editor
+   would otherwise open with: the message text for the original-text editor, and the **cached
+   translation** for the translation editor. It is not the record's `baseData`, which for a `tr:`
+   record is the source text and can never equal a translation. (`test-warrior` caught this while
+   writing the red tests; the Orchestrator's brief had said "base text" for both.) For the
+   translation editor the case is reachable, but only when the cached translation comes to *equal*
+   the stored draft text. Any write to the translation cache can cause that: for example a
+   retranslate that happens to produce that exact text, a partial-edit save (on this message after
+   its editor was unmounted, or on another message sharing the cache key), or an import of the LLM
+   cache. (A translation-editor save on a message sharing the key deletes the shared record itself.)
+2. **The age is the last *edit*, not the last open.** Opening a restored draft, or reverting it,
+   must not refresh its age or re-register it.
+
+How Gate 2 converged on a mechanism for these rules, and why the first three attempts failed, is
+recorded in Report 20 section 11, not here.
+
+---
+
+### MC-069 — Upstream issues found in passing are recorded in the Roadmap as chores
+
+- **Tag:** decision
+- **Date:** 2026-09-24
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, after the durable-drafts live check turned up readability problems
+  in the `mobilechat` and `cardboard` themes that predate the fork.
+- **Reasoning:** the maintainer's own words below. Upstream defects are frequent, so noticing one is
+  routine, and a finding that lives only in a conversation is lost at the next compaction.
+- **Related:** MC-011 (the fork has never shipped; upstream is the build with users).
+
+> upstream issues are common in this project - it's GPL 3 community project with tiny userbase
+> after all. I think we should put them somewhere in the plan.
+
+**How to apply.** When work runs into an upstream defect outside its scope, record it under the
+Roadmap's "Upstream issues found in passing" chores. Say how it was found (live check, review,
+reasoning) and how far the cause was traced. Don't fix it inside an unrelated stage, and don't
+leave it only in a report's follow-up list or a chat reply. The first three entries are CHORE-19
+to CHORE-21.
 
 ---
 

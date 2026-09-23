@@ -1139,6 +1139,66 @@ long creator note can escape its box and spread into a wall of text. That hides 
 the note, so the select and delete buttons stay visible. Each row also called
 `parseMultilangString(char.desc)` twice; that is now one call.
 
+### Upstream issues found in passing (standing policy, `MC-069`)
+
+This is a GPL-3 community project with a small userbase, so upstream defects are common. When a
+stage's work, live check or review runs into one that is outside its scope, it is recorded here as
+a chore rather than fixed inline or left in a conversation. Each entry says how it was found and
+how far the cause was traced, since several were seen in passing and not investigated.
+
+### CHORE-19 — Theme text is unreadable on the always-light `mobilechat` and `cardboard` surfaces
+
+**Status (2026-09-24):** observed during the durable-drafts live check in Chrome, with the
+`고대비` (high-contrast) text colour scheme. Cause **suspected, not traced**. Not fixed.
+
+**Symptom.**
+- In `mobilechat`, the message editor's own text is invisible: the textarea inside the always-light
+  `bg-gray-100` bubble renders its text in a light theme colour.
+- In `cardboard`, a bot reply's rendered text ("Echo Message") is barely visible on the always-light
+  card.
+- The user's own messages were readable on both.
+
+**Suspected cause.** Components inside these hardcoded light surfaces use theme tokens
+(`text-textcolor` and similar), which follow the user's colour scheme and are light on a dark
+scheme. The durable-drafts restore marker met the same problem and uses fixed greys on these two
+surfaces (`markerOnLightSurface` in `Chat.svelte`, `MC-068`). That is one possible pattern for a
+fix, but the right fix depends on how far upstream intends these themes to follow the colour
+scheme. Trace which elements are affected under each colour scheme before choosing.
+
+### CHORE-20 — `mobilechat` on a touchscreen has no way to save or leave the message editor
+
+**Status (2026-09-24):** found by reasoning from source during durable-drafts Gate 2; **not
+reproduced on a device**. Not fixed.
+
+**Why (source).**
+- `mobilechat` renders no pencil button. The editor opens only with the accessibility setting
+  "클릭해서 수정하기" (click to edit), by clicking the message text.
+- The pencil is also the normal save path, so without it the only exits are the textarea's
+  long-press or unmounting the chat.
+- The long-press action (`longpress` in `src/ts/gui/longtouch.ts`) listens to `mousedown`/`mouseup`
+  only. A touch long-press does not produce a held `mousedown`, so on a phone the long-press never
+  fires.
+- So a `mobilechat` user on a touchscreen who opens the editor apparently cannot save the edit.
+  Since durable drafts, their unsaved text comes back with a restore marker when the chat is
+  reopened, but it still cannot be committed.
+
+**Check first:** confirm on a real touch device, or with touch emulation, before designing a fix.
+
+### CHORE-21 — Typing during a translation-edit save is lost
+
+**Status (2026-09-24):** found by reasoning during durable-drafts Gate 2 (Report 20 section 11).
+Upstream behaviour. Not fixed.
+
+- `saveTranslationEdit` awaits the cache write. `updateTranslationCache` then writes the saved text
+  back into the editor (`editTranslationText = data`, from upstream commit `c2a71c29`), and the
+  editor closes.
+- Anything typed while the write was in flight is overwritten. The deliberate-exit delete also
+  removes the draft that held it.
+- The window is one IndexedDB write, so it is short. A fix would delete the draft only when it
+  equals the saved text.
+- Related suspicion, also unreproduced: nothing after the await checks that the same editor
+  session is still open (a double-click, then a reopen before the second save settles).
+
 ## Sequencing Summary
 
 ```

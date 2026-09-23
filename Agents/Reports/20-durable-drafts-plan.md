@@ -172,7 +172,7 @@ non-deterministically and sticking the multi-tab gate.
 
 | Editor | Identity key | Namespace |
 |---|---|---|
-| Main message editor (chat window **and** `BookmarkList`) | `(chatKey, chatId)`, index fallback per §4.1 | `msg:` |
+| Main message editor (chat window **and** `BookmarkList`) | `(chatKey, chatId)`; the index key only while the message has no `chatId`, never as a fallback (§4.1) | `msg:` |
 | Translation editor (including the greeting's) | the existing content-derived translation cache key | `tr:` |
 | Partial edit | out of scope for v1 (§4.6) | — |
 | Composer | **moved to its own stage** (§4.5) | — |
@@ -190,7 +190,7 @@ message-level reorder anywhere in `src`. The conclusion is right for a reason re
 preserved, via `rm()`, `/cut` and trigger splices. That is the real case, and it is also what makes
 an index fallback dangerous.
 
-The index is stored **in the record as a tie-break on read**, never as part of the key.
+The index is never part of a `chatId` key. (Rev 3 said it was stored in the record as a tie-break on read; the paragraphs below explain why that is impossible.)
 
 **Premise:** dropping the index from the key is safe only if `chatId` is unique within a chat.
 Nothing enforces this, and chats imported from upstream supply their own ids.
@@ -203,8 +203,10 @@ its index, which is the entire reason the index was dropped from the key. A legi
 duplicate-`chatId` sibling are indistinguishable — both read as `record.index !== identity.index` —
 so any check that rejects one rejects the other.
 
-The index is therefore stored for exactly one purpose: forming the pre-backfill index key so a stale
-orphan can be **found and deleted** (never restored from). The real guard against a duplicate
+The index plays exactly one part: the pre-backfill index key, so a stale orphan can be **found and
+deleted** (never restored from). The implementation forms that key from the *lookup* identity's
+index; the index stored in the record is never read, and is kept for inspection only (Gate 2 round
+4). The real guard against a duplicate
 `chatId` is base-text comparison alone, and §9 states its residue accurately.
 
 **The backfill transition.** Messages reach the DB without a `chatId` from the "+" button, `/send`
@@ -505,9 +507,25 @@ Red-before-green; the store is an extracted seam with no Svelte dependency.
   rather than solved: opening the sibling when its text differs deletes the record, costing the
   legitimate draft; opening it when its text matches restores the draft onto it, which is the user's
   own text landing on a message with identical content.
-- **Text typed into a never-sent message is lost** if its editor is unmounted and a send happens
-  before it is reopened, because there is no index fallback (§4.1). This is the deliberate price of
-  never restoring onto the wrong message.
+- **Text typed into a never-sent message is lost** if its editor is unmounted and the message
+  gains a `chatId` before it is reopened, because there is no index fallback (§4.1). This is the
+  deliberate price of never restoring onto the wrong message. A send is one trigger. **Bookmarking
+  the message is another** (found at Gate 2 round 1): `toggleBookmark` assigns a missing `chatId`,
+  the `chatId` is part of the instance hash, and the instance remounts.
+- **Before a `chatId` exists, the index key can still restore onto a twin** (found at Gate 2 round
+  1). §4.1's "no restore can land on a message the draft was not written for" holds once messages
+  have `chatId`s, not before. Two identical never-sent messages, a draft filed at index 5, and a
+  message deleted above them before any send: the twin now sits at index 5 with matching base text
+  and receives the draft. The base text is identical, so the landing text is the user's own on
+  identical content, and §5.4's marker makes it visible and revertible.
+- **An in-place change to a message's text silently prunes its draft.** The read-time base-text
+  comparison (§4.2) deletes a record whose `baseData` no longer matches, with no marker. So a draft
+  on a message whose `.data` is rewritten in place (a partial-edit save, a `Prereroll` hit, a
+  trigger edit) is gone on the next open. This is §4.1's "a missed restore costs a draft" applied
+  to those triggers, stated here so it is not mistaken for a bug.
+- **The restore marker keeps theme colours inside a `customHTML` layout.** A `<RISUTEXTBOX>` sits
+  on the user's own CSS, which the marker cannot know, so its contrast there is whatever that CSS
+  makes it. The always-light `cardboard` and `mobilechat` surfaces use fixed greys (Gate 2 round 1).
 - **The cap applies to every record with no live editor, not only to orphans** (round 3, MINOR 8).
   An open editor's own `'message'` registration is uncapped, so open editors stay protected; text
   recoverable from a *closed* editor is not held indefinitely. §1's promise that text survives an
@@ -607,7 +625,110 @@ reasoning that cites a scenario without naming it as a repro. **The corrective i
 accordingly: any scenario a section's argument depends on is verified, whether or not it is
 presented as a repro.**
 
-### Next
+### Next (after Gate 1)
 
 Rev 4 folds in all four majors and nine minors. Proceeding to red tests, then implementation, then
 Gate 2, per §10's staging.
+
+### Gate 2 — implementation review (2026-09-23 to 2026-09-24)
+
+The stage resumed after the home-screen rework (`MC-055`). Before Gate 2 the translation editor's
+capture and the `MC-042` restore marker were built to `MC-068`, red tests first. Each round used a
+fresh `opus-reviewer` with mutation testing.
+
+**Round 1 — [REJECT].** The code was largely sound. Rejected on:
+- comments, test names and `MC-068` describing a superseded design (a record written on open);
+- age tests that never asserted the age (`createDraftContentStore` captured `Date.now` by
+  reference, so fake timers never reached it);
+- four surviving mutants: `edit()`'s delete, the `tr:` `baseData`, the `saveDb` sweep, and
+  `floor`→`round`;
+- three real minors: the age re-stamped on open; a translation save deleting the draft before
+  its write settled; marker contrast on the always-light `mobilechat` bubble (about 2.6:1).
+
+Also found: a `toEqual`-shaped test suite had led the coder to make `updatedAt` non-enumerable to
+keep old assertions passing. The Orchestrator rejected that before the gate, and the assertions
+were updated instead.
+
+**Round 2 — [REJECT], substantive.** The fix for the re-stamp, specified in the Orchestrator's own
+brief as "skip while the buffer equals the opening text", had no memory of intervening edits:
+restore, type away, type back and unmount stored the deleted text, and going through the base text
+and back lost the draft. Also found: overlapping failing translation saves switched capture off.
+
+**Round 3 — [REJECT].** The touched-flag replacement was correct in every traced scenario. The
+blocker was wording: a comment gave a round-1 reason for a branch whose real guard was the touched
+reset, so trusting it would have led a maintainer to delete that reset. Also found: an overlapping
+fail-then-succeed save left a stale draft that was later offered over committed text.
+
+**Escalation to `senior-advisor`.** Root cause: capture was an `$effect` mirroring a buffer written
+by both the user and the component (open, revert, the translation save's echo). An effect cannot
+tell the two authors apart, and every flag added to reconstruct "did the user type" had a hole.
+Direction: capture on the edit surfaces' `input` events. The premise holds by construction:
+`bind:value` updates the buffer from the same event, so no user edit can change the buffer without
+being captured. The advisor also diagnosed the process. Briefs specified mechanisms instead of
+invariants. Comments narrated history: 44% of the lines added to `Chat.svelte` were comments.
+AGENTS.md section 4 now carries both correctives.
+
+**Round 4 — [REJECT], wording only.** Full review of the input-event capture. All five invariants
+held from source. Every non-equivalent mutant was killed except one test gap: a translation read
+using the message instead of the parsed key survived, because the parse mock is an identity. The
+reviewer settled the premise from `svelte` 5.55.1's `bind_value`, which updates only on `input` (and
+a form `reset`, not applicable here). The rejection was six comments and test titles still
+describing the removed effect, flags or snapshots. The keyword grep AGENTS.md requires before a
+gate missed all six, because they described the old mechanism without any trigger word.
+
+**Round 5 — [REJECT], wording only.** One test comment still endorsed the round-2 rule ("only a
+change away from the seeded text should advance it") that the code deliberately breaks. It also
+found smaller comment and doc inaccuracies, all fixed.
+
+**Live check (Orchestrator, Chrome, 2026-09-24).** §2.1's Path 1 was reproduced on the default and
+`cardboard` layouts: type in the newest reply's editor, click reroll (the editor vanishes), unReroll,
+reopen. The draft came back with the marker. The run also confirmed:
+- Revert restored the saved text, and a reopen offered nothing.
+- The age read "1분 전" at 77 seconds.
+- The `cardboard` card kept its 384px height with and without the marker.
+- A `mobilechat` draft survived the settings screen unmounting the chat.
+- Light-surface contrast was 7.82:1.
+
+It also found two defects, both fixed and re-measured:
+- The default-surface marker was 2.72:1, below MC-068's 4.5:1. It is now 6.82:1.
+- The Korean Revert label split mid-word in the narrow `mobilechat` bubble.
+
+Not live-checked: the translation editor (it needs a configured LLM translator) and `Prereroll`
+(it needs multi-candidate generations). The tests cover both.
+
+**Round 6 — [REJECT], wording only.** A test header called every test red-before-green; four
+already pass before the change and are guards. The reviewer also measured a regression from the
+wrap fix itself. `break-keep` forbids breaks inside the spaceless cn and zh-Hant labels, which then
+painted over the Revert button. Adding `wrap-anywhere` fixed it, and the Orchestrator re-measured it
+live in four locales.
+
+**Round 7 — [APPROVE-WITH-FINDINGS].** Its findings, all folded in before commit:
+- One vacuous assertion: it read a raw fixture that Svelte's `$state` proxy never writes.
+- Tests that already pass before the change and were not labelled as guards.
+- A 320px squeeze. The maintainer chose to let the Revert button wrap to its own line when the
+  bar is too narrow.
+
+**Final check — [REJECT], wording only, then folded in.** A fresh `opus-reviewer` byte-verified
+that only the wrap classes changed after round 7. It found:
+- one guard note claiming the pre-change component never touches the local-drafts registry,
+  which it does;
+- four commit-message claims that were wrong or overstated.
+
+All were fixed before commit. Its optional suggestion was also taken: `basis-28`, so the icon
+stays beside the label at a 320px phone's bubble width. It was re-measured live in all seven
+locales at 150–200px and full width, with no overlap or overflow.
+
+**Follow-ups recorded, not blocking.** The upstream ones are tracked in `Agents/Roadmap.md` as CHORE-20 (`mobilechat` has no touch exit from the editor) and CHORE-21 (typing during a translation save), per `MC-069`:
+- Typing during a translation save that then succeeds is overwritten by the save's echo. That is
+  upstream behaviour (`c2a71c29`), and the deliberate-exit delete then removes the newer text too.
+  Deleting only when the record equals the saved text would keep it.
+- `saveTranslationEdit` does not check, after its await, that the same editor session is still
+  open (a double-click, then a reopen before the second save settles). Suspicion only.
+- `mobilechat` has no commit path for the main editor (no pencil; long-press works with a mouse
+  only). This predates the stage; drafts now come back there with a marker.
+- Each `Chat` instance registers its own `prefers-reduced-motion` listener; a shared module-level
+  source would be cheaper on Pi and mobile.
+
+**Escalation count.** Rounds 1 and 2 were substantive; rounds 3 to 6 were wording-only under
+AGENTS.md's rule, so they neither count nor break the streak. The escalation after round 3 was
+commissioned before that rule existed, and its redirect is kept on its merits.

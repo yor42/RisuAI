@@ -207,6 +207,40 @@ architecture. A ledger kept to justify a decision already made is worthless.
 
 | 124 | 2026-09-23 | Remediate gate 123: narrow the `MC-067` yield to native controls | `sonnet-coder` (Sonnet 5) | ~33.3k, 20 tool uses | No | Removed the ARIA-role branch and replaced the two "role yields" tests with four "role does not yield" tests, shown red (4 failed) against the old source before the fix and green after. Suite 72 files, 993 passed, 4 skipped, confirmed independently by the Orchestrator. Reported the blank first line of `hotkeyYield.ts` as "already gone" when the Orchestrator had seen it by byte dump before dispatch; the end state is correct, but the report of how it got there is not reliable. The Orchestrator also confirmed the hamburger button in the maintainer's third hand test is a native `<button>`, so the narrowing leaves that result valid. No re-gate: the change deletes a branch the gate itself named, with the remedy the gate specified. |
 
+| 125 | 2026-09-23 | Durable drafts: red tests for the `MC-068` marker, draft age and translation-editor capture | `test-warrior` (Sonnet 5) | ~194.6k, 52 tool uses | No | 18 red for the stated reasons plus one suite failing to load; baseline intact. Caught a contract gap in the Orchestrator's brief: for a `tr:` record the "not a restore" comparison must be against the cached translation, not `baseData`. |
+
+| 126 | 2026-09-23 | Durable drafts: implement the marker, draft age and translation capture | `sonnet-coder` (Sonnet 5) | ~190.6k, 102 tool uses | No | All green. Two deviations reported honestly: an equals-seed delete in the capture effect (accepted) and a non-enumerable `updatedAt` shaped to keep old `toEqual` assertions passing (rejected by the Orchestrator; assertions updated instead). |
+
+| 127 | 2026-09-23 | Translate `draftRestored` / `draftRevert` into six locales | `translator` (Sonnet 5) | ~42.2k, 36 tool uses | No | Two keys per locale, parity checked. de/es render Revert as "discard" (flagged to the maintainer). |
+
+| 128 | 2026-09-24 | Gate 2 round 1, durable drafts | `opus-reviewer` (Opus 5) | ~225.1k, 92 tool uses | n/a (gate) | **[REJECT].** False comments and MC-068 text, age tests that never asserted the age (`Date.now` captured by reference), four surviving mutants, three real minors. Report 20 section 11. |
+
+| 129 | 2026-09-24 | Remediate round 1 (tests, then source; sweep seam) | `test-warrior`, `sonnet-coder` (Sonnet 5) | resumed agents; cumulative contexts ~420k / ~280k | No | Mutant kills shown for j, i, g5; four reds turned green by source; `sweepDraftRegistrations` seam extracted, its loop call stated as untestable. |
+
+| 130 | 2026-09-24 | Gate 2 round 2 | `opus-reviewer` (Opus 5) | ~204.8k, 73 tool uses | n/a (gate) | **[REJECT], substantive.** The re-stamp fix the Orchestrator's brief specified (skip while buffer equals opening text) lost return-to-origin edits. Overlapping failing saves switched capture off. |
+
+| 131 | 2026-09-24 | Remediate round 2 (touched flag) | `test-warrior`, `sonnet-coder` (Sonnet 5) | resumed agents | No | R2-A..D red then green. |
+
+| 132 | 2026-09-24 | Gate 2 round 3 | `opus-reviewer` (Opus 5) | ~184.8k, 78 tool uses | n/a (gate) | **[REJECT]** on one false comment; touched flag correct in every traced scenario. Found a fail-then-succeed overlapping save leaving a stale draft. |
+
+| 133 | 2026-09-24 | Escalation: three consecutive Gate 2 rejections | `senior-advisor` (Fable 5.1) | ~114.8k, 33 tool uses | Yes (escalation) | Root cause: an `$effect` cannot tell user writes from component writes to the buffer. Redirected capture to `input` events. Process correctives now in AGENTS.md section 4. **Changed the direction.** Commissioned before the maintainer's wording-only rule existed; under that rule round 3 would not have counted. |
+
+| 134 | 2026-09-24 | Port the round-3 scenarios; purge history prose (re-dispatched after a Windows update rebooted the machine mid-task) | `test-warrior` (Sonnet 5) | ~244.3k, 112 tool uses | No | 13 mechanism-agnostic scenario tests; G and H red on the effect design. |
+
+| 135 | 2026-09-24 | Replace effect capture with `input`-event capture | `sonnet-coder` (Sonnet 5) | ~206.6k, 55 tool uses | No | G and H green; flags, snapshots and pre-await nulling removed; `Chat.svelte` diff about 100 lines smaller; comment lines 190 to 124. |
+
+| 136 | 2026-09-24 | Gate 2 round 4 (full review of the new mechanism) | `opus-reviewer` (Opus 5) | ~227.9k, 88 tool uses | n/a (gate) | **[REJECT], wording only.** All five invariants held; `bind_value` premise settled from svelte source. Six stale comments passed the keyword grep; one test gap (j2) found and closed. |
+
+| 137 | 2026-09-24 | Gate 2 round 5 | `opus-reviewer` (Opus 5) | ~192.3k, 51 tool uses | n/a (gate) | **[REJECT], wording only.** One test comment endorsed the round-2 rule the code deliberately breaks. |
+
+| 138 | 2026-09-24 | Live check in Chrome (Orchestrator), default, cardboard and mobilechat | Orchestrator | n/a | n/a | Report 20 Path 1 reproduced and survived (type, reroll, unReroll, reopen: draft restored with marker). Revert, age ("1분 전" at 77 s), cardboard 384 px card unchanged, light-surface contrast 7.82:1. Found default-surface contrast 2.72:1 and a mid-word Korean wrap; both fixed and re-measured (6.82:1). Translation editor and `Prereroll` not live-checked. |
+
+| 139 | 2026-09-24 | Gate 2 round 6 | `opus-reviewer` (Opus 5) | ~199.0k, 87 tool uses | n/a (gate) | **[REJECT], wording only** (a red-before-green header over four guards). Measured a CJK regression introduced by the wrap fix itself (`break-keep` on spaceless cn/zh-Hant labels); fixed with `wrap-anywhere` and re-measured live. |
+
+| 140 | 2026-09-24 | Gate 2 round 7 | `opus-reviewer` (Opus 5) | ~182.3k, 46 tool uses | n/a (gate) | **[APPROVE-WITH-FINDINGS].** One vacuous assertion (reads a raw fixture that the `$state` proxy never writes); unlabelled guards; a 320 px squeeze the maintainer chose to fix by letting the Revert button wrap. |
+
+| 141 | 2026-09-24 | Final check: the fix-up diff after round 7, and a fact-check of the commit message | `opus-reviewer` (Opus 5) | ~157.9k, 85 tool uses | n/a (gate) | **[REJECT], wording only.** The fix-up diff was byte-verified: only the wrap classes changed in production. One guard note claimed HEAD never touches the local-drafts registry, but it does. Four commit-message claims were WRONG or OVERSTATED, including Path 7, described as an unmount when it is a prop reset. All fixed. Its optional `basis-28` suggestion was taken and re-measured live in seven locales. |
+
 ## Reading of the log so far (n=1 — not a conclusion)
 
 Run 1 is the only data point and it predates the split, so it cannot settle anything. Two
