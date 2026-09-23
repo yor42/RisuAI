@@ -13,8 +13,8 @@ decisions and context, see `Agents/Maintainer-Context.md`.
 
 ## Branch and commit state
 
-Branch `fix/persistence-conflict-platform-hardening`. Nothing committed for the work described
-below.
+Branch `fix/persistence-conflict-platform-hardening`. The documentation restructure is committed
+as `65ca6c0` (documentation only). Nothing else below is committed, and nothing is pushed.
 
 ## Durable drafts stage
 
@@ -59,8 +59,17 @@ Findings awaiting prioritisation:
 
 ## Documentation restructure
 
-In progress. D1 landed: `Agents/README.md` and `Agents/Maintainer-Context.md` (51 entries). D2 is
-underway — status headers on the reports, this handoff split, and Summary.md corrections.
+D1 and D2 are complete, committed as `65ca6c0`. D1 added `Agents/README.md` and
+`Agents/Maintainer-Context.md` (51 entries). D2 stamped all 32 reports with a `**STATUS:**`
+header, split this file out of the handoff, and corrected `Agents/Summary.md`. D3 — moving the
+`99-*` subsystem references into their own directory — was assessed and deliberately skipped: the
+status headers removed the confusion it existed to fix, and moving files would break prose
+cross-references that no link checker catches.
+
+Two items are open but out of scope for that pass: the `.gitignore` entry for
+`Asset Cache/Community Mitigation_Webrowser Plugin/` names a path that no longer exists, leaving
+`Asset Cache/` itself unignored; and `AGENTS.md` has not yet gained the routing line requiring
+subagent briefs to cite `Agents/Maintainer-Context.md`.
 
 ## Test suite
 
@@ -69,4 +78,6 @@ underway — status headers on the reports, this handoff split, and Summary.md c
 ## Uncommitted work
 
 Two modified source files (`src/lib/ChatScreens/Chat.svelte`, `src/ts/globalApi.svelte.ts`) and
-several untracked new files and docs.
+five untracked new source files (`src/ts/draftContents.ts`, `src/ts/draftContentOrphanGate.ts`
+and their tests, plus `src/lib/ChatScreens/Chat.messageEditor.svelte.test.ts`). The documentation
+is committed; the source work is not.
