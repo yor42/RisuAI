@@ -1216,6 +1216,8 @@ export const languageChineseTraditional = {
     "retranslate": "重新翻譯",
     "editTranslation": "編輯翻譯",
     "editTranslationSave": "儲存翻譯",
+    "draftRestored": "尚未儲存的編輯已復原",
+    "draftRevert": "還原",
     "exportTranslationCache": "匯出翻譯快取",
     "exportTranslationCacheSuccess": "翻譯快取匯出成功。",
     "importTranslationCache": "匯入翻譯快取",

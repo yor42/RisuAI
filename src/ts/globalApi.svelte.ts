@@ -52,6 +52,7 @@ import { getNodeServerProxyAuth, NodeStorageConflictError } from "./storage/node
 import { AccountSyncConflictError } from "./storage/accountStorage";
 import { getMultiTabAction, isRevisionAwareBackend, nextAutoReloadHistory, resolvePromptChoice, resolveRevisionAwarePromptChoice, readAutoReloadHistory, writeAutoReloadHistory, shouldRetainOtherTabSavedSignal, type AutoReloadHistory } from "./storage/multiTabReload";
 import { hasLocalDrafts } from "./localDrafts";
+import { draftContentOrphanGate } from "./draftContentOrphanGate";
 
 export const forageStorage = new AutoStorage()
 
@@ -974,6 +975,24 @@ export function mergeUnsavedChanges(liveTracker: toSaveType, toSave: toSaveType)
     liveTracker.pluginCustomStorage ||= toSave.pluginCustomStorage
 }
 
+/**
+ * Releases any orphan draft-content registration whose cap has elapsed
+ * (Report 20 §6), by forwarding to
+ * `draftContentOrphanGate.sweepExpiredRegistrations`. `now` is injectable
+ * (defaulting to `Date.now()`) so a test can pin this function's own body
+ * without depending on real wall-clock time.
+ *
+ * `saveDb()`'s own `while (true)` loop calls this once per pass, at a fixed
+ * point, unconditionally -- not folded into `prepareSaveIteration`, which
+ * only runs once the loop has something to save, because this sweep must
+ * keep running on every idle pass regardless. That loop itself is not
+ * something a test can drive; only this function's own body is directly
+ * testable in isolation.
+ */
+export function sweepDraftRegistrations(now: number = Date.now()): void {
+    draftContentOrphanGate.sweepExpiredRegistrations(now)
+}
+
 export async function saveDb() {
     let changed = false
     syncDrive()
@@ -1101,6 +1120,15 @@ export async function saveDb() {
     }
     await sleep(1000)
     while (true) {
+        // Report 20 §6: releases any orphan draft-content registration whose
+        // cap has elapsed. Runs every iteration of this loop -- roughly every
+        // ~500ms once idle (see the `if (!changed)` branch below) -- rather
+        // than on a per-record timer, so there is no timer to leak. This only
+        // ever removes a `localDrafts` registration, never a `draftContents`
+        // record (§6.1); the record stays bounded solely by its own LRU cap.
+        // Extracted to `sweepDraftRegistrations` (see its own comment) so
+        // this call is a named seam rather than dead-looking code.
+        sweepDraftRegistrations()
         if (otherTabSaved) {
             // Consumed, never latched: a later foreign save is always re-evaluated.
             // A message arriving while the modal below is awaited simply sets this

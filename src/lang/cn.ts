@@ -1215,6 +1215,8 @@ export const languageChinese = {
     "retranslate": "重新翻译",
     "editTranslation": "编辑翻译",
     "editTranslationSave": "保存翻译",
+    "draftRestored": "未保存的修改已恢复",
+    "draftRevert": "还原",
     "exportTranslationCache": "导出翻译缓存",
     "exportTranslationCacheSuccess": "翻译缓存导出成功。",
     "importTranslationCache": "导入翻译缓存",

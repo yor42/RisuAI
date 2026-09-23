@@ -1352,6 +1352,8 @@ export const languageEnglish = {
     retranslate: "Retranslate",
     editTranslation: "Edit Translation",
     editTranslationSave: "Save Translation",
+    draftRestored: "Unsaved edit restored",
+    draftRevert: "Revert",
     exportTranslationCache: "Export Translation Cache",
     exportTranslationCacheSuccess: "Translation cache exported successfully.",
     importTranslationCache: "Import Translation Cache",

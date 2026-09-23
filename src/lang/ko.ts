@@ -1216,6 +1216,8 @@ export const languageKorean = {
     "retranslate": "다시 번역",
     "editTranslation": "번역 수정",
     "editTranslationSave": "번역 저장",
+    "draftRestored": "저장하지 않은 수정 내용 복원됨",
+    "draftRevert": "되돌리기",
     "exportTranslationCache": "번역 캐시 내보내기",
     "exportTranslationCacheSuccess": "번역 캐시를 내보냈습니다.",
     "importTranslationCache": "번역 캐시 가져오기",

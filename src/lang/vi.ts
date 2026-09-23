@@ -1215,6 +1215,8 @@ export const languageVietnamese = {
     "retranslate": "Dịch lại",
     "editTranslation": "Chỉnh sửa bản dịch",
     "editTranslationSave": "Lưu bản dịch",
+    "draftRestored": "Đã khôi phục bản chỉnh sửa chưa lưu",
+    "draftRevert": "Hoàn nguyên",
     "exportTranslationCache": "Xuất bộ nhớ đệm dịch",
     "exportTranslationCacheSuccess": "Đã xuất bộ nhớ đệm dịch thuật thành công.",
     "importTranslationCache": "Nhập bộ nhớ đệm dịch",

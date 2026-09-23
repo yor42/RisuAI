@@ -9,9 +9,15 @@
     interface Props {
         value?: string;
         handleLongPress?: any;
+        // Fires on a real `input` event on this textarea, with the
+        // element's current value -- never on a programmatic assignment to
+        // `value` (Svelte's own `bind:value` does not raise an `input` event
+        // when the bound variable is set from script). Optional and additive:
+        // omitting it leaves this component's behaviour unchanged.
+        onUserEdit?: (value: string) => void;
     }
 
-  let { value = $bindable(''), handleLongPress = (e:MouseEvent) => {} }: Props = $props();
+  let { value = $bindable(''), handleLongPress = (e:MouseEvent) => {}, onUserEdit }: Props = $props();
 
     function resize() {
         textarea.style.height = '0px'; // Reset the textarea height
@@ -23,6 +29,7 @@
             previousScrollHeight = textarea.scrollHeight;
             resize();
         }
+        onUserEdit?.((textarea as HTMLTextAreaElement).value);
     }
 
     onMount(() => {

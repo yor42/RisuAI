@@ -20,7 +20,7 @@
  * actually needs, from `src/ts/globalApiFileCacheAv3.svelte.test.ts` (the
  * existing precedent for loading this same huge module for real).
  */
-import { describe, test, expect, vi, beforeEach } from 'vitest'
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { writable } from 'svelte/store'
 
 //#region module mocks -- trimmed from globalApiFileCacheAv3.svelte.test.ts
@@ -232,6 +232,7 @@ import {
     bootSaveSequence,
     prepareSaveIteration,
     mergeUnsavedChanges,
+    sweepDraftRegistrations,
 } from 'src/ts/globalApi.svelte'
 import { RisuSaveEncoder, decodeRisuSave } from 'src/ts/storage/risuSave'
 import type { toSaveType } from 'src/ts/storage/risuSave'
@@ -241,6 +242,9 @@ import {
     markCharacterForSave,
     resetCharacterSaveMarksForTest,
 } from 'src/ts/storage/characterSaveMarks'
+import { draftContentOrphanGate, DRAFT_CONTENT_ORPHAN_CAP_MS } from 'src/ts/draftContentOrphanGate'
+import { hasLocalDrafts, resetLocalDraftsForTest } from 'src/ts/localDrafts'
+import type { MessageIdentity } from 'src/ts/draftContents'
 
 //#region fixtures
 
@@ -779,5 +783,67 @@ describe('mergeUnsavedChanges — Report 17 Stage 1 S14', () => {
         mergeUnsavedChanges(live, toSave)
 
         expect(live.chat).toEqual([['char-a', 'chat-0'], ['char-b', 'chat-2']])
+    })
+})
+
+describe('sweepDraftRegistrations -- Report 20 §6', () => {
+    // Extracted from `saveDb()`'s loop for the same reason `bootSaveSequence`/
+    // `prepareSaveIteration` were (see this function's own comment in
+    // `globalApi.svelte.ts`): the loop itself is a non-terminating
+    // `while (true)` with heavy real side effects and cannot be driven by a
+    // test. These tests can only prove `sweepDraftRegistrations` itself is
+    // correct, not that `saveDb()`'s loop still calls it -- that call site is
+    // not reachable from a test. Not something to fake with a check against
+    // the loop's source text.
+    //
+    // Runs against the REAL `draftContentOrphanGate` (`src/ts/draftContentOrphanGate.ts`)
+    // and REAL `localDrafts` (`src/ts/localDrafts.ts`) -- neither is mocked
+    // above, and both are plain in-memory modules with nothing to fake.
+    afterEach(() => {
+        draftContentOrphanGate.clear()
+        resetLocalDraftsForTest()
+    })
+
+    function msgIdentity(chatId: string): MessageIdentity {
+        return { kind: 'msg', chatKey: 'chat-1', chatId, index: 0 }
+    }
+
+    test('releases an orphan registration once `now` is past its cap, without touching the record', () => {
+        const identity = msgIdentity('chat-id-1')
+        // Registered at an explicit, controlled `now` -- not real wall-clock
+        // time -- so the threshold check below never depends on how long
+        // this test actually takes to run.
+        draftContentOrphanGate.set(identity, 'typed text', 'base text', 1_000)
+
+        expect(hasLocalDrafts()).toBe(true)
+
+        sweepDraftRegistrations(1_000 + DRAFT_CONTENT_ORPHAN_CAP_MS)
+
+        // A function whose body is a no-op would never call through to the
+        // real gate, so this would still be true.
+        expect(hasLocalDrafts()).toBe(false)
+        // Only the REGISTRATION is released (§6.1) -- the content record
+        // itself must still be there, untouched.
+        expect(draftContentOrphanGate.get(identity, 'base text')).toEqual({
+            text: 'typed text',
+            baseData: 'base text',
+            updatedAt: expect.any(Number),
+        })
+    })
+
+    test('does not release a registration before its cap has elapsed, and DOES use the given `now` rather than a hardcoded 0', () => {
+        const identity = msgIdentity('chat-id-2')
+        draftContentOrphanGate.set(identity, 'typed text', 'base text', 1_000)
+
+        // One ms short of the cap -- still live.
+        sweepDraftRegistrations(1_000 + DRAFT_CONTENT_ORPHAN_CAP_MS - 1)
+        expect(hasLocalDrafts()).toBe(true)
+
+        // A `now` hardcoded to 0 is always "before" a registration stamped
+        // from a positive `now` (1_000 here), so it would never register as
+        // expired -- this call, with a `now` genuinely past the cap, is what
+        // a hardcoded-0 implementation would fail.
+        sweepDraftRegistrations(1_000 + DRAFT_CONTENT_ORPHAN_CAP_MS)
+        expect(hasLocalDrafts()).toBe(false)
     })
 })

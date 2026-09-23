@@ -1215,6 +1215,8 @@ export const languageSpanish = {
     "retranslate": "Retraducir",
     "editTranslation": "Editar traducción",
     "editTranslationSave": "Guardar traducción",
+    "draftRestored": "Edición sin guardar restaurada",
+    "draftRevert": "Descartar",
     "exportTranslationCache": "Exportar caché de traducción",
     "exportTranslationCacheSuccess": "Caché de traducción exportada correctamente.",
     "importTranslationCache": "Importar caché de traducción",
