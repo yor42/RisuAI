@@ -7,6 +7,7 @@ import { updateTextThemeAndCSS } from "./gui/colorscheme"
 import { defaultHotkeys } from "./defaulthotkeys"
 import { doingChat, previewBody, sendChat } from "./process/index.svelte"
 import { RISU_SIDEBAR_DRAG_TYPE } from "./dragTypes"
+import { shouldYieldToFocusedControl } from "./hotkeyYield"
 
 export function initHotkey(){
     document.addEventListener('keydown', async (ev) => {
@@ -26,7 +27,11 @@ export function initHotkey(){
         const hotKeys = database?.hotkeys ?? defaultHotkeys
 
         let hotkeyRan = false
-        for(const hotkey of hotKeys){
+        // A control that natively activates on this key (a button, select,
+        // etc.) and currently holds keyboard focus should get to handle it
+        // instead of a hotkey match stealing it via preventDefault below.
+        const yieldToFocusedControl = shouldYieldToFocusedControl(ev, document.activeElement)
+        for(const hotkey of (yieldToFocusedControl ? [] : hotKeys)){
             let hotKeyRanThisTime = true
 
             if(!hotkeyMatches(hotkey, ev)){
