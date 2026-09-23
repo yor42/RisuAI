@@ -1,5 +1,7 @@
 # Chat list plan: bound the message window, then decide on full virtual scrolling
 
+**STATUS:** implemented (`96311c4a`, `c99f914b`) — Stage A and the chat-switch fan-out fix shipped; full virtual scrolling remains open
+
 **Status:** rev 7, 2026-09-23.
 - Gate 1 on rev 6, Stage A: **APPROVE-WITH-FINDINGS**. All findings are folded in (§7); the
   Orchestrator verified M1 in source.

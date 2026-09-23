@@ -1,5 +1,7 @@
 # RisuAI Performance / RAM Investigation
 
+**STATUS:** reference
+
 Scope: read-only static analysis of `C:\Projects\RisuAI`. No source files were modified. All claims below are tagged **[confirmed]** (verified by reading the actual code path) or **[unverified]** (user report / hypothesis not directly traced in code).
 
 > **Cross-validated** via an independent Codex adversarial-review pass (`Agents/CodexReviews/01-performance-ram.codexreview.md`). Verdict: **partially confirmed with corrections**. All core mechanisms (monolithic `DBState`, the two per-keystroke module-array deep clones, live-state aliasing in the Module editor, absence of bounded chat windowing) were independently re-verified and hold up. Four overstatements were corrected in place below (cold storage's actual reach into active-character chats, the autosave effect's actual scope for module edits, the Module "Create" flow's duplicate-insertion bug that the original pass missed, and the "append-only" chat-rendering claim needing a per-chat-switch qualification). Each corrected passage is marked **[corrected]** with the original claim struck through context noted inline.

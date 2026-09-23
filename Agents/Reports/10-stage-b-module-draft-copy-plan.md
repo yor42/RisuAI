@@ -1,5 +1,7 @@
 # Stage B plan — give the module editor a real local draft copy
 
+**STATUS:** retired — do not revive
+
 Status: **REVISION 3 — third plan gate pending. Nothing implemented.**
 Revision 1: REJECTED by `opus-reviewer`, 11 findings (record in section 8).
 Revision 2: REJECTED by a fresh `opus-reviewer`, 11 findings, 6 REJECT-grade (record in

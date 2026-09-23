@@ -1,5 +1,7 @@
 # CHORE-17 plan: skip rewriting blocks that did not change
 
+**STATUS:** implemented (`dfabaa15`)
+
 **Status:** rev 2, 2026-09-22.
 - Gate 1 on rev 1 (`opus-reviewer`, fresh): APPROVE-WITH-FINDINGS.
 - Rev 2 folds in every finding (§9). The Orchestrator re-verified M2 (`chatPage` is a serialized

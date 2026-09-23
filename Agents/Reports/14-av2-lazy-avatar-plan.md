@@ -1,5 +1,7 @@
 # Report 14 — AV-2: resolve avatars only near the viewport (plan, revision 2)
 
+**STATUS:** implemented (`97c3f53a`)
+
 Stage AV-2 of the avatar track (maintainer letter C). AV-1 landed as `64777a34`: each avatar now
 resolves once per character instead of on every re-render. AV-1 did not change the **initial
 mount**: opening a list of N characters still resolves N avatars. On the plain-browser branch each

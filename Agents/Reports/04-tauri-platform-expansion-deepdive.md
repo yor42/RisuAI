@@ -1,5 +1,7 @@
 # Tauri Platform Expansion — Deep-Dive Pass (ARM Linux, Windows on ARM, Android)
 
+**STATUS:** reference
+
 Investigation date: 2026-09-19. Read-only second-pass investigation of `C:\Projects\RisuAI` (branch `investigation/perf-persistence-assets-platform-baseline`). No source files were modified. This report builds on, and does not re-litigate, `Agents/Reports/04-tauri-platform-expansion.md` (first pass, cross-validated by Codex adversarial review).
 
 > **Cross-validated** via an independent Codex adversarial-review pass (`Agents/CodexReviews/04-tauri-platform-expansion-deepdive.codexreview.md`). Verdict: **partially confirmed with corrections**. The Rust plugin cfg-gating bug (Lead 1/2), the `public/token/` footprint (Lead 4), the 11-command sweep and `python311._pth` coupling, and the Lead 5 re-verification are all confirmed exactly. Two corrections were applied to the Lead 3 startup-blast-radius claim: `checkRisuUpdate()` actually wraps its own call in a local try/catch that logs and resolves normally, so it does **not** propagate to `bootstrap.ts`'s outer catch as originally claimed — it's a wasted/incorrect call on Android, not a startup-aborting one. Separately, `appWindow.maximize()` is called without `await`, so its rejection cannot be caught by the surrounding synchronous `try` either — only the awaited `changeFullscreen()` call is actually capable of triggering the outer-catch early exit. The underlying "these APIs shouldn't be gated on bare `isTauri`" finding stands regardless — only the specific "app startup fails" mechanism was overstated.

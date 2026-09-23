@@ -1,5 +1,7 @@
 # Character display (emotion images, image generation): suspected bugs
 
+**STATUS:** reference
+
 These were found while rewriting the [[Additional Character Screen]] wiki page. It is a hand-off list for a follow-up investigation, not user documentation.
 
 Each entry is a **claim from reading the code**, not a reproduction. Nothing here has been run or tested.

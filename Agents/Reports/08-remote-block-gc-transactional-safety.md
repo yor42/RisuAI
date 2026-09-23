@@ -1,5 +1,7 @@
 # Remote-Block GC Transactional Safety — Design Feasibility
 
+**STATUS:** reference
+
 Scope note: this report does not re-litigate whether content-addressed remote-block naming (Report 07's recommendation) is the right fix for the original Stage 2-4 corruption bug — that conclusion stands, and its "publish leaf blocks, then commit the already-revision-checked root" ordering claim is re-confirmed by this pass's own reading of `saveDb()`. This report's job is narrower and more mechanical: **size exactly one thing** — the concurrency protocol needed for garbage-collecting superseded, content-addressed remote blocks without racing a concurrent publish — precisely enough that a future implementation attempt (and its Codex adversarial-review cycle) starts from the actual shape of the problem instead of discovering it mid-implementation, which is what happened in the session that produced this report's starting point. **No application code was changed by this investigation; the uncommitted GC implementation that motivated it (`src/ts/bootstrap.ts`, `src/ts/storage/risuSave.ts`, `src/ts/storage/remoteSaveCleanup.ts`) was read as-is and left untouched.** Account-sync is out of scope entirely, per the task's own framing and the permanent hub-access blocker already established in `Agents/Summary.md` §5 and `Agents/Roadmap.md`'s Phase 1.5 Tier B item 6.
 
 ## Summary

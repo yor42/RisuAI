@@ -1,6 +1,8 @@
 # Stage A plan — narrow the `moduleUpdate()` effect's module dependency
 
-Status: **PLAN GATE OPEN — not implemented.** Phase 2, module-editor per-keystroke cost.
+**STATUS:** implemented (`f4867e63`)
+
+Status: **PLAN GATE OPEN — not implemented.** **[corrected 2026-09-23]** This is stale: Stage A shipped as `f4867e63` the same day this plan's gate passed. The file was frozen at the gate and never revisited to flip its own status. Phase 2, module-editor per-keystroke cost.
 Branch `fix/persistence-conflict-platform-hardening`, HEAD `6485c66e`.
 
 ## 1. Problem

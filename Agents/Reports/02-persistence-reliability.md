@@ -1,5 +1,7 @@
 # Save/Persistence Reliability Investigation
 
+**STATUS:** reference
+
 Scope: data-loss / partial-write / race-condition risk in the save pipeline, primarily the web build. Asset "corruption" and RAM/perf are covered by other reports and are only flagged here where they visibly overlap. This report is read-only static analysis (Read/Grep only, no source files modified).
 
 > **Cross-validated** via an independent Codex adversarial-review pass (`Agents/CodexReviews/02-persistence-reliability.codexreview.md`). Verdict: **partially confirmed with corrections**. The central risks (no automatic retry after a failed save, OPFS gating that leaves it unreachable, the un-awaited `stream.close()`, absent quota-specific handling, and `remoteSaveCleanup.test.ts`'s irrelevance to the web build) are all confirmed. Five corrections were applied in place below: the autosave loop's actual retry/alert behavior (there is no automatic retry at all — the original description of "4 silent retries then permanent idling" was inaccurate), which `changeTracker` fields actually get cleared, an unsubstantiated OPFS-vs-IndexedDB durability comparison that's been hedged, a factual error about Tauri routing remote-block writes through `AutoStorage` (it doesn't — it bypasses it), and several cross-platform failure-frequency claims that were stated as fact but are actually unproven hypotheses.

@@ -1,5 +1,7 @@
 # Report 16 — AV-4: thumbnails for list avatars (plan)
 
+**STATUS:** implemented (`41977ac0`)
+
 **Status:** rev 2, 2026-09-22. **Committed `41977ac0`.** Red and mutation proofs are ledger rows 56 and 59. The post-implementation gates (rows 57, 58) found no runtime defect beyond the read-phase timeout and the store timeouts, both fixed. Live check: row 60. The plan gate (`opus-reviewer`, ledger row 54) returned **approve with
 required changes** R1-R9. All of them are folded in below. The Orchestrator re-verified the load-bearing
 citations: R2 (`bootstrap.ts:570-575,293`, `database.svelte.ts:713`), R4 (`characters.ts:57-70`) and

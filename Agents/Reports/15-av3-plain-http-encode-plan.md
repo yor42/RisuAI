@@ -1,5 +1,7 @@
 # Report 15 — AV-3: stop re-encoding avatars and assets on plain HTTP (plan)
 
+**STATUS:** implemented (`d6ee89db`)
+
 **Status:** rev 2, 2026-09-22. **Committed `d6ee89db`** (post-implementation gate ledger 50, live check ledger 51). The plan gate (`opus-reviewer`, ledger row 48) returned **approve with
 required changes**. All required changes are folded in below; the reviewer's citations for them were
 re-verified by the Orchestrator.

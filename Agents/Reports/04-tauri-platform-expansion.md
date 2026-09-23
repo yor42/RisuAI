@@ -1,5 +1,7 @@
 # Tauri 2 Platform Expansion Feasibility: ARM Linux, Windows on ARM, Android
 
+**STATUS:** reference
+
 Investigation date: 2026-09-19. Read-only investigation of `C:\Projects\RisuAI` (main branch). No source files were modified in the course of this work.
 
 > **Cross-validated** via an independent Codex adversarial-review pass (`Agents/CodexReviews/04-tauri-platform-expansion.codexreview.md`). Verdict: **partially confirmed with corrections**. Configuration/CI state, the `mainx.txt`/Cargo.toml scaffold contents, `src-python`'s architecture, and the two-Android-icon-set finding are all confirmed. One high-severity factual error was corrected (Windows-on-ARM's actual control-flow path through `install_python`), one finding was corrected to describe real downstream failure behavior instead of a silent no-op, inferential claims about `mainx.txt`'s provenance/intent were separated from what the repository actually establishes, and several small inventory counts were fixed (15 Android icon files not 20, 126-line `main.py` not 125, 4-line `requirements.txt` not 3).

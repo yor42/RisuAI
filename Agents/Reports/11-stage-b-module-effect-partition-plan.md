@@ -1,7 +1,9 @@
 # Stage B plan — partition the modules dirty-tracking effect
 
+**STATUS:** implemented (`847bb8e8`)
+
 Status: **GATE 1 PASSED — [APPROVE-WITH-FINDINGS] (opus-reviewer, 2026-09-21). All 7 findings
-folded in below. Nothing implemented.**
+folded in below. Nothing implemented.** **[corrected 2026-09-23]** This is stale: the partition shipped as `847bb8e8`. (Ledger row 11's post-implementation review of "the partition diff" could only exist if the code had shipped.)
 The reviewer could not construct a missed-mutation path and proved dependency-closure equivalence
 against Svelte 5.55.1 source. Its findings were in this document's claims and test plan, not in the
 design. Gate record: section 8.

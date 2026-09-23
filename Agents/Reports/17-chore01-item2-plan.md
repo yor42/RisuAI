@@ -1,9 +1,11 @@
 # CHORE-01 + Phase 2 item 2 plan — mark non-selected character edits for save, then partition the selected-character tracker
 
+**STATUS:** implemented (`152cc563`, `fbf799a7`) — both stages shipped
+
 Status: **Stage 1 implemented; gate 2 passed on code after three rounds (last REJECT text-only,
 fixed); live check passed; committed as `152cc563`. Stage 2 implemented; gate 3 approved with
 findings after three rounds (rounds 1-2 REJECT on comment accuracy, code judged correct), findings
-folded in; live check passed 2026-09-22; uncommitted.**
+folded in; live check passed 2026-09-22; uncommitted.** **[corrected 2026-09-23]** "Uncommitted" is false: the commit that last touched this file, `fbf799a7` ("perf(save): split the selected-character change tracker (CHORE-01 stage 2)"), **is** the Stage 2 implementation commit. The docs half of that same commit failed to flip its own status word.
 Rev 1 was REJECTED at gate 1; rev 2 passed the re-review with findings F1-F11 (§10), folded in
 below. The Orchestrator re-verified rev 1's blocking findings in source before accepting them.
 Branch `fix/persistence-conflict-platform-hardening`, base HEAD `0291ea36`.

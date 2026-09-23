@@ -1,5 +1,7 @@
 # RisuAI Performance / RAM — Second-Pass Deep Dive
 
+**STATUS:** reference
+
 Scope: read-only static analysis of `C:\Projects\RisuAI`, following on from `Agents/Reports/01-performance-ram.md` (first pass, cross-validated). No source files were modified in this pass. This report does **not** re-verify hypotheses the first pass already confirmed — it hunts for the same *class* of bug (unnecessary live-state aliasing, eager deep-clone-on-change-detection, unbounded list rendering, unbounded in-memory caches) in places the first pass did not look. Every claim is tagged **CONFIRMED BUG**, **CONFIRMED NOT AN ISSUE** (checked, ruled out), or **COULDN'T DETERMINE**, with `file:line` citations.
 
 **Phase 0 status check (baseline for this pass):** the duplicate-`.push()` bug in `ModuleSettings.svelte`'s "create module" flow (first report §7) is fixed — the second push at what is now `ModuleSettings.svelte:181-186` was removed and replaced with a comment explaining why. The live-state-aliasing itself (`tempModule = rmodule`, now `ModuleSettings.svelte:110`; and the immediate `DBState.db.modules.push(tempModule)` on "create" at `ModuleSettings.svelte:157`) is **unchanged** — only the duplicate-insertion bug was fixed, not the underlying no-draft pattern. The `saveDb()` autosave effect structure in `globalApi.svelte.ts:355-428` is also structurally unchanged from the first report (verified by reading it directly) — Phase 0 only added retry/merge handling around it (`mergeUnsavedChanges`, `globalApi.svelte.ts:435-448`), not a change to the snapshot pattern itself.

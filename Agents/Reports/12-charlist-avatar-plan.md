@@ -1,5 +1,7 @@
 # Report 12 — Character-list avatar work (Phase 2 item 3, part 1): staged plan
 
+**STATUS:** implemented (`64777a34`) — AV-1 shipped; AV-2, AV-3 and AV-4 were promoted into Reports 14, 15 and 16
+
 **Status:** AV-1 **passed its plan gate on 2026-09-21** (`adversarial-reviewer`, "approve with
 required changes", ledger row 20). All required changes are folded into §2 below. AV-2..AV-4 are
 not yet planned.

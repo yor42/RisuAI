@@ -1,6 +1,8 @@
 # Report 13 — CHORE-07: a failed cold-storage read must never destroy data (plan, revision 7, STAGED)
 
-**Status:** revision 3. Revisions 1 and 2 each received "approve with required changes" from
+**STATUS:** implemented (`c66c9f4b`, `3e17c8a3`, `be3633bd`, `4a4dfae1`) — all four stages shipped
+
+**Status:** revision 3. **[corrected 2026-09-23]** This top line is stale: all four stages shipped — 7a as `c66c9f4b`, 7b as `3e17c8a3`, 7c-1 as `be3633bd`, 7c-2 as `4a4dfae1`. §5.3 documents completion through stage 7c-2 and already cites `3e17c8a3` inline; this header was simply never updated to match. Revisions 1 and 2 each received "approve with required changes" from
 `opus-reviewer` (ledger 23 and 25), with a new BLOCKER each time. Rev 3 **stages** the work, per
 the campaign rule to split risky batches into gated stages:
 

@@ -24,18 +24,16 @@ and it shipped a different design from the one that brief recommended — see "W
 
 ## Repo state at handoff
 
-- Branch `fix/persistence-conflict-platform-hardening`, **56 commits ahead of `origin/main`**
-  (`669b12ce`), 0 behind. Pushed to `origin` (`yor42/RisuAI`) and in sync with its tracking
-  branch (0 ahead / 0 behind, verified with `git rev-list --left-right --count HEAD...@{u}`).
-- Baselines, verified on the committed tree: `pnpm test` **32 files, 377 passed, 3 skipped,
-  exit 0**; `pnpm check` **0 errors / 0 warnings, exit 0**. `cargo check` not run recently.
 - **History was rewritten on 2026-09-21** (a plugin-bundle purge, then a rebase back onto the
   true main base). Every SHA on this branch changed twice that day. SHAs cited in `Agents/**.md`
   were remapped and audited. **Find a commit by its message, not by a remembered hash.**
 - `src/ts/process/mcp/risuaccess/tests/__snapshots__/modules.test.ts.snap` sometimes shows modified
   with an **empty, line-endings-only diff** after `pnpm test`. Never commit it, revert it, or
   re-record it. Upstream branch `cubicj-fix-vitest-snapshot-churn` may fix this properly.
-- A dev server may still be running on port 5174 from the last session.
+
+Branch status, test baselines, and other per-session repo state now live in
+`Agents/Live-State.md`, rewritten fresh each session. This file holds only durable doctrine and
+traps that outlive any one session.
 
 ## What is done — the module-editor keystroke freeze
 
@@ -100,88 +98,24 @@ plausible wrong number: Vite's `?t=` cache-busting handing back an empty module 
 firing while the browser pane is hidden. Pass `VITE_RISU_LEGAL_CONFIGURED=TRUE` **inline, for one
 run only** — `Legal.svelte:6-8` forbids setting it automatically.
 
-## LIVE STATE — session of 2026-09-21 afternoon (read this first after a context compaction)
+## Current session state
 
-**Maintainer decisions this session:**
-- Phase 2 **item 3** first, starting with the **character lists**. The maintainer chose all four
-  avatar stages. Plan: `Agents/Reports/12-charlist-avatar-plan.md`. Order: AV-1 (stop
-  re-lookups), then AV-2 (lazy-mount), then AV-3 (plain-HTTP encode), then AV-4 (thumbnails).
-  **Keep B (AV-3) before D (AV-4).**
-- **CHORE-07 runs in parallel.** It is a data-loss bug, reproduced and seen in the wild. Plan:
-  `Agents/Reports/13-chore07-cold-read-failure-plan.md` rev 3, **staged 7a / 7b / 7c**.
-- **Plugin storage decided (2026-09-21):** option A. `getItem` rejects on a read error, and `setItem`
-  rejects on a failed write. This is noted in `risuai.d.ts` as fork-specific. This is a long-lived
-  community fork, not upstream PRs, so keep changes minimal and upstream-compatible.
-
-**Where each stream stands:**
-
-| Stream | State | Next |
-|---|---|---|
-| AV-1 | **Committed `64777a34`** (Report 12; gates ledger 20/27; red ledger 24) | none |
-| AV-2 | **Committed `97c3f53a`** (Report 14; gates ledger 30/35/37; step-0 memory probe ledger 31; red ledger 36; live check ledger 38) | none |
-| CHORE-07 7a | **Committed `c66c9f4b`** (Report 13 §2; gates ledger 29/33/34; red ledger 32) | none |
-| AV-3 | **Committed `d6ee89db`** (Report 15 rev 2; plan gate ledger 48; red ledger 49; post-impl gate ledger 50; live check ledger 51) | none |
-| AV-4 | **Committed `41977ac0`** (Report 16 rev 2; measure ledger 53; plan gate ledger 54; red ledger 56; gates ledger 57/58, fixes ledger 59; live check ledger 60) | none |
-| CHORE-07 7b | **Committed `3e17c8a3`** (minimal core; Report 13 §4; gates ledger 39/40) | none |
-| CHORE-07 7c-1 | **Committed `be3633bd`** (Report 13 §5 rev 5; gates ledger 41/42; live check ledger 43) | none |
-| CHORE-07 7c-2 | **committed `4a4dfae1`** (Report 13 §5.3 rev 7; ledger 44-46) | none |
-| Item 3 part 2 (chat list) | not started | plan after the avatar track |
-
-Nothing is pushed. The docs (this file, Roadmap, ledger rows 13-46) are committed separately.
-
-**Small follow-ups found this session (not ticketed yet):**
-- `saveDbKei` reads `db.account.kei` without a guard (`src/ts/kei/backup.ts:86`), so it logs "KEI auto-backup failed" on every save when `account` is undefined. Harmless, noisy.
-- `getColdStorageAffectedCharacters` (coldstorageData.ts) still has an untranslated `'Unknown character'` fallback.
-- Failed cold-storage removals in `removeColdStorageItems` are silent (pre-existing; ledger 34).
-- Live checks: a hidden browser pane runs no IntersectionObserver or rAF (ledger 38). The maintainer starts the dev server.
-
-**Key facts established this session, all in the Roadmap and ledger rows 13-38:**
-- The chat list is already windowed by `loadPages`, which only grows.
-- All 3 character-list layouts plus the sidebar mount everything and re-resolve every avatar.
-- The plain-HTTP `getFileSrc` re-encodes base64 on every call: 1.33x the bytes (4/3), ~8.75 ms/MB on the i9.
-- **Item 8 (new):** all chats are resident. Chromium proxy overhead is ~1 KB/message (2.47x
-  ASCII); 1000 characters and 150k messages gives 95.5 MB plus 140 MB.
-- **CHORE-06 (new):** `console.log` retains whole-save objects in Chromium.
-- **CHORE-07 has two loss paths, both reproduced:**
-  - the chat is overwritten with an error text;
-  - startup `cleanChunks` deletes cold characters' emotion and additional assets. This affects
-    Tauri and web, for anyone with the setting off.
-- **Maintainer context is in memory:** platform mix (hosted web > local HTTP > Tauri, account sync
-  almost unused), Pi 3 and mid-range phones as the hardware floor, most avatars under 10 MB,
-  animated avatars exist, and upstream rolled cold storage back.
+Moved to `Agents/Live-State.md`, which is rewritten fresh each session rather than appended to.
+**Read it first after a context compaction.** This file (`Phase2-Handoff.md`) holds only durable
+doctrine and constraints that outlive any one session.
 
 ## What is next — the maintainer chooses
 
-Everything open is in **`Agents/Roadmap.md`**. The candidates, each with its own gate:
+Everything open is in **`Agents/Roadmap.md`**, which is authoritative for phase and item scope,
+sequencing, and per-item status. Work currently in flight is in **`Agents/Live-State.md`**.
 
-**Phase 2 performance, still open:**
-- **Item 2 — the character and chat change-tracking effect** (the generic effect in
-  `dbChangeEffects.svelte.ts`). It is the hot path when editing character fields and chatting.
-  **Partition, do not narrow** (doctrine 1). **Plan it together with CHORE-01**, which lives in
-  the same effect.
-- **Item 3 — virtual scrolling for the chat list.** The fix that matters most for Android.
-- **Item 4 — size-based cold-storage compaction.**
-
-**Chores — confirmed and scoped, none fixed:**
-- **CHORE-01** — edits to a character that is **not selected** are never marked for save.
-  Occasional loss: it persists only if that character is reopened before reload. The fix surface
-  is small, centralised, and not blocked by the save format.
-- **CHORE-02** — `toSave.chat` is dead plumbing; the encoder never reads it.
-- **CHORE-03** — **the trash feature deserves a full bug hunt.** The community reports it as
-  unstable. A data-losing bug turned up there by accident and is **empirically reproduced**:
-  restore a character from trash without opening it, close the app, and it is back in the trash.
-  Reproduction: `Agents/Tools/save-gen/trash-restore-repro.svelte.harness.ts`.
-- **CHORE-04** — **enabling or disabling a module also freezes**, by a *different* mechanism that
-  Stage B did not fix. The hypothesis is a full chat re-render through `ReloadGUIPointer` (it is
-  possibly bumped twice per toggle), which would scale with chat length. It is **unverified —
-  measure first.**
-- **CHORE-05** — translation coverage, **measured**: 53 to 99 keys missing per language.
-  **This branch added 9 English-only strings — the save-conflict dialogs — and translated none of
-  them.** Those 9 are the first priority: they are small and they appear when data is at risk.
-
-Suggested order *if the maintainer asks for one*: the 9 CHORE-05 strings are the smallest safety
-win; CHORE-04 is a measurement task with no risk; Phase 2 item 2 and CHORE-01 are the largest
-payoff and belong together.
+This section used to carry its own copy of the open Phase 2 items and the CHORE-01..05 catalogue.
+That copy went stale: it still described the chores as "none fixed" and CHORE-05's nine
+save-conflict strings as untranslated, after CHORE-01 Stage 1 (`152cc563`), those nine strings
+(`0291ea36`) and CHORE-17 (`dfabaa15`) had all shipped and merged. It was removed on 2026-09-23
+rather than re-synchronised, because keeping a second copy of the Roadmap here is what allowed it
+to drift unnoticed. The Roadmap carries every item this section listed, including the
+trash-restore reproduction harness.
 
 ## Open items NOT in scope (documented, do not silently absorb)
 
@@ -245,7 +179,8 @@ including outcomes that argue against the current architecture.
 
 ## First actions
 
-1. Confirm the baselines above still hold, **checking exit codes**.
+1. Read `Agents/Live-State.md` for the current branch state and test baselines, then confirm they
+   still hold, **checking exit codes**.
 2. Ask the maintainer which Roadmap item or chore comes next. Do not pick one yourself.
 3. For whatever is chosen: measure the premise first, plan it, pass the plan gate, implement, then
    pass the post-implementation gate. Anything persistence-adjacent uses `opus-reviewer`.
