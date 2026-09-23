@@ -187,16 +187,29 @@
     });
 </script>
 
-<div class={cardClass} bind:this={cardEl} onfocusout={handleFocusOut}>
+<!--
+  The card, not the trigger, draws the keyboard focus ring: cardClass
+  puts the trigger inset by p-6, so the trigger's own ring would land
+  as a square box inside the card instead of tracing the card's rounded
+  edge like the plain link cards' single <button> does. has-[>button:...]
+  keys off the trigger's focus-visible state (":focus-visible", not
+  ":focus", so a mouse click still draws nothing) and outline-style:auto
+  reuses the browser's default ring to match those other cards.
+-->
+<div
+    class={cardClass + " has-[>button:focus-visible]:[outline-style:auto]"}
+    bind:this={cardEl}
+    onfocusout={handleFocusOut}
+>
     <button
-        class={triggerClass}
+        class={triggerClass + " focus-visible:outline-hidden"}
         aria-expanded={open}
         aria-controls={listId}
         bind:this={triggerEl}
         onclick={toggle}
     >
         <div class="relative z-10 w-[68%] sm:w-[70%]">
-            <h2 class="text-2xl font-bold tracking-tight text-textcolor">{title}</h2>
+            <h2 class="text-2xl font-bold tracking-tight text-textcolor break-keep">{title}</h2>
             <span class="mt-2 block text-base leading-relaxed text-textcolor2">
                 {description}
             </span>
@@ -247,7 +260,7 @@
                         >
                             <span>{destination.label}</span>
                             {#if destination.upstream}
-                                <span aria-hidden="true" class="rounded-full bg-textcolor2/20 px-2 py-0.5 text-xs text-textcolor2">
+                                <span aria-hidden="true" class="rounded-full bg-textcolor2/20 px-2 py-0.5 text-xs text-textcolor/70">
                                     {language.homeSourceUpstreamLabel}
                                 </span>
                             {/if}

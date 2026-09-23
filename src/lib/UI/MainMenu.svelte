@@ -257,7 +257,7 @@
               >
                 <div class="relative z-10 w-[68%] sm:w-[70%]">
                     <div class="flex items-center gap-2">
-                        <h2 class="text-2xl font-bold tracking-tight text-textcolor">{relatedLink.title}</h2>
+                        <h2 class="text-2xl font-bold tracking-tight text-textcolor break-keep">{relatedLink.title}</h2>
                         {#if relatedLink.upstream}
                             <!--
                               Decorative pill, aria-hidden: this button
@@ -270,7 +270,7 @@
                               build, so the announced order is title,
                               description, marker.
                             -->
-                            <span aria-hidden="true" class="rounded-full bg-textcolor2/20 px-2 py-0.5 text-xs text-textcolor2">
+                            <span aria-hidden="true" class="rounded-full bg-textcolor2/20 px-2 py-0.5 text-xs text-textcolor/70">
                                 {language.homeSourceUpstreamLabel}
                             </span>
                         {/if}
