@@ -13,8 +13,10 @@ decisions and context, see `Agents/Maintainer-Context.md`.
 
 ## Branch and commit state
 
-Branch `fix/persistence-conflict-platform-hardening`. The documentation restructure is committed
-as `65ca6c0` (documentation only). Nothing else below is committed, and nothing is pushed.
+Branch `fix/persistence-conflict-platform-hardening`. The documentation work is committed in three
+commits, all documentation only: `65ca6c0` (the restructure), `4db160d7` (this file brought up to
+date), `094bf505` (AGENTS.md corrected against source, plus the release-status entry). **Nothing
+is pushed**, and the source work below is not committed.
 
 ## Durable drafts stage
 
@@ -66,10 +68,17 @@ header, split this file out of the handoff, and corrected `Agents/Summary.md`. D
 status headers removed the confusion it existed to fix, and moving files would break prose
 cross-references that no link checker catches.
 
-Two items are open but out of scope for that pass: the `.gitignore` entry for
-`Asset Cache/Community Mitigation_Webrowser Plugin/` names a path that no longer exists, leaving
-`Asset Cache/` itself unignored; and `AGENTS.md` has not yet gained the routing line requiring
-subagent briefs to cite `Agents/Maintainer-Context.md`.
+`AGENTS.md` was then fact-checked against source (`094bf505`): eleven claims were wrong, stale or
+materially incomplete, including an architectural one — the remote-block path was described as
+Node-server-only when every non-Tauri backend takes it — and a two-place instruction to run
+Prettier, which this repo does not have in any form. It also gained the release-status entry
+(this fork has never shipped; see `MC-011`) and the rule that every subagent brief cites
+`Agents/Maintainer-Context.md`.
+
+**One item remains open and is not documentation:** the `.gitignore` entry for
+`Asset Cache/Community Mitigation_Webrowser Plugin/` names a path that no longer exists, so
+`Asset Cache/` itself is not ignored. Nothing is exposed today — `git status --untracked-files=all`
+is clean there — but a plugin bundle landing in that folder would not be covered.
 
 ## Test suite
 
