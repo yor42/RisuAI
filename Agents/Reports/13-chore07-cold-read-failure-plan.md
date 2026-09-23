@@ -235,6 +235,10 @@ in.
 - **Fork rule, general.** Stay fully backward compatible with upstream characters, modules, presets,
   `.bin` backups and plugins, and keep changes non-invasive.
 
+**[corrected 2026-09-23]** The "long-lived community fork (like Haejeok-Risu or PocketRisu)" characterization is wrong.
+this is a personal fork about a week old, with no userbase and no community. See `MC-052` in `Agents/Maintainer-Context.md`.
+The decisions in this section are unaffected.
+
 ### 5.2 7c-1 scope
 
 1. **A new three-way reader,** `readColdStorageItem(key) -> {status:'ok', value} |

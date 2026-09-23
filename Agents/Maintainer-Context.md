@@ -512,6 +512,63 @@ of Investigations/Asset Cache/example symptoms.png` has been committed since `f7
 
 ---
 
+### MC-052 — This is a personal fork about a week old, not a long-lived community fork
+
+- **Tag:** corrected
+- **Date:** 2026-09-23
+- **Sweep ref:** none (a direct maintainer correction, not part of the F/D sweep table)
+- **Source:** stated by the maintainer directly, 2026-09-23. No prior document records it.
+- **Corrects:** MC-033
+- **Related:** MC-011
+
+`MC-033` quotes a recorded decision containing the line "This work is a long-lived community fork
+(like Haejeok-Risu or PocketRisu), not a series of upstream PRs." **The characterization is
+wrong.** The maintainer states this is a personal fork, roughly a week old as of 2026-09-23,
+created to fix the known data-loss and performance issues directly rather than through upstream
+PRs. It has no userbase and no community, and is not comparable to Haejeok-Risu or PocketRisu.
+
+**What MC-033 decided still stands in full.** Only the characterization is corrected, not the
+decision. The `risuai.d.ts` note, the instruction that plugin code must keep working on upstream,
+the `try/catch` guidance, and the general fork rule — stay fully backward compatible with upstream
+characters, modules, presets, `.bin` backups and plugins, and keep changes non-invasive — are all
+unaffected. The "not a series of upstream PRs" half of the original line is also correct.
+
+**Provenance is uncertain.** The line sits inside
+`Agents/Reports/13-chore07-cold-read-failure-plan.md`, "§5.1 Maintainer decisions (2026-09-21)",
+as a sub-bullet supporting the `risuai.d.ts` note, so it was recorded as maintainer-sourced. The
+maintainer believes it was an agent's inference. Nothing in the corpus settles which, and the
+distinction is not worth pursuing — what matters is that the characterization is not to be
+repeated or built on.
+
+**Provenance, settled 2026-09-23.** The paragraph above is superseded: the maintainer stated the
+origin directly. It was an agent's inference, and the mechanism is named.
+
+> the long-lived community fork claim is context cross-contamination because I mentioned the other
+> forks that was released earlier and has bit more userbase. and previous session decided to
+> believe that this is one of the long lasting one too.
+
+**The failure mode generalises, and is the reason this entry is worth its length.** The maintainer
+named Haejeok-Risu and PocketRisu as *comparisons* — other forks that exist, shipped, and have some
+userbase. A session then transferred those projects' properties onto this one and wrote the result
+into a report as a maintainer decision, where it was read as maintainer-sourced ever after. Nothing
+was fabricated outright; a real statement was over-extended by one step, and that step was never
+marked.
+
+**How to apply.** When the maintainer cites another project, treat the citation as a comparison
+until they say otherwise. Properties of the cited project — release status, userbase, age,
+governance — do not transfer to this one. If an inference of that kind is load-bearing enough to
+record, record it as an inference with its basis, not as a stated fact; `MC-026` is the other place
+in this log where a referent slipped, and it carries a similar warning.
+
+**Why this matters beyond wording.** "Long-lived community fork" invites reasoning about
+community expectations, contributor onboarding, and an installed base — none of which exist.
+Combined with `MC-011` (this fork has never shipped), the correct picture is: no users, no
+community, no shipped behaviour to preserve, and therefore no reason to weigh a design by how
+little it disrupts the current fork. The upstream compatibility invariant is unaffected, because
+it exists for users migrating *from* upstream.
+
+---
+
 ## Decisions
 
 ### MC-028 — All four avatar stages (AV-1 through AV-4) are in scope, in rising-risk order
@@ -627,8 +684,11 @@ And, on splitting 7c further:
 - **Sweep ref:** D6
 - **Source:** `Agents/Reports/13-chore07-cold-read-failure-plan.md`, "§5.1 Maintainer decisions
   (2026-09-21)"
-- **Reasoning:** stated directly (quoted below) — this is a long-lived community fork, and upstream
-  accepts only small, measurable PRs, so plugin code must keep working there too.
+- **Reasoning:** stated directly (quoted below) — upstream accepts only small, measurable PRs, so
+  this work will not land there, and plugin code must keep working on upstream too.
+  **[corrected 2026-09-23]** This line previously opened "this is a long-lived community fork, and
+  upstream accepts…". That characterization was wrong and is retired by `MC-052`; the rest of the
+  reasoning, and the decision itself, are unchanged.
 - **Alternatives rejected:** not recorded in source.
 - **Depends on:** MC-032.
 
@@ -639,6 +699,9 @@ And, on splitting 7c further:
 >   - Plugin code must keep working on upstream too. The note should tell authors to wrap these
 >     calls in `try/catch`, which is harmless on upstream, and must not suggest they can count on
 >     the rejection happening.
+
+**Corrected by:** `MC-052` — the "long-lived community fork (like Haejeok-Risu or PocketRisu)" characterization is wrong;
+this is a personal fork about a week old. The decision recorded here is unaffected.
 
 ---
 
@@ -996,6 +1059,233 @@ that the decision itself was reversed, only that the accompanying implementation
 >   avatar stages. Plan: `Agents/Reports/12-charlist-avatar-plan.md`. Order: AV-1 (stop
 >   re-lookups), then AV-2 (lazy-mount), then AV-3 (plain-HTTP encode), then AV-4 (thumbnails).
 >   **Keep B (AV-3) before D (AV-4).**
+
+---
+
+### MC-053 — The home screen's realm block becomes a card in the Related Links grid, not a section above it
+
+- **Tag:** decision
+- **Date:** 2026-09-23
+- **Sweep ref:** none (stated directly this session)
+- **Source:** stated by the maintainer directly, 2026-09-23, answering the open question in the
+  home-screen stage brief ("Should the home screen keep a realm *preview* at all, or reduce to a
+  single RisuRealm button?").
+- **Reasoning:** recorded in the answer itself — the realm block should follow the design
+  convention already used by the Related Links buttons rather than being its own full-width
+  section.
+- **Alternatives rejected:** three options were offered and none was taken: (a) reorder so Related
+  Links sit above the realm block, keeping the preview and reserving its height; (b) reduce the
+  realm block to a single RisuRealm button; (c) reorder only, without reserving space. The
+  maintainer proposed a fourth shape instead.
+- **Related:** MC-011, MC-052.
+
+> I think separate widget that follows design convention of other 'related links' button would be
+> more fitting to UI scheme. I Imagine it would be a taller, vertical rectangular button that also
+> has smaller, more compact list of previews. not sure if its possible though.
+
+**Consequence for the mobile-fold problem.** The brief's Change 1 was that Related Links sit below
+the whole realm grid on mobile and are pushed further down when the fetch resolves. This decision
+dissolves that by construction rather than by reordering: the realm becomes one card among the
+link cards, so link cards exist both above and beside it, and the preview list is bounded inside a
+card instead of being an unbounded grid. Giving that card a fixed height also removes the
+after-paint shift, since the compact list resolves inside a box whose size is already committed.
+
+**"not sure if its possible though" — it is.** A grid child spanning two rows with a clamped or
+scrolling list inside is ordinary CSS grid work and needs no new dependency. This note is recorded
+because the uncertainty is in the source and should not be mistaken for a constraint.
+
+---
+
+### MC-054 — Standardise on the `Exy3NrqkGm` Discord invite, and label upstream-owned links as upstream
+
+- **Tag:** decision
+- **Date:** 2026-09-23
+- **Sweep ref:** none (stated directly this session)
+- **Source:** stated by the maintainer directly, 2026-09-23, resolving the two divergent Discord
+  invites found in source.
+- **Reasoning:** recorded in the answer — this fork has no Discord of its own, so the link points
+  at upstream's community and should say so.
+- **Alternatives rejected:** dropping the Discord link from the home screen entirely and keeping it
+  only on the Communities settings page.
+- **Related:** MC-052 (this fork has no community of its own), MC-053.
+
+> Exy3NrqkGm is still live. this fork does not have discord, so I think we can have something like
+> a gray text that says 'upstream'.
+
+**The divergence is drift, not intent.** `src/lib/UI/MainMenu.svelte` carries
+`https://discord.gg/Exy3NrqkGm` and `src/lib/Setting/Pages/Communities.svelte` carries
+`https://discord.gg/JzP8tB9ZK8`. Git history explains how: `JzP8tB9ZK8` was introduced 2023-06-16
+(`f72380ef`, "comming soon to offical discord for temp") and appeared in both files; commit
+`4063f432` (2024-05-01) removed MainMenu's copy during an unrelated import cleanup; and
+`5948aa89` (2024-09-05, "Add related links") added a link block back using a *different* code.
+Communities was never revisited. **Liveness is a maintainer-supplied fact, not a git-derived one** —
+git establishes only which code is newer.
+
+**The `upstream` label generalises.** It applies to every home-screen link owned by upstream rather
+than by this fork, not only Discord — see the brief's Change 2, which adds fork repo and fork issue
+links beside the existing upstream ones.
+
+---
+
+### MC-055 — Durable drafts pauses where it is; the home-screen rework finishes first
+
+- **Tag:** decision
+- **Date:** 2026-09-23
+- **Sweep ref:** none (stated directly this session)
+- **Source:** stated by the maintainer directly, 2026-09-23, after a verification pass established
+  that the uncommitted durable-drafts work is incomplete rather than finished-but-uncommitted.
+- **Reasoning:** stated in the answer — the stage is unfinished, so its state should be recorded
+  rather than assumed, and it is picked back up after the home-screen rework rather than
+  interleaved with it.
+- **Alternatives rejected:** not recorded in source. Finishing durable drafts first, and
+  committing the partial work as a checkpoint, were both available and neither was chosen at the
+  time of the statement.
+- **Related:** MC-042 (the restore affordance that is missing), MC-053, MC-054.
+
+> about the uncommited changes: if those two changes are really unfinished, I think we should
+> record it on live status that this is unfinished and we should pick it back up after we finish
+> this rework.
+
+**The premise was checked before this decision was made, and the check is why the decision exists.**
+The maintainer initially believed the work had been finished by an earlier session that failed to
+commit it. A verification pass against `Agents/Reports/20-durable-drafts-plan.md` refuted that: the
+main message editor's capture is complete and matches the plan section by section, but the
+translation editor is never wired to the draft store (`Chat.svelte` imports only `MessageIdentity`
+and never constructs the `TranslationIdentity` that `draftContents.ts` supports), and the `MC-042`
+restore marker and one-click revert exist on neither surface — a case-insensitive search for
+`revert` or `restored` in `Chat.svelte` returns nothing. Gate 2 was never run; Report 20 §11 stops
+at "proceeding to ... Gate 2". `git stash list` is empty and every dangling commit predates the
+stage, so there is no lost commit to recover.
+
+**Do not re-open the question of whether this stage is complete.** It was established by source on
+2026-09-23. A future session finding substantial, passing, well-tested draft code in the tree is
+seeing the *main editor half*, which is genuinely finished — that is precisely what made the work
+look complete from the outside.
+
+---
+
+### MC-056 — The realm feed must distinguish failure from empty; fix it as part of Stage 2
+
+- **Tag:** decision
+- **Date:** 2026-09-23
+- **Sweep ref:** none (stated directly this session)
+- **Source:** stated by the maintainer directly, 2026-09-23, on a defect surfaced while verifying
+  the home-screen stage brief.
+- **Reasoning:** stated in the answer — the value is diagnostic. The maintainer explicitly accepts
+  that upstream's wording is understandable in practice, and fixes it anyway for what it costs
+  future debugging.
+- **Alternatives rejected:** leaving it, on the grounds that the realm is unlikely to be empty in
+  practice — considered by the maintainer in the same breath and rejected.
+- **Related:** MC-053 (Stage 2 rebuilds this block, so the two land together).
+
+> "Failed to load" fetch text issue is noted - I can see why upstream dev chose that wording, as
+> realm is unlikely to be literally empty, but I think its something that worths to fix as it
+> helps diagnosis to future problems too.
+
+**What the code does today.** `src/lib/UI/MainMenu.svelte` renders
+`{#await getRisuHub(...) then charas}{#if charas.length > 0}` ... `{:else}` "Failed to load
+{language.hub}...". There are four real states and three renderings: a fetch in flight renders
+**nothing at all** (the `{#await}` has no pending branch), a failure and a successful-but-empty
+response both render "Failed to load", and a populated response renders cards.
+
+**This cannot be fixed in the component alone.** `getRisuHub` in `src/ts/characterCards.ts`
+catches every error and returns `[]`, so the distinction is destroyed inside that function before
+any caller sees it. It also returns `jso.cards` directly, which is `undefined` when a 200 response
+is an object without a `cards` key — and `MainMenu.svelte` then calls `.length` on it with no
+`{:catch}` branch anywhere in the block. Fixing the wording therefore means changing
+`getRisuHub`'s contract, and `src/lib/UI/Realm/RealmMain.svelte` is a **second consumer** with its
+own `getHub()` call sites and its own empty-state handling, so it moves too.
+
+**Related defect in the same function, not separately decided:** the `fetch` has no timeout or
+`AbortController`, so an unreachable realm leaves the section blank indefinitely — which is the
+same rendering as "in flight". Whatever shape the Stage 2 plan gate chooses should account for it
+rather than leaving a fourth indistinguishable state behind.
+
+---
+
+### MC-057 — The realm widget must render a visible pending state: a spinner and "loading..."
+
+- **Tag:** decision
+- **Date:** 2026-09-23
+- **Sweep ref:** none (stated directly this session)
+- **Source:** stated by the maintainer directly, 2026-09-23, as a requirement for the Stage 2
+  widget.
+- **Reasoning:** stated in the answer — without it the user cannot distinguish a fetch in progress
+  from a failure.
+- **Alternatives rejected:** none offered; this was volunteered, not chosen from options.
+- **Related:** MC-053 (the widget this applies to), MC-056 (the other three states).
+
+> note for when we build widget: Fetch in flight should have something like a loading spinner and
+> the word 'loading...'. as currently user can't tell if its fetching, or something else went
+> wrong.
+
+**This completes the four-state set opened by `MC-056`.** The in-flight state is the worst of the
+three that the current code collapses: `{#await getRisuHub(...) then charas}` has no pending
+branch, so a fetch in progress renders **nothing at all** — indistinguishable from a failure, from
+an empty result, and from a slow network, with no timeout to bound it.
+
+**No new `src/lang` key is required.** `language.loading` already exists in `src/lang/en.ts` with
+the value `"Loading"`, and the sibling branch in `MainMenu.svelte` already uses the trailing-
+ellipsis convention (`Failed to load {language.hub}...`), so `{language.loading}...` matches the
+file's own style. Reusing it avoids adding a key that would then need translating into six locales
+for a state the existing vocabulary already covers — an ordinary scope argument, not a
+prohibition. **[corrected 2026-09-23]** This passage previously read "`src/lang/*` is the
+maintainer's own territory (see `MC-015` …)". That overstated the rule, and the citation did not
+support it — `MC-015` is about UI rendering in English regardless of the selected locale and says
+nothing about who may edit those files. See `MC-058`. `animate-spin` is already used elsewhere in `src/lib`, so the
+spinner needs no new dependency or component either.
+
+**Two constraints the Stage 2 plan gate should carry:**
+
+- The spinner must not itself cause the layout shift `MC-053` exists to remove. It belongs inside
+  the card's already-committed height, not above or before it.
+- A purely visual spinner is invisible to a screen reader. The pending state needs an accessible
+  announcement (`role="status"` or an `aria-live` region) — the same accessibility standard the
+  stage brief sets for the Stage 3 disclosure, which must work by tap and by keyboard rather than
+  by hover.
+
+---
+
+### MC-058 — "The maintainer reviews Korean and English" is a rule about not reverting, not a ban on editing `src/lang`
+
+- **Tag:** corrected
+- **Date:** 2026-09-23
+- **Sweep ref:** none (a direct maintainer correction)
+- **Source:** stated by the maintainer directly, 2026-09-23, on noticing the claim had spread.
+- **Corrects:** a passage in `Agents/README.md` and a passage in `MC-057`; see below.
+- **Related:** MC-015, MC-018, MC-052.
+
+> can you check if any of the documentation(memory, maintainer decision, reports, etc) instructs
+> to never touch the korean locale file in src/lang? I merely said "I can also review korean and
+> english TL) but I think that might have propagated wrongly.
+
+**What was actually said** is that the maintainer *can review* Korean and English translations —
+an offer of review capacity. What it does **not** mean is that `src/lang/ko.ts` is off limits to
+agents. The `translator` agent maintains all six non-English locales, Korean included; the real
+rule is the narrower one already stated correctly in `AGENTS.md` and `.claude/agents/translator.md`:
+**never revert, "normalise" or reword the maintainer's own edits**, and expect diffs there that no
+brief mentioned.
+
+**Where it had spread.** Both instances were written by the Orchestrator, not by a subagent:
+
+- `Agents/README.md` carried "Only user-facing `src/lang/*` strings are localised (Korean and
+  English), and the maintainer edits those directly". The original constraint attached "Korean and
+  English" to *which ones the maintainer edits*; the paraphrase moved it onto *which ones are
+  localised*, which is false — there are seven locales. Corrected.
+- `MC-057` asserted "`src/lang/*` is the maintainer's own territory" and cited `MC-015` for it.
+  `MC-015` is about UI text rendering in English regardless of the selected locale and supports no
+  such claim. Corrected, and the citation removed.
+
+**The agent profiles were never wrong.** `.claude/agents/translator.md` lists `ko` among the
+locales it translates and scopes the rule correctly to reverting; `AGENTS.md`'s routing entry says
+"It never reverts the maintainer's own edits in those files." The drift was confined to the
+campaign documentation.
+
+**This is the third recorded instance of the same failure** — see `MC-052` (a maintainer's
+comparison to other forks became a claim about this fork) and `MC-026` (a referent slipped between
+this fork's maintainer and upstream's developer). In each case a true statement was widened by one
+step and the widening was never marked. When restating something the maintainer said, keep the
+scope they gave it: an offer to review is not a restriction on editing.
 
 ---
 

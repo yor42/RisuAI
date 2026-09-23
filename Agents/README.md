@@ -141,6 +141,9 @@ directory.
   already misled a session. This README does not open that directory; nor should you,
   unless your task specifically requires it.
 - **English only.** All campaign documentation (`Agents/**`) is written in English.
-  Only user-facing `src/lang/*` strings are localised (Korean and English), and the
-  maintainer edits those directly — treat unexpected diffs there as theirs, not a
-  regression.
+  Only user-facing strings are localised, in `src/lang/*.ts` — seven locales: `en`, `ko`,
+  `cn`, `zh-Hant`, `vi`, `de`, `es`. The maintainer reviews the **Korean and English**
+  ones and edits them directly at any time, so treat unexpected diffs there as theirs,
+  not a regression. **This is a rule about not reverting, not a rule about not editing:**
+  the `translator` agent maintains all six non-English locales, Korean included. See
+  `MC-058`.
