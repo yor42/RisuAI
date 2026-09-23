@@ -1770,34 +1770,90 @@ export type hubType = {
     hidden?:boolean
 }
 
-export let hubAdditionalHTML = ''
+/**
+ * Discriminated result of `getRisuHub`. Replaces the old `Promise<hubType[]>` contract, which
+ * collapsed every failure into an empty array before any caller could distinguish "the hub is
+ * empty" from "the request failed" (`MC-056`).
+ *
+ * `reason` values:
+ * - `offline` — `navigator.onLine === false`, checked first inside the request `try`. Only the
+ *   `false` reading is trusted: it reliably means there is no network at all. A `true` reading
+ *   means the device is attached to *some* network, not that the internet or the hub host is
+ *   reachable, so it is never treated as a reason to skip the fetch or its error handling.
+ * - `http` — a non-200 response; `status` carries the response's status code.
+ * - `timeout` — the request was aborted by this function's own timer (`HUB_REQUEST_TIMEOUT_MS`),
+ *   distinguished from `network` via a locally-tracked flag rather than by inspecting the thrown
+ *   error's `name`, which varies by runtime. The timer can also fire while a 200 response's body
+ *   is still being read, so the body-parsing catch consults the same flag before falling back to
+ *   `malformed`.
+ * - `malformed` — a 200 response whose body is not valid JSON, or is valid JSON that is neither
+ *   a bare array nor an object with an array `cards` property. This is the path that used to
+ *   return `undefined` and make a caller's `.length` throw during render.
+ * - `network` — anything else thrown (e.g. the request never reached a server at all).
+ */
+export type RisuHubResult =
+    | { ok: true; cards: hubType[]; additionalHTML: string }
+    | { ok: false; reason: 'http' | 'network' | 'timeout' | 'malformed' | 'offline'; status?: number }
+
+// A manual AbortController + setTimeout, not AbortSignal.timeout: distinguishing `timeout` from
+// `network` needs a local flag we control. AbortSignal.timeout gives no such handle — it only
+// surfaces a `TimeoutError` name, and error names vary by runtime and should not be inspected
+// (see the `timeout` case below).
+const HUB_REQUEST_TIMEOUT_MS = 8000
 
 export async function getRisuHub(arg:{
     search:string,
     page:number,
     nsfw:boolean
     sort:string
-}):Promise<hubType[]> {
+}):Promise<RisuHubResult> {
+    const controller = new AbortController()
+    let timedOut = false
+    const timeoutId = setTimeout(() => {
+        timedOut = true
+        controller.abort()
+    }, HUB_REQUEST_TIMEOUT_MS)
+
     try {
-        arg.search += ' __shared'
-        const stringArg = `search==${arg.search}&&page==${arg.page}&&nsfw==${arg.nsfw}&&sort==${arg.sort}&&web==${(!isNodeServer && !isTauri) ? 'web' : 'other'}`
+        if(navigator.onLine === false){
+            return { ok: false, reason: 'offline' }
+        }
+
+        const search = arg.search + ' __shared'
+        const stringArg = `search==${search}&&page==${arg.page}&&nsfw==${arg.nsfw}&&sort==${arg.sort}&&web==${(!isNodeServer && !isTauri) ? 'web' : 'other'}`
 
         const da = await fetch(hubURL + '/realm/' + encodeURIComponent(stringArg) + "?cache=30", {
             headers: {
                 "x-risuai-info": appVer + ';' + (isNodeServer ? 'node' : (isTauri ? 'tauri' : 'web'))
-            }
+            },
+            signal: controller.signal
         })
         if(da.status !== 200){
-            return []
+            return { ok: false, reason: 'http', status: da.status }
         }
-        const jso = await da.json()
-        if(Array.isArray(jso)){
-            return jso
+
+        // res.json() gets its own try, inside the 200 branch: a 200 whose body is not valid
+        // JSON must classify as `malformed` (the server answered), not `network` (which the
+        // generic catch below would otherwise report). But the timer can still fire while the
+        // body is streaming — headers arrived, so status is 200, yet the abort it triggers
+        // rejects this await too. Consult `timedOut` here as well, or a slow body on a large
+        // realm payload gets misdiagnosed as malformed JSON when it was never read at all.
+        try {
+            const jso = await da.json()
+            if(Array.isArray(jso)){
+                return { ok: true, cards: jso, additionalHTML: '' }
+            }
+            if(jso && Array.isArray(jso.cards)){
+                return { ok: true, cards: jso.cards, additionalHTML: jso.additionalHTML || '' }
+            }
+            return { ok: false, reason: 'malformed' }
+        } catch {
+            return { ok: false, reason: timedOut ? 'timeout' : 'malformed' }
         }
-        hubAdditionalHTML = jso.additionalHTML || hubAdditionalHTML
-        return jso.cards
     } catch (error) {
-        return[]
+        return { ok: false, reason: timedOut ? 'timeout' : 'network' }
+    } finally {
+        clearTimeout(timeoutId)
     }
 }
 

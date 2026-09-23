@@ -1,31 +1,35 @@
 // @vitest-environment happy-dom
 
 /**
- * Wiring test for the `{@html sanitizeHubHtml(hubAdditionalHTML)}` sink in
- * `RealmMain.svelte` (Stage 1 of the home-screen rework; see
- * `Agents/Live-State.md`, "Current work: the home-screen rework"). Compare
- * `MainMenu.hubHtmlSink.svelte.test.ts`, the sibling test for the other of
- * the two `hubAdditionalHTML` sinks. `src/ts/hubHtml.test.ts` already covers
- * `sanitizeHubHtml` as a pure function; this file mounts the REAL
- * `RealmMain.svelte` against the REAL `src/ts/hubHtml.ts` (not mocked) and
- * drives it with a hostile `hubAdditionalHTML` payload, so a disconnected
+ * Wiring test for the `{@html sanitizeHubHtml(hubAnnouncement)}` sink in
+ * `RealmMain.svelte` (Stage 2 of the home-screen rework; see
+ * `Agents/Live-State.md`). Compare `MainMenu.hubHtmlSink.svelte.test.ts`, the
+ * sibling test for the other `additionalHTML` sink. `src/ts/hubHtml.test.ts`
+ * already covers `sanitizeHubHtml` as a pure function; this file mounts the
+ * REAL `RealmMain.svelte` against the REAL `src/ts/hubHtml.ts` (not mocked)
+ * and drives it with a hostile `additionalHTML` payload, so a disconnected
  * sink fails here even though it would still pass every unit test on
  * `hubHtml.ts` alone.
  *
- * Unlike `MainMenu.svelte`'s copy, this sink sits at template top level,
- * outside the `{#key charas}` block, so it renders unconditionally as soon
- * as the component mounts -- no `getRisuHub` resolution has to be awaited
- * first. `getRisuHub` is still mocked (to resolve to `[]`) so the real
- * network fetch never fires and `./RealmHubIcon.svelte` never has to
- * render.
+ * Before Stage 2, this sink read a module-global `hubAdditionalHTML` binding
+ * synchronously at mount, so this test needed no `await`. Stage 2 deletes
+ * that binding: `getHub()` now resolves the discriminated `RisuHubResult`
+ * (`src/ts/characterCards.ts`) and assigns its `additionalHTML` into
+ * component `$state` only after the fetch resolves -- fixing the bug where
+ * this exact sink was frozen at mount. The same assertions this test always
+ * made now have to run after awaiting that resolution; skipping the wait
+ * would observe the sink before `hubAnnouncement` is ever set and pass
+ * vacuously against an empty string.
  *
- * `./RealmHubIcon.svelte` and `./RealmPopUp.svelte` are stubbed to trivial
- * components, following the `ChatBody.svelte`/`PartialEditController.svelte`
- * precedent in `Chat.messageEditor.svelte.test.ts`: neither is exercised by
- * the sink under test (the icon list stays empty; `openedData` stays
- * `null`, so the popup never renders), and stubbing both keeps this file
- * from also having to mock `src/ts/util` and the rest of `RealmPopUp.svelte`'s
- * own dependency graph.
+ * `getRisuHub` is mocked (to resolve to the hostile payload) so the real
+ * network fetch never fires. `./RealmHubIcon.svelte` and `./RealmPopUp.svelte`
+ * are stubbed to trivial components, following the
+ * `ChatBody.svelte`/`PartialEditController.svelte` precedent in
+ * `Chat.messageEditor.svelte.test.ts`: neither is exercised by the sink
+ * under test (the card list stays empty; `openedData` stays `null`, so the
+ * popup never renders), and stubbing both keeps this file from also having
+ * to mock `src/ts/util` and the rest of `RealmPopUp.svelte`'s own dependency
+ * graph.
  */
 
 import { flushSync, mount, unmount } from 'svelte'
@@ -34,13 +38,12 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 
 //#region module mocks
 
-const hubState = vi.hoisted(() => ({ html: '' }))
+const hubState = vi.hoisted(() => ({
+    result: { ok: true, cards: [] as unknown[], additionalHTML: '' } as unknown,
+}))
 
 vi.mock(import('src/ts/characterCards'), () => ({
-    get hubAdditionalHTML() {
-        return hubState.html
-    },
-    getRisuHub: vi.fn(async () => []),
+    getRisuHub: vi.fn(async () => hubState.result),
     downloadRisuHub: vi.fn(),
 }) as unknown as typeof import('src/ts/characterCards'))
 
@@ -101,15 +104,30 @@ afterEach(async () => {
     }
     mountedTargets.splice(0).forEach((t) => t.remove())
     document.body.replaceChildren()
-    hubState.html = ''
+    hubState.result = { ok: true, cards: [], additionalHTML: '' }
     vi.clearAllMocks()
 })
 
-describe('RealmMain.svelte: the hubAdditionalHTML sink is wired to sanitizeHubHtml', () => {
-    test('a hostile hubAdditionalHTML payload is sanitized before it reaches the DOM', () => {
-        hubState.html = '<img src=x onerror="alert(1)"><p>safe text</p>'
+describe('RealmMain.svelte: the additionalHTML sink is wired to sanitizeHubHtml', () => {
+    test('a hostile additionalHTML payload is sanitized before it reaches the DOM, once getHub() resolves', async () => {
+        hubState.result = {
+            ok: true,
+            cards: [],
+            additionalHTML: '<img src=x onerror="alert(1)"><p>safe text</p>',
+        }
 
         const target = mountRealmMain()
+        // Before Stage 2 this sink read a synchronous module binding and was
+        // asserted immediately. It is now `$state` fed from `getHub()`'s
+        // resolved result, so the banner must not appear before that await
+        // settles -- otherwise this test would pass vacuously against an
+        // implementation that leaves the sink frozen at mount.
+        expect(target.innerHTML).not.toContain('safe text')
+
+        // Let RealmMain's top-level `getHub()` call resolve.
+        await Promise.resolve()
+        await Promise.resolve()
+        flushSync()
 
         expect(target.innerHTML).not.toContain('onerror')
         expect(target.innerHTML).not.toContain('<img')

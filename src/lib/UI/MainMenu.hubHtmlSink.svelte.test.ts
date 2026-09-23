@@ -1,29 +1,34 @@
 // @vitest-environment happy-dom
 
 /**
- * Wiring test for the `{@html sanitizeHubHtml(hubAdditionalHTML)}` sink in
- * `MainMenu.svelte` (Stage 1 of the home-screen rework; see
- * `Agents/Live-State.md`, "Current work: the home-screen rework"). Both
- * `src/ts/hubHtml.test.ts` and `src/ts/triggerEffectDisplay.test.ts` cover
- * the sanitizer and the formatter as pure functions in isolation -- neither
- * proves the `.svelte` sink actually calls them. This file mounts the REAL
- * `MainMenu.svelte` against the REAL `src/ts/hubHtml.ts` (not mocked) and
- * drives it with a hostile `hubAdditionalHTML` payload, so a disconnected
- * sink (the call removed, or replaced with a no-op) fails this test even
- * though it would still pass every unit test on `hubHtml.ts` alone.
+ * Wiring test for the `{@html sanitizeHubHtml(hubAnnouncement)}` sink in
+ * `MainMenu.svelte` (Stage 2 of the home-screen rework; see
+ * `Agents/Live-State.md`). `src/ts/hubHtml.test.ts` covers the sanitizer as
+ * a pure function in isolation -- it does not prove the `.svelte` sink
+ * actually calls it. This file mounts the REAL `MainMenu.svelte` against the
+ * REAL `src/ts/hubHtml.ts` (not mocked) and drives it with a hostile
+ * `additionalHTML` payload, so a disconnected sink (the call removed, or
+ * replaced with a no-op) fails this test even though it would still pass
+ * every unit test on `hubHtml.ts` alone.
  *
- * `src/ts/characterCards` is mocked for two reasons named in the brief: it
- * is a `.ts` file (not `.svelte.ts`), so `hubAdditionalHTML` is a plain,
- * non-reactive module binding that can only be controlled by mocking its
- * defining module, and the real `getRisuHub` performs a network fetch this
- * test must not make. `./Realm/RealmMain.svelte` (mounted only once
- * `$OpenRealmStore` is true, which this file never sets) and
- * `./Realm/RealmHubIcon.svelte` (rendered per hub character, not itself
- * part of the sink under test) are stubbed to trivial components, following
- * the `ChatBody.svelte`/`PartialEditController.svelte` precedent in
- * `Chat.messageEditor.svelte.test.ts` -- stubbing them keeps this file from
- * also having to mock `src/ts/alert` and `src/ts/util`, which neither
- * component's own logic is under test here.
+ * Stage 2 deletes the module-global `hubAdditionalHTML` binding this test
+ * used to control and replaces `getRisuHub`'s `Promise<hubType[]>` contract
+ * with the discriminated `RisuHubResult` (`src/ts/characterCards.ts`). The
+ * banner also moves out of the realm card to a sibling below the Related
+ * Links grid, and it now renders whenever the resolved `additionalHTML` is
+ * non-empty -- independent of how many hub cards came back. The previous
+ * version of this file required "at least one hub character" because the
+ * sink used to sit inside `{#if charas.length > 0}`; that premise no longer
+ * holds, and this test asserts zero cards specifically to guard against it
+ * being reintroduced.
+ *
+ * `src/ts/characterCards` is mocked for two reasons: `getRisuHub` performs a
+ * network fetch this test must not make, and controlling its resolved value
+ * is how this test drives the banner content. `./Realm/RealmMain.svelte`
+ * (mounted only once `$OpenRealmStore` is true, which this file never sets)
+ * is stubbed to a trivial component, following the
+ * `ChatBody.svelte`/`PartialEditController.svelte` precedent in
+ * `Chat.messageEditor.svelte.test.ts`.
  */
 
 import { flushSync, mount, unmount } from 'svelte'
@@ -32,13 +37,10 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 
 //#region module mocks
 
-const hubState = vi.hoisted(() => ({ html: '', charas: [] as unknown[] }))
+const hubState = vi.hoisted(() => ({ result: null as unknown }))
 
 vi.mock(import('src/ts/characterCards'), () => ({
-    get hubAdditionalHTML() {
-        return hubState.html
-    },
-    getRisuHub: vi.fn(async () => hubState.charas),
+    getRisuHub: vi.fn(async () => hubState.result),
 }) as unknown as typeof import('src/ts/characterCards'))
 
 vi.mock(import('src/ts/globalApi.svelte'), () => ({
@@ -58,11 +60,6 @@ vi.mock(import('src/ts/stores.svelte'), () => {
 // Stubbed out entirely -- not rendered ($OpenRealmStore stays false in every
 // test here) and not itself under test (see file header).
 vi.mock('./Realm/RealmMain.svelte', () => ({
-    default: (_target: unknown) => ({ destroy: () => {} }),
-}))
-// Stubbed out entirely -- rendered per hub character once `charas.length >
-// 0`, but its own markup is not the sink under test.
-vi.mock('./Realm/RealmHubIcon.svelte', () => ({
     default: (_target: unknown) => ({ destroy: () => {} }),
 }))
 
@@ -90,20 +87,22 @@ afterEach(async () => {
     }
     mountedTargets.splice(0).forEach((t) => t.remove())
     document.body.replaceChildren()
-    hubState.html = ''
-    hubState.charas = []
+    hubState.result = null
     vi.clearAllMocks()
 })
 
-describe('MainMenu.svelte realm preview: the hubAdditionalHTML sink is wired to sanitizeHubHtml', () => {
-    test('a hostile hubAdditionalHTML payload is sanitized before it reaches the DOM', async () => {
-        hubState.html = '<img src=x onerror="alert(1)"><p>safe text</p>'
-        // At least one hub character is required: the sink sits inside
-        // `{#if charas.length > 0}` in MainMenu.svelte.
-        hubState.charas = [{ id: 'chara-1' }]
+describe('MainMenu.svelte realm banner: the additionalHTML sink is wired to sanitizeHubHtml', () => {
+    test('a hostile additionalHTML payload is sanitized before it reaches the DOM, with zero hub cards', async () => {
+        // Zero cards on purpose: the banner must render from a non-empty
+        // `additionalHTML` alone, regardless of how many cards came back.
+        hubState.result = {
+            ok: true,
+            cards: [],
+            additionalHTML: '<img src=x onerror="alert(1)"><p>safe text</p>',
+        }
 
         const target = mountMainMenu()
-        // Let the `{#await getRisuHub(...) then charas}` block resolve.
+        // Let loadHubPreview's `await getRisuHub(...)` resolve.
         await Promise.resolve()
         await Promise.resolve()
         flushSync()

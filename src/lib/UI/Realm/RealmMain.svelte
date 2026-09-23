@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { downloadRisuHub, getRisuHub, hubAdditionalHTML, type hubType } from "src/ts/characterCards";
+    import { downloadRisuHub, getRisuHub, type hubType } from "src/ts/characterCards";
     import { handleHubHtmlClick, sanitizeHubHtml } from "src/ts/hubHtml";
     import { ArrowLeft, ArrowRight, MenuIcon, SearchIcon, XIcon } from "@lucide/svelte";
     import { alertInput } from "src/ts/alert";
@@ -8,9 +8,13 @@
     import { MobileGUI, RealmInitialOpenChar } from "src/ts/stores.svelte";
     import RealmPopUp from "./RealmPopUp.svelte";
 
+    type HubStatus = 'offline' | 'pending' | 'failed' | 'empty' | 'populated';
+
     let openedData:null|hubType = $state(null)
 
     let charas:hubType[] = $state([])
+    let hubStatus:HubStatus = $state('pending')
+    let hubAnnouncement = $state('')
 
     let page = $state(0)
     let sort = $state('recommended')
@@ -19,13 +23,41 @@
     let menuOpen = $state(false)
     let nsfw = $state(false)
 
+    // Monotonic generation counter: getHub() has roughly eight independent
+    // call sites (search, sort, paging, NSFW toggle), each starting its own
+    // 8-second-bounded request, so a slow earlier response landing after a
+    // fast later one must not overwrite it. Checked before every state
+    // write below -- pending, success and failure alike.
+    let hubGeneration = 0
+
     async function getHub(){
-        charas = await getRisuHub({
+        const generation = ++hubGeneration
+        hubStatus = 'pending'
+
+        const result = await getRisuHub({
             search: search,
             page: page,
             nsfw: nsfw,
             sort: sort
         })
+
+        if(generation !== hubGeneration){
+            return
+        }
+
+        if(result.ok !== true){
+            hubStatus = result.reason === 'offline' ? 'offline' : 'failed'
+            return
+        }
+
+        // Only ever assign non-empty announcements: this reproduces the old
+        // module-global cache's "keep the previous value" behaviour now that
+        // the value lives in per-consumer $state instead.
+        if(result.additionalHTML){
+            hubAnnouncement = result.additionalHTML
+        }
+        charas = result.cards
+        hubStatus = result.cards.length > 0 ? 'populated' : 'empty'
     }
 
     function changeSort(type:string) {
@@ -47,6 +79,19 @@
             openedData = $RealmInitialOpenChar
             $RealmInitialOpenChar = null
         }
+    })
+
+    // Recover automatically: leave the offline state and reload as soon as
+    // the browser reports connectivity again, instead of stranding the
+    // user until they find the (inert, in that state) retry control.
+    $effect(() => {
+        function handleOnline() {
+            if(hubStatus === 'offline'){
+                getHub()
+            }
+        }
+        window.addEventListener('online', handleOnline)
+        return () => window.removeEventListener('online', handleOnline)
     })
 </script>
 <div class="w-full flex justify-center mt-4 mb-2">
@@ -146,15 +191,29 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <!-- A keyboard Enter on a focused anchor dispatches a bubbling click, so this delegated handler already covers keyboard activation; see hubHtml.ts. -->
 <div onclick={handleHubHtmlClick}>
-    {@html sanitizeHubHtml(hubAdditionalHTML)}
+    {@html sanitizeHubHtml(hubAnnouncement)}
 </div>
-<div class="w-full flex gap-4 p-2 flex-wrap justify-center">
-    {#key charas}
-        {#each charas as chara}
-            <RisuHubIcon onClick={() =>{openedData = chara}} chara={chara} />
-        {/each}
-    {/key}
-</div>
+{#if hubStatus === 'offline'}
+    <div role="status" aria-live="polite" class="w-full flex justify-center items-center gap-2 text-textcolor2">
+        <span>{language.hubOffline}</span>
+        <button aria-disabled="true" class="cursor-not-allowed opacity-50" onclick={() => {}}>{language.hubRetry}</button>
+    </div>
+{:else if hubStatus === 'failed'}
+    <div role="status" aria-live="polite" class="w-full flex justify-center items-center gap-2 text-textcolor2">
+        <span>{language.hubLoadFailed}</span>
+        <button onclick={getHub}>{language.hubRetry}</button>
+    </div>
+{:else if hubStatus === 'empty'}
+    <div role="status" aria-live="polite" class="w-full flex justify-center text-textcolor2">{language.hubEmpty}</div>
+{:else}
+    <div class="w-full flex gap-4 p-2 flex-wrap justify-center">
+        {#key charas}
+            {#each charas as chara}
+                <RisuHubIcon onClick={() =>{openedData = chara}} chara={chara} />
+            {/each}
+        {/key}
+    </div>
+{/if}
 {#if sort !== 'random' && sort !== 'recommended'}
     <div class="w-full flex justify-center">
         <div class="flex">

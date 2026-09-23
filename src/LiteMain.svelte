@@ -30,14 +30,16 @@
                 sort: ''
             })}
                 로딩중...
-            {:then cards} 
-                {#each cards as card}
-                    <LiteCardIcon card={card} onclick={async () => {
-                        await downloadRisuHub(card.id, {
-                            forceRedirect: true
-                        })
-                    }} />
-                {/each}
+            {:then result}
+                {#if result.ok}
+                    {#each result.cards as card}
+                        <LiteCardIcon card={card} onclick={async () => {
+                            await downloadRisuHub(card.id, {
+                                forceRedirect: true
+                            })
+                        }} />
+                    {/each}
+                {/if}
             {/await}
         </div>
     </div>

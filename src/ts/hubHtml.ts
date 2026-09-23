@@ -34,8 +34,8 @@ import { openURL } from './globalApi.svelte'
 const hubPurify = createDOMPurify(window)
 
 /**
- * Sanitizes the raw HTML the RisuRealm hub feed supplies (characterCards.ts's
- * `hubAdditionalHTML`) before it reaches an `{@html}` sink.
+ * Sanitizes the raw HTML the RisuRealm hub feed supplies (the `additionalHTML`
+ * field of characterCards.ts's `RisuHubResult`) before it reaches an `{@html}` sink.
  *
  * This uses an explicit allowlist (`ALLOWED_TAGS` / `ALLOWED_ATTR`) rather than
  * the denylist pattern in PluginDefinedIcon.svelte's `iconPurify`. A denylist
