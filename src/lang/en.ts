@@ -121,9 +121,9 @@ export const languageEnglish = {
         additionalAssets:
             "Additional assets to display in your chat. \n\n - use `{{raw::<asset name>}}` to use as path.\n - use `{{image::<asset name>}}` to use as image\n - use `{{video::<asset name>}}` to use as video\n - use `{{audio::<asset name>}}` to use as audio\n    - recommended to put in Background HTML",
         superMemory:
-            "SuperMemory makes your character memorize more by giving summarized data to AI.\n\n" +
-            "SuperMemory model is a model that summarizes that text. davinci is recommended, and Auxiliary models are not recommended unless it is an unfiltered model with over 2000 tokens with great summarizing skill.\n\n" +
-            "SuperMemory Prompt decides what prompt should be sent to summarize. If you leave it blank, it will use the default prompt. leaving blank is recommended.\n\n" +
+            "SupaMemory makes your character memorize more by giving summarized data to AI.\n\n" +
+            "SupaMemory model is a model that summarizes that text. davinci is recommended, and Auxiliary models are not recommended unless it is an unfiltered model with over 2000 tokens with great summarizing skill.\n\n" +
+            "SupaMemory Prompt decides what prompt should be sent to summarize. If you leave it blank, it will use the default prompt. leaving blank is recommended.\n\n" +
             "After it is all setup, you can able it in the setting of a character.",
         replaceGlobalNote: "If it's not blank, it replaces current global note to this.",
         backgroundHTML:
@@ -319,9 +319,9 @@ export const languageEnglish = {
         hypaV3AlwaysToggleOn:
             "If enabled, the HypaMemory toggle is automatically activated when selecting a character.",
         hypaV3SummarizationRequestsPerMinute:
-            "Maximum SuperMemory model requests per minute for summarization. Only applies when the SuperMemory model is set to Auxiliary Model.",
+            "Maximum SupaMemory model requests per minute for summarization. Only applies when the SupaMemory model is set to Auxiliary Model.",
         hypaV3SummarizationMaxConcurrent:
-            "Maximum concurrent SuperMemory model requests for summarization. Only applies when the SuperMemory model is set to Auxiliary Model.",
+            "Maximum concurrent SupaMemory model requests for summarization. Only applies when the SupaMemory model is set to Auxiliary Model.",
         hypaV3EmbeddingRequestsPerMinute:
             "Maximum embedding model requests per minute for similarity search.",
         hypaV3EmbeddingMaxConcurrent:
@@ -376,7 +376,7 @@ export const languageEnglish = {
         setupMessageOption1: "Guide me to setup",
         setupMessageOption1Desc: "Recommended for new users",
         setupMessageOption2: "I will setup myself",
-        claudeDesc: "Claude is a AI model made by Antropic, competitor to OpenAI. It's better than GPT if you want to use it in other languages than English.",
+        claudeDesc: "Claude is a AI model made by Anthropic, competitor to OpenAI. It's better than GPT if you want to use it in other languages than English.",
         openAIDesc: "OpenAI GPT is a high quality AI model, but it is paid and filtered, and weak in other than English.",
         chooseChatType: "Great! Now select the chat language.",
         chooseChatTypeOption1: "Full English",
@@ -1642,7 +1642,7 @@ export const languageEnglish = {
     providerPermissionConsent: "Plugin {} is requesting permission to access the provider, which may allow it to make unauthorized API calls. Do you want to allow this?",
     inlayPermissionConsent: "Plugin {} is requesting permission to access the inlay, which may allow it to read, write or edit the inlay content. Do you want to allow this?",
     sendChatConsent: "Plugin {} is requesting permission to send chat messages on your behalf, which will trigger AI responses. Do you want to allow this?",
-    pluginV2Warning: "Plugin V2 and V2.1 is considered unsafe and will stop working in future versions. **Please do not use these versions of plugins.**. If you are the developer of this plugin, please update to V3 as soon as possible.",
+    pluginV2Warning: "Plugin V2 and V2.1 is considered unsafe and will stop working in future versions. **Please do not use these versions of plugins.** If you are the developer of this plugin, please update to V3 as soon as possible.",
     createFolderOnBranch: "Create Folder on Branch",
     hamburgerButtonBottom: "Move Menu Button to Bottom of Sidebar",
     partialBackupFirstConfirm: "⚠️ WARNING: Partial Local Backup ⚠️\n\nThis backup quickly saves only essential information.\n\nIncluded:\n- Database (chat history, characters, modules, plugins, prompts, settings, etc.)\n- Character profile icons (main images)\n- User icons and custom backgrounds\n- Persona icons\n- Folder images\n- Bot preset images\n\n⚠️ NOT Included:\n- Emotion images\n- Additional character assets\n- VITS voice files\n- All other additional media files\n\nThis backup file does NOT include all character assets!\nIf you need a complete backup, use the regular local backup.\n\nDo you want to continue?",
