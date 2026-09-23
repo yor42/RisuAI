@@ -1622,6 +1622,64 @@ implementer's initiative.
 
 ---
 
+### MC-067 — A bare Space or Enter hotkey steps aside when a control has keyboard focus
+
+- **Tag:** decision
+- **Date:** 2026-09-23
+- **Sweep ref:** none (stated directly this session)
+- **Source:** chosen by the maintainer from three options, after their own hand test showed Space
+  does not open the Source & Issues disclosure.
+- **Reasoning:** the Orchestrator's recommendation, accepted as offered. It fixes Space for every
+  native control in the app while keeping upstream's "Space jumps to the chat input" everywhere a
+  control does not hold keyboard focus.
+- **Alternatives rejected:** (B) only swallowing Space when `.text-input-area` exists, which fixes
+  the home screen but leaves every keyboard-focused button on the chat screen unreachable by Space;
+  (C) leaving upstream behaviour alone, which makes the disclosure Enter-only like every other
+  button in the app.
+- **Related:** MC-065 (the disclosure whose live check exposed this).
+
+> let's go with option A.
+
+**The mechanism being changed.** `src/ts/defaulthotkeys.ts` binds bare Space to `focusInput`
+(upstream `f5f05bdf`, 2025-03-20). The document-level keydown handler in `src/ts/hotkey.ts`
+matches it whenever focus is outside an input, textarea or contenteditable, counts it as run even
+when the chat input does not exist, and then calls `preventDefault()` on the keydown. That cancels
+native activation, so **Space activated no `<button>`, `<select>` or `<summary>` anywhere in the
+application.** This predates the fork.
+
+**The keyboard-focus condition is what makes this safe, not a refinement.** Chrome focuses a
+button when it is clicked with the mouse. Yielding whenever *any* control is focused would mean a
+user who clicks reroll and then presses Space to reach the chat input rerolls again instead. The
+yield applies only when the control matches `:focus-visible`, which a mouse click on a button does
+not produce.
+
+**Scope.** Only the hotkey-matching loop yields, and only for a bare Space or Enter (no Ctrl, Alt,
+Shift or Meta). The rest of the handler (the Ctrl+digit presets, Escape, and Enter confirming an
+open alert) is unchanged. No stored hotkey data changes: a user's saved bindings keep working,
+and the change is to *when* a bare binding fires, not to what is saved.
+
+**Native controls only, and the ARIA-role list was dropped at the gate.** The implementation
+brief also yielded for elements with `role="button"`, `checkbox`, `tab` and similar. That was
+the Orchestrator's addition, not part of this decision, and the gate found it regressed the
+app's own code. Native elements get Space and Enter activation from the browser. ARIA-role
+elements only get it if the author wired it up, and about 30 `role="button"` elements here
+have no key handler, or handle Enter only (the `SideChatList.svelte` icons) or have an empty
+one (the export icon in `ChatList.svelte`). For those, yielding would turn "Space jumps to
+the chat input" into "Space does nothing". The yield is therefore limited to `<button>`,
+`<select>` and `<summary>` for Space, plus `<a href>` for Enter.
+
+**Maintainer hand test, all three passed:** Space opens the disclosure cards and the ring
+follows the card's rounded edge; after clicking reroll, Space jumps to the chat input
+instead of rerolling again; Space on the Tab-focused hamburger button beside the chat input
+opens its menu.
+
+**How this was found matters.** The automated live check first called Space a harness limitation,
+on the strength of a "control" button that did not respond either. The control had been injected
+into the same page, so the same document-level hotkey swallowed its Space too. The maintainer's hand
+test is what caught it. A control has to be isolated from the thing under test.
+
+---
+
 ## Open questions
 
 The three entries below are questions addressed to the maintainer that were still unresolved as of

@@ -13,7 +13,7 @@ decisions and context, see `Agents/Maintainer-Context.md`.
 
 ## Branch and commit state
 
-Branch `fix/persistence-conflict-platform-hardening`, **10 commits ahead of origin, nothing
+Branch `fix/persistence-conflict-platform-hardening`, **14 commits ahead of origin, nothing
 pushed.**
 
 - `65ca6c0`, `4db160d7`, `094bf505`, `adc838c4`, `5367a3b8`, `6717547d` — the documentation
@@ -22,10 +22,16 @@ pushed.**
 - `d6379a6b` — home-screen Stage 2: the realm preview rebuilt as a Related Links card.
 - `131fdcd5` — the locale pass: 510 missing keys filled, nine broken strings repaired.
 - `deb873b2` — home-screen Stage 3: the fork-aware Source & Issues disclosure.
+- `01d6d96e` — the documentation pass: `MC-059` through `MC-066`, Live-State rewritten,
+  Investigation-Ledger rows 110 to 119.
+- `16e6f7e9` — live-check fixes: `upstream` pill contrast, CJK heading wrap, card-level
+  focus ring.
+- `c02aec74` — `MC-067`: a bare Space or Enter reaches a keyboard-focused native control.
+- The records commit that follows them: `MC-067`, this file, ledger rows 120 to 124.
 
 ## The home-screen rework is COMPLETE
 
-All three stages are committed. What remains is **one live browser check**, below.
+All three stages are committed, and the live browser check has now run. Results below.
 
 **Stage 1** closed three unsanitized `{@html}` sinks, not the two the brief named. The third —
 `formatEffectDisplay` in `TriggerV2List.svelte` — was the severe one, reachable by importing a
@@ -39,44 +45,103 @@ hubAdditionalHTML` deleted and the announcement moved below the grid into a labe
 **Stage 3** turned the GitHub card into a disclosure revealing this fork's repository and issues
 alongside upstream's, gave the Email card the same treatment, and marked every upstream-owned link.
 
-### What only a browser can still check
+### The live check RAN. Results below.
 
-`happy-dom` performs no layout and models neither paint order, pointer interception, nor native
-focus traversal. Stage 2 produced **four layout defects that passed 941 tests**. These remain
-unverified:
+Run in Claude in Chrome against the maintainer's dev server on a QHD display (`dpr: 1`, so
+every figure below is real CSS pixels). `happy-dom` performs no layout and models neither
+paint order nor pointer interception, and Stage 2 produced **four layout defects that passed
+941 tests** — so these were measured with `getBoundingClientRect` and `getComputedStyle`
+rather than reasoned about.
 
-1. **Enter and Space on the disclosure trigger.** Provably untestable here — `happy-dom` does not
-   implement the browser's Enter/Space-to-click default action for synthetic events, and real
-   browsers fire it only for trusted ones, so a test would behave identically against a correct
-   implementation and a deleted `onclick`. **This is the only verification that behaviour will
-   ever get.**
-2. **The slide/fade transitions**, and again with `prefers-reduced-motion` set. They never run
-   under test at all: the component collapses their duration to zero when
-   `Element.prototype.animate` is absent, which is how the suite passes.
-3. **The tap target.** A trigger stretched over the whole card would intercept taps on the links it
-   reveals. Closed-state screenshots look perfect and every DOM test passes.
-4. **The Email card's grid reflow.** Opening a disclosure grows its row; the sibling card shares
-   that row and is `justify-center`, so its content will drift. Predicted from the markup, not
-   observed. If it reads badly, `items-start` on the grid or `self-start` on the card fixes it —
-   but either changes how all five cards size.
-5. **Contrast** on the grey `upstream` pill and the `bg-black/30` panel. Stage 2 hit exactly this:
-   `textcolor2` on the realm card measured about 1.3:1 and had to be replaced.
+**Geometry matches every reference value.** At `lg` (viewport 1904) the realm card computes
+`grid-column: 3 / span 1`, `grid-row: 1 / span 2`, 384px against its 380px floor, scroller
+capped at 200px with `min-h: 0` and 436px of content, so it scrolls. At `md` (864): two
+columns, realm `span 2`, 296px, scroller 150px. At base (600): one column, no horizontal
+overflow, realm card last. **No fabricated fourth track** — the `lg:col-span-1` fix holds in a
+real browser, not just in the compiled CSS.
 
-**The maintainer starts the dev server (port 5174) and the pane must be visible.** The built-in
-browser pane **cannot boot this app** — its service-worker registration fails and `registerSw()` is
-awaited unguarded, so the bootstrap dies at "Checking Service Worker...". Use Claude in Chrome. A
-phone-width RDP session cannot reach the `md` or `lg` breakpoints; the window must also not be
-maximised, or Chrome ignores resize requests.
+**Keyboard.** Enter opens the disclosure; Escape closes it and returns focus to the trigger.
+Both confirmed directly.
 
-## Durable drafts — PAUSED, verified incomplete
+**Tap target — clean.** At `lg` and at mobile, every revealed link's centre *and* both far
+corners resolve to the link itself via `elementFromPoint`; the trigger is never hit. The
+trigger ends at 477px and the panel starts at 485px.
+
+**No fetch-time layout shift, proved more strongly than planned.** Population beat the poll,
+so instead of catching the pending frame the content was varied directly: the card measures
+**384px at 0, 2 and 10 items** while the scroller moves 0 -> 84 -> 200. Its height is
+content-independent by construction, which is the actual claim.
+
+**Mutual exclusion works — but only under real clicks.** Two synthetic `.click()` calls in one
+tick left both disclosures open, which reads as a bug if you stop there. Real mouse clicks
+give `true,false` then `false,true`. Drive this with real input or not at all.
+
+### Two defects found, both fixed and re-measured
+
+1. **The `upstream` pill failed WCAG AA.** 12px at weight 400 needs 4.5:1; it measured
+   **2.67:1** on the card and **3.01:1** inside the panel — `text-textcolor2` on
+   `bg-textcolor2/20`. Changed to `text-textcolor/70`, re-measured live at **6.70/6.76** on the
+   cards and **7.41** in the panel. A theme token was used rather than a literal slate value
+   because this app is themeable. Note the pill carries `aria-hidden="true"`; that does not
+   exempt it, since the text is visible and carries meaning for sighted users.
+2. **Korean card titles broke mid-word.** At `lg` the column is 272px and the Korean title for
+   Source & Issues rendered split inside its final word. `break-keep` (`word-break: keep-all`)
+   re-breaks it at the space instead. Verified by eye, because the line count is unchanged at
+   two and a height measurement therefore shows nothing.
+
+### Checked by the maintainer by hand
+
+- **Space on the disclosure trigger: FIXED and hand-verified.** Upstream's default hotkey
+  binds bare Space to `focusInput`, and `src/ts/hotkey.ts` called `preventDefault()` on it, so
+  Space activated no native `<button>`, `<select>` or `<summary>` anywhere in the app
+  (upstream `f5f05bdf`, 2025-03-20). `MC-067`: the hotkey loop now steps aside for a bare
+  Space or Enter when a native control has **keyboard** focus (`:focus-visible`). The seam
+  is `src/ts/hotkeyYield.ts`. The maintainer confirmed all three cases by hand: the disclosure
+  opens, Space after clicking reroll still jumps to the chat input, and Space on a
+  Tab-focused chat button activates it.
+  **An earlier entry here called Space a harness limitation. That was wrong.** The
+  "control" was a plain button injected into the *same page*, so the same document-level
+  hotkey swallowed its Space too. A control must be isolated from the thing under test.
+- **Focus ring on the disclosure cards: FIXED and hand-verified.** It now sits on the card via
+  `has-[>button:focus-visible]` and traces the rounded edge like the single-button cards.
+- **The motion path: VERIFIED by the maintainer in Firefox**, where the animation plays.
+  In Chrome, `prefers-reduced-motion: reduce` is **on** on the maintainer's machine,
+  so the reduced-motion branch verified itself (instant 172px, zero `getAnimations()` entries)
+  and the animated branch never ran. It cannot be flipped from the page: `matchMedia` returns a
+  distinct `MediaQueryList` per call, so the component's own object is unreachable. Toggling
+  Windows Settings -> Accessibility -> Visual effects -> Animation effects flips it live and
+  also exercises the component's `change` listener, which nothing else touches.
+
+### Observed, not a defect, recorded so it is not rediscovered
+
+Opening a disclosure grows grid row 2 from 200px to 380px, and the realm card from 384px to
+564px. This was predicted from the markup at the planning stage. It reads fine: the sibling
+Email card keeps its content top-aligned and the realm card's decorative artwork fills the
+extra space. No change made.
+
+**Pre-existing and out of scope:** card description text measures **3.32:1** — `text-textcolor2`
+on all five cards alike. It is a repo-wide pattern this stage did not introduce, and changing
+the token is a maintainer decision with reach far beyond this screen.
+
+**How to re-run it.** The maintainer starts the dev server (port 5174) and the pane must be
+visible. The built-in browser pane **cannot boot this app** — its service-worker registration
+fails and `registerSw()` is awaited unguarded, so the bootstrap dies at "Checking Service
+Worker...". Use Claude in Chrome. The window must not be maximised or Chrome ignores resize
+requests, and a phone-width RDP session cannot reach `md` or `lg`. The screenshot tool's
+coordinate frame is scaled ~0.82x from CSS pixels on this display, so click by element `ref`,
+not by coordinate. Move the mouse away before measuring — `hover:-translate-y-1` produces 4px
+artifacts.
+
+## Durable drafts — NEXT. Resume here after the compaction
 
 **Do not re-open the question of whether this stage is finished.** It was checked against
-`Agents/Reports/20-durable-drafts-plan.md` and is not. See `MC-055`. It resumes **now** that the
-rework is done, per the same decision.
+`Agents/Reports/20-durable-drafts-plan.md` and is not. `MC-055` paused it until the home-screen
+rework was done. That is now true, including the live check, so the stage resumes.
 
 Built and matching the plan section by section, for the main message editor only:
 `src/ts/draftContents.ts` (LRU-bounded, identity-keyed), `src/ts/draftContentOrphanGate.ts` (60s
-cap, swept on `saveDb`'s existing cadence), and `src/lib/ChatScreens/Chat.svelte`.
+cap, swept on `saveDb`'s existing cadence), and `src/lib/ChatScreens/Chat.svelte`. The
+uncommitted work passes as part of the current suite (72 files, 993 passed, 4 skipped).
 
 **Genuinely missing:**
 
@@ -84,10 +149,43 @@ cap, swept on `saveDb`'s existing cadence), and `src/lib/ChatScreens/Chat.svelte
    `TranslationIdentity` and has namespacing tests for it, but `Chat.svelte` imports only
    `MessageIdentity`. `loadTranslationForEdit` and `saveTranslationEdit` contain no draft-store
    call at all.
-2. **The visible restore marker and one-click revert exist on neither surface** — this is
+2. **The visible restore marker and one-click revert exist on neither surface.** This is
    `MC-042`, a maintainer decision.
 3. **Gate 2 (the `opus-reviewer` mutant gate) never ran.**
-4. **No live check in the browser pane.**
+4. **No live check in a browser.**
+
+### Resume plan
+
+**Step 0: re-read before briefing anyone.** Report 20 sections 4.3, 4.4, 5.2, 5.4 and 11 hold the
+constraints. Section 5.4 is binding, not advisory:
+- the marker and revert must exist on **both** edit surfaces: `textBox()`'s `AutoresizeArea`
+  and the `cardboard` theme's raw `<textarea>`. Marker on one only is a silent restore for the
+  other theme's users.
+- a revert **deletes the record**, or the rejected draft is offered again on the next open.
+- for a `tr:` record the revert target is the **cached translation** that
+  `loadTranslationForEdit` seeded, not the record's `baseData`.
+- per 4.4, long-press on the **original-text** textarea discards, while long-press on the
+  **translation** textarea **saves**. The clear-on-exit list follows each editor.
+
+**Step 1: one question for the maintainer before implementation.** `MC-042` fixes *that* a
+marker and a revert exist, not how they look or what they say. Propose a concrete design
+matching the home-screen work (lucide icon, subtle motion, theme tokens, contrast measured) and
+get a yes. New strings need keys in all seven locales through the `translator` agent. The
+Korean "source" slip shows why word choice needs care.
+
+**Step 2: implement items 1 and 2 together, red tests first.** They share the same surfaces and
+the `tr:` revert target couples them. `sonnet-coder` for source, `test-warrior` for tests.
+
+**Step 3: Gate 2.** `opus-reviewer`, fresh, over the whole durable-drafts diff, with mutations.
+This is persistence work, so it gets the high-rigour tier.
+
+**Step 4: live check in Chrome.** Reproduce Path 1 from Report 20 section 2.1 (the one-click
+loss) and confirm the draft survives, the marker shows and revert works, on **both** the
+default and `cardboard` themes and for the translation editor. Use the lessons in the live-check
+section above: click by element `ref`, and any control must be isolated from the page under test.
+
+**Step 5: commit durable drafts on its own.** That unblocks `src/ts/globalApi.svelte.ts` for the
+two deferred `openURL` fixes below.
 
 ## Deferred, and both blocked on the same file
 
@@ -128,7 +226,7 @@ explicit maintainer decision and each recorded as an authorised exception: `MC-0
 
 ## Test suite
 
-**70 files, 972 passed, 4 skipped, 0 failed.** `pnpm check` clean. Run with
+**72 files, 993 passed, 4 skipped, 0 failed.** `pnpm check` clean. Run with
 `npx vitest run --exclude "**/.claude/**" --exclude "**/node_modules/**"` — the bare command picks
 up a stray worktree under `.claude/` and reports phantom failures.
 
@@ -153,3 +251,10 @@ header, and the commit message. None affected runtime; all three would have misl
 And twice a measurement that looked authoritative was wrong: the line-based locale parser above,
 and a `grep` for `\r` that reports zero regardless of truth in this shell. Count bytes with
 `tr -cd '\r' | wc -c` instead.
+
+The live check added a third: a "control" that proved nothing. A plain button injected into the
+same page also ignored Space, which looked like proof of a harness limit. It was the same
+document-level hotkey swallowing both. The maintainer's hand test caught it. **A control must be
+isolated from the thing under test.** Separately, the Orchestrator's own brief added an ARIA-role
+list the maintainer never chose, and the gate caught it regressing about 30 of the app's own
+controls. A brief can widen a decision just as an implementer can.
