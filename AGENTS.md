@@ -2,7 +2,7 @@
 
 Risuai is a cross-platform AI chatting application built with:
 - **Frontend**: Svelte 5 + TypeScript
-- **Desktop**: Tauri 2.5 (Rust backend)
+- **Desktop**: Tauri 2.9 (Rust backend) — the `tauri` crate is pinned at 2.9.5 in `src-tauri/Cargo.toml` and `@tauri-apps/api` at 2.9.1; only `@tauri-apps/cli` and the individual plugin packages sit at 2.5.x
 - **Build Tool**: Vite 8
 - **Styling**: Tailwind CSS 4
 - **Package Manager**: pnpm
@@ -12,20 +12,18 @@ The application allows users to chat with various AI models (OpenAI, Claude, Gem
 ## Directory Structure
 
 ```
-risuai-newest/
+RisuAI/
 ├── src/                    # Main application source code
 │   ├── ts/                 # TypeScript business logic
 │   ├── lib/                # Svelte UI components
 │   ├── lang/               # Internationalization (i18n)
-│   ├── etc/                # Documentation and extras
-│   └── test/               # Test files
+│   └── etc/                # Documentation and extras
 ├── src-tauri/              # Tauri desktop backend (Rust)
 ├── server/                 # Self-hosting server implementations
 │   ├── node/               # Node.js server (current)
 │   └── hono/               # Hono framework server (future)
 ├── public/                 # Static assets
 ├── dist/                   # Build output
-├── resources/              # Application resources
 └── .github/workflows/      # CI/CD pipelines
 ```
 
@@ -45,7 +43,7 @@ risuai-newest/
 | `sync/` | Multi-user synchronization |
 | `cbs.ts` | Callback system |
 | `characterCards.ts` | Character card import/export |
-| `parser.svelte.ts` | Message parsing |
+| `parser/` | Message parsing (`parser.svelte.ts`, `chatML.ts`, `chatVar.svelte.ts`, `partialEdit.ts`) |
 | `stores.svelte.ts` | Svelte stores for state management |
 | `globalApi.svelte.ts` | Global API methods |
 | `bootstrap.ts` | Application initialization |
@@ -57,7 +55,7 @@ risuai-newest/
 | `index.svelte.ts` | Main chat processing orchestration |
 | `request/` | API request handlers (OpenAI, Anthropic, Google) |
 | `memory/` | Memory systems (HypaMemoryV2/V3, SupaMemory, HanuraiMemory) |
-| `models/` | AI model integrations (NAI, OpenRouter, Ooba, local models) |
+| `models/` | NAI and local-model integrations only (`nai.ts`, `local.ts`, `modelString.ts`). OpenRouter and Ooba live in `src/ts/model/`, a sibling of `process/`, not here |
 | `templates/` | Prompt templates and formatting |
 | `mcp/` | Model Context Protocol support |
 | `files/` | File handling (inlays, multisend) |
@@ -79,7 +77,6 @@ risuai-newest/
 | `Others/` | Miscellaneous components |
 | `Mobile/` | Mobile-specific UI |
 | `Playground/` | Testing/playground features |
-| `VisualNovel/` | Visual novel mode |
 | `LiteUI/` | Lightweight UI variant |
 
 ## Building and Running
@@ -126,7 +123,7 @@ pnpm check
 
 ### Coding Style
 
-- The project uses Prettier for code formatting
+- **There is no configured formatter or linter.** No Prettier, ESLint, Biome or `.editorconfig` exists in this repo, and no `format` or `lint` script. Match the style of the surrounding file by hand; do not run a formatter across a file you are editing, because it will produce a diff nobody asked for and bury the real change
 - Ensure code is formatted before committing
 - **No in-repo line numbers in code or test comments.** Refer to code by name (function, effect, branch, test), for example "the preset effect above" or "prepareSaveIteration in globalApi.svelte.ts", never `file.ts:123`. Line numbers go stale on the next edit, reviewers here reject stale comments as false claims, and this has already cost review rounds. Exception: a pinned third-party source may be cited by line with its version (e.g. `svelte 5.55.1, proxy.js:201-206`). Reports, the roadmap and the ledger are dated snapshots and keep `file:line`; briefs may ask agents for line numbers in their reports, never in comments.
 
@@ -136,8 +133,9 @@ The project uses Svelte 5 Runes system:
 - `$state`, `$derived`, `$effect` for reactive state
 - Svelte stores (writable, readable) in `stores.svelte.ts`
 
-Key stores:
-- `DBState` - Database state
+**`DBState` is not a store.** It is declared `export const DBState = $state({...})` in `stores.svelte.ts` — a rune-based reactive object, accessed as a plain object (`DBState.db`). There is no `$DBState`, and the `$`-prefix subscription syntax does not work on it.
+
+Key `writable` stores:
 - `selectedCharID` - Current character
 - `settingsOpen`, `sideBarStore`, `MobileGUI` - UI state
 - `loadedStore`, `alertStore` - Application state
@@ -163,7 +161,7 @@ You can safely apply Tailwind's opacity modifiers directly to these custom theme
 
 ### Testing
 
-- Unit tests use Vitest (`pnpm test` runs `vitest run`); there are ~20+ `*.test.ts` files spread across `src/lib`, `src/ts/parser`, `src/ts/process`, `src/ts/storage`, `src/ts/translator`, and elsewhere — not exhaustive coverage, but a real and growing suite, not just a placeholder.
+- Unit tests use Vitest (`pnpm test` runs `vitest run`); there are 56 `*.test.ts` files as of 2026-09-23 — re-check with `git ls-files 'src/**/*.test.ts' | wc -l` rather than trusting this number, which has gone stale before. They are spread across `src/ts/process`, `src/ts/parser`, `src/ts/storage`, `src/ts/media`, `src/ts/network`, `src/ts/plugins`, `src/ts/translator`, `src/lib` and elsewhere — not exhaustive coverage, but a real and growing suite, not just a placeholder.
 - Run `pnpm check` for type checking (svelte-check).
 - Test coverage is uneven: some areas (e.g. `src/ts/storage/remoteSaveCleanup.test.ts`) only exercise Tauri/Node-specific code paths and say nothing about the pure web build's behavior in that area. Don't assume a file has tests nearby means that exact runtime path is covered — check what the test actually exercises.
 
@@ -173,7 +171,7 @@ You can safely apply Tailwind's opacity modifiers directly to these custom theme
 
 - Database abstraction (`src/ts/storage/autoStorage.ts`) selects a backend at runtime, in priority order: account-sync (HTTP, `accountStorage.ts`) → Node server (HTTP, `nodeStorage.ts`) → OPFS (`opfsStorage.ts`) → LocalForage (fallback).
 - **OPFS for the main database is opt-in, off by default, on the web build**: `AutoStorage` only selects it when `localStorage['opfs_flag!'] === "able"`. As of Phase 1 (`Agents/Roadmap.md`), that flag is reachable through an in-app toggle (`src/lib/Setting/Pages/FilesSettings.svelte`, "Local Storage Backend" section) that migrates existing LocalForage data to OPFS and reloads; nothing sets it automatically, so a fresh browser profile still defaults to LocalForage for `database/database.bin`. Cold storage (`src/ts/process/coldstorage.svelte.ts`) has always used OPFS directly, independent of this flag. Don't assume "OPFS" in a file name means it's active for a given user — check the `opfs_flag!` gate (or the settings toggle's current state) first.
-- Tauri desktop bypasses this whole abstraction for the primary database write and calls `@tauri-apps/plugin-fs`'s `writeFile` directly (see `src/ts/globalApi.svelte.ts`'s `saveDb()`), including for "remote" character blocks — `AutoStorage`'s remote-block path is only actually exercised by the Node-server backend, not Tauri.
+- Tauri desktop bypasses this whole abstraction for the primary database write and calls `@tauri-apps/plugin-fs`'s `writeFile` directly (see `src/ts/globalApi.svelte.ts`'s `saveDb()`), including for "remote" character blocks. **Tauri is the only backend that bypasses the remote-block path.** On every non-Tauri build `encodeRemoteBlock` writes through `forageStorage` — the shared `AutoStorage` instance from `globalApi.svelte.ts` — so whichever backend it selected handles remote blocks: account-sync, Node server, OPFS or LocalForage alike, not the Node server alone.
 - Save file format: `.bin` files with encryption support, structured as a block/chunk format (`RisuSaveType` in `src/ts/storage/risuSave.ts`) — a root block plus one block per character/module/preset/etc., only-changed-blocks-re-encoded incrementally.
 - Character cards: Import/export in various formats (.risum, .risup, .charx)
 
@@ -199,22 +197,32 @@ See `plugins.md` for comprehensive plugin development guide.
 - Component-based with Svelte 5
 - Responsive design with mobile/desktop variants
 - Theme system with custom color schemes
-- Multiple UI modes: Classic, WaifuLike, WaifuCut
+- Multiple UI modes, selected by the `theme` setting (`src/ts/setting/displaySettingsData.svelte.ts`): Standard Risu (`''`), Waifulike (`'waifu'`), Mobile Chat (`'mobilechat'`), CardBoard (`'cardboard'`) and Custom HTML (`'customHTML'`). `WaifuCut` was removed in the display-settings-to-renderer refactor
 - Dynamic GUI switching based on viewport
 - No traditional router; uses conditional rendering in App.svelte
 - In-app drag-and-drop uses custom MIME types to avoid conflicting with file imports; see `src/ts/dragTypes.ts`
 
 ## Supported AI Providers
 
+`LLMProvider` in `src/ts/model/types.ts` is authoritative — check it rather than trusting this list, which has drifted before. As of 2026-09-23 it covers:
+
 - OpenAI (GPT series)
 - Anthropic (Claude)
-- Google (Gemini)
+- Google (Gemini) and Vertex AI
+- Mistral
+- Cohere
+- NovelAI, and NovelList
+- DeepSeek
 - DeepInfra
-- OpenRouter
+- NanoGPT
+- AWS (Bedrock)
 - AI Horde
 - Ollama
-- Ooba (Text Generation WebUI)
+- WebLLM (in-browser inference)
+- OpenRouter and Ooba (Text Generation WebUI) — these are modelled by format in `src/ts/model/modellist.ts` rather than as `LLMProvider` entries
 - Custom providers via plugins
+
+`AsIs` and `Echo` are passthrough and developer entries, not user-facing providers.
 
 ## Internationalization
 
@@ -261,6 +269,15 @@ Use a senior-orchestrator workflow. Keep discovery, implementation, review, and 
 
 This effort is a targeted stabilization and improvement campaign, **not a rewrite or major overhaul**. Bug fixes, reliability and performance work, maintainability improvements, UI improvements, and new or enhanced features are permitted. The compatibility invariant is that upstream-compatible characters, modules, presets, backup `.bin` files, plugins, and other supported user data and integrations must continue to work on this fork. 
 
+**Release status — this fork has never shipped.** There is no released build of this fork and no userbase on it. The last build with actual users is **upstream** (`kwaroran/RisuAI`). This campaign is itself the blocker on shipping: there will be no release or deliverable until it closes the known data-loss and performance issues. Recorded as `MC-011` in `Agents/Maintainer-Context.md`, which is authoritative for maintainer-stated facts.
+
+Two consequences follow, and they pull in opposite directions:
+
+- **"Pre-existing behaviour" is not worth preserving, and is not by itself a reason to defer a fix.** Nobody was ever hit by a fork-local bug, and nobody depends on fork-local behaviour. Weigh a deferral on scope and blast radius alone. Do not argue for a design on the grounds that it is a Pareto improvement over current fork behaviour — there is no shipped behaviour to improve on, so pick what is right for the first release. Do not spend design effort migrating or recovering already-corrupted fork-local state.
+- **This does not weaken the compatibility invariant above — it strengthens it.** Users will arrive by migrating *from* upstream, so upstream characters, modules, presets, backup `.bin` files and plugins must keep working, and that matters more under this framing, not less. User-reported symptoms cited anywhere in `Agents/**` are observations of *upstream* builds, not of this fork.
+
+There is no release pressure. Quality and the gate pipeline win over shipping something partial.
+
 ### 1. Multi-Agent Routing Protocol (CRITICAL)
 You are the **Opus 5 Senior Orchestrator**. To prevent token bleeding and maximize the Max 5x plan quota, you MUST delegate tasks to specialized subagents in `.claude/agents/` using this routing matrix:
 
@@ -279,6 +296,8 @@ You are the **Opus 5 Senior Orchestrator**. To prevent token bleeding and maximi
 13. **Fact-Checking Documentation** -> Delegate to `doc-verifier` (powered by **Claude Sonnet 5**). It checks every claim against source and gives one verdict per claim: VERIFIED, WRONG, STALE CITATION, OVERSTATED, INCOMPLETE or UNVERIFIABLE. It is dispatched by the Orchestrator, never by the author, and it is read-only. For persistence-touching commits, `opus-reviewer` still owns the commit-message check.
 
 14. **Translating UI Strings** -> Delegate to `translator` (powered by **Claude Sonnet 5**). It adds missing keys and fixes untranslated or stale entries in `src/lang/*.ts`, from `en.ts` into ko, cn, zh-Hant, vi, de and es. It preserves keys, `${…}` interpolations, CBS tags and CRLF line endings exactly. It never reverts the maintainer's own edits in those files. Warnings and consent strings must keep their full force. A new English source string goes to `sonnet-coder`, together with its call site, not to `translator`.
+
+**Every subagent brief cites the context log.** Before dispatching, check `Agents/Maintainer-Context.md` for facts and decisions bearing on the task, and name the relevant `MC-` ids in the brief. A subagent has no other way to see what the maintainer has actually stated or decided, and an agent that re-derives a settled decision, or quietly contradicts one, has usually just not been told. Where the log is silent on something the task turns on, that is a question for the maintainer, not a gap to fill with an assumption. Start from `Agents/README.md` for what every other campaign document is authoritative for.
 
 **Documentation flow:** `code-reader -> doc-writer -> doc-verifier -> Orchestrator`. When the evidence already exists (an investigator packet, a gate record or a measurement), skip `code-reader` and hand the packet straight to `doc-writer`. Documentation separates the author from the checker for the same reason code review does.
 
@@ -445,5 +464,5 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" task --resume "<follow-
 1. Follow the existing coding style and conventions
 2. Run `pnpm check` before submitting a pull request
 3. Ensure your code is well-tested
-4. Format code with Prettier before committing
+4. Match the surrounding file's existing style; there is no configured formatter to run
 5. Any AI-agent-authored code change or investigative report must go through the independent-review process above before being considered complete — non-trivial changes need both the plan review and the post-implementation code review, with Codex added when the escalation policy requires it
