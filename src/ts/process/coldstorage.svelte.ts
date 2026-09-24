@@ -13,6 +13,7 @@ import { DBState, selectedCharID } from "../stores.svelte"
 import { get } from "svelte/store"
 import type { NodeStorage } from "../storage/nodeStorage"
 import { compress as fflateCompress, decompress as fflateDecompress } from "fflate"
+import { v4 as uuidv4 } from "uuid"
 import { fetchProtectedResource } from "../sionyw"
 import { alertClear, alertConfirm, alertError, alertWait } from "../alert"
 import { language } from "src/lang"
@@ -771,6 +772,7 @@ async function makeColdDataForCharacter(i:number, coldTime:number): Promise<bool
             image: DBState.db.characters[i].image,
             name: DBState.db.characters[i].name,
             chats: [{
+                id: uuidv4(),
                 message: [{
                     time: Date.now(),
                     data: '',

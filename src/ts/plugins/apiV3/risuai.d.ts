@@ -1299,6 +1299,12 @@ interface RisuaiPluginAPI {
     createMutationObserver(callback: SafeMutationCallback): Promise<SafeMutationObserver>;
 
     // ========== Character APIs ==========
+    // Note: `chat.id` and a character's `chaId` must be unique across the database;
+    // a copy of a chat or character passed to any of the APIs below must drop or
+    // regenerate them rather than carry over the original's. Keep the original
+    // `chat.id` or `chaId` when replacing that same chat or character; an object
+    // installed without one gets a fresh id, so it is treated as a different chat
+    // or character from anything that already existed.
 
     /**
      * Gets the current character

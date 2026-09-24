@@ -9,6 +9,7 @@ import {
 } from "@tauri-apps/plugin-fs"
 import { changeFullscreen, checkNullish, sleep, sleepForever } from "./util"
 import { markAppInitiatedReload } from "./reloadGuard"
+import { repairDatabaseIds } from "./process/chatIds"
 import { openUrlOnWeb } from "./openUrlWeb"
 import { convertFileSrc, invoke } from "@tauri-apps/api/core"
 import { v4 as uuidv4, v4 } from 'uuid';
@@ -3241,9 +3242,14 @@ export async function loadInternalBackup() {
         await readFile('database/' + selectedBackup, { baseDir: BaseDirectory.AppData })
     ) : (await forageStorage.getItem(selectedBackup))
 
-    setDatabase(
-        await decodeRisuSave(Buffer.from(data) as unknown as Uint8Array)
-    )
+    const decoded = await decodeRisuSave(Buffer.from(data) as unknown as Uint8Array)
+    // This load never reloads the page, so boot's repair would not run until
+    // the next start; it repairs ids on the decoded backup before
+    // `setDatabase` installs it. A throw here aborts the load before
+    // anything is replaced, and an edit made after the object enters
+    // `$state` is invisible once that property has been read.
+    repairDatabaseIds(decoded)
+    setDatabase(decoded)
     // A backup load is an explicit user action to replace everything, so a
     // full reload (and dropping characters absent from the backup) is
     // intended -- the other three call sites already do this (plan §3.3).

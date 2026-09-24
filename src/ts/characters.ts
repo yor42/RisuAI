@@ -1,5 +1,5 @@
 import { get, writable } from "svelte/store";
-import { saveImage, type character, type Chat, defaultSdDataFunc, type loreBook, getDatabase, getCharacterByIndex, setCharacterByIndex } from "./storage/database.svelte";
+import { saveImage, type character, type Chat, type groupChat, defaultSdDataFunc, type loreBook, getDatabase, getCharacterByIndex, setCharacterByIndex } from "./storage/database.svelte";
 import { alertAddCharacter, alertConfirm, alertError, alertNormal, alertSelect, alertStore, alertWait } from "./alert";
 import { language } from "../lang";
 import { checkNullish, findCharacterbyId, findCharacterIndexbyId, getUserName, selectMultipleFile, selectSingleFile } from "./util";
@@ -29,6 +29,7 @@ export function createNewGroup(){
         name: "",
         firstMessage: "",
         chats: [{
+            id: v4(),
             message: [],
             note: '',
             name: 'Chat 1',
@@ -51,6 +52,33 @@ export function createNewGroup(){
     })
     checkCharOrder()
     return DBState.db.characters.length - 1
+}
+
+/**
+ * Creates the New Chat button's chat: unshifts a chat literal onto
+ * `cha.chats` at index 0, then, for a group, pushes each member's greeting
+ * into that new chat. The new chat always has an id from the moment it
+ * enters `cha.chats`, and no other chat is touched. Returns 0, the index of
+ * the new chat.
+ */
+export function createNewChat(cha: character | groupChat): number {
+    const newChat: Chat = {
+        id: v4(),
+        message: [], note: '', name: `New Chat ${cha.chats.length + 1}`, localLore: [], fmIndex: -1
+    }
+    const chats = cha.chats
+    chats.unshift(newChat)
+    if(cha.type === 'group'){
+        cha.characters.map((c) => {
+            chats[0].message.push({
+                saying: c,
+                role: 'char',
+                data: findCharacterbyId(c).firstMessage
+            })
+        })
+    }
+    cha.chats = chats
+    return 0
 }
 
 export async function getCharImage(loc:string, type:'plain'|'css'|'contain'|'lgcss'|'thumb'|'thumbcss') {
@@ -469,9 +497,7 @@ export async function importChat(){
                 const chats = json.data
                 if(Array.isArray(chats) && chats.length > 0){
                     DBState.db.characters[selectedID].chats.unshift(...(chats.map((v) => {
-                        if(!v.id){
-                            v.id = uuidv4()
-                        }
+                        v.id = uuidv4()
                         if(!v.localLore){
                             v.localLore = []
                         }
@@ -509,6 +535,7 @@ export async function importChat(){
             const chat = doc.querySelector('.idat').textContent
             const json = JSON.parse(chat)
             if(json.message && json.note && json.name && json.localLore){
+                json.id = v4()
                 DBState.db.characters[selectedID].chats.unshift(json)
                 alertNormal(language.successImport)
             }
@@ -553,6 +580,7 @@ export function characterFormatUpdate(indexOrCharacter:number|character, arg:{
     let cha = typeof(indexOrCharacter) === 'number' ? getCharacterByIndex(indexOrCharacter) : indexOrCharacter
     if(cha.chats.length === 0){
         cha.chats = [{
+            id: uuidv4(),
             message: [],
             note: '',
             name: 'Chat 1',
@@ -688,6 +716,7 @@ export function createBlankChar():character{
         desc: '',
         notes: '',
         chats: [{
+            id: uuidv4(),
             message: [],
             note: '',
             name: 'Chat 1',

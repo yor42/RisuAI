@@ -5,8 +5,7 @@
     import { DBState } from 'src/ts/stores.svelte';
     import { ReloadGUIPointer, selectedCharID } from "../../ts/stores.svelte";
     import { DownloadIcon, SquarePenIcon, HardDriveUploadIcon, PlusIcon, TrashIcon, XIcon } from "@lucide/svelte";
-    import { exportChat, importChat } from "../../ts/characters";
-    import { findCharacterbyId } from "../../ts/util";
+    import { exportChat, importChat, createNewChat } from "../../ts/characters";
     import TextInput from "../UI/GUI/TextInput.svelte";
     import { changeChatTo } from "src/ts/globalApi.svelte";
 
@@ -70,22 +69,8 @@
         <div class="flex mt-2 items-center">
             <button class="text-textcolor2 hover:text-green-500 cursor-pointer mr-1" onclick={() => {
                 const cha = DBState.db.characters[$selectedCharID]
-                const len = DBState.db.characters[$selectedCharID].chats.length
-                let chats = DBState.db.characters[$selectedCharID].chats
-                chats.unshift({
-                    message:[], note:'', name:`New Chat ${len + 1}`, localLore:[], fmIndex: -1
-                })
-                if(cha.type === 'group'){
-                    cha.characters.map((c) => {
-                        chats[len].message.push({
-                            saying: c,
-                            role: 'char',
-                            data: findCharacterbyId(c).firstMessage
-                        })
-                    })
-                }
-                DBState.db.characters[$selectedCharID].chats = chats
-                changeChatTo(len)
+                const newIndex = createNewChat(cha)
+                changeChatTo(newIndex)
                 close()
             }}>
                 <PlusIcon/>

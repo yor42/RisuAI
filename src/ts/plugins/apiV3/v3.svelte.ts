@@ -2,6 +2,13 @@ import { allowedDbKeys, customProviderStore, getV2PluginAPIs, handlePluginInstal
 import { SandboxHost } from "./factory";
 import { getDatabase } from "src/ts/storage/database.svelte";
 import { markCharacterForSave } from "src/ts/storage/characterSaveMarks";
+import {
+    fillMissingCharacterInstallIds,
+    fillMissingChatSlotId,
+    warnIfCharacterChaIdDuplicated,
+    warnIfCharacterInstallDuplicatesChatIds,
+    warnIfChatSlotIdDuplicated,
+} from "src/ts/process/chatIds";
 import { SafeLocalPluginStorage, tagWhitelist } from "../pluginSafeClass";
 import DOMPurify from 'dompurify';
 import { additionalChatMenu, additionalFloatingActionButtons, additionalHamburgerMenu, additionalSettingsMenu, bodyIntercepterStore, chatPanelStore, DBState, selectedCharID, type MenuDef } from "src/ts/stores.svelte";
@@ -658,13 +665,16 @@ const authorizationHeaders = [
  * tracker (element/whole-array replacement only), so it never persisted.
  * Marks the target character for save after the write.
  */
-export function setChatToIndexImpl(characterIndex: number, chatIndex: number, chat: any): void {
+export function setChatToIndexImpl(characterIndex: number, chatIndex: number, chat: any, pluginName?: string): void {
     const db = DBState.db
     const charIds = Object.keys(db.characters);
     const charId = charIds[characterIndex];
     if(charId){
         const chats = db.characters[charId].chats;
         if(chats && chats[chatIndex]){
+            const replaced = chats[chatIndex]
+            fillMissingChatSlotId(chat)
+            warnIfChatSlotIdDuplicated(chats, chatIndex, chat?.id, replaced?.id, pluginName)
             DBState.db.characters[charId].chats[chatIndex] = chat
             markCharacterForSave(DBState.db.characters[charId]?.chaId)
         }
@@ -714,7 +724,7 @@ export const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             return oldApis.nativeFetch(url, options);
         },
         getChar: oldApis.getChar,
-        setChar: oldApis.setChar,
+        setChar: (char:any) => oldApis.setChar(char, plugin.name),
         addProvider: (name: string, func: (arg: PluginV2ProviderArgument, abortSignal?: AbortSignal) => Promise<{ success: boolean, content: string | ReadableStream<string> }>, options?: PluginV3ProviderOptions) => {
             console.warn(`[WARN] addProvider is a powerful API that can potentially be unsafe if used incorrectly. addProvider's functionality might be limited or changed in future updates to ensure security. please use other APIs if possible.`);
             let provs = get(customProviderStore)
@@ -776,8 +786,8 @@ export const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             addPluginUnloadCallback(plugin.name, () => oldApis.removeRisuChatListener(mode, func as any));
         },
         removeRisuChatListener: oldApis.removeRisuChatListener,
-        setDatabaseLite: oldApis.setDatabaseLite,
-        setDatabase: oldApis.setDatabase,
+        setDatabaseLite: (newDb:any) => oldApis.setDatabaseLite(newDb, plugin.name),
+        setDatabase: (newDb:any) => oldApis.setDatabase(newDb, plugin.name),
         loadPlugins: oldApis.loadPlugins,
         readImage: oldApis.readImage,
         readInlay: async (id: string) => {
@@ -907,6 +917,10 @@ export const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             const charIds = Object.keys(db.characters);
             const charId = charIds[index];
             if(charId){
+                const replaced = db.characters[charId]
+                fillMissingCharacterInstallIds(char)
+                warnIfCharacterChaIdDuplicated(db.characters, index, char?.chaId, replaced?.chaId, plugin.name)
+                warnIfCharacterInstallDuplicatesChatIds(char?.chats, char?.chaId, db.characters, replaced?.chats, plugin.name)
                 DBState.db.characters[charId] = char
             }
         },
@@ -965,7 +979,7 @@ export const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
 
             return (await processScriptFull(char, parsed, 'editprocess', chatID, cbsConditions)).data;
         },
-        setChatToIndex: setChatToIndexImpl,
+        setChatToIndex: (characterIndex:number, chatIndex:number, chat:any) => setChatToIndexImpl(characterIndex, chatIndex, chat, plugin.name),
         getCurrentCharacterIndex: () => {
             return get(selectedCharID)
         },
@@ -988,7 +1002,7 @@ export const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         },
         //New names for character APIs, to match API naming conventions
         getCharacter: oldApis.getChar,
-        setCharacter: oldApis.setChar,
+        setCharacter: (char:any) => oldApis.setChar(char, plugin.name),
 
         showContainer: (
             //more types may be added in future

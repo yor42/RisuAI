@@ -5,6 +5,7 @@ import { AppendableBuffer, requiresFullEncoderReload } from "../globalApi.svelte
 import { decodeRisuSave } from "../storage/risuSave"
 import { language } from "src/lang"
 import { fetchProtectedResource } from "../sionyw"
+import { repairDatabaseIds } from "../process/chatIds"
 
 export function risuLogin() {
     const win = window.open(hubURL + '/hub/login')
@@ -131,9 +132,14 @@ export async function loadRisuAccountBackup() {
 
         alertWait("Loading backup")
 
-        setDatabase(
-            await decodeRisuSave(buf.buffer)
-        )
+        const decoded = await decodeRisuSave(buf.buffer)
+        // This load never reloads the page, so boot's repair would not run
+        // until the next start; it repairs ids on the decoded backup before
+        // `setDatabase` installs it. A throw here aborts the load before
+        // anything is replaced, and an edit made after the object enters
+        // `$state` is invisible once that property has been read.
+        repairDatabaseIds(decoded)
+        setDatabase(decoded)
         // A backup load is an explicit user action to replace everything, so a
         // full reload (and dropping characters absent from the backup) is
         // intended -- the other three call sites already do this (plan §3.3).

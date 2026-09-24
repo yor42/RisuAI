@@ -12,9 +12,9 @@
     import Button from "../UI/GUI/Button.svelte";
     import TextInput from "../UI/GUI/TextInput.svelte";
 
-    import { exportChat, importChat, exportAllChats } from "src/ts/characters";
+    import { exportChat, importChat, exportAllChats, createNewChat } from "src/ts/characters";
     import { alertChatOptions, alertConfirm, alertError, alertNormal, alertSelect, alertStore } from "src/ts/alert";
-    import { findCharacterbyId, sleep, sortableOptions } from "src/ts/util";
+    import { sleep, sortableOptions } from "src/ts/util";
     import { createMultiuserRoom } from "src/ts/sync/multiuser";
     import { bookmarkListOpen } from "src/ts/stores.svelte";
     import { language } from "src/lang";
@@ -139,22 +139,7 @@
 </script>
 <div class="flex flex-col w-full h-[calc(100%-2rem)] max-h-[calc(100%-2rem)]">
     <Button className="relative bottom-2" onclick={() => {
-        const cha = chara
-        const len = chara.chats.length
-        let chats = chara.chats
-        chats.unshift({
-            message:[], note:'', name:`New Chat ${len + 1}`, localLore:[], fmIndex: -1, id: v4()
-        })
-        if(cha.type === 'group'){
-            cha.characters.map((c) => {
-                chats[len].message.push({
-                    saying: c,
-                    role: 'char',
-                    data: findCharacterbyId(c).firstMessage
-                })
-            })
-        }
-        chara.chats = chats
+        createNewChat(chara)
         changeChatTo(0)
         $ReloadGUIPointer += 1
     }}>{language.newChat}</Button>

@@ -12,6 +12,13 @@ import { SafeDocument, SafeIdbFactory, SafeLocalStorage } from "./pluginSafeClas
 import { loadV3Plugins } from "./apiV3/v3.svelte";
 import { pluginCodeTranspiler } from "./apiV3/transpiler";
 import { markCharacterForSave } from "../storage/characterSaveMarks";
+import {
+    fillMissingCharacterInstallIds,
+    fillMissingDatabaseInstallIds,
+    warnDuplicatesInDatabaseInstall,
+    warnIfCharacterChaIdDuplicated,
+    warnIfCharacterInstallDuplicatesChatIds,
+} from "../process/chatIds";
 
 export const customProviderStore = writable([] as string[])
 
@@ -510,9 +517,15 @@ export const getV2PluginAPIs = () => {
         getChar: () => {
             return getCurrentCharacter({ snapshot: true })
         },
-        setChar: (char: any) => {
+        setChar: (char: any, pluginName?: string) => {
             const db = getDatabase()
             const charid = get(selectedCharID)
+            const replaced = charid >= 0 ? db.characters[charid] : undefined
+            fillMissingCharacterInstallIds(char)
+            if (replaced) {
+                warnIfCharacterChaIdDuplicated(db.characters, charid, char?.chaId, replaced?.chaId, pluginName)
+                warnIfCharacterInstallDuplicatesChatIds(char?.chats, char?.chaId, db.characters, replaced?.chats, pluginName)
+            }
             db.characters[charid] = char
             setDatabaseLite(db)
         },
@@ -750,9 +763,14 @@ export const getV2PluginAPIs = () => {
                 return Object.keys(db.pluginCustomStorage).length;
             }
         },
-        setDatabaseLite: (newDb: any) => {
+        setDatabaseLite: (newDb: any, pluginName?: string) => {
             const db = getDatabase();
             db.pluginCustomStorage ??= {}
+            if (Array.isArray(newDb.characters)) {
+                const beforeCharacters = db.characters
+                fillMissingDatabaseInstallIds(newDb)
+                warnDuplicatesInDatabaseInstall(newDb, beforeCharacters, pluginName)
+            }
             for (const key of Object.keys(newDb)) {
                 if (allowedDbKeys.includes(key)) {
                     (db as any)[key] = newDb[key];
@@ -780,9 +798,14 @@ export const getV2PluginAPIs = () => {
                 }
             }
         },
-        setDatabase: async (newDb: any) => {
+        setDatabase: async (newDb: any, pluginName?: string) => {
             const db = getDatabase();
             db.pluginCustomStorage ??= {}
+            if (Array.isArray(newDb.characters)) {
+                const beforeCharacters = db.characters
+                fillMissingDatabaseInstallIds(newDb)
+                warnDuplicatesInDatabaseInstall(newDb, beforeCharacters, pluginName)
+            }
             for (const key of Object.keys(newDb)) {
                 if (key === 'plugins') {
                     console.warn('[WARN] Plugin attempted to access plugin directly. this would be blocked in future versions. Instead, use the provided APIs to manage plugins. Attempting to handle plugin installation via plugin for new plugins in the provided database object.')
@@ -799,10 +822,10 @@ export const getV2PluginAPIs = () => {
             setDatabase(db);
             // Same reasoning as setDatabaseLite above -- this setter is shared by
             // both V2 (live wrapper, in-place edits) and V3 (getDatabase()
-            // returns fresh snapshots; this same function is re-exported
-            // as-is for V3 by apiV3/v3.svelte.ts's makeRisuaiAPIV3()), so mark
-            // unconditionally rather than special-case which API version called
-            // in. V3's fresh `characters` array is also new-identity to the
+            // returns fresh snapshots; apiV3/v3.svelte.ts's makeRisuaiAPIV3()
+            // wraps this same function to pass the plugin's name through), so
+            // mark unconditionally rather than special-case which API version
+            // called in. V3's fresh `characters` array is also new-identity to the
             // identity tracker (dbChangeEffects.svelte.ts), so this is redundant
             // (but harmless, see appendIfAbsent) for that case specifically.
             // Never deletes: see setDatabaseLite's comment above -- the

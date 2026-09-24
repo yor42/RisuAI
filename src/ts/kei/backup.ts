@@ -2,6 +2,7 @@ import { alertNormal, alertSelect } from "../alert"
 import { keiServerURL } from "./kei"
 import { getDatabase, setDatabase } from "../storage/database.svelte"
 import { requiresFullEncoderReload } from "../globalApi.svelte"
+import { repairDatabaseIds } from "../process/chatIds"
 
 export async function autoServerBackup(){
     const db = getDatabase()
@@ -60,7 +61,16 @@ export async function autoServerBackup(){
                         })
                     })
                     if(res.status === 200){
-                        setDatabase(await res.json())
+                        const decoded = await res.json()
+                        // This load never reloads the page, so boot's repair
+                        // would not run until the next start; it repairs ids
+                        // on the decoded backup before `setDatabase` installs
+                        // it. A throw here aborts the load before anything is
+                        // replaced, and an edit made after the object enters
+                        // `$state` is invisible once that property has been
+                        // read.
+                        repairDatabaseIds(decoded)
+                        setDatabase(decoded)
                         requiresFullEncoderReload.state = true
                         alertNormal("Successfully restored!")
                     }

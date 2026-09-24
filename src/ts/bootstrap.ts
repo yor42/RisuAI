@@ -34,6 +34,7 @@ import { moduleUpdate } from "./process/modules";
 import type { AccountStorage } from "./storage/accountStorage";
 import { AccountSyncCacheMismatchError } from "./storage/accountStorage";
 import { makeColdData } from "./process/coldstorage.svelte";
+import { repairDatabaseIds } from "./process/chatIds";
 import { verifyAssetCacheEntry } from "./storage/assetIntegrity";
 import { getRemoteSaveCleanupAction, getRemoteSavePayloadName } from "./storage/remoteSaveCleanup";
 import { sweepTauriAssets, sweepForageAssetKey } from "./storage/assetSweep";
@@ -745,33 +746,23 @@ async function cleanChunks(options:{
 
 
 /**
- * Assigns unique IDs to characters and chats.
+ * Repairs `DBState.db.characters`' ids in place, as boot does: a missing
+ * `chaId` or chat id gets a fresh one, and an id already seen (by any
+ * character or chat of either kind, in array order) is treated as missing
+ * too, so the first holder by position keeps it. Holds one id set for the
+ * whole database.
+ *
+ * Boot-only: never call this at runtime. It reassigns any id it finds
+ * already present twice to a fresh one, which would move that id out from
+ * under a plugin, a draft, or anything else already addressing it.
+ *
+ * A backup load runs the same algorithm directly from `chatIds.ts` (see
+ * `repairDatabaseIds`) on the decoded object, before it enters `$state`,
+ * rather than through this export -- pulling this whole module in for that
+ * one call would drag boot's entire module graph into every backup-load
+ * caller. `chatIds.ts` imports nothing from the app store, so that direct
+ * call never does either.
  */
-function assignIds() {
-    if (!DBState?.db?.characters) {
-        return
-    }
-    const assignedIds = new Set<string>()
-    for (let i = 0; i < DBState.db.characters.length; i++) {
-        const cha = DBState.db.characters[i]
-        if (!cha.chaId) {
-            cha.chaId = uuidv4()
-        }
-        if (assignedIds.has(cha.chaId)) {
-            console.warn(`Duplicate chaId found: ${cha.chaId}. Assigning new ID.`);
-            cha.chaId = uuidv4();
-        }
-        assignedIds.add(cha.chaId)
-        for (let i2 = 0; i2 < cha.chats.length; i2++) {
-            const chat = cha.chats[i2]
-            if (!chat.id) {
-                chat.id = uuidv4()
-            }
-            if (assignedIds.has(chat.id)) {
-                console.warn(`Duplicate chat ID found: ${chat.id}. Assigning new ID.`);
-                chat.id = uuidv4();
-            }
-            assignedIds.add(chat.id)
-        }
-    }
+export function assignIds() {
+    repairDatabaseIds({ characters: DBState?.db?.characters })
 }

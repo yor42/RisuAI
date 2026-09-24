@@ -35,11 +35,23 @@ vi.mock(import('src/ts/platform'), () => ({
     isIOS: () => false,
 }) as unknown as typeof import('src/ts/platform'))
 
+// Populated synchronously, inside the mock, at the moment `setDatabase` is
+// called -- recording it after the fact could not tell a repair that ran
+// before this call from one that ran after it, since both leave the same
+// final state once the whole load finishes.
+const setDatabaseCallState = vi.hoisted(() => ({ idsCompleteAtCall: [] as boolean[] }))
+
+function allIdsFilled(db: { characters?: { chaId?: string, chats?: { id?: string }[] }[] } | undefined): boolean {
+    return (db?.characters ?? []).every((c) => !!c?.chaId && (c?.chats ?? []).every((ch) => !!ch?.id))
+}
+
 vi.mock(import('src/ts/storage/database.svelte'), () => ({
     getDatabase: vi.fn(() => {
         throw new Error('no live database in tests')
     }),
-    setDatabase: vi.fn(),
+    setDatabase: vi.fn((db: unknown) => {
+        setDatabaseCallState.idsCompleteAtCall.push(allIdsFilled(db as never))
+    }),
     presetTemplate: { name: 'test-preset' },
     defaultSdDataFunc: vi.fn(() => ({})),
     appVer: 'test',
@@ -265,6 +277,7 @@ beforeEach(() => {
     requiresFullEncoderReload.state = false
     alertSelectImpl.fn = vi.fn(async () => '1') // selects internalBackups[0] (index 0 -> option 1, "Cancel" is option 0)
     vi.mocked(setDatabase).mockClear()
+    setDatabaseCallState.idsCompleteAtCall.length = 0
 })
 
 describe('loadInternalBackup — Report 17 Stage 1 Gate 2 should-fix: backup-load wiring untested', () => {
@@ -291,5 +304,101 @@ describe('loadInternalBackup — Report 17 Stage 1 Gate 2 should-fix: backup-loa
         // then restoring the file byte-identical (see the Stage 1 gate-2 QA
         // report for the diff-restore transcript).
         expect(requiresFullEncoderReload.state).toBe(true)
+    })
+})
+
+/**
+ * After a real backup load, every chat in the installed database has an id,
+ * and none is duplicated database-wide (chaIds and chat ids together),
+ * matching what boot's `assignIds` (`src/ts/bootstrap.ts`) would leave the
+ * database in. `setDatabase` is mocked (see the module mocks above), so this
+ * reads the decoded backup object off its mock call -- the same object
+ * reference the real `setDatabase` would install onto `DBState.db`.
+ */
+describe('loadInternalBackup — installed database has no missing or duplicate chat ids', () => {
+    test('a backup whose chats lack ids ends up with every chat id filled and none duplicated', async () => {
+        const charA = makeCharacter('char-A', 'A from backup')
+        // Simulate a pre-existing chat that was saved without an id.
+        delete (charA.chats[0] as unknown as { id?: string }).id
+        const charB = makeCharacter('char-B', 'B from backup')
+        const backupDb = buildDb([charA, charB])
+        const encoder = new RisuSaveEncoder()
+        await encoder.init(backupDb, { compression: false, skipRemoteSavingOnCharacters: false })
+        const encoded = new Uint8Array(encoder.encode()!)
+        forageMemStore.set('dbbackup-1700000000', encoded)
+
+        await loadInternalBackup()
+
+        expect(setDatabase).toHaveBeenCalledTimes(1)
+        const installed = vi.mocked(setDatabase).mock.calls[0][0] as Database
+        const allIds: string[] = []
+        for (const cha of installed.characters as CharacterFixture[]) {
+            expect(cha.chaId).toBeTruthy()
+            allIds.push(cha.chaId)
+            for (const chat of cha.chats ?? []) {
+                expect(chat.id).toBeTruthy()
+                allIds.push(chat.id)
+            }
+        }
+        expect(new Set(allIds).size).toBe(allIds.length)
+    })
+
+    // Coverage, not proof: an implementation that never repaired anything
+    // would also resolve without throwing and still set the reload flag, so
+    // passing here does not by itself prove the repair runs on a backup
+    // whose character has no chats -- only that nothing in this path throws
+    // on it.
+    test('a backup holding a character with no chats does not throw, and still sets requiresFullEncoderReload.state', async () => {
+        const charNoChats = {
+            chaId: 'char-no-chats',
+            name: 'No Chats',
+            type: 'character',
+            chatPage: 0,
+        } as unknown as CharacterFixture
+        delete (charNoChats as unknown as { chats?: unknown }).chats
+        const backupDb = buildDb([charNoChats])
+        const encoder = new RisuSaveEncoder()
+        await encoder.init(backupDb, { compression: false, skipRemoteSavingOnCharacters: false })
+        const encoded = new Uint8Array(encoder.encode()!)
+        forageMemStore.set('dbbackup-1700000000', encoded)
+
+        await expect(loadInternalBackup()).resolves.not.toThrow()
+
+        expect(requiresFullEncoderReload.state).toBe(true)
+    })
+
+    test('setDatabase is called only after every id in the backup is already filled', async () => {
+        const charA = makeCharacter('char-A', 'A from backup')
+        delete (charA.chats[0] as unknown as { id?: string }).id
+        const backupDb = buildDb([charA])
+        const encoder = new RisuSaveEncoder()
+        await encoder.init(backupDb, { compression: false, skipRemoteSavingOnCharacters: false })
+        const encoded = new Uint8Array(encoder.encode()!)
+        forageMemStore.set('dbbackup-1700000000', encoded)
+
+        await loadInternalBackup()
+
+        expect(setDatabaseCallState.idsCompleteAtCall).toEqual([true])
+    })
+
+    test('a backup holding a duplicate chat id within one character ends up with neither chat sharing it', async () => {
+        const charA = makeCharacter('char-A', 'A from backup')
+        // The save file holds one block per chaId, so a backup in the block
+        // format these tests encode can never carry two characters sharing
+        // one chaId -- only a duplicate chat id within one character
+        // survives the encode/decode round trip intact, which is what
+        // exercises the repair here.
+        charA.chats.push({ ...charA.chats[0] })
+        const backupDb = buildDb([charA])
+        const encoder = new RisuSaveEncoder()
+        await encoder.init(backupDb, { compression: false, skipRemoteSavingOnCharacters: false })
+        const encoded = new Uint8Array(encoder.encode()!)
+        forageMemStore.set('dbbackup-1700000000', encoded)
+
+        await loadInternalBackup()
+
+        const installed = vi.mocked(setDatabase).mock.calls[0][0] as Database
+        const chatIds = (installed.characters[0] as CharacterFixture).chats.map((c) => c.id)
+        expect(new Set(chatIds).size).toBe(chatIds.length)
     })
 })
