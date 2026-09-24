@@ -39,7 +39,8 @@ lacked `markAppInitiatedReload()` are now marked: the ToS decline and the `/sw/i
 `bootstrap.ts`, `unMigrationAccount`, and the "save data in account" toggle. Google Drive sign-in
 (`drive.ts`) is deliberately unmarked, so on a self-hosted build it now shows the leave-site
 dialog, as it already did on risuai.xyz. Gate 2 approved, wording only; ledger rows 151 to 155.
-**Not live-checked:** the guard is off on the dev server by design.
+**Live-checked** on a production build served by the node server (ledger row 156): a navigation
+away raised a real "Leave site?" dialog.
 
 ## openURL fix is DONE
 
@@ -69,8 +70,8 @@ costs: `Agents/Investigation-Ledger.md` rows 142-150.
 **Live-checked in Chrome** against the dev server: the Website card opened a new tab with
 `window.opener === null` and its referrer present; the fork Email card's address opened the mail
 client from the same tab with no new tab, and the page received a `beforeunload` for that
-same-tab handoff. **Not live-checked:** the "Leave site?" guard itself, which is off on the dev
-server; the 3s allowance is verified by tests only.
+same-tab handoff. On a production build served by the node server (ledger row 156), that
+handoff's trusted `beforeunload` was let through with no dialog, and the next one was prevented.
 
 **Upstream chores found in passing (`MC-069`), now in the Roadmap:** CHORE-22 (self-hosted web
 builds had no accidental-close guard — done, see above),
@@ -106,8 +107,11 @@ multi-candidate generations) — both covered by tests.
   control you're testing opens a popup (e.g. `window.open`), that call must be a real `computer`
   click instead, or the popup will be silently blocked.
 - The "Leave site?" `beforeunload` guard is off on the Vite dev server (`import.meta.env.DEV`),
-  so it cannot be exercised there. To see it live, use a production build (`vite preview` or the
-  node server). A real leave-site dialog also blocks Claude in Chrome until someone dismisses it.
+  so it cannot be exercised there. To see it live, use a production build. The maintainer runs
+  `$env:VITE_RISU_LEGAL_CONFIGURED = 'TRUE'; pnpm run build; Remove-Item
+  Env:VITE_RISU_LEGAL_CONFIGURED; pnpm run runserver` (http://localhost:6001); without the flag
+  the build opens on a legal-notice screen. Record `beforeunload` outcomes with a listener added
+  after load (it sees the guard's `defaultPrevented`) rather than letting a real dialog appear. A real leave-site dialog also blocks Claude in Chrome until someone dismisses it.
 - `find` can mislabel which message a control belongs to. Locate controls through
   `.chat-message-container` in JS: index 0 is the newest message, with `.button-icon-edit` and
   `.dyna-icon` inside it.
