@@ -1767,6 +1767,25 @@ to CHORE-21.
 
 ---
 
+### MC-070 — Self-hosted web builds get the "Leave site?" guard too
+
+- **Tag:** decision
+- **Date:** 2026-09-24
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, answering the question CHORE-22 raised: the accidental-close
+  `beforeunload` guard is registered only when `isWeb`, which is true only on the `risuai.xyz`
+  host, so self-hosted builds have no accidental-close protection.
+- **Reasoning:** the maintainer's own words below.
+- **Related:** CHORE-22, MC-069 (the upstream-chore policy that surfaced it), MC-011.
+
+> run chore 22 - I think Leave site guard would be also nice to have on self host.
+
+**How to apply.** A self-hosted web build (the node server) prompts before an accidental tab
+close, as `risuai.xyz` does. The guard's existing exemptions still hold there: app-initiated
+reloads and the `mailto:`/`tel:` handoff never prompt.
+
+---
+
 ## Open questions
 
 The three entries below are questions addressed to the maintainer that were still unresolved as of

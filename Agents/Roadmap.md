@@ -1199,6 +1199,43 @@ Upstream behaviour. Not fixed.
 - Related suspicion, also unreproduced: nothing after the await checks that the same editor
   session is still open (a double-click, then a reopen before the second save settles).
 
+### CHORE-22 — Self-hosted web builds and the dev server have no accidental-close guard
+
+**Status (2026-09-24):** found while investigating the openURL fix (`Agents/Investigation-Ledger.md`
+row 142). Traced to source. **Decided 2026-09-24 (`MC-070`): self-hosted builds get the guard.** In progress.
+
+- `isWeb` in `src/ts/platform.ts` is `!isTauri && !isNodeServer && location.hostname ===
+  'risuai.xyz'`.
+- `src/preload.ts` registers the accidental-close "Leave site?" `beforeunload` guard only when
+  `isWeb` is true.
+- So every self-hosted web build (any hostname other than `risuai.xyz`) and the dev server run
+  with no accidental-close protection at all — this is upstream design, unchanged by the openURL
+  fix.
+- The maintainer decided self-hosted builds should get the same guard (`MC-070`).
+
+### CHORE-23 — `mcplib.ts`'s `oauthLogin` does not await or catch `openURL`
+
+**Status (2026-09-24):** found while investigating the openURL fix (`Agents/Investigation-Ledger.md`
+row 142). Traced to source, not reproduced. Minor. Not fixed.
+
+- `oauthLogin` calls `openURL` with an MCP server's `authorization_endpoint` but never awaits or
+  catches the call.
+- On Tauri, a scheme the shell plugin's open scope refuses rejects `open()`'s promise; since the
+  call is neither awaited nor wrapped, that rejection goes unhandled.
+- `openURL` itself is synchronous and neither returns nor awaits `open()`'s promise, so awaiting
+  or catching at the `oauthLogin` call site alone would not fix this; the fix belongs inside
+  `openURL`.
+- Related: the Tauri branch uses `open` from `tauri-plugin-shell`, which 2.3.6 marks deprecated
+  since 2.1.0 in favour of `tauri-plugin-opener`. A future plugin major could remove it.
+
+### CHORE-24 — `src/lib/Others/GithubStars.svelte` is unused
+
+**Status (2026-09-24):** found while investigating the openURL fix (`Agents/Investigation-Ledger.md`
+row 142). Traced to source, not fixed. Minor housekeeping only.
+
+- `GithubStars.svelte` is not imported anywhere in `src` — a dead component.
+- No functional impact.
+
 ## Sequencing Summary
 
 ```
