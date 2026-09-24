@@ -9,6 +9,7 @@ import {
 } from "@tauri-apps/plugin-fs"
 import { changeFullscreen, checkNullish, sleep, sleepForever } from "./util"
 import { markAppInitiatedReload } from "./reloadGuard"
+import { openUrlOnWeb } from "./openUrlWeb"
 import { convertFileSrc, invoke } from "@tauri-apps/api/core"
 import { v4 as uuidv4, v4 } from 'uuid';
 import { appDataDir, join } from "@tauri-apps/api/path";
@@ -2328,8 +2329,11 @@ export function getFetchLogs() {
 }
 
 /**
- * Opens a URL in the appropriate environment.
- * 
+ * Opens a URL in the appropriate environment: on Tauri, the shell plugin's
+ * own scheme allowlist decides what `open` will actually launch; on the web,
+ * `openUrlOnWeb` opens http(s) in a new, opener-less tab, hands mailto:/tel:
+ * to the OS from the current tab, and refuses every other scheme.
+ *
  * @param {string} url - The URL to open.
  */
 export function openURL(url: string) {
@@ -2337,7 +2341,7 @@ export function openURL(url: string) {
         open(url)
     }
     else {
-        window.open(url, "_blank")
+        openUrlOnWeb(url, window)
     }
 }
 

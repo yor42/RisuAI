@@ -133,11 +133,8 @@
     // mail client takes over. That fallback path is the only thing the
     // anchor's own target attribute affects here: this handler always
     // intercepts a plain left-click first, calling openURL below instead of
-    // letting the browser navigate. On the web, openURL still opens mailto:
-    // links via `window.open(url, "_blank")`, which carries the same
-    // stray-tab quirk for that primary path; fixing that would mean
-    // changing openURL's own scheme handling in globalApi.svelte.ts, which
-    // is out of scope here.
+    // letting the browser navigate. On the web, openURL hands a mailto:
+    // href to the OS from the current tab, leaving no stray blank tab.
     function activate(event: MouseEvent, href: string) {
         event.preventDefault();
         close();

@@ -74,8 +74,9 @@ export function sanitizeHubHtml(raw: string): string {
  * `openURL` instead of letting the browser follow the link directly.
  *
  * The http/https restriction lives here, not inside `openURL`, on purpose:
- * `openURL` is also used for `mailto:` links (see MainMenu.svelte's
- * `relatedLinks`), so a blanket scheme guard there would break those.
+ * sanitized hub HTML should only ever navigate to a web page, while
+ * `openURL` is a general-purpose opener that also hands `mailto:`/`tel:`
+ * links (see MainMenu.svelte's `relatedLinks`) off to the OS.
  *
  * A keyboard Enter press on a focused anchor dispatches a bubbling `click`
  * event, so this same delegated listener already covers keyboard activation

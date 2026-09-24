@@ -30,3 +30,41 @@ export function markAppInitiatedReload(): void {
 export function isAppInitiatedReload(): boolean {
     return appInitiatedReload
 }
+
+// Set immediately before handing a mailto:/tel: URL to the OS from the
+// current tab (see openUrlWeb.ts), so preload.ts's `beforeunload` handler
+// lets that one handoff through instead of showing the "Leave site?"
+// prompt. Unlike `appInitiatedReload` above, this is one-shot: it is
+// consumed by the first `beforeunload` it lets through, so a later, genuine
+// attempt to leave or close the tab still prompts. The allowance lasts
+// EXTERNAL_HANDOFF_RESET_MS from the most recent call -- re-arming or
+// consuming it cancels any earlier expiry timer, so one handoff's expiry can
+// never clear an allowance a later handoff armed. The bound itself must
+// comfortably exceed the delay between setting `location.href` and the
+// browser dispatching `beforeunload` for that handoff, so the handoff itself
+// never prompts; a browser may not fire a `beforeunload` for a mailto:/tel:
+// handoff at all, and in that case a genuine leave/close within the bound
+// goes unprompted once, which is the cost of choosing it.
+let pendingExternalHandoff = false
+let externalHandoffResetTimer: ReturnType<typeof setTimeout> | undefined
+
+const EXTERNAL_HANDOFF_RESET_MS = 3000
+
+export function allowNextBeforeUnload(): void {
+    pendingExternalHandoff = true
+    clearTimeout(externalHandoffResetTimer)
+    externalHandoffResetTimer = setTimeout(() => {
+        pendingExternalHandoff = false
+        externalHandoffResetTimer = undefined
+    }, EXTERNAL_HANDOFF_RESET_MS)
+}
+
+export function consumeExternalHandoffAllowance(): boolean {
+    if (!pendingExternalHandoff) {
+        return false
+    }
+    pendingExternalHandoff = false
+    clearTimeout(externalHandoffResetTimer)
+    externalHandoffResetTimer = undefined
+    return true
+}

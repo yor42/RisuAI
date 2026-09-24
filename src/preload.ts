@@ -1,5 +1,5 @@
 import { isWeb } from "./ts/platform";
-import { isAppInitiatedReload } from "./ts/reloadGuard";
+import { isAppInitiatedReload, consumeExternalHandoffAllowance } from "./ts/reloadGuard";
 
 export function preLoadCheck(){
     const searchParams = new URLSearchParams(location.search);
@@ -17,8 +17,11 @@ export function preLoadCheck(){
         window.addEventListener('beforeunload', (e) => {
             // App-initiated reloads (e.g. after a save conflict) must never be
             // cancellable -- code right after `location.reload()` assumes the
-            // reload happens and parks itself forever waiting for it.
-            if(isAppInitiatedReload()) {
+            // reload happens and parks itself forever waiting for it. A
+            // pending mailto:/tel: handoff (see openUrlWeb.ts) must also pass
+            // uncancelled, but only once: `consumeExternalHandoffAllowance`
+            // clears it, so a later leave/close attempt still prompts.
+            if(isAppInitiatedReload() || consumeExternalHandoffAllowance()) {
                 return
             }
             e.preventDefault()
