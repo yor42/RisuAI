@@ -9,118 +9,106 @@ decisions and context, see `Agents/Maintainer-Context.md`.
 
 ## Session date
 
-2026-09-23 to 2026-09-24.
+2026-09-24 to 2026-09-25.
 
 ## Branch and commit state
 
-Branch `fix/persistence-conflict-platform-hardening`, **pushed to origin** (yor42/RisuAI) on
-2026-09-24 with the maintainer's go-ahead, in sync once the two commits below land. The push
-included `wiki/`, so the wiki-sync CI ran.
+The branch is `fix/persistence-conflict-platform-hardening`, pushed to origin (yor42/RisuAI) with
+the maintainer's go-ahead once the two commits below land.
+- **W0 code commit:** chat identity and the origin module (Report 24).
+- **Records commit:**
+  - this file;
+  - `MC-078` to `MC-081`;
+  - Roadmap CHORE-28 to CHORE-33;
+  - ledger rows 164 to 177;
+  - Report 23's supersession note, Report 24 (the W0 plan and every gate record) and Report 25
+    (the RisuAccount removal).
 
-- Earlier this session: `160ba715`/`bfe2b9d6` (openURL fix and records), `b6a8f0e6`/`04da01d6`
-  (CHORE-22 and records), `9955eaa5` (production-build live check records).
-- **The CD-4 code commit:** `src/ts/process/inlayScreen.ts`, `src/ts/process/inlayScreen.test.ts`
-  (new), `wiki/Additional-Character-Screen.md`.
-- **Its records commit:** this file, `MC-071` to `MC-077`, Roadmap (sidebar symptoms, CHORE-25
-  to CHORE-27), ledger rows 157 to 163, Reports 22 and 23.
+**Not staged, by the maintainer's instruction:** the parallel documentation session's
+`wiki/Settings-*.md` files, `wiki/Home.md` and `wiki/_Sidebar.md`. Wait for the maintainer's
+update; do not delete them.
 
-## Work order (`MC-076`)
+## Work order
 
-1. **CD-4 `updateInlayScreen` — DONE, committed.** Hand-edited image/emotion prompts survive
-   mode and Inlay Screen changes. Each field is resolved separately; defaults are byte-identical.
-   Edited Image Generation Instructions are kept across an Inlay toggle and documented (`MC-077`).
-   13 tests, 4 red at HEAD; Gate 2 (`opus-reviewer`, two passes) approved; ledger row 163.
-2. **W0 — identity.** In planning (Report 24). Needs Gate 1. Scope in Report 23 section 4.
-3. **W1 — engine binding** (closes CHORE-25 and CHORE-26).
-4. **The composer stage** (Report 22 rev 3, on W0's resolver).
-5. **W2 — generation and deletion** (closes CHORE-27) and **W3 — `/` commands**.
+1. **W0: identity.** DONE and committed. Gate 1 approved rev 4.1 after three rejections and a
+   `senior-advisor` escalation. Gate 2 ran four rounds plus a fix-up review; rev 4.2 dropped id
+   inheritance. The final doc-verifier check passed.
+2. **CHORE-28**, next per `MC-079`. While two characters share a `chaId`, the save must not
+   rewrite that block and must show a visible warning. W0 test 20a pins today's behaviour.
+3. **The removals:**
+   - **Multiuser removal (`MC-074`).**
+   - **RisuAccount removal (`MC-080`/`MC-081`, CHORE-33, Report 25).** Its scope is decided: all
+     of RisuAccount goes, and Realm, Drive and `/hub-proxy` stay. An encrypted account `.bin` is
+     refused before any write. Its timing is **deferred by the maintainer**. `senior-advisor`
+     recommends both removals before W1, with multiuser first. After W1 is acceptable; after W2
+     is to be avoided.
+4. **W1: engine binding** (closes CHORE-25 and CHORE-26), then the composer stage (Report 22
+   rev 3), then W2 and W3.
 
-## Writer rework (`MC-073` to `MC-076`, Report 23)
+## W0 facts the next stages rely on
 
-Writes made for a unit of work resolve their target by identity (`chaId`, chat `id`) at write
-time, never through the selection or an index captured earlier. No switch lock. Plugin "current"
-helpers stay bound to the selection. Whole-object commit stays. Rules W-1 to W-6 are in Report 23
-section 3. Key facts already established:
-- **An in-place write to a non-selected character is not saved without `markCharacterForSave`.**
-  This was run (ledger row 162), so the write helper marks by default.
-- The parser has no per-call hook for `getChatVar`/`setChatVar`; `chatVar` needs an explicit
-  target. `runScripted` already accepts `char`/`chat`/`setVar`/`getVar`.
-- Use an index lookup by `chaId` for the resolver, never `findCharacterbyId` (it skips groups and
-  returns a blank character on a miss).
-- HaejeokRisuai (`C:\Projects\HaejeokRisuai`, GPL-3.0) built the same shape (`ChatTarget`); we
-  adopt the idea, not the code (ledger row 160).
+- `src/ts/process/chatIds.ts`:
+  - pure fill, repair and duplicate warnings, with no store import;
+  - a missing id is always fresh; nothing inherits;
+  - `repairDatabaseIds` runs only at boot (through `assignIds`, which is boot-only) and on
+    decoded backups before install.
+- `src/ts/process/chatOrigin.ts`:
+  - `originOf`, `writeAt`/`readAt` (synchronous callback, marks in a `finally`), `commitCharacter`
+    and `commitChat` (id guards), `beginWork` (live objects only) and `isWriting`;
+  - a target that is gone or held by two objects is skipped (`MC-075`, `MC-078`);
+  - no production caller yet: W1 binds the first.
+- **The duplicate warning reports the state after the call, not blame.** Its detection has three
+  documented limits:
+  - chat ids are compared within the owner only;
+  - for a `chaId` with more than one holder, a per-slot install reports nothing about its chats,
+    and a database install compares against only one holder;
+  - duplicates made in place on live objects are not seen.
+- **W1 must:**
+  - call `beginWork` only with objects read back through `DBState`, and never during a
+    derivation;
+  - resolve once per synchronous batch;
+  - report the resolution counts for its Lua and CBS paths;
+  - measure a production build with throttling;
+  - prove that `runTrigger`'s whole-clone commit cannot drop a message.
+- **Performance** (i9, production-mode Svelte, 1000 × 20):
+  - one resolution costs about 0.5 ms (0.7 ms in the dev build);
+  - `setDatabaseLite(getDatabase())` gains about 9 ms, or about 24 ms on cold proxies.
 
-**Maintainer decisions to honour:**
-- `MC-074`: multiuser is to be removed in its own stage; it is out of the rework.
-- `MC-075`: `/` commands are bound to the send's origin. Deleting a chat or character while
-  something is writing into it asks first; otherwise a write whose origin is gone drops silently.
-  The Home case is tested in W2.
-- `MC-072`: composer drafts restore silently; late files go to their own chat; only the on-screen
-  composer holds the multi-tab reload.
-- A refused switch, if one is ever refused, is silent (`MC-073`).
+## Open items
 
-## Composer stage (Report 22, rev 2)
-
-Paused behind W0 and W1. Gate 1 rejected rev 1 and rev 2. Rev 2's mechanism, I2, was found
-sound: the per-chat record is the composer's state, held at module level. Every remaining major
-was in the send window, and the writer rework now owns those. Rev 3 takes I1 from W0 and captures
-the send as an origin. It also still owes:
-- removing `sendChatMain`'s own `messageInput = ''` (Ctrl+M reroll wipes a typed draft at HEAD);
-- routing the prev/next-character hotkeys through `changeChar`;
-- a textarea resize when the key changes.
-
-## Sidebar
-
-Deferred until the work above is done (`MC-071` records the reported symptoms). The first
-symptom, a changed order not persisting, is a possible persistence defect; triage it first when
-the sidebar comes up.
-
-## Next (options)
-
-- Plan W0 and send it to Gate 1 (`opus-reviewer`).
-- Report 21's other findings: remote-block read verification, `removeChar`'s missing `doingChat`
-  guard (W2 covers the writer side), plugin permission caching, `saveTimeoutExecute`'s missing
-  ceiling.
-- Upstream chores CHORE-19 to CHORE-21, CHORE-23, CHORE-24.
-- Multiuser removal (`MC-074`), after the composer stage.
-
-## Other open items
-
+- **Stray directory to delete by hand:** `C:\Users\yor42\AppData\Local\Temp\claude\C--P*\` (a literal `*`). An agent created it; the permission classifier blocked its deletion.
+- **Scratch trees with `node_modules` junctions.** Several scratch trees contain `node_modules`
+  junctions into the repo. Remove each junction with `cmd /c rmdir` before any recursive delete.
 - **The `.gitignore` entry** for `Asset Cache/Community Mitigation_Webrowser Plugin/` names a path
-  that no longer exists, so `Asset Cache/` itself is not ignored.
-- **Card description contrast** on the home screen is 3.32:1 (`text-textcolor2`, repo-wide). A
-  maintainer decision, not yet raised as work.
-- **Per-instance `matchMedia` listener** in `Chat.svelte` for reduced motion. A shared module-level
-  source would be cheaper on Pi and mobile.
+  that no longer exists.
+- **Card description contrast is 3.32:1.** This is a maintainer decision and has not been raised.
+- **The per-instance `matchMedia` listener in `Chat.svelte`.**
+- **The sidebar is deferred** (`MC-071`).
 
 ## Test suite
 
-**78 files, 1105 passed, 4 skipped, 0 failed.** `pnpm check` clean. Run with
-`npx vitest run --exclude "**/.claude/**" --exclude "**/node_modules/**"`. Plain `pnpm test`
-does not exclude `.claude/worktrees/**`.
+**98 files: 1256 passed, 4 skipped, 0 failed.** `pnpm check` is clean.
+- Run the suite with `npx vitest run --exclude "**/.claude/**" --exclude "**/node_modules/**"`.
+  Plain `pnpm test` does not exclude `.claude/worktrees/**`.
 
 ## How to live-check this app
 
-- Claude in Chrome, not the built-in pane (the service worker kills the boot).
-- The sidebar avatar sometimes ignores the `computer` tool's clicks after a reload. A JS `.click()`
-  on the avatar's nearest `button, [role=button]` ancestor works, but carries no user activation,
-  so a control that opens a popup needs a real `computer` click.
-- The "Leave site?" guard is off on the Vite dev server. To see it, use a production build:
-  `$env:VITE_RISU_LEGAL_CONFIGURED = 'TRUE'; pnpm run build; Remove-Item
-  Env:VITE_RISU_LEGAL_CONFIGURED; pnpm run runserver` (http://localhost:6001). Record
-  `beforeunload` outcomes with a listener added after load rather than letting a real dialog
-  appear; a real dialog blocks Claude in Chrome until dismissed.
-- Locate message controls through `.chat-message-container` in JS (index 0 is the newest).
-- Type with real key events; capture listens to `input`.
-- Echo is the fixture's model, so reroll needs no API key.
-- Restore any setting you change.
+- **Use Claude in Chrome, not the built-in pane.** The service worker kills the boot in the pane.
+- **Leave-site guard:** it is off on the Vite dev server. Use a production build (`pnpm run build`
+  with `VITE_RISU_LEGAL_CONFIGURED=TRUE` set inline for that run only, then `pnpm run runserver`).
+- **Model:** Echo is the fixture's model, so reroll needs no API key.
+- **Settings:** restore any setting you change.
+- **Network:** do not probe upstream services such as `sv.risuai.xyz`. The maintainer asked for
+  no probing (`MC-081`).
 
 ## Method lessons from this session
 
-- **At the second rejection, ask whether the mechanism is the problem.** The composer plan's two
-  rejections both traced to one pattern (writes follow the selection). A lock would have treated
-  the symptom; the maintainer chose the structural fix.
-- **"Coverage, not proof" notes must be true.** Two such notes claimed an overwrite and a
-  preservation give the same result when they did not. State what the test cannot distinguish,
-  not a false equivalence.
-- **Test comments must not describe the pre-fix code as current.** Caught again before Gate 2.
+- **A choice between two holders of an id, or of blame, cannot be made one call at a time.** The
+  W0 gates rejected inheritance (by slot, then by holder) and warning attribution for the same
+  reason. The answer both times was to stop deciding: use fresh ids, skip ambiguous targets, and
+  have warnings report state.
+- **Workflows with independent lenses worked well for late gates.** A verify stage that fires only
+  on BLOCKER or MAJOR findings kept the cost bounded.
+- **A worker's reasoning is not a mutant run.** Ask for the run, and have the next gate re-run it.
+- **Scratch hygiene.** Agents twice created files outside the scratchpad: a glob in `mkdir`, and a
+  stray `cp`. One agent edited a repo file to test a mutant. Briefs now say this explicitly.

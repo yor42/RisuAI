@@ -1289,6 +1289,100 @@ in source; upstream `main` has the same code. Closed by writer stage W2 (`MC-076
   what should be a display-only run.
 - Group chats never reach this block.
 
+### CHORE-28 — Two characters sharing one `chaId` lose one of them at the next save
+
+**Status (2026-09-24):** found by Gate 1 round 4 of the W0 plan (Report 24; ledger row 170). The
+reviewer ran it, and the Orchestrator re-checked it in `risuSave.ts`. Upstream `main` has the same
+code. **Data loss:** a whole character is lost. **Sequenced by the maintainer (`MC-079`):
+straight after W0**, as its own gated change.
+
+- The save file holds one block per `chaId`: `init` and `set` in `risuSave.ts` both write
+  `this.blocks[character.chaId]`.
+- A full encode of `[orig, copy]` keeps only the copy. An incremental `set` encodes the first
+  holder that has a save mark and consumes the mark, so the second holder is never written.
+- A duplicate `chaId` reaches runtime through plugin installs (a copy that keeps the id) and,
+  until W1 lands, through CHORE-26's member clone.
+- **The fix (`MC-079`):** while a `chaId` has two holders, its block is not rewritten, so the
+  last good save is kept, and the user sees a visible warning. W0's scenario 20a pins today's
+  behaviour; this chore inverts it.
+- **W0's duplicate warning cannot cover every route, so this guard must not rely on it.**
+  - A v2.1 plugin can make a duplicate `chaId` in place: it pushes a copy through
+    `getDatabase()`, then calls `setDatabaseLite(getDatabase())`.
+  - W0 never warns about that, because the call receives the live array (Gate 2 round 3 ran it).
+  - Only this chore's save-side guard protects that case.
+
+### CHORE-29 — Filling a missing `chaId` brings back a stale copy of the character
+
+**Status (2026-09-24):** found by Gate 1 round 4 of the W0 plan (ledger row 170), which ran it. Not
+fixed. Upstream `characterFormatUpdate` fills a missing `chaId` in the same way.
+
+- A character that was saved without a `chaId` has its block saved under an empty name.
+- When a `chaId` is filled in later (`characterFormatUpdate`, and from W0 on the install fill and
+  `beginWork`), the character is saved under the new id. The old block is never deleted, so a
+  stale copy comes back on the next load.
+- **Replacing a character also leaves stale blocks, and they accumulate.** When a plugin replaces
+  a character with an id-less object, W0 gives it a fresh `chaId`. The replaced character's block
+  is not deleted without a full encoder reload, so each such install leaves one more block.
+  - Gate 2 round 3 of W0 ran 5 installs into slot 1 of a two-character database. A reload then
+    showed 7 characters where 2 were expected: the original, one stale block, and all five
+    installs.
+  - At HEAD the id-less object reuses a single block key instead, and can lose its newest
+    content.
+  - Deleting the replaced block when a slot's `chaId` changes fixes both cases.
+
+### CHORE-30 — v2.1 `setChar` writes into whatever is selected when the plugin calls it
+
+**Status (2026-09-24):** found in passing by Gate 1 rounds 3 and 4 of the W0 plan. Traced, not
+run. Upstream has the same code. A plugin API contract question (`MC-011`), not part of the
+writer rework.
+
+- `setChar` assigns `db.characters[get(selectedCharID)] = char`. A plugin that awaits between
+  `getChar` and `setChar` while the user switches overwrites the other character.
+- With nothing selected (`selectedCharID` is −1), it writes `characters[-1]`, which is silently
+  lost.
+
+### CHORE-31 — Cold storage may turn an idle group into a plain character
+
+**Status (2026-09-24):** found in passing by the W0 investigation (ledger row 164). **Untraced for
+impact.** Upstream has the same placeholder literal.
+
+- `makeColdDataForCharacter` does not skip groups, and its placeholder hard-codes
+  `type: 'character'` with no member list. A group idle long enough goes cold.
+- It is unknown whether anything reads `type` or the member list on a cold, unopened group before
+  `changeChar` restores it. That is the question to answer first.
+
+### CHORE-32 — A swap can drop a character's pending edit for one save
+
+**Status (2026-09-24):** found by the W0 follow-up checks (ledger row 169, check 2). Traced, not
+run. Narrow.
+
+- `prepareSaveIteration`'s no-reload branch drops save marks for `chaId`s that are absent from
+  `characters` and does not re-fold them, although the reload branch does.
+- If a character already had a pending edit when a plugin swap briefly removed it from the array,
+  that edit misses that save. It is saved with the next mark.
+
+### CHORE-33 — RisuAccount removal: drop the hub credential, keep Realm and Drive
+
+**Status (2026-09-25):** scoped, not planned. Scope and the migration-refusal decision are
+maintainer-decided (`MC-080`, `MC-081`); see `Agents/Reports/25-risuaccount-removal-strategy.md`.
+Timing is deferred by the maintainer. The stage cannot start before W0 is committed, since it
+shares six files with W0 (`bootstrap.ts`, `characterCards.ts`, `globalApi.svelte.ts`,
+`kei/backup.ts`, `drive/accounter.ts`, `coldstorage.svelte.ts`). `senior-advisor` recommends W0,
+CHORE-28, the multiuser removal, then this stage, then W1 onward; placing it after W2 is to
+avoid.
+
+- **Removes:** the hub sign-in and everything that uses its token — account sync, account data
+  save and load, account backup restore, account cold storage, Kei auto-backup (its UI trigger
+  is commented out, `UserSettings.svelte:188`; its one remaining automatic call fires only from
+  `bootstrap.ts:222`'s account-sync corruption-recovery path) and image generation, and in-app
+  edit and remove of the user's own Realm uploads.
+- **Keeps:** Realm browse, info, download, report and anonymous upload; Google Drive backup; the
+  self-hosted server's `/hub-proxy`.
+- **Migration:** a user migrating from upstream keeps their data via a `.bin` local backup
+  import (`MC-011`). An account-sync-encrypted `.bin` is refused upfront, before any write, with
+  the two upstream alternatives named in the message (`MC-081`).
+- **Separate stage from the multiuser removal** (`MC-074`); the two are not folded together.
+
 ## Sequencing Summary
 
 ```

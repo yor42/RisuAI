@@ -124,6 +124,8 @@ Each test states its HEAD failure reason in the gate record, not in the test.
   makes during a `v2Wait`. It is unknowable from this repo. The contract is that plugin "current"
   stays bound to the selection and engine writes are bound to their origin.
 - Id-less chats installed at runtime by a plugin's `setChatToIndex`: the resolver falls back to
-  object identity and otherwise drops the write.
+  object identity and otherwise drops the write. **Superseded by Report 24 (O-1, ID-4 and ID-6):**
+  every install route fills missing ids, `beginWork` fills the rest, and the origin holds no
+  object reference. An id with two holders is skipped with a warning (`MC-078`).
 - `graphmem.ts`'s chat-variable callers: not yet traced for whether they hold their subject.
 - CHORE-26 and CHORE-27 are traced, not run. W1's and W2's red tests are their proof.

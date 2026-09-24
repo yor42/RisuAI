@@ -1980,6 +1980,157 @@ two jobs and should be rewritten after toggling.
 
 ---
 
+### MC-078 — A write whose target id has two holders is skipped with a warning, not guessed
+
+- **Tag:** decision
+- **Date:** 2026-09-24
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, answering the question `senior-advisor` raised after three Gate 1
+  rejections of the W0 identity plan (Report 24; ledger rows 165 to 168). A plugin can leave two
+  chats (or two characters) holding one id, for example by copying a chat and keeping its id.
+  Nothing the app can observe tells which holder is the original.
+- **Reasoning:** a skipped write can be seen and redone; a write that lands in the wrong chat is
+  silent corruption.
+- **Alternatives rejected:** writing to the first holder in array order, the rule boot uses to
+  repair duplicates (a plugin's copy placed above the original would receive the writes).
+- **Related:** MC-075 (a write whose origin chat is gone drops silently), MC-076.
+
+**What was decided:** while an origin's `chaId` or chat id has more than one holder, writes for
+it are skipped and a warning is logged, naming the plugin where known. It is not chosen between.
+The writes resume on their own once the duplicate is gone. The plugin can remove it, or, for a
+duplicate chat id, the next boot's repair does. Boot's repair rule is unchanged.
+
+**Correction (2026-09-24, Gate 1 round 4 of W0):** a duplicate `chaId` does not last until boot.
+The save file holds one block per `chaId`, so the next save keeps only one of the two
+characters. This is upstream behaviour; see MC-079.
+
+---
+
+### MC-079 — A duplicate `chaId` losing a character at save gets its own fix, straight after W0
+
+- **Tag:** decision
+- **Date:** 2026-09-24
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, answering a finding from Gate 1 round 4 of the W0 plan (Report 24;
+  ledger row 170). When two characters share one `chaId`, the next save keeps only one of them,
+  and a plugin's copy can overwrite the original, with no warning. Upstream has the same code.
+- **Reasoning:** it keeps W0 out of the save code, and it still prevents the loss soon.
+- **Alternatives rejected:** folding the save fix into W0 (a bigger stage whose review must also
+  cover the save code); a warning only, recorded as a known upstream issue (nothing prevents the
+  loss).
+- **Related:** MC-078, CHORE-28.
+
+**What was decided:** CHORE-28 runs straight after W0, as a small change to the save code with
+its own review. While two characters share a `chaId`, that block is not rewritten, so the last
+good save is kept, and the user sees a visible warning. W0 itself only logs a console warning.
+
+---
+
+### MC-080 — RisuAccount sync is to be dropped from this fork; migration is by `.bin` local backup
+
+- **Tag:** decision
+- **Date:** 2026-09-24
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, unprompted, during the W0 stage.
+- **Reasoning:** the maintainer's own words below. Account sync is maintained entirely upstream
+  (MC-012), almost unused (MC-002), and has been a blocker for asset optimisation and for faster,
+  more aggressive local backup creation (MC-025).
+- **Related:** MC-002, MC-011, MC-012, MC-025, MC-074 (multiuser removal, the same kind of
+  stage).
+
+> It is completely upstream maintained, and iirc it was a blocker that affected lots of asset
+> optimization and future implementation of more aggressive and faster local backup creation.
+> I think it would be a better call to drop risuaccount sync within this fork - future userbase
+> migrating from upstream should still be able to back up their save and import them in this
+> fork through .bin local backup instead of starting over.
+
+**What was decided:** account sync (the account-backed storage backend) is removed from this
+fork. A user migrating from upstream, including an account-sync user, keeps their data by
+making a `.bin` local backup upstream and importing it here. That import path must keep working
+(MC-011).
+
+**Scope, decided 2026-09-25.** The maintainer chose the option recommended by
+`senior-advisor` (ledger row 175): **remove all of RisuAccount, and keep Realm.**
+- **Removed:** the hub sign-in and everything that uses its token. That covers account sync,
+  account data save and load, account backup restore, account cold storage, Kei auto-backup
+  (already unreachable from the UI), in-app edit and remove of the user's own Realm uploads, and
+  the Kei image provider. Upstream data naming the Kei provider shows a clear unsupported-provider
+  error.
+- **Kept:** Realm browse, info, download, report and anonymous upload; Google Drive backup (its
+  token exchange goes through the hub but needs no sign-in); and the self-hosted server's
+  `/hub-proxy`.
+- **Rejected:**
+  - keeping the hub sign-in only for Realm ownership;
+  - removing only the sync backend. None of the reference forks stopped there, and it keeps two
+    code paths that re-create `db.account` from `localStorage`.
+
+**Timing: deferred** by the maintainer ("decide later"). The removal cannot start before W0 is
+committed, because it shares six files with W0.
+- `senior-advisor` recommends: W0, CHORE-28, the multiuser removal (MC-074), the account
+  removal, then W1, the composer stage, W2 and W3.
+- **Acceptable alternative:** both removals after W1.
+- **To avoid:** placing either removal after W2.
+- The two removals stay separate stages.
+
+---
+
+### MC-081 — Account-sync-encrypted `.bin` backups are not supported; the user is told upfront
+
+- **Tag:** decision
+- **Date:** 2026-09-25
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, answering the RisuAccount removal investigation (ledger rows 173 and
+  174). The investigation found three things:
+  - Since upstream d0548267 (2026-06-11), a full `.bin` made by an account-sync user on the
+    official site is encrypted, with a key served by `sv.risuai.xyz/cryptokey`.
+  - A `curl` probe of that endpoint from this machine got HTTP 403.
+  - A browser probe was denied by the permission classifier.
+
+  The maintainer has no such backup to test with and asked that the endpoint not be probed.
+- **Reasoning:** the maintainer's own words, below. The affected group is small. Account-sync
+  users are few because RisuAccount's backup size limit leads the community to recommend
+  self-hosting upstream, or a dedicated fork such as PocketRisu reached over LAN/VPN (this adds
+  context to MC-002). Reading these files would depend on an upstream endpoint that this fork
+  cannot verify or control (MC-012).
+- **Alternatives rejected:**
+  - keeping the anonymous `/cryptokey` decrypt path, as HaejeokRisuai did;
+  - decrypting server-side, as PocketRisu-Kei does.
+- **Related:** MC-011 (this narrows its `.bin` guarantee for this one case), MC-002, MC-012,
+  MC-080.
+
+> if bin created with risuaccount is encrypted, I think safetest move is just telling the user
+> upfront that we can't read the encrypted bin due to various technical limitations and dropping
+> backward compat just in this case.
+
+**What was decided:**
+- **One narrow exception to MC-011.** A `.bin` carrying the account encryption marker is not
+  supported. Detection keys on an entry named `encryption.risudat` being present, whatever its
+  content, not only on a well-formed `type: 'account'`. A marker that fails to parse today falls
+  through and hands ciphertext to the decoder (ledger row 173, resumed gaps). The import tells the user
+  upfront that it cannot be read, for technical reasons, and does not attempt it.
+- **Every other upstream `.bin` stays supported**, including one from an account-sync user that
+  is not encrypted.
+- **"Upfront" means nothing is written before the refusal.** No assets, no cold storage, no
+  database.
+
+**The refusal message, decided 2026-09-25.** The message says the file cannot be read, then gives
+one line each on the two things a user can do upstream instead:
+- **A Partial Local Backup.** It is not encrypted and keeps every chat, including cold-storage
+  bodies. It keeps the labelled images: character, group and persona profile images, the user
+  icon, the background, and folder and preset images. It drops everything else, including
+  emotion images, additional assets and VITS files. (Corrected 2026-09-25 by the Report 25
+  fact-check. The option text the maintainer chose said "loses all images except profile
+  pictures", which undercounted what it keeps. The decision is unchanged.)
+- **Logging out of account sync first, then a full backup.** This keeps the `.png` assets but
+  loses the cold-storage chat bodies.
+
+The migration wiki page gives the complete route, which is both backups imported one after the
+other. The page marks that route as read from the code and not tested: nobody here has an
+account backup. Only official-site account users can hit the refusal, because upstream encrypts
+only on `risuai.xyz` origins.
+
+---
+
 ## Open questions
 
 The three entries below are questions addressed to the maintainer that were still unresolved as of
