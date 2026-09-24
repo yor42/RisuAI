@@ -1202,7 +1202,7 @@ Upstream behaviour. Not fixed.
 ### CHORE-22 — Self-hosted web builds and the dev server have no accidental-close guard
 
 **Status (2026-09-24):** found while investigating the openURL fix (`Agents/Investigation-Ledger.md`
-row 142). Traced to source. **Decided 2026-09-24 (`MC-070`): self-hosted builds get the guard.** In progress.
+row 142). Traced to source. **Decided 2026-09-24 (`MC-070`): self-hosted builds get the guard. DONE 2026-09-24** (`b6a8f0e6`, ledger rows 151 to 155): `preload.ts` registers the guard on every build that is neither Tauri nor the Vite dev server, and four unmarked app-initiated reloads are now marked. Google Drive sign-in on a self-hosted build now shows the leave-site dialog, as it already did on risuai.xyz.
 
 - `isWeb` in `src/ts/platform.ts` is `!isTauri && !isNodeServer && location.hostname ===
   'risuai.xyz'`.

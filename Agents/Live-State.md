@@ -13,8 +13,8 @@ decisions and context, see `Agents/Maintainer-Context.md`.
 
 ## Branch and commit state
 
-Branch `fix/persistence-conflict-platform-hardening`, **18 commits ahead of origin, nothing
-pushed**, once the two commits below land.
+Branch `fix/persistence-conflict-platform-hardening`, **20 commits ahead of origin, nothing
+pushed**, once the CHORE-22 commits land.
 
 - Already committed this session: `16e6f7e9` (home-screen live-check fixes), `c02aec74`
   (`MC-067`, Space and Enter reach a keyboard-focused control), `fe90145e` (their records),
@@ -23,9 +23,23 @@ pushed**, once the two commits below land.
   (new), `src/ts/reloadGuard.ts`, `src/preload.ts`, `src/ts/globalApi.svelte.ts`,
   `src/ts/hubHtml.ts` and `src/lib/UI/SourceDisclosure.svelte` (comment-only), plus
   `src/ts/openUrlWeb.test.ts` and `src/preload.beforeUnload.test.ts`.
-- **The records commit that follows it:** this file, `Agents/Investigation-Ledger.md` rows 142
-  to 150, Roadmap CHORE-22 to CHORE-24, and `MC-070` (self-hosted builds get the leave-site guard;
-  CHORE-22 is the next stage).
+- `bfe2b9d6` — its records: ledger rows 142 to 150, Roadmap CHORE-22 to CHORE-24, `MC-070`.
+- `b6a8f0e6` — **the CHORE-22 code commit:** `src/preload.ts`,
+  `src/ts/bootstrap.ts`, `src/ts/storage/accountStorage.ts`,
+  `src/lib/Setting/Pages/UserSettings.svelte`, `src/preload.beforeUnload.test.ts`.
+- **Its records commit:** this file, ledger rows 151 to 155, Roadmap CHORE-22 marked done.
+
+## CHORE-22 is DONE
+
+`MC-070`: self-hosted web builds get the "Leave site?" guard. `preload.ts` registers it on every
+build that is neither Tauri nor the Vite dev server (`!isTauri && !import.meta.env.DEV`), so
+risuai.xyz, a static self-host and the node server all prompt before an accidental close. `isWeb`
+is unchanged and still decides only preload's `mainpage` flag. Four app-initiated reloads that
+lacked `markAppInitiatedReload()` are now marked: the ToS decline and the `/sw/init` fallback in
+`bootstrap.ts`, `unMigrationAccount`, and the "save data in account" toggle. Google Drive sign-in
+(`drive.ts`) is deliberately unmarked, so on a self-hosted build it now shows the leave-site
+dialog, as it already did on risuai.xyz. Gate 2 approved, wording only; ledger rows 151 to 155.
+**Not live-checked:** the guard is off on the dev server by design.
 
 ## openURL fix is DONE
 
@@ -55,12 +69,11 @@ costs: `Agents/Investigation-Ledger.md` rows 142-150.
 **Live-checked in Chrome** against the dev server: the Website card opened a new tab with
 `window.opener === null` and its referrer present; the fork Email card's address opened the mail
 client from the same tab with no new tab, and the page received a `beforeunload` for that
-same-tab handoff. **Not live-checked:** the "Leave site?" guard itself — it is registered only
-when `isWeb` (`location.hostname === 'risuai.xyz'`), so it never registers on the dev host; the
-3s allowance is verified by tests only.
+same-tab handoff. **Not live-checked:** the "Leave site?" guard itself, which is off on the dev
+server; the 3s allowance is verified by tests only.
 
 **Upstream chores found in passing (`MC-069`), now in the Roadmap:** CHORE-22 (self-hosted web
-builds and the dev server have no accidental-close guard at all — decided in `MC-070`: they get it),
+builds had no accidental-close guard — done, see above),
 CHORE-23 (`mcplib.ts`'s `oauthLogin` doesn't await/catch `openURL`, minor), CHORE-24
 (`GithubStars.svelte` is unused, minor).
 
@@ -92,9 +105,9 @@ multi-candidate generations) — both covered by tests.
   about (40, 92) at 1440px wide) works — but a JS `.click()` carries no user activation, so if the
   control you're testing opens a popup (e.g. `window.open`), that call must be a real `computer`
   click instead, or the popup will be silently blocked.
-- The "Leave site?" `beforeunload` guard is registered only when `location.hostname ===
-  'risuai.xyz'` (`isWeb`, `src/ts/platform.ts`), so it cannot be exercised on the dev host at all —
-  don't spend time trying to trigger it there.
+- The "Leave site?" `beforeunload` guard is off on the Vite dev server (`import.meta.env.DEV`),
+  so it cannot be exercised there. To see it live, use a production build (`vite preview` or the
+  node server). A real leave-site dialog also blocks Claude in Chrome until someone dismisses it.
 - `find` can mislabel which message a control belongs to. Locate controls through
   `.chat-message-container` in JS: index 0 is the newest message, with `.button-icon-edit` and
   `.dyna-icon` inside it.
@@ -114,10 +127,9 @@ multi-candidate generations) — both covered by tests.
 2. **Report 21 findings**, awaiting prioritisation: `updateInlayScreen` destroying hand-edited
    custom prompts (confirmed data loss), remote-block read verification, `removeChar`'s missing
    `doingChat` guard, plugin permission caching, `saveTimeoutExecute`'s missing ceiling.
-3. **Upstream chores** CHORE-19 to CHORE-24 (Roadmap, per `MC-069`). CHORE-20 (`mobilechat` has no
-   touch exit from the editor) should be confirmed on a touch device first. CHORE-22 (no
-   accidental-close guard on self-hosted web/the dev server) is decided (`MC-070`) and is the stage
-   in progress.
+3. **Upstream chores** CHORE-19 to CHORE-21, CHORE-23 and CHORE-24 (Roadmap, per `MC-069`).
+   CHORE-20 (`mobilechat` has no touch exit from the editor) should be confirmed on a touch device
+   first.
 
 ## Other open items
 
@@ -130,13 +142,14 @@ multi-candidate generations) — both covered by tests.
 
 ## Test suite
 
-**77 files, 1085 passed, 4 skipped, 0 failed.** `pnpm check` clean. Run with
-`npx vitest run --exclude "**/.claude/**" --exclude "**/node_modules/**"`.
+**77 files, 1092 passed, 4 skipped, 0 failed.** `pnpm check` clean. Run with
+`npx vitest run --exclude "**/.claude/**" --exclude "**/node_modules/**"`. Plain `pnpm test`
+does not exclude `.claude/worktrees/**`, so a leftover worktree's copy inflates the counts and
+adds failures.
 
 ## Uncommitted work
 
-The openURL code commit and its docs commit, both described above under "Branch and commit
-state" — nothing else.
+None once the CHORE-22 records commit lands.
 
 ## What this session established about its own method
 
