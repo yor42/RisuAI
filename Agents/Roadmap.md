@@ -239,6 +239,11 @@ This phase is the load-bearing one: it's what Phase 4 (Android) is gated behind,
      drag-and-drop and folders as janky. Virtual scrolling alone is complicated by the sidebar's
      native HTML5 drag-and-drop, which needs the DOM nodes it drags between (Report 12 kept the
      sidebar unkeyed for this reason). Investigate drag-and-drop, folders and windowing together.
+     **Reported symptoms (`MC-071`, 2026-09-24):** a changed order sometimes does not persist; long
+     tap and drag sometimes do nothing; dragging to the viewport edge does not reliably scroll the
+     sidebar; dragging into and out of folders is inconsistent. The first is a possible persistence
+     defect and is triaged before the rest. Deferred by the maintainer until the composer stage and
+     `updateInlayScreen` are fixed.
    - Related bug: CHORE-18 (creator notes overflow in the list view).
    **Add real virtual scrolling to the chat message list** (`DefaultChatScreen.svelte`), keeping the existing incremental-load-on-scroll-up behavior for fetching history but unmounting off-screen messages so peak DOM/component count is bounded. This is the most Android-relevant fix in the whole roadmap. *(Report 01, recommendation 4 — Medium-High effort.)*
 
@@ -1235,6 +1240,54 @@ row 142). Traced to source, not fixed. Minor housekeeping only.
 
 - `GithubStars.svelte` is not imported anywhere in `src` — a dead component.
 - No functional impact.
+
+### CHORE-25 — A trigger's `setVar` writes chat variables to the chat on screen, not the trigger's chat
+
+**Status (2026-09-24):** found by Gate 1 round 1 of the composer-drafts plan
+(`Agents/Reports/22-composer-drafts-plan.md` sections 2.2 and 8; ledger row 158), Orchestrator
+re-checked in source. Not fixed. **Data-affecting:** the wrong chat's trigger variables are
+overwritten and saved. **Sequenced by the maintainer (2026-09-24): the stage right after the composer
+stage, before `updateInlayScreen`.**
+
+- In `triggers.ts`, `setVar` writes `scriptstate` to `getCurrentCharacter().chats[chatPage]` and
+  `db.characters[get(selectedCharID)].chats[chatPage]`, and the `varChanged` block after the
+  trigger runs `getCurrentChat().scriptstate = chat.scriptstate`. Both read the live selection.
+- If the user switches chats while a trigger runs, the chat they switched to receives the
+  trigger's variables in place of its own. Reachable in two windows. The first is `sendMain`'s
+  `input` trigger, before `doingChat` is set. The second is an `output` trigger during generation,
+  because `changeChatTo` has no `doingChat` guard.
+- Upstream has the same code (per `MC-069`, an upstream bug found in passing).
+
+### CHORE-26 — A group member's trigger can replace the whole group with the member
+
+**Status (2026-09-24):** found by `senior-advisor` (ledger row 161) and traced by the pre-W0
+checks (ledger row 162). Orchestrator re-checked in source; upstream `main` has the same code.
+Not reproduced at runtime. **Data loss:** the group's record is replaced and saved. Closed by
+writer stage W1 (`MC-076`), not fixed separately.
+
+- In group generation, `sendChatBody` sets `currentChar` to the **member** while the chat is the
+  **group's**, then runs the member's `start` and `output` triggers on a clone of the member.
+- Nine v2 effects end in `setCurrentCharacter(...)`, which assigns
+  `DBState.db.characters[get(selectedCharID)]`. The group is selected, so the group's slot
+  receives the member's clone. `triggers.ts` has no `chaId` check anywhere.
+- The nine effects are `v2SetCharacterDesc`, `v2SetReplaceGlobalNote`, `v2SetLorebookActivation`,
+  `v2CreateLorebook`, `v2ModifyLorebook`, `v2ModifyLorebookByIndex`, `v2DeleteLorebookByIndex`,
+  `v2SetLorebookAlwaysActive` and `v2SetAuthorNote`.
+- `input` triggers are not exposed: `sendMain` runs them only for `type === 'character'`.
+
+### CHORE-27 — The `request` trigger runs on whatever character is selected, on live data
+
+**Status (2026-09-24):** traced by the pre-W0 checks (ledger row 162), Orchestrator re-checked
+in source; upstream `main` has the same code. Closed by writer stage W2 (`MC-076`).
+
+- `request.ts` reads `getCurrentCharacter()` and `getCurrentChat()` inside its retry loop, after
+  earlier awaits, and runs that character's `request` trigger over the prompt being sent.
+- After a character switch mid-send, character B's `request` trigger rewrites character A's
+  prompt.
+- The call passes `displayMode: true`, so `runTrigger` does not clone. Of the nine v2 effects
+  above, only `v2SetAuthorNote` checks `displayMode`, so the others write to B's live data during
+  what should be a display-only run.
+- Group chats never reach this block.
 
 ## Sequencing Summary
 

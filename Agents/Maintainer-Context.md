@@ -1786,6 +1786,200 @@ reloads and the `mailto:`/`tel:` handoff never prompt.
 
 ---
 
+### MC-071 — Reported sidebar problems: order not persisting, flaky gestures, no edge scroll, folder drags
+
+- **Tag:** fact
+- **Date:** 2026-09-24
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, relaying community reports against upstream builds (per `MC-011`,
+  user-reported symptoms are observations of upstream, not of this fork).
+- **Reasoning:** input for the sidebar rework (Roadmap Phase 2 item 3, "Sidebar: a rework"). The
+  maintainer deferred that rework behind the known data-loss fixes (the composer stage, then
+  `updateInlayScreen`).
+- **Related:** MC-011, MC-069.
+
+> 1. Changed character order sometimes does not persist
+> 2. Inconsistent Behavior - long tap, drag, etc sometimes does not work
+> 3. it is hard to move the character beyond the visible scope, as dragging the character to the
+>    edge of the viewport sometimes does not correctly scroll the sidebar
+> 4. Dragging the character in and out of folder is inconsistent
+
+**How to apply.** The sidebar investigation checks each symptom against source. Symptom 1 is a
+possible persistence defect, not only a UX one: if a reorder can fail to reach the save file, it
+belongs with the data-loss work and is triaged first. Symptoms are reports, not reproductions, so
+none is treated as confirmed until reproduced or traced.
+
+---
+
+### MC-072 — Composer drafts: silent per-chat restore, late files go to their own chat, only the open composer holds the multi-tab reload
+
+- **Tag:** decision
+- **Date:** 2026-09-24
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the Orchestrator asked three questions before writing the composer-stage plan
+  (`Agents/Reports/22-composer-drafts-plan.md`); the maintainer chose the recommended option on all
+  three.
+- **Reasoning:** the composer is always on screen, so restored text is visible without a marker; a
+  file the user picked is not silently dropped; and a background draft holding the reload would
+  need a cap and a prune rule for little gain, since composer text lives only in memory and an
+  ordinary reload already drops it.
+- **Alternatives rejected:** showing the `MC-068` restore bar on the composer; discarding a file
+  that arrives after a switch; letting every stored composer draft defer the multi-tab reload.
+- **Related:** MC-043 (the composer stage and its shape), MC-050, MC-068.
+
+**What was decided:**
+1. **Silent restore.** Returning to a chat shows the unsent text, staged files and translation
+   left there, with no restore bar.
+2. **Late files go to the chat they were started in.** A file picked, or an image pasted, after a
+   chat switch lands in the draft of the chat that was open when the pick or paste began, never in
+   the chat now on screen.
+3. **Only the open composer holds the multi-tab reload.** Unsent text stored for chats not on
+   screen does not defer it. This settles `MC-050` for composer drafts only; for message-editor
+   records it stays open.
+
+---
+
+### MC-073 — Investigate reworking the chat writer rather than locking switches during a send
+
+- **Tag:** decision
+- **Date:** 2026-09-24
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, answering whether to block chat and character switching during a
+  send after Gate 1 round 2 of the composer-drafts plan (`Agents/Reports/22-composer-drafts-plan.md`)
+  found that writes in the send and trigger path follow whatever is selected when they land, so a
+  switch mid-send can overwrite another chat's history, its variables, or a whole character.
+- **Reasoning:** the maintainer's own words below. A lock treats the symptom; the writer is behind
+  several persistence issues; the fork has not shipped (`MC-011`), so a structural fix costs least
+  now.
+- **Alternatives rejected (for now):** blocking switches for the whole send; blocking them only
+  until generation starts. Neither is ruled out for good. The investigation decides whether a
+  rework is feasible and worth it.
+- **Related:** MC-011, MC-043, MC-072, CHORE-25.
+
+> I think blocking writing as whole during generation could feel like a band-aid fix to end users.
+> since writer is a source of quite few persistency issue, I think we should investigate if we can
+> rework on the writer. currently this fork hasn't shipped. thus if writer rework fixes many core
+> problem, now is the best time to fix it.
+
+**Also decided:** if a switch is ever refused, it is refused silently, as clicking a character
+already is during generation. No toast, no new strings.
+
+**How to apply.** Before any lock is designed, investigate the writer: every write in the send,
+generation and trigger path that goes to the live selection instead of the chat or character it
+belongs to. Size a rework in which writes are bound to their origin. The composer stage's
+per-chat drafts (Report 22, I2) do not depend on this and are not blocked by it; its send-window
+invariants wait for the writer decision.
+
+---
+
+### MC-074 — Multiuser is to be removed; it is not part of the writer rework
+
+- **Tag:** decision
+- **Date:** 2026-09-24
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, answering whether the writer rework (`MC-073`) should bind multiuser
+  sync's writes to their origin. Those writes deliberately go to the live selection
+  (`src/ts/sync/multiuser.ts`, for save-tracking performance).
+- **Reasoning:** the maintainer's own words below.
+- **Related:** MC-011, MC-073.
+
+> I think we can drop the multiuser feature as whole. Multiuser is another remnant of this project
+> originating from being upstream maintainer's toy project. multiuser session was explored, but
+> then dropped because it was unstable and buggy.
+
+**How to apply.** The writer rework leaves `multiuser.ts` out. Removing multiuser is its own
+stage. Before anything is deleted, it gets an investigation of everything that depends on it:
+- the UI entry points;
+- `ConnectionOpenStore` reads (for example `sendMain`'s message `name` field);
+- any plugin API surface;
+- any saved field.
+
+Upstream data that carries multiuser-related fields must still load (`MC-011`).
+
+---
+
+### MC-075 — The writer rework: `/` commands stay on the chat the send started from; a delete during a write asks first
+
+- **Tag:** decision
+- **Date:** 2026-09-24
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, answering the open questions from the writer investigation (ledger
+  row 159).
+- **Reasoning:** as stated below; the maintainer chose the behaviour, not the mechanism.
+- **Related:** MC-073, MC-074, Report 22.
+
+**What was decided:**
+1. **`/` commands are bound to the send's origin** like every other write in the send, not
+   resolved from the live selection each time. This supersedes Report 22 section 9's limitation.
+2. **Deleting a chat, or its character, while something is writing into it asks first.** A short
+   warning in the delete confirmation says something is writing into this chat and asks whether
+   to continue. When nothing is writing into it, the delete confirmation is unchanged. If the
+   origin chat is gone anyway when a write lands, the write is dropped silently.
+3. **Home while a trigger runs** (`selectedCharID = -1`): not investigated now. It is tested when
+   the rework actually reaches that path.
+
+The maintainer's words for item 2:
+
+> best approach would be inserting a little warning about "something is currently writing into
+> this chat. do you really want to continue?" on deletion message if something is writing into it,
+> if not, silent drop should be fine.
+
+---
+
+### MC-076 — The writer rework follows senior-advisor's staging; `updateInlayScreen` goes first
+
+- **Tag:** decision
+- **Date:** 2026-09-24
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the Orchestrator presented `senior-advisor`'s writer strategy (ledger row 161) and
+  the HaejeokRisuai comparison (ledger row 160). The maintainer approved the strategy and moved
+  `updateInlayScreen` ahead of it.
+- **Reasoning:** the maintainer's own words below.
+- **Supersedes:** the order "composer, then CHORE-25, then `updateInlayScreen`" (this session,
+  before the writer investigation).
+- **Related:** MC-073, MC-074, MC-075, CHORE-25, Report 22.
+
+> looks good to me, I think small and independant updateInlayScreen should jump ahead though,
+> since its another persistency issue.
+
+**Order:**
+1. `updateInlayScreen` (CD-4).
+2. W0: every chat has a stable id; the origin resolver and in-flight-writer registry.
+3. W1: triggers, Lua and CBS write to their own origin. This closes CHORE-25, which is not a stage
+   of its own.
+4. The composer stage (Report 22 rev 3), on W0's resolver.
+5. W2 (generation, group turns, auto-continue, the delete warning, the Home check) and W3 (`/`
+   commands).
+
+**Approved strategy:** writes made for a unit of work (a send, a generation, a trigger run, a `/`
+command) resolve their target by identity at write time. Plugin-facing "current" helpers stay
+bound to the selection. Whole-object commit stays. No switch lock.
+
+---
+
+### MC-077 — Edited Image Generation Instructions are kept across an Inlay Screen toggle, and documented
+
+- **Tag:** decision
+- **Date:** 2026-09-24
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, answering a question raised by Gate 2 of the `updateInlayScreen` fix
+  (CD-4; ledger row 163). The Image Generation Instructions box has two jobs. With Inlay Screen off
+  it instructs the auxiliary model that writes the image prompt. With Inlay Screen on it goes into
+  the main chat and must ask for `<ImgGen="...">` tags. Keeping edited text across a toggle can
+  leave text written for one job doing the other.
+- **Reasoning:** text stays in a visible box and is never silently wiped; the user rewrites it for
+  the new job.
+- **Alternatives rejected:** resetting that box on an Inlay Screen toggle only (it always works,
+  but edits are lost, as in the bug); keeping it and showing a notice on toggle (a new string in
+  seven locales).
+- **Related:** MC-076.
+
+**How to apply.** `updateInlayScreen` keeps user-authored text in every field across every mode
+and Inlay Screen change. The wiki page for the Additional Character Screen says that the box has
+two jobs and should be rewritten after toggling.
+
+---
+
 ## Open questions
 
 The three entries below are questions addressed to the maintainer that were still unresolved as of

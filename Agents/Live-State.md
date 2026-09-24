@@ -13,165 +13,114 @@ decisions and context, see `Agents/Maintainer-Context.md`.
 
 ## Branch and commit state
 
-Branch `fix/persistence-conflict-platform-hardening`, **20 commits ahead of origin, nothing
-pushed**, once the CHORE-22 commits land.
+Branch `fix/persistence-conflict-platform-hardening`, **pushed to origin** (yor42/RisuAI) on
+2026-09-24 with the maintainer's go-ahead, in sync once the two commits below land. The push
+included `wiki/`, so the wiki-sync CI ran.
 
-- Already committed this session: `16e6f7e9` (home-screen live-check fixes), `c02aec74`
-  (`MC-067`, Space and Enter reach a keyboard-focused control), `fe90145e` (their records),
-  `e250089a` (the durable-drafts code commit), `0be3e0ca` (the durable-drafts records commit).
-- `160ba715` — **the openURL code commit:** `src/ts/openUrlWeb.ts`
-  (new), `src/ts/reloadGuard.ts`, `src/preload.ts`, `src/ts/globalApi.svelte.ts`,
-  `src/ts/hubHtml.ts` and `src/lib/UI/SourceDisclosure.svelte` (comment-only), plus
-  `src/ts/openUrlWeb.test.ts` and `src/preload.beforeUnload.test.ts`.
-- `bfe2b9d6` — its records: ledger rows 142 to 150, Roadmap CHORE-22 to CHORE-24, `MC-070`.
-- `b6a8f0e6` — **the CHORE-22 code commit:** `src/preload.ts`,
-  `src/ts/bootstrap.ts`, `src/ts/storage/accountStorage.ts`,
-  `src/lib/Setting/Pages/UserSettings.svelte`, `src/preload.beforeUnload.test.ts`.
-- **Its records commit:** this file, ledger rows 151 to 155, Roadmap CHORE-22 marked done.
+- Earlier this session: `160ba715`/`bfe2b9d6` (openURL fix and records), `b6a8f0e6`/`04da01d6`
+  (CHORE-22 and records), `9955eaa5` (production-build live check records).
+- **The CD-4 code commit:** `src/ts/process/inlayScreen.ts`, `src/ts/process/inlayScreen.test.ts`
+  (new), `wiki/Additional-Character-Screen.md`.
+- **Its records commit:** this file, `MC-071` to `MC-077`, Roadmap (sidebar symptoms, CHORE-25
+  to CHORE-27), ledger rows 157 to 163, Reports 22 and 23.
 
-## CHORE-22 is DONE
+## Work order (`MC-076`)
 
-`MC-070`: self-hosted web builds get the "Leave site?" guard. `preload.ts` registers it on every
-build that is neither Tauri nor the Vite dev server (`!isTauri && !import.meta.env.DEV`), so
-risuai.xyz, a static self-host and the node server all prompt before an accidental close. `isWeb`
-is unchanged and still decides only preload's `mainpage` flag. Four app-initiated reloads that
-lacked `markAppInitiatedReload()` are now marked: the ToS decline and the `/sw/init` fallback in
-`bootstrap.ts`, `unMigrationAccount`, and the "save data in account" toggle. Google Drive sign-in
-(`drive.ts`) is deliberately unmarked, so on a self-hosted build it now shows the leave-site
-dialog, as it already did on risuai.xyz. Gate 2 approved, wording only; ledger rows 151 to 155.
-**Live-checked** on a production build served by the node server (ledger row 156): a navigation
-away raised a real "Leave site?" dialog.
+1. **CD-4 `updateInlayScreen` — DONE, committed.** Hand-edited image/emotion prompts survive
+   mode and Inlay Screen changes. Each field is resolved separately; defaults are byte-identical.
+   Edited Image Generation Instructions are kept across an Inlay toggle and documented (`MC-077`).
+   13 tests, 4 red at HEAD; Gate 2 (`opus-reviewer`, two passes) approved; ledger row 163.
+2. **W0 — identity.** In planning (Report 24). Needs Gate 1. Scope in Report 23 section 4.
+3. **W1 — engine binding** (closes CHORE-25 and CHORE-26).
+4. **The composer stage** (Report 22 rev 3, on W0's resolver).
+5. **W2 — generation and deletion** (closes CHORE-27) and **W3 — `/` commands**.
 
-## openURL fix is DONE
+## Writer rework (`MC-073` to `MC-076`, Report 23)
 
-`openURL`'s web branch was a bare `window.open(url, "_blank")`. It now calls `openUrlOnWeb` in
-`src/ts/openUrlWeb.ts`, decided on the parsed `URL.protocol`: http/https opens a new tab with
-`noopener` (referrer unchanged, relative URLs resolve against the page); mailto:/tel: is handed
-to the OS from the current tab; any other or unparsable scheme opens nothing, with a warning
-naming only the scheme. `src/ts/reloadGuard.ts` gained a one-shot handoff allowance (3s from the
-most recent handoff), consulted by `src/preload.ts`'s `beforeunload` handler, kept separate from
-the app-initiated-reload flag. The Tauri branch is unchanged (shell plugin 2.3.6's default open
-scope already allows only http(s)/mailto/tel).
+Writes made for a unit of work resolve their target by identity (`chaId`, chat `id`) at write
+time, never through the selection or an index captured earlier. No switch lock. Plugin "current"
+helpers stay bound to the selection. Whole-object commit stays. Rules W-1 to W-6 are in Report 23
+section 3. Key facts already established:
+- **An in-place write to a non-selected character is not saved without `markCharacterForSave`.**
+  This was run (ledger row 162), so the write helper marks by default.
+- The parser has no per-call hook for `getChatVar`/`setChatVar`; `chatVar` needs an explicit
+  target. `runScripted` already accepts `char`/`chat`/`setVar`/`getVar`.
+- Use an index lookup by `chaId` for the resolver, never `findCharacterbyId` (it skips groups and
+  returns a blank character on a miss).
+- HaejeokRisuai (`C:\Projects\HaejeokRisuai`, GPL-3.0) built the same shape (`ChatTarget`); we
+  adopt the idea, not the code (ledger row 160).
 
-**Three defects fixed:** no `noopener` (reverse tabnabbing, including realm-hub links); a stray
-blank tab on `mailto:` (the home Email card's two addresses); and any scheme reaching
-`window.open` on the web — `mcplib.ts`'s MCP OAuth path passes an MCP server's unvalidated
-`authorization_endpoint`, so `javascript:`/`data:` could otherwise have reached it.
+**Maintainer decisions to honour:**
+- `MC-074`: multiuser is to be removed in its own stage; it is out of the rework.
+- `MC-075`: `/` commands are bound to the send's origin. Deleting a chat or character while
+  something is writing into it asks first; otherwise a write whose origin is gone drops silently.
+  The Home case is tested in W2.
+- `MC-072`: composer drafts restore silently; late files go to their own chat; only the on-screen
+  composer holds the multi-tab reload.
+- A refused switch, if one is ever refused, is silent (`MC-073`).
 
-**Tests:** `src/ts/openUrlWeb.test.ts` (18) and `src/preload.beforeUnload.test.ts` (14), red
-before green. **Gate:** no plan-review gate, by the Orchestrator's carve-out judgment (the brief
-carried invariants and six acceptance scenarios). The new timer allowance then carried the one
-substantive defect Gate 2 found, which a plan review might have caught. Gate 2 by `adversarial-reviewer`, two rounds: round 1 found a
-real race (overlapping handoffs inside the 3s window could clear each other's allowance, direction
-only adds an unwanted prompt), fixed and re-tested red-first; round 2 was wording-only (test
-counts, a stale test title, a commit-message overstatement), all fixed. Full detail and token
-costs: `Agents/Investigation-Ledger.md` rows 142-150.
+## Composer stage (Report 22, rev 2)
 
-**Live-checked in Chrome** against the dev server: the Website card opened a new tab with
-`window.opener === null` and its referrer present; the fork Email card's address opened the mail
-client from the same tab with no new tab, and the page received a `beforeunload` for that
-same-tab handoff. On a production build served by the node server (ledger row 156), that
-handoff's trusted `beforeunload` was let through with no dialog, and the next one was prevented.
+Paused behind W0 and W1. Gate 1 rejected rev 1 and rev 2. Rev 2's mechanism, I2, was found
+sound: the per-chat record is the composer's state, held at module level. Every remaining major
+was in the send window, and the writer rework now owns those. Rev 3 takes I1 from W0 and captures
+the send as an origin. It also still owes:
+- removing `sendChatMain`'s own `messageInput = ''` (Ctrl+M reroll wipes a typed draft at HEAD);
+- routing the prev/next-character hotkeys through `changeChar`;
+- a textarea resize when the key changes.
 
-**Upstream chores found in passing (`MC-069`), now in the Roadmap:** CHORE-22 (self-hosted web
-builds had no accidental-close guard — done, see above),
-CHORE-23 (`mcplib.ts`'s `oauthLogin` doesn't await/catch `openURL`, minor), CHORE-24
-(`GithubStars.svelte` is unused, minor).
+## Sidebar
 
-## Durable drafts is DONE
+Deferred until the work above is done (`MC-071` records the reported symptoms). The first
+symptom, a changed order not persisting, is a possible persistence defect; triage it first when
+the sidebar comes up.
 
-Report 20's stage, minus the pieces split out by decision (the composer, section 4.5;
-`PartialEditController`, section 4.6). Text typed into the message editor or the translation
-editor survives an involuntary unmount, restored with the `MC-068` marker, its age, and a
-one-click Revert. Report 20 section 11 has the full Gate 2 record (seven rounds, one
-escalation).
+## Next (options)
 
-**The mechanism, in one line:** capture runs on the edit surfaces' `input` events
-(`captureMessageEdit` / `captureTranslationEdit` in `Chat.svelte`), never on changes to the bound
-buffer. **Do not move capture back into an `$effect`** — it cannot tell the user's writes from the
-component's own (open, revert, the translation save's write-back); three gate rounds were lost to
-exactly that.
-
-**Live-checked in Chrome:** type/reroll/unReroll/reopen restores the draft with the marker, on
-default and `cardboard`; Revert and the age display work; a `mobilechat` draft survives the
-settings screen unmounting the chat; marker contrast 6.82:1 (default), 7.82:1 (light surfaces);
-Revert wraps below the label with no overlap at narrow widths, all seven locales. **Not
-live-checked:** the translation editor (needs a configured LLM translator) and `Prereroll` (needs
-multi-candidate generations) — both covered by tests.
-
-**How to live-check this app (lessons from this session):**
-- Claude in Chrome, not the built-in pane (the service worker kills the boot).
-- The sidebar avatar sometimes ignores the `computer` tool's clicks after a reload. Calling
-  `.click()` from JS on the avatar image's nearest `button, [role=button]` ancestor (a `<span>` at
-  about (40, 92) at 1440px wide) works — but a JS `.click()` carries no user activation, so if the
-  control you're testing opens a popup (e.g. `window.open`), that call must be a real `computer`
-  click instead, or the popup will be silently blocked.
-- The "Leave site?" `beforeunload` guard is off on the Vite dev server (`import.meta.env.DEV`),
-  so it cannot be exercised there. To see it live, use a production build. The maintainer runs
-  `$env:VITE_RISU_LEGAL_CONFIGURED = 'TRUE'; pnpm run build; Remove-Item
-  Env:VITE_RISU_LEGAL_CONFIGURED; pnpm run runserver` (http://localhost:6001); without the flag
-  the build opens on a legal-notice screen. Record `beforeunload` outcomes with a listener added
-  after load (it sees the guard's `defaultPrevented`) rather than letting a real dialog appear. A real leave-site dialog also blocks Claude in Chrome until someone dismisses it.
-- `find` can mislabel which message a control belongs to. Locate controls through
-  `.chat-message-container` in JS: index 0 is the newest message, with `.button-icon-edit` and
-  `.dyna-icon` inside it.
-- Type with real key events (the `type` action) into a focused textarea. Capture listens to
-  `input`, so setting `.value` from JS proves nothing.
-- A source edit can trigger a full reload back to the home screen; re-select the character.
-- Echo is the fixture's model, so reroll needs no API key.
-- Restore any setting you change: the layout theme and "클릭해서 수정하기" were both flipped and
-  restored this session.
-
-## Next
-
-1. **The composer stage** (Report 20 section 4.5): flush-under-the-old-key-then-restore-under-the-new
-   ordering, all three values, and a generation token for the async translate writes. The composer
-   mis-send remains live until it lands. **Use input-event capture here too**; the composer has no
-   open event, so a touched flag would have nowhere to reset.
-2. **Report 21 findings**, awaiting prioritisation: `updateInlayScreen` destroying hand-edited
-   custom prompts (confirmed data loss), remote-block read verification, `removeChar`'s missing
-   `doingChat` guard, plugin permission caching, `saveTimeoutExecute`'s missing ceiling.
-3. **Upstream chores** CHORE-19 to CHORE-21, CHORE-23 and CHORE-24 (Roadmap, per `MC-069`).
-   CHORE-20 (`mobilechat` has no touch exit from the editor) should be confirmed on a touch device
-   first.
+- Plan W0 and send it to Gate 1 (`opus-reviewer`).
+- Report 21's other findings: remote-block read verification, `removeChar`'s missing `doingChat`
+  guard (W2 covers the writer side), plugin permission caching, `saveTimeoutExecute`'s missing
+  ceiling.
+- Upstream chores CHORE-19 to CHORE-21, CHORE-23, CHORE-24.
+- Multiuser removal (`MC-074`), after the composer stage.
 
 ## Other open items
 
 - **The `.gitignore` entry** for `Asset Cache/Community Mitigation_Webrowser Plugin/` names a path
   that no longer exists, so `Asset Cache/` itself is not ignored.
-- **Card description contrast** on the home screen is 3.32:1 (`text-textcolor2`, repo-wide). This
-  is a maintainer decision, not yet raised as work.
-- **Per-instance `matchMedia` listener** in `Chat.svelte` for reduced motion. A shared
-  module-level source would be cheaper on Pi and mobile.
+- **Card description contrast** on the home screen is 3.32:1 (`text-textcolor2`, repo-wide). A
+  maintainer decision, not yet raised as work.
+- **Per-instance `matchMedia` listener** in `Chat.svelte` for reduced motion. A shared module-level
+  source would be cheaper on Pi and mobile.
 
 ## Test suite
 
-**77 files, 1092 passed, 4 skipped, 0 failed.** `pnpm check` clean. Run with
+**78 files, 1105 passed, 4 skipped, 0 failed.** `pnpm check` clean. Run with
 `npx vitest run --exclude "**/.claude/**" --exclude "**/node_modules/**"`. Plain `pnpm test`
-does not exclude `.claude/worktrees/**`, so a leftover worktree's copy inflates the counts and
-adds failures.
+does not exclude `.claude/worktrees/**`.
 
-## Uncommitted work
+## How to live-check this app
 
-None once the CHORE-22 records commit lands.
+- Claude in Chrome, not the built-in pane (the service worker kills the boot).
+- The sidebar avatar sometimes ignores the `computer` tool's clicks after a reload. A JS `.click()`
+  on the avatar's nearest `button, [role=button]` ancestor works, but carries no user activation,
+  so a control that opens a popup needs a real `computer` click.
+- The "Leave site?" guard is off on the Vite dev server. To see it, use a production build:
+  `$env:VITE_RISU_LEGAL_CONFIGURED = 'TRUE'; pnpm run build; Remove-Item
+  Env:VITE_RISU_LEGAL_CONFIGURED; pnpm run runserver` (http://localhost:6001). Record
+  `beforeunload` outcomes with a listener added after load rather than letting a real dialog
+  appear; a real dialog blocks Claude in Chrome until dismissed.
+- Locate message controls through `.chat-message-container` in JS (index 0 is the newest).
+- Type with real key events; capture listens to `input`.
+- Echo is the fixture's model, so reroll needs no API key.
+- Restore any setting you change.
 
-## What this session established about its own method
+## Method lessons from this session
 
-Gate 2 on durable drafts took seven rounds and one escalation. The lessons are now in AGENTS.md
-section 4. In short:
-- **Comments narrate invariants, never history.** Most rejections were prose describing a design
-  the code no longer had.
-- **The keyword grep is necessary, not sufficient.** Rounds 4 to 6 each found sentences with no
-  trigger word.
-- **Briefs state invariants and acceptance scenarios, not mechanisms.** Round 2's substantive
-  rejection came from a mechanism the Orchestrator's brief specified.
-- **At the second rejection, ask whether the mechanism is the problem.** The answer here was
-  structural, and `senior-advisor` found it.
-- **Mutation briefs use the scratchpad**, never in-place edits.
-
-Two more from the live check:
-- **A layout fix for one script can break another.** `break-keep`, added for Korean, made the
-  spaceless Chinese labels overflow. Measure every locale, including the worst case (Vietnamese
-  was the narrowest).
-- **A guard's stated reason must be checked against HEAD, not assumed.** Round 7's final check
-  found a guard note claiming HEAD "never touches" a registry it actually uses.
+- **At the second rejection, ask whether the mechanism is the problem.** The composer plan's two
+  rejections both traced to one pattern (writes follow the selection). A lock would have treated
+  the symptom; the maintainer chose the structural fix.
+- **"Coverage, not proof" notes must be true.** Two such notes claimed an overwrite and a
+  preservation give the same result when they did not. State what the test cannot distinguish,
+  not a false equivalence.
+- **Test comments must not describe the pre-fix code as current.** Caught again before Gate 2.
