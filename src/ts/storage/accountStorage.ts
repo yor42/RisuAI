@@ -274,5 +274,6 @@ export async function unMigrationAccount() {
     localStorage.setItem('dosync', 'avoid')
     localStorage.removeItem('accountst')
     localStorage.removeItem('fallbackRisuToken')
+    markAppInitiatedReload()
     location.reload()
 }

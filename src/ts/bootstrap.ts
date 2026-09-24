@@ -8,6 +8,7 @@ import {
     remove
 } from "@tauri-apps/plugin-fs"
 import { changeFullscreen, checkNullish, sleep } from "./util"
+import { markAppInitiatedReload } from "./reloadGuard"
 import { v4 as uuidv4 } from 'uuid';
 import { get } from "svelte/store";
 import { setDatabase, defaultSdDataFunc, getDatabase } from "./storage/database.svelte";
@@ -297,6 +298,7 @@ export async function loadData() {
             void startAvatarThumbSweep()
             alertTOS().then((a) => {
                 if (a === false) {
+                    markAppInitiatedReload()
                     location.reload()
                 }
             })
@@ -318,6 +320,7 @@ async function registerSw() {
     await sleep(100);
     const da = await fetch('/sw/init');
     if (!(da.status >= 200 && da.status < 300)) {
+        markAppInitiatedReload();
         location.reload();
     }
 }

@@ -9,6 +9,7 @@
     import { forageStorage, loadInternalBackup } from "src/ts/globalApi.svelte";
     import { isTauri, isNodeServer } from "src/ts/platform"
     import { unMigrationAccount } from "src/ts/storage/accountStorage";
+    import { markAppInitiatedReload } from "src/ts/reloadGuard";
     import { checkDriver } from "src/ts/drive/drive";
     import { LoadLocalBackup, SaveLocalBackup, SavePartialLocalBackup } from "src/ts/drive/backuplocal";
     import Button from "src/lib/UI/GUI/Button.svelte";
@@ -168,6 +169,7 @@
                     <Check check={false} name={language.SaveDataInAccount} onChange={(v) => {
                         if(v){
                             localStorage.setItem('dosync', 'sync')
+                            markAppInitiatedReload()
                             location.reload()
                         }
                     }}/>
