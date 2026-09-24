@@ -43,9 +43,9 @@ The prompt used by **Ax. Model** can be replaced in **Settings → Advanced Sett
 
 With **Inlay Screen** checked, no separate model call is made. Instead, the character's model is told to write a tag such as `<Emotion="joy">` in its reply. The tag is shown as the matching image inside the message, and no side image box is shown.
 
-The text that tells the model to do this is in the **Image Generation Instructions** box (the same label is used in both modes). `{{slot}}` in it is replaced with the list of emotion names. Changing the mode or the Inlay Screen checkbox resets this box to its default, so copy your edits first.
+The text that tells the model to do this is in the **Image Generation Instructions** box (the same label is used in both modes). `{{slot}}` in it is replaced with the list of emotion names. Changing the mode or the Inlay Screen checkbox keeps your edits in this box; it's only reset to the default if you leave it empty or it still holds a built-in default text, and emptying it on purpose counts as unedited too.
 
-<!-- src/ts/process/inlayScreen.ts:1-97; src/ts/process/index.svelte.ts:626-639 -->
+<!-- src/ts/process/inlayScreen.ts:1-113; src/ts/process/index.svelte.ts:626-639 -->
 
 ### Other ways to show an emotion image
 
@@ -67,9 +67,11 @@ The character's fields:
 - **Image Generation Negative Prompt**.
 - **Inlay Screen**: when checked, the character's model writes `<ImgGen="prompt">` in its reply instead, and the image is generated and shown inside the message.
 
+The **Image Generation Instructions** box has a different job depending on **Inlay Screen**: with Inlay off, it's the system prompt for the Auxiliary Model that writes the image prompt above; with Inlay on, it's added straight to the main chat instead, and it must tell the character's own model to write the `<ImgGen="...">` tag itself. Toggling **Inlay Screen** keeps whatever you've typed in this box rather than switching it to match, so rewrite it yourself after toggling — otherwise, with Inlay on, the model may never write the tag and no images will appear.
+
 Image Generation mode does not work for a character inside a group chat. The app shows "Stable diffusion in group chat is not supported".
 
-<!-- src/ts/process/stableDiff.ts:12-61; src/ts/process/index.svelte.ts:2230-2249; src/lib/SideBars/CharConfig.svelte:562-577 -->
+<!-- src/ts/process/stableDiff.ts:12-61; src/ts/process/inlayScreen.ts:81-113; src/ts/process/index.svelte.ts:626-639,2230-2249; src/lib/SideBars/CharConfig.svelte:562-577 -->
 
 ## Group chats
 
