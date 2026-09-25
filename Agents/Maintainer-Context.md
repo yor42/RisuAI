@@ -2131,6 +2131,26 @@ only on `risuai.xyz` origins.
 
 ---
 
+### MC-082 — A duplicate `chaId` that has never been saved: the first holder is written once, then frozen
+
+- **Tag:** decision
+- **Date:** 2026-09-25
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, answering a gap the CHORE-28 investigation found in MC-079. MC-079
+  keeps "the last good save" of a duplicated `chaId`. When both holders were created since the
+  last save, there is no last good save.
+- **Reasoning:** writing nothing would lose both characters if the app closed before the user
+  resolved the duplicate. Writing one keeps at least one of them.
+- **Alternatives rejected:** writing no block for that `chaId` until the duplicate is gone.
+- **Related:** MC-078, MC-079, CHORE-28.
+
+**What was decided:** while two characters share a `chaId` that has no saved block yet, the save
+writes the first holder in list order once, then treats that block like any other duplicate: it
+is not rewritten until the duplicate is gone. The visible warning says only one of the two is
+protected.
+
+---
+
 ## Open questions
 
 The three entries below are questions addressed to the maintainer that were still unresolved as of

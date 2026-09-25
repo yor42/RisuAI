@@ -1291,7 +1291,22 @@ in source; upstream `main` has the same code. Closed by writer stage W2 (`MC-076
 
 ### CHORE-28 — Two characters sharing one `chaId` lose one of them at the next save
 
-**Status (2026-09-24):** found by Gate 1 round 4 of the W0 plan (Report 24; ledger row 170). The
+**Status (2026-09-25): fixed, in the working tree, awaiting commit.** Plan and gate record:
+Report 26 (rev 3; ledger rows 178 to 184).
+- While a `chaId` has two or more holders, its block is kept as last saved.
+- Never-saved duplicates write the first holder once (`MC-082`).
+- A full reload reuses the old block only for a key still duplicated.
+- Saving resumes on its own, and a persistent indicator names the characters.
+- Adjacent fixes folded in:
+  - the grid's delete, permanent delete and restore act on the clicked row;
+  - the local `.bin` restore repairs ids;
+  - cold-storage cleanup refuses while a key is kept.
+- Also fixed as a side effect: at HEAD, a character removed during an earlier character's write
+  made the save loop skip the next one and delete its block.
+- **Residual:** the save loop's calls to the idle check and the indicator are covered by review
+  only.
+
+**Original status (2026-09-24):** found by Gate 1 round 4 of the W0 plan (Report 24; ledger row 170). The
 reviewer ran it, and the Orchestrator re-checked it in `risuSave.ts`. Upstream `main` has the same
 code. **Data loss:** a whole character is lost. **Sequenced by the maintainer (`MC-079`):
 straight after W0**, as its own gated change.
