@@ -1,6 +1,6 @@
 import { exportCharacterCard } from "./characterCards";
 import { VirtualWriter } from "./globalApi.svelte";
-import { getCurrentCharacter, getDatabase, type character } from "./storage/database.svelte";
+import { getCurrentCharacter, type character } from "./storage/database.svelte";
 import { alertStore } from "./alert";
 import { asBuffer } from "./util";
 
@@ -30,10 +30,3 @@ export async function shareRealmCardData():Promise<{ name: ArrayBuffer; data: Ar
     }
 }
 
-export function openRealm(name:string,data:ArrayBuffer) {
-    const tk = getDatabase()?.account?.token;
-    const id = getDatabase()?.account?.id
-    const trimedName = name.replace(/[^a-zA-Z0-9]/g, '') || 'character';
-    const filedata = encodeURIComponent(Buffer.from(data).toString('base64')) + `&${trimedName}.png`;
-    const url = `https://realm.risuai.net/upload?token=${tk}&token_id=${id}#filedata=${filedata}`
-}

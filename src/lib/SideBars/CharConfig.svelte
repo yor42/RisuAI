@@ -4,7 +4,7 @@
     import { getCurrentCharacter, saveImage as saveAsset, type character, type groupChat } from "../../ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
     import { untrack } from 'svelte';
-    import { CharConfigSubMenu, MobileGUI, ShowRealmFrameStore, selectedCharID, hypaV3ModalOpen } from "../../ts/stores.svelte";
+    import { CharConfigSubMenu, MobileGUI, selectedCharID, hypaV3ModalOpen } from "../../ts/stores.svelte";
     import { PlusIcon, SmileIcon, TrashIcon, UserIcon, ActivityIcon, BookIcon, User, Braces, Volume2Icon, DownloadIcon, HardDriveUploadIcon, Share2Icon, ImageIcon, ImageOffIcon, ArrowUp, ArrowDown } from '@lucide/svelte'
     import Check from "../UI/GUI/CheckInput.svelte";
     import { addCharEmotion, addingEmotion, getCharImage, rmCharEmotion, selectCharImg, makeGroupImage, removeChar, changeCharImage } from "../../ts/characters";
@@ -13,7 +13,7 @@
     import BarIcon from "./BarIcon.svelte";
     import { findCharacterbyId, getAuthorNoteDefaultText, selectMultipleFile, selectSingleFile } from "../../ts/util";
     import Help from "../Others/Help.svelte";
-    import { exportChar } from "src/ts/characterCards";
+    import { exportChar, openRealmUpload } from "src/ts/characterCards";
     import { getElevenTTSVoices, getWebSpeechTTSVoices, getVOICEVOXVoices, oaiVoices, getNovelAIVoices } from "src/ts/process/tts";
     import { getFileSrc } from "src/ts/globalApi.svelte";
     import { addGroupChar, rmCharFromGroup } from "src/ts/process/group";
@@ -724,14 +724,10 @@
     }
         <Button size="lg" onclick={async () => {
             if(await alertTOS()){
-                $ShowRealmFrameStore = 'character'
+                await openRealmUpload('character')
             }
         }} className="mt-2">
-            {#if DBState.db.characters[$selectedCharID].realmId}
-                {language.updateRealm}
-            {:else}
-                {language.shareCloud}
-            {/if}
+            {language.shareCloud}
         </Button>
     {/if}
 

@@ -81,7 +81,6 @@ vi.mock(import('src/ts/alert'), () => ({
     alertTOS: vi.fn(async () => true),
     alertToast: vi.fn(),
     alertInput: vi.fn(),
-    alertLogin: vi.fn(),
     alertNormalWait: vi.fn(),
     alertAddCharacter: vi.fn(),
     alertStore: writable({ type: 'none', msg: '' }),
@@ -165,17 +164,12 @@ vi.mock(import('src/ts/characterCards'), () => ({
     hubURL: 'https://example.invalid',
 }) as unknown as typeof import('src/ts/characterCards'))
 
-vi.mock(import('src/ts/drive/accounter'), () => ({
-    loadRisuAccountData: vi.fn(async () => {}),
-}) as unknown as typeof import('src/ts/drive/accounter'))
-
 vi.mock(import('src/ts/storage/dbChangeEffects.svelte'), () => ({
     registerDbChangeEffects: vi.fn(),
 }) as unknown as typeof import('src/ts/storage/dbChangeEffects.svelte'))
 
 vi.mock(import('src/ts/storage/autoStorage'), () => ({
     AutoStorage: class {
-        isAccount = false
         getItem = vi.fn(async (_key: string) => null as unknown)
         setItem = vi.fn(async () => null)
         keys = vi.fn(async () => [] as string[])
@@ -191,11 +185,6 @@ vi.mock(import('src/ts/gui/colorscheme'), () => ({
     updateColorScheme: vi.fn(),
     updateTextThemeAndCSS: vi.fn(),
 }) as unknown as typeof import('src/ts/gui/colorscheme'))
-
-vi.mock(import('src/ts/kei/backup'), () => ({
-    autoServerBackup: vi.fn(async () => {}),
-    saveDbKei: vi.fn(async () => {}),
-}) as unknown as typeof import('src/ts/kei/backup'))
 
 vi.mock(import('src/ts/observer.svelte'), () => ({
     startObserveDom: vi.fn(),
@@ -216,10 +205,6 @@ vi.mock(import('src/ts/hotkey'), () => ({
 vi.mock(import('src/ts/process/modules'), () => ({
     moduleUpdate: vi.fn(async () => {}),
 }) as unknown as typeof import('src/ts/process/modules'))
-
-vi.mock(import('src/ts/storage/accountStorage'), () => ({
-    AccountSyncConflictError: class extends Error {},
-}) as unknown as typeof import('src/ts/storage/accountStorage'))
 
 vi.mock(import('src/ts/process/coldstorage.svelte'), () => ({
     getColdStorageItem: vi.fn(),

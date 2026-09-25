@@ -1,5 +1,4 @@
 import { BaseDirectory, readFile, readDir, writeFile } from "@tauri-apps/plugin-fs";
-import localforage from "localforage";
 import { alertError, alertNormal, alertStore, alertWait, alertMd, alertConfirm } from "../alert";
 import { LocalWriter, forageStorage, requiresFullEncoderReload } from "../globalApi.svelte";
 import { isTauri } from "src/ts/platform"
@@ -10,7 +9,6 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { sleep } from "../util";
 import { language } from "src/lang";
 import { collectColdStorageBackupPayloads, confirmIncompleteColdStorageOperation, getColdStorageBackupKey, getColdStorageItem, isColdStorageBackupData, listColdDataKeys, setColdStorageItem } from "../process/coldstorage.svelte";
-import { DBState } from "../stores.svelte";
 import { BACKUP_ENCRYPTION_MARKER_NAME, decodeEntryName, findEncryptionMarkerEntry, parseBackupEntryHeader, type BackupEntryHeader } from "./backupContainer";
 
 function getBasename(data:string){
@@ -123,31 +121,12 @@ export async function SaveLocalBackup(){
             if(!key || !key.endsWith('.png')){
                 continue
             }
-            let data: Uint8Array | undefined;
-            let isCached = false;
-            if(forageStorage.isAccount && key.startsWith('assets/')){
-                if(DBState.db.skipSavingAssetsOnWebSync){
-                    continue
-                }
-
-                const cached = await localforage.getItem(key) as ArrayBuffer;
-                if(cached) {
-                    isCached = true;
-                    data = new Uint8Array(cached);
-                }
-            }
-            
-            if (!data) {
-                data = await forageStorage.getItem(key) as unknown as Uint8Array
-            }
+            const data = await forageStorage.getItem(key) as unknown as Uint8Array
 
             if (data) {
                 await writer.writeBackup(key, data)
             } else {
                 missingAssets.push(key)
-            }
-            if(forageStorage.isAccount && !isCached){
-                await sleep(1000)
             }
         }
     }
@@ -338,28 +317,13 @@ export async function SavePartialLocalBackup(){
             if(!key || !key.endsWith('.png')){
                 continue
             }
-            
-            let data: Uint8Array | undefined;
-            let isCached = false;
-            if(forageStorage.isAccount && key.startsWith('assets/')){
-                const cached = await localforage.getItem(key) as ArrayBuffer;
-                if(cached) {
-                    isCached = true;
-                    data = new Uint8Array(cached);
-                }
-            }
-            
-            if (!data) {
-                data = await forageStorage.getItem(key) as unknown as Uint8Array
-            }
+
+            const data = await forageStorage.getItem(key) as unknown as Uint8Array
 
             if (data) {
                 await writer.writeBackup(key, data)
             } else {
                 missingAssets.push(key)
-            }
-            if(forageStorage.isAccount && !isCached){
-                await sleep(100)
             }
         }
     }
@@ -547,9 +511,6 @@ export function LoadLocalBackup(){
                         }
                     }
                     await sleep(10);
-                    if (forageStorage.isAccount) {
-                        await sleep(1000);
-                    }
                 }
                 remainingBuffer = remainingBuffer.slice(scanOffset);
             }

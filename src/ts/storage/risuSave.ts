@@ -32,8 +32,7 @@ const disableRemoteSaving = () => {
 }
 // CHORE-17 Stage B (plan Report 18 §3): remote file names this page load has
 // written successfully or confirmed to exist. `encodeRemoteBlock` skips a
-// rewrite whenever a name is already in here (except on account storage,
-// which neither reads nor records it). Module-level (not per-encoder), so
+// rewrite whenever a name is already in here. Module-level (not per-encoder), so
 // this also applies after `reinitEncoder()` reloads. Upstream commit
 // f484ed72 makes a full reload pass `skipRemoteSavingOnCharacters: false`,
 // which on its own rewrites every character's remote file unconditionally;
@@ -795,78 +794,42 @@ export class RisuSaveEncoder {
             }
         };
 
-        if(forageStorage.isAccount){
-            // CHORE-17 Stage B, fact 9 (plan §3): `AccountStorage.setItem` can
-            // resolve without persisting (a 403 with `x-risu-status: warn`),
-            // so a resolved write here can't be trusted the way a resolved
-            // local-cache `setItem` can. `forageStorage.isAccount` can also
-            // flip to true mid-page (`autoStorage.ts`'s "save current data to
-            // account" path), so a name recorded while writing to local or
-            // Node storage must not suppress a later upload to the account.
-            // This branch neither reads nor records `checkedRemoteExistence`
-            // for either reason -- no write is skipped beyond the boot
-            // existence check just below, which still skips a write when it
-            // finds the file already there. On Tauri, account storage still
-            // writes remote files locally through `writeFile`, not through
-            // `AccountStorage`, so the 403-warn concern doesn't apply there
-            // and this bypass is merely conservative.
-            if(arg.skipRemoteSaving){
-                let fileExists = false;
-                if(isTauri){
-                    fileExists = await exists(fileName, { baseDir: BaseDirectory.AppData });
-                }
-                else{
-                    const stored = await forageStorage.keys();
-                    if(stored.includes(fileName)){
-                        fileExists = true;
-                    }
-                }
-                if(!fileExists){
-                    arg.skipRemoteSaving = false;
-                }
-            }
-            if(!arg.skipRemoteSaving){
-                await writeRemoteFile();
-            }
+        // CHORE-17 Stage B (plan §3): `checkedRemoteExistence` holds
+        // "this page load wrote or confirmed this exact file exists", so
+        // a hit skips the write outright, whether or not the caller
+        // passed `skipRemoteSaving`. Safe because the name contains a
+        // 64-bit SHA-256 prefix of the content (hashRemoteBlockContent
+        // above) -- a collision is negligible, but on a hit the existing
+        // file is kept rather than overwritten -- and nothing in this
+        // build deletes a hash-named file within a page load (plan fact 7).
+        let shouldWrite = true;
+        if(checkedRemoteExistence.has(fileName)){
+            shouldWrite = false;
         }
-        else{
-            // CHORE-17 Stage B (plan §3): `checkedRemoteExistence` holds
-            // "this page load wrote or confirmed this exact file exists", so
-            // a hit skips the write outright, whether or not the caller
-            // passed `skipRemoteSaving`. Safe because the name contains a
-            // 64-bit SHA-256 prefix of the content (hashRemoteBlockContent
-            // above) -- a collision is negligible, but on a hit the existing
-            // file is kept rather than overwritten -- and nothing in this
-            // build deletes a hash-named file within a page load (plan fact 7).
-            let shouldWrite = true;
-            if(checkedRemoteExistence.has(fileName)){
+        else if(arg.skipRemoteSaving){
+            let fileExists = false;
+            if(isTauri){
+                fileExists = await exists(fileName, { baseDir: BaseDirectory.AppData });
+            }
+            else{
+                const stored = await forageStorage.keys();
+                if(stored.includes(fileName)){
+                    fileExists = true;
+                }
+            }
+            if(fileExists){
+                // Recorded only once the existence check has confirmed
+                // the file; a name is never recorded before a write
+                // whose outcome is unknown.
+                checkedRemoteExistence.add(fileName);
                 shouldWrite = false;
             }
-            else if(arg.skipRemoteSaving){
-                let fileExists = false;
-                if(isTauri){
-                    fileExists = await exists(fileName, { baseDir: BaseDirectory.AppData });
-                }
-                else{
-                    const stored = await forageStorage.keys();
-                    if(stored.includes(fileName)){
-                        fileExists = true;
-                    }
-                }
-                if(fileExists){
-                    // Recorded only once the existence check has confirmed
-                    // the file; a name is never recorded before a write
-                    // whose outcome is unknown.
-                    checkedRemoteExistence.add(fileName);
-                    shouldWrite = false;
-                }
-            }
-            if(shouldWrite){
-                await writeRemoteFile();
-                // Recorded only after the write has resolved, so a throwing
-                // write leaves the name out and the next save retries it.
-                checkedRemoteExistence.add(fileName);
-            }
+        }
+        if(shouldWrite){
+            await writeRemoteFile();
+            // Recorded only after the write has resolved, so a throwing
+            // write leaves the name out and the next save retries it.
+            checkedRemoteExistence.add(fileName);
         }
 
         return await this.encodeBlock({

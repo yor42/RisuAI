@@ -104,7 +104,6 @@ vi.mock(import('src/ts/pngChunk'), () => ({
 
 vi.mock(import('src/ts/process/processzip'), () => ({
     CharXImporter: class {},
-    CharXSkippableChecker: class {},
     CharXWriter: class {},
 }) as unknown as typeof import('src/ts/process/processzip'))
 
@@ -120,10 +119,6 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
 vi.mock('@tauri-apps/plugin-deep-link', () => ({
     onOpenUrl: vi.fn(async () => vi.fn()),
 }))
-
-vi.mock(import('src/ts/storage/accountStorage'), () => ({
-    AccountStorage: class {},
-}) as unknown as typeof import('src/ts/storage/accountStorage'))
 
 //#endregion
 

@@ -10,18 +10,12 @@ import { hubURL } from "../characterCards";
 import { decodeRisuSave, encodeRisuSaveLegacy } from "../storage/risuSave";
 import { collectColdStorageBackupPayloads, confirmIncompleteColdStorageOperation, getColdStorageBackupName, isColdStorageBackupData, listColdDataKeys, setColdStorageItem } from "../process/coldstorage.svelte";
 
-export async function checkDriver(type:'save'|'load'|'loadtauri'|'savetauri'|'reftoken'){
+export async function checkDriver(type:'save'|'load'|'loadtauri'|'savetauri'){
     const CLIENT_ID = '580075990041-l26k2d3c0nemmqiu3d3aag01npfrkn76.apps.googleusercontent.com';
-    const REDIRECT_URI = type === 'reftoken' ? 'https://sv.risuai.xyz/drive' : "https://risuai.xyz/"
+    const REDIRECT_URI = "https://risuai.xyz/"
     const SCOPE = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.appdata';
     const encodedRedirectUri = encodeURIComponent(REDIRECT_URI);
     const authorizationUrl = `https://accounts.google.com/o/oauth2/auth?client_id=${CLIENT_ID}&redirect_uri=${encodedRedirectUri}&scope=${SCOPE}&response_type=code&state=${type}`;
-    
-
-    if(type === 'reftoken'){
-        const authorizationUrl = `https://accounts.google.com/o/oauth2/auth?client_id=${CLIENT_ID}&redirect_uri=${encodedRedirectUri}&scope=${SCOPE}&response_type=code&state=${"accesstauri"}&access_type=offline&prompt=consent`;
-        return authorizationUrl
-    }
 
     if(type === 'save' || type === 'load'){
         location.href = (authorizationUrl);
@@ -76,12 +70,6 @@ export async function checkDriverInit() {
                     alertStore.set({
                         type: 'wait2',
                         msg: `Copy and paste this Auth Code: ${json.access_token}`
-                    })
-                }
-                else if(da === 'accesstauri'){
-                    alertStore.set({
-                        type: 'wait2',
-                        msg: JSON.stringify(json)
                     })
                 }
             }
@@ -212,12 +200,8 @@ async function loadDrive(ACCESS_TOKEN:string, mode: 'backup'|'sync'):Promise<voi
     const files:DriveFile[] = await getFilesInFolder(ACCESS_TOKEN)
     let foragekeys:string[] = []
     let loadedForageKeys = false
-    let db = getDatabase()
 
     async function checkImageExists(images:string) {
-        if(db?.account?.useSync){
-            return false
-        }
         if(isTauri){
             return await exists(`assets/` + images, {baseDir: BaseDirectory.AppData})
         }

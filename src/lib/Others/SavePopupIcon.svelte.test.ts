@@ -9,9 +9,9 @@
  * Mount pattern follows `GridCatalog.duplicateChaId.svelte.test.ts` (same
  * directory).
  *
- * MOCKED: `src/ts/globalApi.svelte` (`saving` alone), `src/ts/storage/accountStorage`
- * (`AccountWarning` alone) and a reactive `stores.svelte` stand-in. `src/lang`
- * is real (a plain data module, no side effects).
+ * MOCKED: `src/ts/globalApi.svelte` (`saving` alone) and a reactive
+ * `stores.svelte` stand-in. `src/lang` is real (a plain data module, no side
+ * effects).
  */
 import { flushSync, mount, unmount } from 'svelte'
 import { writable } from 'svelte/store'
@@ -25,14 +25,6 @@ vi.mock(import('src/ts/globalApi.svelte'), () => {
     const saving = $state({ state: false })
     return { saving } as unknown as typeof import('src/ts/globalApi.svelte')
 })
-
-vi.mock(
-    import('src/ts/storage/accountStorage'),
-    () =>
-        ({
-            AccountWarning: writable(''),
-        }) as unknown as typeof import('src/ts/storage/accountStorage'),
-)
 
 vi.mock(import('../../ts/stores.svelte'), () => {
     const state = $state({ db: {} as unknown as Database })
@@ -61,7 +53,6 @@ vi.mock(
 
 import { DBState, savingStoppedReason as savingStoppedReasonStore, frozenSaveKeysStore as frozenSaveKeysStoreMock } from '../../ts/stores.svelte'
 import { saving } from 'src/ts/globalApi.svelte'
-import { AccountWarning as accountWarningStore } from '../../ts/storage/accountStorage'
 import { language } from '../../lang'
 import SavePopupIcon from './SavePopupIcon.svelte'
 
@@ -79,7 +70,6 @@ async function teardown(target: HTMLElement, app: Record<string, unknown>): Prom
 
 beforeEach(() => {
     saving.state = false
-    accountWarningStore.set('')
     savingStoppedReasonStore.set('')
     frozenSaveKeysStoreMock.set([])
     DBState.db = {} as unknown as Database

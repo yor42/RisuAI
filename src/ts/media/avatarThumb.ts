@@ -1,5 +1,5 @@
 import localforage from 'localforage'
-import { readImage, forageStorage } from '../globalApi.svelte'
+import { readImage } from '../globalApi.svelte'
 import { getImageType } from './imageType'
 import { DBState } from '../stores.svelte'
 import type { Database, folder } from '../storage/database.svelte'
@@ -343,11 +343,10 @@ export async function getAvatarThumbSrc(loc: string): Promise<string | null> {
     return promise
 }
 
-/** Account-synced avatars keep today's hub URL; only local `assets/` locs
- *  are eligible. Stricter than strictly needed on Tauri-with-account, but
- *  never more aggressive than the existing full-size path. */
+/** Only local `assets/` locs are eligible, never more aggressive than the
+ *  existing full-size path. */
 export function isThumbEligible(loc: string): boolean {
-    return loc.startsWith('assets/') && !forageStorage.isAccount
+    return loc.startsWith('assets/')
 }
 
 // ---------------------------------------------------------------------------

@@ -28,6 +28,10 @@ export let appSubVer = ''
 export type StreamingDisplayOptimizationMode = 'off'|'balanced'|'strong'
 
 export function setDatabase(data:Database){
+    // Drop any upstream RisuAccount token before it ever reaches `DBState.db`
+    // (MC-080): no later save, backup, export or plugin read may carry it
+    // forward once a database has passed through here.
+    Reflect.deleteProperty(data, 'account')
     if(checkNullish(data.characters)){
         data.characters = []
     }
@@ -444,7 +448,6 @@ export function setDatabase(data:Database){
         customChainOfThought: false,
         maxThoughtTagDepth: -1
     }
-    data.keiServerURL ??= ''
     data.top_k ??= 0
     data.promptSettings.maxThoughtTagDepth ??= -1
     data.openrouterFallback ??= true
@@ -709,7 +712,6 @@ export function setDatabase(data:Database){
     data.longPressToPopupEditor ??= false
     data.customSidebarItems ??= []
     data.moveInsteadOfCopyOnCMPConvert ??= false
-    data.skipSavingAssetsOnWebSync ??= true
     data.coldstorage ??= data?.plugins?.length === 0
     for(const char of data.characters){
         for(const chat of char.chats ?? []){
@@ -919,17 +921,6 @@ export interface Database{
     novellistAPI:string,
     useAutoTranslateInput:boolean
     imageCompression:boolean
-    account?:{
-        token:string
-        id:string,
-        data: {
-            refresh_token?:string,
-            access_token?:string
-            expires_in?: number
-        }
-        useSync?:boolean
-        kei?:boolean
-    },
     classicMaxWidth: boolean,
     useChatSticker:boolean,
     useAdditionalAssetsPreview:boolean,
@@ -1006,7 +997,6 @@ export interface Database{
     chainOfThought?:boolean
     genTime:number
     promptSettings: PromptSettings
-    keiServerURL:string
     top_k:number
     repetition_penalty:number
     min_p:number
@@ -1119,7 +1109,6 @@ export interface Database{
     }
     translateBeforeHTMLFormatting:boolean
     autoTranslateCachedOnly:boolean
-    lightningRealmImport:boolean
     notification: boolean
     customFlags: LLMFlags[]
     enableCustomFlags: boolean
@@ -1274,7 +1263,6 @@ export interface Database{
     customSidebarItems: CustomSideBarItem[]
     lastLoadedLoadoutName: string
     moveInsteadOfCopyOnCMPConvert?:boolean
-    skipSavingAssetsOnWebSync?:boolean
 }
 
 export interface CustomSideBarItem{

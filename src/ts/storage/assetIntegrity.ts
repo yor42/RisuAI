@@ -33,9 +33,10 @@ const CONTENT_HASH_BASENAME = /^[0-9a-f]{64}$/i
  * (Agents/Roadmap.md Phase 1 item 6), without the cost of also fetching a
  * comparison copy from local storage.
  *
- * Read-only: reports a mismatch, does not attempt to repair one. Intended
- * for a small sampled boot-time check (see bootstrap.ts's cleanChunks()) and
- * for a future explicit "verify assets" UI action (Phase 1 item 7).
+ * Read-only: reports a mismatch, does not attempt to repair one. Used both
+ * by a small sampled boot-time check (see bootstrap.ts's cleanChunks()) and
+ * by the explicit "verify assets" UI action (storageMaintenance.ts's
+ * verifyAssetIntegrity()).
  */
 export async function verifyAssetCacheEntry(loc: string): Promise<AssetVerifyResult> {
     if (typeof caches === 'undefined') {

@@ -1,10 +1,10 @@
 // @vitest-environment happy-dom
 
 /**
- * MC-078. Every backup load -- the internal backup, the account backup, the
- * Kei restore, and `LoadLocalBackup` (`src/ts/drive/backuplocal.ts`) -- repairs
- * a missing or duplicate `chaId`/chat id before installing the decoded
- * database (`repairDatabaseIds`, `src/ts/process/chatIds.ts`).
+ * MC-078. Every backup load -- the internal backup and `LoadLocalBackup`
+ * (`src/ts/drive/backuplocal.ts`) -- repairs a missing or duplicate
+ * `chaId`/chat id before installing the decoded database
+ * (`repairDatabaseIds`, `src/ts/process/chatIds.ts`).
  * `LoadLocalBackup` is the one route this file pins directly: its own page
  * reload runs after `setDatabase` installs the decoded object, and the save
  * loop can run once in that window before boot's own repair (on the next
@@ -72,7 +72,6 @@ const forageSetItemMock = vi.hoisted(() => vi.fn(async () => {}))
 vi.mock(import('../../globalApi.svelte'), () => ({
     LocalWriter: class {},
     forageStorage: {
-        isAccount: false,
         keys: vi.fn(async () => []),
         getItem: vi.fn(async () => null),
         setItem: forageSetItemMock,

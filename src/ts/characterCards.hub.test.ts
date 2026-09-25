@@ -11,7 +11,7 @@
  *
  * `characterCards.ts` pulls in a large transitive dependency graph (the
  * database module, `globalApi.svelte`, Tauri's filesystem and deep-link
- * plugins, the zip/module importers, account storage, and more) that has
+ * plugins, the zip/module importers, and more) that has
  * nothing to do with `getRisuHub` itself. Every one of those direct imports
  * is mocked below so this file loads the REAL `characterCards.ts` and
  * exercises the REAL `getRisuHub` against a mocked `fetch`, without any of
@@ -109,7 +109,6 @@ vi.mock(import('src/ts/pngChunk'), () => ({
 
 vi.mock(import('src/ts/process/processzip'), () => ({
     CharXImporter: class {},
-    CharXSkippableChecker: class {},
     CharXWriter: class {},
 }) as unknown as typeof import('src/ts/process/processzip'))
 
@@ -125,10 +124,6 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
 vi.mock('@tauri-apps/plugin-deep-link', () => ({
     onOpenUrl: vi.fn(async () => vi.fn()),
 }))
-
-vi.mock(import('src/ts/storage/accountStorage'), () => ({
-    AccountStorage: class {},
-}) as unknown as typeof import('src/ts/storage/accountStorage'))
 
 //#endregion
 

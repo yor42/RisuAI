@@ -7,9 +7,10 @@ import { alertStore as alertStoreImported } from "./stores.svelte"
 
 export interface alertData{
     type: 'error'|'normal'|'none'|'ask'|'wait'|'selectChar'
-            |'input'|'toast'|'wait2'|'markdown'|'select'|'login'
+            |'input'|'toast'|'wait2'|'markdown'|'select'
             |'tos'|'cardexport'|'requestdata'|'addchar'|'hypaV2'|'selectModule'
-            |'chatOptions'|'pukmakkurit'|'branches'|'progress'|'pluginconfirm'|'requestlogs',
+            |'chatOptions'|'pukmakkurit'|'branches'|'progress'|'pluginconfirm'|'requestlogs'
+            |'staleAccountNotice',
     msg: string,
     submsg?: string
     datalist?: [string, string][],
@@ -117,14 +118,55 @@ export async function alertChatOptions() {
     return parseInt(get(alertStoreImported).msg)
 }
 
-export async function alertLogin(){
-    alertStoreImported.set({
-        'type': 'login',
-        'msg': 'login'
-    })
-    await waitAlert()
+/**
+ * The `msg` written by the stale-account notice's own OK button
+ * (`AlertComp.svelte`) once the user acknowledges it -- the only value that
+ * resolves `alertStaleAccountNotice()`'s wait.
+ */
+export const STALE_ACCOUNT_NOTICE_ACK = 'stale-account-notice-acknowledged'
 
-    return get(alertStoreImported).msg
+/**
+ * Posts the stale-RisuAccount-profile notice (I6) and keeps it in front of
+ * any other alert until the user's own OK acknowledges it: whatever the
+ * store holds while waiting -- an unrelated alert, Escape's toast, a generic
+ * 'yes', or anything else -- re-posts the notice instead of resolving. Once
+ * the ack is seen, `settled` makes every later store write a no-op for this
+ * subscription, including one delivered synchronously inside the same
+ * `subscribe()` call that observes the ack as the store's already-current
+ * value: nothing after the ack can re-post the notice or resolve twice.
+ */
+export function alertStaleAccountNotice(): Promise<void> {
+    return new Promise<void>((resolve) => {
+        const post = () => alertStoreImported.set({
+            'type': 'staleAccountNotice',
+            'msg': language.staleAccountProfileNotice
+        })
+        let settled = false
+        let unsubscribe: () => void
+        unsubscribe = alertStoreImported.subscribe((v) => {
+            if (settled) {
+                return
+            }
+            if (v.type === 'none' && v.msg === STALE_ACCOUNT_NOTICE_ACK) {
+                settled = true
+                resolve()
+                // `subscribe()` calls this callback synchronously with the
+                // store's current value before assigning its own return
+                // value to `unsubscribe`, so on that first call this is a
+                // no-op; the check below `subscribe()` covers it instead.
+                unsubscribe?.()
+            } else if (v.type !== 'staleAccountNotice') {
+                post()
+            }
+        })
+        // Covers the case the comment above describes: if the store already
+        // held the ack when this subscription was created, `settled` is
+        // already true here even though the in-callback `unsubscribe?.()`
+        // had nothing to call yet.
+        if (settled) {
+            unsubscribe()
+        }
+    })
 }
 
 export async function alertSelect(msg:string[], display?:string){

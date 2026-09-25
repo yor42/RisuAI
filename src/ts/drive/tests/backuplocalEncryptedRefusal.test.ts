@@ -80,7 +80,6 @@ const forageSetItemMock = vi.hoisted(() => vi.fn(async (_key: string, _data: Uin
 vi.mock(import('../../globalApi.svelte'), () => ({
     LocalWriter: class {},
     forageStorage: {
-        isAccount: false,
         keys: vi.fn(async () => []),
         getItem: vi.fn(async () => null),
         setItem: forageSetItemMock,
@@ -97,7 +96,6 @@ const alertMocks = vi.hoisted(() => ({
     alertNormalWait: vi.fn(async () => {}),
     alertAddCharacter: vi.fn(async () => ''),
     alertChatOptions: vi.fn(async () => 0),
-    alertLogin: vi.fn(async () => ''),
     alertSelect: vi.fn(async () => ''),
     alertErrorWait: vi.fn(async () => {}),
     alertMd: vi.fn(),

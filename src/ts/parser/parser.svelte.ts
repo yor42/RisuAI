@@ -432,7 +432,7 @@ function getEmoSrc(emoArr: string[][], emoPaths: AssetPaths) {
 // result ever requested by chat rendering was kept here forever. On plain
 // HTTP, getFileSrc now has its own budgeted cache (globalApi.svelte.ts), so
 // getFileSrcCached skips this Map entirely for that branch (see below) and
-// only Tauri/account/service-worker results (short URLs, not full `data:`
+// only Tauri/service-worker results (short URLs, not full `data:`
 // strings) still accumulate here.
 const fileSrcCache = new Map<string, string>()
 

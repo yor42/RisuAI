@@ -6,7 +6,7 @@
     import { CopyIcon, Share2Icon, PencilIcon, HardDriveUploadIcon, PlusIcon, TrashIcon, XIcon, GitCompare } from "@lucide/svelte";
     import TextInput from "../UI/GUI/TextInput.svelte";
     import { prebuiltPresets } from "src/ts/process/templates/templates";
-    import { ShowRealmFrameStore } from "src/ts/stores.svelte";
+    import { openRealmUpload } from "src/ts/characterCards";
     import PromptDiffModal from "../Others/PromptDiffModal.svelte";
     import { RISU_PRESET_DRAG_TYPE } from "src/ts/dragTypes";
 
@@ -231,7 +231,7 @@
                             downloadPreset(i, 'risupreset')
                         }
                         if(data.type === 'realm'){
-                            $ShowRealmFrameStore = `preset:${i}`
+                            await openRealmUpload(`preset:${i}`)
                         }
                     }} onkeydown={(e) => {
                         if(e.key === 'Enter' && e.currentTarget instanceof HTMLElement){

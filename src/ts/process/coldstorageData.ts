@@ -1,5 +1,4 @@
 import { language } from "../../lang"
-import { safeStructuredClone } from "../polyfill"
 import type { Database, character, groupChat, Chat } from "../storage/database.svelte"
 import type { SerializableHypaV2Data } from "./memory/hypav2"
 import type { SerializableHypaV3Data } from "./memory/hypav3"
@@ -249,45 +248,6 @@ export function isColdStorageBackupData(data: unknown): boolean {
     return !!data
         && typeof data === 'object'
         && ('character' in data || 'message' in data)
-}
-
-function replaceData(data: string | undefined, replacer: { [key: string]: string }) {
-    if (!data) {
-        return data
-    }
-    return replacer[data] ?? data
-}
-
-function replaceCharacterResources(cha: character | groupChat, replacer: { [key: string]: string }) {
-    cha.image = replaceData(cha.image, replacer)
-
-    if (cha.emotionImages) {
-        for (let i = 0; i < cha.emotionImages.length; i++) {
-            cha.emotionImages[i][1] = replaceData(cha.emotionImages[i][1], replacer)
-        }
-    }
-
-    if (cha.type !== 'group' && cha.additionalAssets) {
-        for (let i = 0; i < cha.additionalAssets.length; i++) {
-            cha.additionalAssets[i][1] = replaceData(cha.additionalAssets[i][1], replacer)
-        }
-    }
-}
-
-export function replaceColdStoragePayloadResources(data: unknown, replacer: { [key: string]: string }): unknown {
-    if (
-        !data
-        || typeof data !== 'object'
-        || !('character' in data)
-        || !data.character
-        || typeof data.character !== 'object'
-    ) {
-        return data
-    }
-
-    const cloned = safeStructuredClone(data) as { character: character | groupChat }
-    replaceCharacterResources(cloned.character, replacer)
-    return cloned
 }
 
 function listColdDataKeysFromCharacter(character: character | groupChat): string[] {

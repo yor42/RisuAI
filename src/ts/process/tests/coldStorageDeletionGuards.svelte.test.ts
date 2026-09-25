@@ -13,8 +13,7 @@
  * are archived. "CHAR" means
  * the test passes both before and after the fix that turned the RED tests
  * GREEN -- a regression pin, not itself evidence that the fix changed
- * anything. a10b is also CHAR, though its own history is against a
- * different, unshipped baseline; see its own comment.
+ * anything.
  *
  * STATUS: the stage 7a step 3 fix has landed
  * (`resolveUncleanableChars`/`buildAssetKeepSet` in globalApi.svelte.ts,
@@ -37,13 +36,8 @@
  * labels are kept as that historical record, not a claim about today's
  * exit code.
  *
- * a10b is CHAR, not RED: it passes on HEAD. The same ledger row also
- * records its one failing run, against an unshipped round-1 draft of the
- * fix (ledger row 29, REJECTed) that wrapped the account-branch read in a
- * try/catch it shouldn't have: exit 1, 1 failed / 14 passed / 1 skipped --
- * `promise resolved "[ 'main-image.png' ]" instead of rejecting`. See its
- * own comment for detail. a12/a13/a14 are new CHAR coverage for the fix,
- * added by the same post-gate review.
+ * a12/a13 are new CHAR coverage for the fix, added by the same post-gate
+ * review.
  *
  * This file drives the REAL seams, not a replica:
  *   - `buildAssetKeepSet(db)` and `getUncleanables(db)`, `getBasename` from
@@ -56,28 +50,22 @@
  *     `src/ts/process/coldstorage.svelte.ts` (real, unmocked).
  * Every other module reachable from those three is mocked below. Only the
  * STORAGE BACKEND underneath `getColdStorageItem` is faked (Tauri
- * `@tauri-apps/plugin-fs`, an OPFS `navigator.storage` stand-in, and a
- * controllable `fetchProtectedResource` mock for the account branch) --
+ * `@tauri-apps/plugin-fs` and an OPFS `navigator.storage` stand-in) --
  * `getColdStorageItem` itself is never mocked directly, so a read failure
- * has to go through its own real try/catch-swallows-errors path (or, for
- * the account branch, its real absence of one), exactly as it does in
- * production.
+ * has to go through its own real try/catch-swallows-errors path, exactly as
+ * it does in production.
  *
  * Mock sets are reused, one-for-one, from the two harnesses this plan
  * cites: `Agents/Tools/save-gen/asset-gc-cold-read-repro.svelte.harness.ts`
- * (the asset-sweep group, a1/a3/a4/a5/a10/a10b) and
+ * (the asset-sweep group, a1/a3/a4/a5/a10) and
  * `Agents/Tools/save-gen/cold-storage-orphan-repro.svelte.harness.ts` (the
- * cold-storage-cleanup group, a7/a8/a9/a11/a11b/a12/a13/a14). Per
+ * cold-storage-cleanup group, a7/a8/a9/a11/a11b/a12/a13). Per
  * Agents/Tools/README.md's "keep every rune-touching mock in ONE file",
- * both harnesses' mocks live together here. `fetchProtectedResourceMock` is
- * new (post-gate review item 1/4): a10b and a14 flip `forageStorage.isAccount`
- * to `true` for one test each and arm a single rejection with
- * `.mockRejectedValueOnce`, then reset `isAccount` back to `false` in a
- * `finally` so no other test observes it.
+ * both harnesses' mocks live together here.
  *
  * PLATFORM TOGGLE: unlike either harness (each fixes `isTauri` for its
- * whole file), this file needs BOTH the Tauri backend (a1/a3/a4/a5/a10/a10b)
- * and the OPFS backend (a7/a8/a9/a11/a11b/a12/a13/a14) in the same run.
+ * whole file), this file needs BOTH the Tauri backend (a1/a3/a4/a5/a10)
+ * and the OPFS backend (a7/a8/a9/a11/a11b/a12/a13) in the same run.
  * `src/ts/platform` is mocked with a GETTER backed by a `vi.hoisted` mutable
  * flag (`platformState.isTauri`), so `getColdStorageItem`'s live `isTauri`
  * read (it re-reads the imported binding on every call, it does not cache
@@ -87,9 +75,7 @@
  * top-level, then reads it inside a function body, does see a
  * `platformState.isTauri` mutation made after that import -- both tests
  * passed. The scratch file was deleted; this comment is the record of
- * that check. a10b/a14 test the ACCOUNT branch instead, which is checked
- * before the isTauri/isNodeServer/OPFS branches in `getColdStorageItem`, so
- * `platformState.isTauri`'s value is irrelevant for those two.
+ * that check.
  *
  * a2's cold read still goes through the Tauri backend (platformState.isTauri
  * stays true) even though it exercises the WEB deletion path
@@ -111,14 +97,6 @@ import type { Database } from '../../storage/database.svelte'
 // merged. See file header for why each group is mocked vs. left real.
 
 const platformState = vi.hoisted(() => ({ isTauri: true }))
-
-// A controllable stand-in for fetchProtectedResource, used by a10b/a14 to
-// simulate the account branch's fetchProtectedResource/decompress/JSON.parse
-// throwing (the account branch of `getColdStorageItem` has no try/catch
-// around any of those). Defaults to a 404 (matching both harnesses'
-// default), and tests that need a throw use `.mockRejectedValueOnce(...)`,
-// which self-consumes after one call and falls back to this default again.
-const fetchProtectedResourceMock = vi.hoisted(() => vi.fn(async () => ({ status: 404 }) as unknown as Response))
 
 vi.mock('localforage', () => ({
     default: {
@@ -194,18 +172,10 @@ vi.mock(import('src/ts/alert'), () => ({
     alertTOS: vi.fn(async () => true),
     alertToast: vi.fn(),
     alertInput: vi.fn(),
-    alertLogin: vi.fn(),
     alertNormalWait: vi.fn(),
     alertAddCharacter: vi.fn(),
     alertStore: writable({ type: 'none', msg: '' }),
     waitAlert: vi.fn(async () => {}),
-}))
-
-// Reachable whenever forageStorage.isAccount is true (a10b/a14 flip it on
-// for one test each; every other test leaves it at AutoStorage's mocked
-// default of false, so this mock is otherwise never called).
-vi.mock(import('src/ts/sionyw'), () => ({
-    fetchProtectedResource: fetchProtectedResourceMock,
 }))
 
 vi.mock(import('src/ts/util'), () => ({
@@ -265,17 +235,12 @@ vi.mock(import('src/ts/characterCards'), () => ({
     importCharacter: vi.fn(),
 }) as unknown as typeof import('src/ts/characterCards'))
 
-vi.mock(import('src/ts/drive/accounter'), () => ({
-    loadRisuAccountData: vi.fn(async () => {}),
-}) as unknown as typeof import('src/ts/drive/accounter'))
-
 vi.mock(import('src/ts/storage/dbChangeEffects.svelte'), () => ({
     registerDbChangeEffects: vi.fn(),
 }) as unknown as typeof import('src/ts/storage/dbChangeEffects.svelte'))
 
 vi.mock(import('src/ts/storage/autoStorage'), () => ({
     AutoStorage: class {
-        isAccount = false
         realStorage: unknown = undefined
     },
 }) as unknown as typeof import('src/ts/storage/autoStorage'))
@@ -288,11 +253,6 @@ vi.mock(import('src/ts/gui/colorscheme'), () => ({
     updateColorScheme: vi.fn(),
     updateTextThemeAndCSS: vi.fn(),
 }) as unknown as typeof import('src/ts/gui/colorscheme'))
-
-vi.mock(import('src/ts/kei/backup'), () => ({
-    autoServerBackup: vi.fn(async () => {}),
-    saveDbKei: vi.fn(async () => {}),
-}) as unknown as typeof import('src/ts/kei/backup'))
 
 vi.mock('@tauri-apps/plugin-dialog', () => ({
     save: vi.fn(async () => null),
@@ -325,10 +285,6 @@ vi.mock('@tauri-apps/plugin-http', () => ({
 vi.mock(import('src/ts/process/modules'), () => ({
     moduleUpdate: vi.fn(async () => {}),
 }) as unknown as typeof import('src/ts/process/modules'))
-
-vi.mock(import('src/ts/storage/accountStorage'), () => ({
-    AccountSyncConflictError: class extends Error {},
-}) as unknown as typeof import('src/ts/storage/accountStorage'))
 
 //#endregion
 
@@ -503,7 +459,7 @@ function resetOpfs(): void {
 
 //#endregion
 
-import { getUncleanables, buildAssetKeepSet, getBasename, forageStorage } from '../../globalApi.svelte'
+import { getUncleanables, buildAssetKeepSet, getBasename } from '../../globalApi.svelte'
 import {
     getColdStorageItem,
     setColdStorageItem,
@@ -516,7 +472,6 @@ import {
     classifyTauriColdRead,
     classifyOpfsColdRead,
     classifyNodeColdRead,
-    classifyAccountColdRead,
     decodeColdStorageBytes,
     retryLegacyColdChatLoad,
     makeColdDataForChat,
@@ -530,7 +485,6 @@ import { readDir, remove, BaseDirectory, readFile as tauriReadFile, exists as ta
 import { DBState, selectedCharID, frozenSaveKeysStore } from '../../stores.svelte'
 import { alertError, alertClear } from 'src/ts/alert'
 import { compress as fflateCompress } from 'fflate'
-import type { ColdStorageReadResult } from '../coldstorage.svelte'
 
 //#region shared fixture helpers
 
@@ -634,9 +588,9 @@ describe('CHORE-07 stage 7a: boot-time asset sweep must skip on an incomplete co
 
         armTransientTauriReadFailure(coldKey)
 
-        // Drive the REAL wiring exactly the way cleanChunks does
-        // (bootstrap.ts:582-589): buildAssetKeepSet, then spread its result
-        // into sweepTauriAssets.
+        // Drive the REAL wiring exactly the way bootstrap.ts's cleanChunks
+        // does: buildAssetKeepSet, then spread its result into
+        // sweepTauriAssets.
         const keepSet = await buildAssetKeepSet(db)
         await sweepTauriAssets({
             ...keepSet,
@@ -766,12 +720,12 @@ describe('CHORE-07 stage 7a: boot-time asset sweep must skip on an incomplete co
 
     // a6 (CHAR, "remotes/ cleanup still runs when the asset sweep is
     // skipped") is SKIPPED: the remotes/ loop lives inline inside
-    // bootstrap.ts's non-exported cleanChunks (bootstrap.ts:592-643) and has
+    // bootstrap.ts's non-exported cleanChunks and has
     // no extracted seam (unlike the two asset-deletion loops, which
     // src/ts/storage/assetSweep.ts already isolates). Reaching it for a test
     // would mean importing bootstrap.ts itself, which pulls in its own large,
     // separately-mocked import graph (loadPlugins, checkDriverInit,
-    // characterURLImport, drive/accounter, kei/backup, model/modellist,
+    // characterURLImport, model/modellist,
     // registerModelDynamic, etc.) well beyond this file's scope. Per the
     // task's instruction, this is reported rather than faked.
     test.skip('a6 SKIPPED: remotes/ cleanup coverage requires bootstrap.ts, out of scope for this seam-only file', () => {})
@@ -784,8 +738,8 @@ describe('CHORE-07 stage 7a: boot-time asset sweep must skip on an incomplete co
         await setColdStorageItem(coldKey, { character: makeFullCharacter(chaId) })
         const db = makeDb([makeColdStub(chaId, coldKey)])
 
-        // drive.ts:312 calls getUncleanables(db) directly (the UNCHECKED
-        // form) and expects a flat basename array -- stage 7a's new
+        // drive.ts's loadDrive calls getUncleanables(db) directly (the
+        // UNCHECKED form) and expects a flat basename array -- stage 7a's new
         // buildAssetKeepSet() must not change this existing function's
         // healthy-path output.
         const uncleanableList = await getUncleanables(db)
@@ -798,50 +752,6 @@ describe('CHORE-07 stage 7a: boot-time asset sweep must skip on an incomplete co
         ]))
     })
 
-    test('a10b CHAR: getUncleanables(db) must not swallow an account-branch cold read failure', async () => {
-        // getColdStorageItem's account branch has no try/catch around
-        // fetchProtectedResource/decompress/JSON.parse, unlike its
-        // Node/Tauri/OPFS siblings -- a throw there is meant to propagate.
-        // drive.ts:312's loadDrive calls
-        // getUncleanables(db) unguarded and relies on that rejection to
-        // abort a restore loudly instead of silently treating a broken
-        // account read as "nothing to protect".
-        //
-        // Vitest does not clear mock call history between tests by default
-        // in this repo (no clearMocks/restoreMocks in vitest.config.ts), so
-        // fetchProtectedResourceMock's own call log is reset here even
-        // though this test doesn't assert a count itself -- a14 does, and a
-        // leftover call from this test was observed to leak into it and
-        // break that count when the whole file ran together.
-        fetchProtectedResourceMock.mockClear()
-        forageStorage.isAccount = true
-        try {
-            const chaId = 'a10b-char'
-            const coldKey = 'a10b-cold-key'
-            const db = makeDb([makeColdStub(chaId, coldKey)])
-
-            fetchProtectedResourceMock.mockRejectedValueOnce(new Error('simulated account cold-storage fetch failure'))
-
-            // CHAR: an intermediate, unshipped draft of this fix wrapped
-            // this read in a try/catch -- structurally like the
-            // try/catch-wrapped, completeness-tracking branch
-            // `resolveUncleanableChars` takes, in the fixed code, only for
-            // `buildAssetKeepSet` -- so on that draft this promise resolved
-            // instead of rejecting (ledger row 32: `promise resolved
-            // "[ 'main-image.png' ]" instead of rejecting`). `getUncleanables`
-            // itself never takes that branch: in the fixed code it calls
-            // `resolveUncleanableChars` with the plain, unwrapped read (no
-            // try/catch of its own), so this read propagates the throw,
-            // matching drive.ts:312's expectation. HEAD's original
-            // `getUncleanables` (before `resolveUncleanableChars` existed at
-            // all) also just awaited this read with no try/catch of its own,
-            // which is why this test passes both on HEAD and with the fix
-            // applied.
-            await expect(getUncleanables(db)).rejects.toThrow('simulated account cold-storage fetch failure')
-        } finally {
-            forageStorage.isAccount = false
-        }
-    })
 })
 
 describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recoverable blobs', () => {
@@ -1144,47 +1054,6 @@ describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recover
         expect(afterItems).toContain(POINTER_CHAT_KEY)
     })
 
-    test("a14 CHAR: cleanColdStorage aborts via the collector's catch when the account branch throws reading a cold character's blob", async () => {
-        // See a10b's note: fetchProtectedResourceMock's call log is not
-        // auto-cleared between tests, and this test asserts an exact count.
-        fetchProtectedResourceMock.mockClear()
-        forageStorage.isAccount = true
-        try {
-            const BROKEN_CHAR_KEY = 'a14-broken-char-key'
-            DBState.db = makeDb([{
-                chaId: 'a14-char',
-                name: 'Account Cold Character',
-                type: 'character',
-                chatPage: 0,
-                coldstorage: BROKEN_CHAR_KEY,
-                coldStoragedChats: [],
-                chats: [{
-                    message: [{ time: Date.now(), data: '', role: 'char' }],
-                    note: '',
-                    name: '',
-                    localLore: [],
-                }],
-            } as unknown as CharacterFixture])
-
-            fetchProtectedResourceMock.mockRejectedValueOnce(new Error('simulated account cold-storage fetch failure'))
-
-            await cleanColdStorage()
-
-            // CHAR: collectColdCharacterKeysOrAbort's own try/catch turns
-            // this throw into an abort BEFORE cleanColdStorage ever lists or
-            // removes anything --
-            // fetchProtectedResource is called exactly once, for the cold
-            // character's own read, and never again for '@list-keys' or a
-            // remove POST (cleanColdStorage returns right after the abort
-            // check, before listColdStorageItems() is ever called).
-            expect(fetchProtectedResourceMock).toHaveBeenCalledTimes(1)
-            const [, options] = fetchProtectedResourceMock.mock.calls[0] as unknown as [string, { headers?: Record<string, string> }]
-            expect(options?.headers?.['x-risu-key']).toBe(BROKEN_CHAR_KEY)
-        } finally {
-            forageStorage.isAccount = false
-        }
-    })
-
     test('a8 CHAR: a near-miss error-text string is not treated as a recoverable pointer', async () => {
         platformState.isTauri = false
         resetOpfs()
@@ -1388,38 +1257,6 @@ describe('CHORE-07 stage 7b: preLoadChat must not reject and must not mutate a c
         expect(chat.message).toEqual(messageBefore)
     })
 
-    test('R3 RED: an account-branch fetch throw resolves "error" instead of rejecting, with no mutation', async () => {
-        platformState.isTauri = false
-        resetOpfs()
-        fetchProtectedResourceMock.mockClear()
-        forageStorage.isAccount = true
-        try {
-            const coldKey = 'r3-cold-key'
-            DBState.db = makeDb([{
-                chaId: 'r3-char',
-                name: 'R3 Character',
-                type: 'character',
-                chatPage: 0,
-                chats: [makeColdChat('r3-chat-0', coldKey)],
-            } as unknown as CharacterFixture])
-
-            const chat = DBState.db.characters[0].chats[0] as unknown as { message: { data: string }[] }
-            const messageBefore = JSON.parse(JSON.stringify(chat.message))
-
-            fetchProtectedResourceMock.mockRejectedValueOnce(new Error('simulated account cold-storage fetch failure'))
-
-            // RED: on pre-7b (65c90d7f), getColdStorageItem's account branch
-            // has no try/catch of its own, so this throw propagated straight
-            // out of preLoadChat as a rejection instead of resolving "error".
-            const result = await preLoadChat(0, 0)
-
-            expect(result).toBe('error')
-            expect(chat.message).toEqual(messageBefore)
-        } finally {
-            forageStorage.isAccount = false
-        }
-    })
-
     test('R4 RED: a pointer replaced during the read is left as the newer value, resolving "none"', async () => {
         platformState.isTauri = false
         resetOpfs()
@@ -1612,7 +1449,7 @@ describe('CHORE-07 stage 7b: isColdChat', () => {
 /**
  * CHORE-07 stage 7c-1 -- `readColdStorageItem`'s per-backend classification
  * seams (`classifyTauriColdRead`/`classifyOpfsColdRead`/
- * `classifyNodeColdRead`/`classifyAccountColdRead`), plan §5.2 item 1, §5.5.
+ * `classifyNodeColdRead`), plan §5.2 item 1, §5.5.
  * These are brand-new, pure, dependency-injected functions -- none of them
  * existed on pre-7c-1 (92b9bba7), so every case below is RED for the same
  * structural reason as the `isColdChat` group above: on pre-7c-1, importing
@@ -1701,46 +1538,6 @@ describe('CHORE-07 stage 7c-1: classifyNodeColdRead', () => {
         const result = await classifyNodeColdRead(getItemFn, 'coldstorage/x')
         expect(result.status).toBe('error')
         expect((result as { error: unknown }).error).toBe(thrown)
-    })
-})
-
-describe('CHORE-07 stage 7c-1: classifyAccountColdRead', () => {
-    test('RED: a network throw plus a local ok is ok', async () => {
-        const fetchHub = vi.fn(async (): Promise<{ status: number, arrayBuffer: () => Promise<ArrayBuffer> }> => {
-            throw new Error('simulated network failure')
-        })
-        const readLocal = vi.fn(async (): Promise<ColdStorageReadResult> => ({ status: 'ok', value: { restored: true } }))
-        const result = await classifyAccountColdRead(fetchHub, readLocal)
-        expect(result).toEqual({ status: 'ok', value: { restored: true } })
-    })
-
-    test('RED: a network throw plus a local missing is error, never missing', async () => {
-        const fetchHub = vi.fn(async (): Promise<{ status: number, arrayBuffer: () => Promise<ArrayBuffer> }> => {
-            throw new Error('simulated network failure')
-        })
-        const readLocal = vi.fn(async (): Promise<ColdStorageReadResult> => ({ status: 'missing' }))
-        const result = await classifyAccountColdRead(fetchHub, readLocal)
-        expect(result.status).toBe('error')
-    })
-
-    test('RED: 401, 500 and 204 plus a local missing are all error, never missing', async () => {
-        for (const status of [401, 500, 204]) {
-            const fetchHub = vi.fn(async () => ({ status, arrayBuffer: async () => new ArrayBuffer(0) }))
-            const readLocal = vi.fn(async (): Promise<ColdStorageReadResult> => ({ status: 'missing' }))
-            const result = await classifyAccountColdRead(fetchHub, readLocal)
-            expect(result.status).toBe('error')
-        }
-    })
-
-    test('RED: a 200 with a corrupt body is error, with no local fallback attempted', async () => {
-        const fetchHub = vi.fn(async () => ({
-            status: 200,
-            arrayBuffer: async () => new TextEncoder().encode('not compressed, not JSON').buffer,
-        }))
-        const readLocal = vi.fn(async (): Promise<ColdStorageReadResult> => ({ status: 'ok', value: 'should-not-be-used' }))
-        const result = await classifyAccountColdRead(fetchHub, readLocal)
-        expect(result.status).toBe('error')
-        expect(readLocal).not.toHaveBeenCalled()
     })
 })
 

@@ -50,12 +50,8 @@ vi.mock(import('src/ts/alert'), () => ({
     alertWait: vi.fn(),
 }) as unknown as typeof import('src/ts/alert'))
 
-vi.mock(import('src/ts/sionyw'), () => ({
-    fetchProtectedResource: vi.fn(async () => ({ status: 404 }) as unknown as Response),
-}))
-
 vi.mock(import('../../globalApi.svelte'), () => ({
-    forageStorage: { isAccount: false, realStorage: undefined },
+    forageStorage: { realStorage: undefined },
     requiresFullEncoderReload: { state: false },
 }) as unknown as typeof import('../../globalApi.svelte'))
 

@@ -364,8 +364,8 @@ describe('MainMenu.svelte realm card: the five-state model', () => {
         await flushHub()
         expect(hubMock.getRisuHub).toHaveBeenCalledTimes(1)
 
-        // Simulate a whole-object swap (backup restore, account sync, plugin
-        // setDatabase) that leaves hideRealm at the same value.
+        // Simulate a whole-object swap (backup restore, plugin setDatabase)
+        // that leaves hideRealm at the same value.
         const swapped = { hideRealm: false, realmDirectOpen: false, hideAllImages: false }
         DBState.db = swapped as never
         flushSync()
@@ -456,8 +456,8 @@ describe('MainMenu.svelte realm card: hideRealm reaching the announcement banner
         expect(target.innerHTML).toContain('banner text')
 
         // A whole-object swap, not a plain property set: this is the path
-        // (backup restore, account sync, plugin setDatabase) that leaves the
-        // component mounted with hubAnnouncement still populated from the
+        // (backup restore, plugin setDatabase) that leaves the component
+        // mounted with hubAnnouncement still populated from the
         // earlier fetch, which is exactly what let the banner escape the
         // hideRealm guard.
         DBState.db = { hideRealm: true, realmDirectOpen: false, hideAllImages: false } as never

@@ -16,23 +16,19 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { checkRisuUpdate } from "./update";
 import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
-import { alertError, alertMd, alertTOS, waitAlert, alertConfirm, alertInput, alertToast } from "./alert";
+import { alertError, alertMd, alertTOS, alertStaleAccountNotice, waitAlert, alertConfirm, alertInput, alertToast } from "./alert";
 import { checkDriverInit } from "./drive/drive";
 import { characterURLImport } from "./characterCards";
 import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from "./storage/defaultPrompts";
-import { loadRisuAccountData } from "./drive/accounter";
 import { decodeRisuSave, encodeRisuSaveLegacy } from "./storage/risuSave";
 import { updateAnimationSpeed } from "./gui/animation";
 import { updateColorScheme, updateTextThemeAndCSS } from "./gui/colorscheme";
-import { autoServerBackup } from "./kei/backup";
 import { language } from "src/lang";
 import { startObserveDom } from "./observer.svelte";
 import { updateGuisize } from "./gui/guisize";
 import { updateLorebooks } from "./characters";
 import { initMobileGesture } from "./hotkey";
 import { moduleUpdate } from "./process/modules";
-import type { AccountStorage } from "./storage/accountStorage";
-import { AccountSyncCacheMismatchError } from "./storage/accountStorage";
 import { makeColdData } from "./process/coldstorage.svelte";
 import { repairDatabaseIds } from "./process/chatIds";
 import { verifyAssetCacheEntry } from "./storage/assetIntegrity";
@@ -44,6 +40,7 @@ import {
     saveDb,
     getDbBackups,
     buildAssetKeepSet,
+    getUncleanablesSync,
     getBasename,
     setUsingSw,
     checkCharOrder
@@ -54,33 +51,6 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { appDataDir, join } from "@tauri-apps/api/path";
 
 const appWindow = isTauri ? getCurrentWebviewWindow() : null
-
-/**
- * Reads the account-sync database, retrying on a cache-mismatch response
- * instead of ever treating it as "no data." A mismatch means the server
- * reports our locally-cached copy is stale, not that no remote database
- * exists — silently falling through to an empty database on this signal
- * previously caused real remote data to be overwritten with nothing.
- */
-async function readAccountDatabaseWithRetry(storage: AccountStorage): Promise<Uint8Array> {
-    for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-            return await storage.getItem('database/database.bin', (v) => {
-                LoadingStatusState.text = `Loading Remote Save File ${(v * 100).toFixed(2)}%`
-            })
-        } catch (error) {
-            if (!(error instanceof AccountSyncCacheMismatchError)) {
-                throw error
-            }
-            console.error(error)
-            if (attempt === 2) {
-                throw "Failed to verify your account's save data is up to date after multiple attempts. Please check your connection and reload — your data has not been modified."
-            }
-            LoadingStatusState.text = "Account sync cache mismatch, retrying..."
-            await sleep(1000)
-        }
-    }
-}
 
 /**
  * Loads the application data.
@@ -156,15 +126,7 @@ export async function loadData() {
                 await forageStorage.Init()
 
                 LoadingStatusState.text = "Loading Local Save File..."
-                // An already-enabled account-sync profile has realStorage set to
-                // AccountStorage by Init() above, so this "local" read is actually
-                // the account-sync read for most returning account-sync users —
-                // route it through the same cache-mismatch retry as the dedicated
-                // account-sync read below, instead of letting a transient mismatch
-                // abort startup with zero retries.
-                let gotStorage: Uint8Array = forageStorage.isAccount
-                    ? await readAccountDatabaseWithRetry(forageStorage.realStorage as AccountStorage)
-                    : await forageStorage.getItem('database/database.bin') as unknown as Uint8Array
+                let gotStorage: Uint8Array = await forageStorage.getItem('database/database.bin') as unknown as Uint8Array
                 LoadingStatusState.text = "Decoding Local Save File..."
                 if (checkNullish(gotStorage)) {
                     gotStorage = encodeRisuSaveLegacy({})
@@ -179,6 +141,9 @@ export async function loadData() {
                     const backups = await getDbBackups()
                     let backupLoaded = false
                     for (const backup of backups) {
+                        if (backupLoaded) {
+                            break
+                        }
                         try {
                             LoadingStatusState.text = `Reading Backup File ${backup}...`
                             const backupData: Uint8Array = await forageStorage.getItem(`database/dbbackup-${backup}.bin`) as unknown as Uint8Array
@@ -193,39 +158,30 @@ export async function loadData() {
                     }
                 }
 
-                if (await forageStorage.checkAccountSync()) {
-                    LoadingStatusState.text = "Checking Account Sync..."
-                    let gotStorage: Uint8Array = await readAccountDatabaseWithRetry(forageStorage.realStorage as AccountStorage)
-                    if (checkNullish(gotStorage)) {
-                        gotStorage = encodeRisuSaveLegacy({})
-                        await forageStorage.setItem('database/database.bin', gotStorage)
-                    }
-                    try {
-                        setDatabase(
-                            await decodeRisuSave(gotStorage)
-                        )
-                    } catch (error) {
-                        const backups = await getDbBackups()
-                        let backupLoaded = false
-                        for (const backup of backups) {
-                            try {
-                                LoadingStatusState.text = `Reading Backup File ${backup}...`
-                                const backupData: Uint8Array = await forageStorage.getItem(`database/dbbackup-${backup}.bin`) as unknown as Uint8Array
-                                setDatabase(
-                                    await decodeRisuSave(backupData)
-                                )
-                                backupLoaded = true
-                            } catch (error) { }
-                        }
-                        if (!backupLoaded) {
-                            // throw "Your save file is corrupted"
-                            await autoServerBackup()
-                            await sleep(10000)
-                        }
-                    }
+                // I6: a returning RisuAccount-sync profile (AutoStorage.Init()
+                // detected `accountst === 'able'`) never boots past this point
+                // silently. The notice is blocking and re-posts itself against
+                // any other alertStore write; only its own OK acknowledges it.
+                // Acknowledging removes the three account-sync keys and reloads
+                // -- this page life never reaches checkDriverInit, the service
+                // worker, characterURLImport, plugins, makeColdData, loadedStore
+                // or saveDb below.
+                if (forageStorage.staleAccountProfile) {
+                    void alertStaleAccountNotice().then(() => {
+                        localStorage.removeItem('accountst')
+                        localStorage.removeItem('dosync')
+                        localStorage.removeItem('fallbackRisuToken')
+                        markAppInitiatedReload()
+                        location.reload()
+                    })
+                    return
                 }
-                LoadingStatusState.text = "Rechecking Account Sync..."
-                await forageStorage.checkAccountSync()
+                // No stale profile was detected: any leftover sync flags from an
+                // earlier, already-resolved migration attempt are stale too, and
+                // are dropped without a notice.
+                localStorage.removeItem('dosync')
+                localStorage.removeItem('fallbackRisuToken')
+
                 LoadingStatusState.text = "Checking Drive Sync..."
                 const isDriverMode = await checkDriverInit()
                 if (isDriverMode) {
@@ -247,12 +203,6 @@ export async function loadData() {
             try {
                 await loadPlugins()
             } catch (error) { }
-            if (getDatabase().account) {
-                LoadingStatusState.text = "Checking Account Data..."
-                try {
-                    await loadRisuAccountData()
-                } catch (error) { }
-            }
             try {
                 //@ts-expect-error navigator.standalone is iOS Safari non-standard property, not in Navigator interface
                 const isInStandaloneMode = (window.matchMedia('(display-mode: standalone)').matches) || (window.navigator.standalone) || document.referrer.includes('android-app://');
@@ -567,17 +517,37 @@ async function cleanChunks(options:{
 } = {}) {
     const cleanColdStorage = options.cleanColdStorage ?? false
     const db = getDatabase()
-    // Gate on the actual runtime-selected backend (forageStorage.isAccount),
-    // not just the persisted user-intent flag (db.account?.useSync) — these
-    // can diverge (AutoStorage.Init() decides account-sync from
-    // localStorage['accountst'], independent of this flag), and this
-    // function's own asset-GC sweep plus the sampled cache-integrity check
-    // below are both meaningless (or worse, misleading) against an
-    // account-sync backend. Keep the persisted flag as an extra guard too,
-    // since it can only make this MORE conservative, never less.
-    if (db.account?.useSync || forageStorage.isAccount) {
-        return
+
+    // Cheap, sampled integrity spot-check: verify a handful of currently
+    // in-use assets against their own content-addressed filename on every
+    // boot, rather than every cached asset (which would mean re-hashing the
+    // whole library, exactly the cost a "lightweight" signal is meant to
+    // avoid). Runs before the cold-storage early return below and reads only
+    // the in-memory database (getUncleanablesSync, no cold-storage reads),
+    // so it still samples something even on a boot that skips the rest of
+    // this function for having cold storage on. Only runs when
+    // db.checkCorruption is on (the Backup & Files tab's Asset Cache
+    // Integrity panel): that toggle gates the only user-visible effect (the
+    // toast), so a save that never enabled it never pays the sampling cost.
+    // Read-only either way — doesn't attempt to repair anything; that's the
+    // explicit "verify assets" action in the same settings section.
+    if (!isTauri && db.checkCorruption) {
+        const sampleTargets = getUncleanablesSync(db)
+            .sort(() => Math.random() - 0.5)
+            .slice(0, 3)
+        for (const target of sampleTargets) {
+            try {
+                const result = await verifyAssetCacheEntry('assets/' + target)
+                if (result.status === 'mismatch') {
+                    console.error(`Asset cache integrity check failed for assets/${target}: expected content hash ${result.expectedHash}, cached copy hashes to ${result.actualHash}`)
+                    alertToast(language.possibleAssetCorruptionToast(target))
+                }
+            } catch (error) {
+                console.error('Asset cache integrity check errored for', target, error)
+            }
+        }
     }
+
     if(db.coldstorage && !cleanColdStorage){
         return
     }
@@ -711,34 +681,6 @@ async function cleanChunks(options:{
                         await forageStorage.removeItem(asset)
                     }
                 }
-            }
-        }
-
-        // Cheap, sampled integrity spot-check: verify a handful of currently
-        // in-use assets against their own content-addressed filename on every
-        // boot, rather than every cached asset (which would mean re-hashing
-        // the whole library, exactly the cost a "lightweight" signal is meant
-        // to avoid). Always logs a mismatch to the console; also surfaces a
-        // user-visible toast when `db.checkCorruption` is enabled (Phase 1
-        // item 7's settings toggle, FilesSettings.svelte) — silent by default
-        // since a small sample turning up nothing proves little on its own
-        // and would just be alert noise for most users. Read-only either way
-        // — doesn't attempt to repair anything; that's the explicit "verify
-        // assets" action in the same settings section.
-        const sampleTargets = Array.from(keepSet.uncleanable)
-            .sort(() => Math.random() - 0.5)
-            .slice(0, 3)
-        for (const target of sampleTargets) {
-            try {
-                const result = await verifyAssetCacheEntry('assets/' + target)
-                if (result.status === 'mismatch') {
-                    console.error(`Asset cache integrity check failed for assets/${target}: expected content hash ${result.expectedHash}, cached copy hashes to ${result.actualHash}`)
-                    if (db.checkCorruption) {
-                        alertToast(`Possible asset corruption detected (${target}). Check Settings → Files → Asset Cache Integrity.`)
-                    }
-                }
-            } catch (error) {
-                console.error('Asset cache integrity check errored for', target, error)
             }
         }
     }

@@ -168,9 +168,9 @@
       hubStatus = result.cards.length > 0 ? 'populated' : 'empty';
     }
 
-    // `DBState.db` is reassigned wholesale on backup restore, account sync,
-    // Kei restore, plugin setDatabase and many command.ts paths. An effect
-    // that reads `DBState.db.hideRealm` directly would depend on the
+    // `DBState.db` is reassigned wholesale on backup restore, plugin
+    // setDatabase and many command.ts paths. An effect that reads
+    // `DBState.db.hideRealm` directly would depend on the
     // container and refetch on every one of those reassignments even when
     // hideRealm itself didn't change. Deriving the boolean first means the
     // effect depends on the value: Svelte 5 doesn't propagate a $derived
@@ -188,8 +188,8 @@
     // the browser reports connectivity again, instead of stranding the
     // user until they find the (inert, in that state) retry control. Also
     // checked against `realmHidden`: without it, a whole-`DBState.db` swap
-    // (plugin setDatabase, account sync, backup restore, the command.ts
-    // paths named in the comment above) that turns hideRealm on while this
+    // (plugin setDatabase, backup restore, the command.ts paths named in
+    // the comment above) that turns hideRealm on while this
     // component stays mounted would still let a later `online` event fetch
     // the hub for a user who opted out, since `hubStatus` is never reset by
     // that swap on its own.

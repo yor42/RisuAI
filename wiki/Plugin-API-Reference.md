@@ -8,9 +8,9 @@ Type definitions for the API live in `risuai.d.ts`. This page documents actual b
 
 ## Version info
 
-- **`apiVersion`**: string constant `"3.0"`. <!-- src/ts/plugins/apiV3/v3.svelte.ts:1277 -->
-- **`apiVersionCompatibleWith`**: `["3.0"]`. <!-- src/ts/plugins/apiV3/v3.svelte.ts:1278 -->
-- **`getRuntimeInfo(): Promise<{apiVersion, platform, saveMethod}>`** — `platform` is `'node'|'tauri'|'web'`; `saveMethod` is `'tauri'|'account'|'local'` depending on whether the app is running under Tauri or has cloud-account storage active. <!-- src/ts/plugins/apiV3/v3.svelte.ts:1251-1263 -->
+- **`apiVersion`**: string constant `"3.0"`. <!-- src/ts/plugins/apiV3/v3.svelte.ts:1301 -->
+- **`apiVersionCompatibleWith`**: `["3.0"]`. <!-- src/ts/plugins/apiV3/v3.svelte.ts:1302 -->
+- **`getRuntimeInfo(): Promise<{apiVersion, platform, saveMethod}>`** — `platform` is `'node'|'tauri'|'web'`; `saveMethod` is `'tauri'|'local'`, depending on whether the app is running under Tauri. Fork-specific: upstream also has an `'account'` value for cloud-account storage, which this fork does not, since RisuAccount is removed here. <!-- src/ts/plugins/apiV3/v3.svelte.ts:1276-1287 -->
 
 ## Logging & alerts
 

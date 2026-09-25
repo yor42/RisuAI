@@ -32,6 +32,10 @@ import { describe, test, expect, vi } from 'vitest'
 import { writable, get } from 'svelte/store'
 import type { Database } from '../../storage/database.svelte'
 import type { toSaveType } from '../../storage/risuSave'
+// Installs the real `globalThis.safeStructuredClone`, the same way
+// `src/main.ts` does (`import "./ts/polyfill"`): this test's save-mark
+// assertions need the real clone, not vitest.setup.ts's JSON-based stand-in.
+import '../../polyfill'
 
 //#region module mocks
 
@@ -201,7 +205,6 @@ vi.mock(import('../../globalApi.svelte'), () => ({
     readImage: vi.fn(),
     isPlainHttpFileSrc: vi.fn(() => false),
     forageStorage: {
-        isAccount: false,
         keys: vi.fn(async () => []),
         getItem: vi.fn(async () => null),
         setItem: vi.fn(async () => {}),

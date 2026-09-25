@@ -1,11 +1,10 @@
 /**
  * Report 17 ("CHORE-01 + Phase 2 item 2") Stage 1, Gate 2 (opus-reviewer,
- * REJECT) should-fix item: "Backup-load wiring is untested" -- neither
- * `loadInternalBackup()` (this file) nor the account backup loader
- * (`src/ts/drive/accounter.ts`'s `loadRisuAccountBackup`, its own test file)
- * had a test asserting `requiresFullEncoderReload.state` actually gets set
- * after a backup load, despite both call sites carrying a comment claiming
- * exactly that (plan §3.3, "the other three call sites already do this").
+ * REJECT) should-fix item: "Backup-load wiring is untested" --
+ * `loadInternalBackup()` (this file) had no test asserting
+ * `requiresFullEncoderReload.state` actually gets set after a backup load,
+ * despite its call site carrying a comment claiming exactly that (plan
+ * §3.3, "the other three call sites already do this").
  *
  * Drives the REAL, unmocked `loadInternalBackup()` in `src/ts/globalApi.svelte.ts`,
  * with all I/O (the `AutoStorage`-backed `forageStorage`, `alertSelect`) mocked.
@@ -90,7 +89,6 @@ vi.mock(import('src/ts/alert'), () => ({
     alertTOS: vi.fn(async () => true),
     alertToast: vi.fn(),
     alertInput: vi.fn(),
-    alertLogin: vi.fn(),
     alertNormalWait: vi.fn(),
     alertAddCharacter: vi.fn(),
     alertStore: writable({ type: 'none', msg: '' }),
@@ -174,10 +172,6 @@ vi.mock(import('src/ts/characterCards'), () => ({
     hubURL: 'https://example.invalid',
 }) as unknown as typeof import('src/ts/characterCards'))
 
-vi.mock(import('src/ts/drive/accounter'), () => ({
-    loadRisuAccountData: vi.fn(async () => {}),
-}) as unknown as typeof import('src/ts/drive/accounter'))
-
 vi.mock(import('src/ts/storage/dbChangeEffects.svelte'), () => ({
     registerDbChangeEffects: vi.fn(),
 }) as unknown as typeof import('src/ts/storage/dbChangeEffects.svelte'))
@@ -189,7 +183,6 @@ const forageMemStore = vi.hoisted(() => new Map<string, unknown>())
 
 vi.mock(import('src/ts/storage/autoStorage'), () => ({
     AutoStorage: class {
-        isAccount = false
         getItem = vi.fn(async (key: string) => forageMemStore.get(key) ?? null)
         setItem = vi.fn(async (key: string, value: unknown) => { forageMemStore.set(key, value) })
         keys = vi.fn(async () => Array.from(forageMemStore.keys()))
@@ -205,11 +198,6 @@ vi.mock(import('src/ts/gui/colorscheme'), () => ({
     updateColorScheme: vi.fn(),
     updateTextThemeAndCSS: vi.fn(),
 }) as unknown as typeof import('src/ts/gui/colorscheme'))
-
-vi.mock(import('src/ts/kei/backup'), () => ({
-    autoServerBackup: vi.fn(async () => {}),
-    saveDbKei: vi.fn(async () => {}),
-}) as unknown as typeof import('src/ts/kei/backup'))
 
 vi.mock(import('src/ts/observer.svelte'), () => ({
     startObserveDom: vi.fn(),
@@ -230,10 +218,6 @@ vi.mock(import('src/ts/hotkey'), () => ({
 vi.mock(import('src/ts/process/modules'), () => ({
     moduleUpdate: vi.fn(async () => {}),
 }) as unknown as typeof import('src/ts/process/modules'))
-
-vi.mock(import('src/ts/storage/accountStorage'), () => ({
-    AccountSyncConflictError: class extends Error {},
-}) as unknown as typeof import('src/ts/storage/accountStorage'))
 
 vi.mock(import('src/ts/process/coldstorage.svelte'), () => ({
     getColdStorageItem: vi.fn(),

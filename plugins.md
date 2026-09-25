@@ -645,7 +645,7 @@ await Risuai.setArgument('max_retries', 5);
 
 ### Plugin Storage (Recommended)
 
-`pluginStorage` is **save-file specific** and **syncs between devices**:
+`pluginStorage` is **save-file specific**: it travels with the save file itself, for example through a `.bin` backup and restore, or a Google Drive backup, not with the device:
 
 ```javascript
 // All operations are synchronous (wrapper around sync storage)
@@ -661,7 +661,7 @@ await Risuai.pluginStorage.clear(); // Remove all items
 ```
 
 **Use `pluginStorage` when:**
-- You want data to sync across devices
+- You want data to travel with the save file, not stay tied to one device
 - Data is specific to a save file
 - Storing user preferences or plugin state
 
@@ -1197,8 +1197,8 @@ if (logs) {
 ```javascript
 const info = await Risuai.getRuntimeInfo();
 console.log(info.apiVersion);  // e.g., '3.0'
-console.log(info.platform);    // e.g., 'web', 'electron'
-console.log(info.saveMethod);  // e.g., 'indexeddb', 'filesystem'
+console.log(info.platform);    // 'node', 'tauri' or 'web'
+console.log(info.saveMethod);  // 'tauri' or 'local'
 ```
 
 #### Unwrap SafeClassArray
@@ -1260,10 +1260,10 @@ Always handle errors gracefully:
 
 ### 3. Use Plugin Storage for Persistence
 
-Prefer `pluginStorage` over `safeLocalStorage` for syncable data:
+Prefer `pluginStorage` over `safeLocalStorage` for data that should travel with the save file:
 
 ```javascript
-//  Good - syncs across devices
+//  Good - travels with the save file
 Risuai.pluginStorage.setItem('settings', JSON.stringify(settings));
 
 // Device-specific only
@@ -1564,11 +1564,11 @@ await element.removeEventListener('click', listenerId);
 
 **Problem:** Confusing `pluginStorage` with `safeLocalStorage`.
 
-- **`pluginStorage`**: Save-file specific, syncs across devices
+- **`pluginStorage`**: Save-file specific, travels with the save file
 - **`safeLocalStorage`**: Device-specific, shared between plugins
 
 ```javascript
-// For user preferences (syncs)
+// For user preferences (travels with the save file)
 Risuai.pluginStorage.setItem('preference', 'value');
 
 // For device-specific data

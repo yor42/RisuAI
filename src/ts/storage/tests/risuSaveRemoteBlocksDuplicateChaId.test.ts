@@ -26,7 +26,6 @@ vi.mock(
     () =>
         ({
             forageStorage: {
-                isAccount: false,
                 keys: vi.fn(async () => Array.from(remoteStore.keys())),
                 getItem: vi.fn(async (key: string) => remoteStore.get(key) ?? null),
                 setItem: vi.fn(async (key: string, value: Uint8Array) => {
@@ -69,7 +68,6 @@ import { forageStorage } from 'src/ts/globalApi.svelte'
 
 beforeEach(() => {
     remoteStore.clear()
-    forageStorage.isAccount = false
     ;(forageStorage.setItem as ReturnType<typeof vi.fn>).mockClear()
     ;(forageStorage.getItem as ReturnType<typeof vi.fn>).mockClear()
     ;(forageStorage.keys as ReturnType<typeof vi.fn>).mockClear()

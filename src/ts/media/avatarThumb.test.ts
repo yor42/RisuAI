@@ -22,12 +22,10 @@
  *
  * MOCKED: `localforage` (inert; every test that cares about store behaviour
  * uses `setStore` to inject its own fake instead of relying on the
- * localforage-backed default), `src/ts/globalApi.svelte` (`readImage`, and
- * `forageStorage`, whose `isAccount` T14 mutates directly to exercise the
- * real `isThumbEligible`'s account branch), and `src/ts/stores.svelte`
- * (`DBState`, imported by `avatarThumb.ts` for `startAvatarThumbSweep`,
- * which none of these tests call, but the import itself still runs the
- * mocked module's top-level code at load time).
+ * localforage-backed default), `src/ts/globalApi.svelte` (`readImage`), and
+ * `src/ts/stores.svelte` (`DBState`, imported by `avatarThumb.ts` for
+ * `startAvatarThumbSweep`, which none of these tests call, but the import
+ * itself still runs the mocked module's top-level code at load time).
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
@@ -47,15 +45,14 @@ const { readImageMock } = vi.hoisted(() => ({
 }))
 
 // A full stand-in, not a partial one: `avatarThumb.ts` only directly needs
-// `readImage` and `forageStorage`, but it also imports `asBuffer` from
-// `../util`, whose own module drags in `storage/database.svelte.ts`'s whole
-// top-level surface (e.g. `saveImage`/`saveAsset`), so every export that
-// module reads eagerly at load time must resolve here too.
+// `readImage`, but it also imports `asBuffer` from `../util`, whose own
+// module drags in `storage/database.svelte.ts`'s whole top-level surface
+// (e.g. `saveImage`/`saveAsset`), so every export that module reads eagerly
+// at load time must resolve here too.
 vi.mock(
     import('../globalApi.svelte'),
     () =>
         ({
-            forageStorage: { isAccount: false, keys: vi.fn(async () => []), getItem: vi.fn(async () => null), setItem: vi.fn(async () => {}) },
             readImage: readImageMock,
             getFileSrc: vi.fn(async (loc: string) => `data:mock-image;loc=${loc}`),
             checkCharOrder: vi.fn(),
@@ -104,7 +101,6 @@ import {
     sweepAvatarThumbs,
     thumbDimensions,
 } from './avatarThumb'
-import { forageStorage } from '../globalApi.svelte'
 import type { Database, folder } from '../storage/database.svelte'
 
 //#region test store helpers
@@ -915,18 +911,8 @@ describe('T7b: a store write that never settles still frees the task slot once s
     })
 })
 
-describe('T14: isThumbEligible (real predicate, exercising the mutable forageStorage mock)', () => {
-    afterEach(() => {
-        forageStorage.isAccount = false
-    })
-
-    test('an account-synced assets/ loc is not eligible', () => {
-        forageStorage.isAccount = true
-        expect(isThumbEligible('assets/x.png')).toBe(false)
-    })
-
-    test('a non-account assets/ loc is eligible', () => {
-        forageStorage.isAccount = false
+describe('T14: isThumbEligible (real predicate)', () => {
+    test('an assets/ loc is eligible', () => {
         expect(isThumbEligible('assets/x.png')).toBe(true)
     })
 
@@ -935,8 +921,7 @@ describe('T14: isThumbEligible (real predicate, exercising the mutable forageSto
         ['a data: URL', 'data:image/png;base64,AAAA'],
         ['an empty string', ''],
         ["a loc that only starts with the bare word 'assets' (no '/')", 'assetsX/x.png'],
-    ])('non-account, %s -> not eligible', (_label, loc) => {
-        forageStorage.isAccount = false
+    ])('%s -> not eligible', (_label, loc) => {
         expect(isThumbEligible(loc)).toBe(false)
     })
 })

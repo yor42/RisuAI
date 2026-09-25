@@ -4,6 +4,7 @@
     import { downloadPreset } from "src/ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
     import { selectedCharID, ShowRealmFrameStore } from "src/ts/stores.svelte";
+    import { getRealmUploadUrl } from "src/ts/realmUploadUrl";
     import { sleep } from "src/ts/util";
     import { onDestroy, onMount } from "svelte";
 
@@ -11,8 +12,6 @@
         $ShowRealmFrameStore = ''
     }
     let iframe: HTMLIFrameElement = $state(null)
-    const tk = DBState.db?.account?.token;
-    const id = DBState.db?.account?.id
     let loadingStage = $state(0)
     let pongGot = false
 
@@ -96,18 +95,6 @@
         }
     })
 
-    const getUrl = () => {
-        let url = tk ? `https://realm.risuai.net/upload?token=${tk}&token_id=${id}` : 'https://realm.risuai.net/upload'
-        if($ShowRealmFrameStore.startsWith('preset') || $ShowRealmFrameStore.startsWith('module')){
-            //TODO, add preset edit
-        }
-        else if(DBState.db.characters[$selectedCharID].type === 'character' && DBState.db.characters[$selectedCharID].realmId){
-            url += `&edit=${DBState.db.characters[$selectedCharID].realmId}&edit-type=normal`
-        }
-        url += '#noLayout'
-        return url
-    }
-
     onDestroy(() => {
         window.removeEventListener('message', pmfunc)
     })
@@ -124,7 +111,7 @@
     </div>
     {/if}
     <iframe bind:this={iframe}
-        src={getUrl()}
+        src={getRealmUploadUrl()}
         title="upload" class="w-full flex-1" class:hidden={loadingStage < 1}
 ></iframe>
 </div>

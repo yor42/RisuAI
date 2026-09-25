@@ -42,7 +42,6 @@ vi.mock(
     () =>
         ({
             forageStorage: {
-                isAccount: false,
                 keys: vi.fn(async () => Array.from(remoteStore.keys())),
                 getItem: vi.fn(async (key: string) => remoteStore.get(key) ?? null),
                 setItem: vi.fn(async (key: string, value: Uint8Array) => {
@@ -90,7 +89,6 @@ import { forageStorage } from 'src/ts/globalApi.svelte'
 // here so newly added tests get it too without repeating it.
 beforeEach(() => {
     remoteStore.clear()
-    forageStorage.isAccount = false
     ;(forageStorage.setItem as ReturnType<typeof vi.fn>).mockClear()
     ;(forageStorage.getItem as ReturnType<typeof vi.fn>).mockClear()
     ;(forageStorage.keys as ReturnType<typeof vi.fn>).mockClear()
@@ -199,12 +197,8 @@ describe('Remote block content-addressed naming (Phase 1.5 Tier B Stage 3a, nami
 // pointer block length lands on a multiple of 4 (see B4c's own comment for
 // why an unescaped chaId can't). B2, B3 and B7 pin retry and recording
 // behaviour around a throwing write and a confirmed-existing file. B4 and
-// B4b pin that a changed character still writes a new hash file. B5 and B6
-// pin that account storage doesn't skip an unchanged write; B6 specifically
-// pins that it doesn't consult the recorded set either, even when a prior
-// local-storage write already recorded the same name -- this matters
-// because `forageStorage.isAccount` can flip true mid-page ("save current
-// data to account"). (B3 and B7 each isolate their own module instance via
+// B4b pin that a changed character still writes a new hash file. (B3 and B7
+// each isolate their own module instance via
 // `vi.resetModules()`, since they manipulate `skipRemoteSavingOnCharacters:
 // true` and the existence-check recording path the other tests below don't
 // otherwise touch.)
@@ -400,62 +394,6 @@ describe('RisuSaveEncoder — CHORE-17 Stage B, the remote file skip and the fac
             (args) => args[0] === `risuSaveBlock_${chaId}`,
         )
         expect(pointerWrites.length).toBeGreaterThan(0)
-    })
-
-    test('B5 (guard): with forageStorage.isAccount, neither of two unchanged set() calls is skipped', async () => {
-        forageStorage.isAccount = true
-        const db = buildFixtureDb('B5 unchanged content')
-        const encoder = new RisuSaveEncoder()
-        await encoder.init(db, { skipRemoteSavingOnCharacters: false })
-        const remoteKey = Array.from(remoteStore.keys())[0]
-        const countAfterInit = forageSetItemCallsForKey(remoteKey)
-
-        await encoder.set(db, makeToSave(['char-remote-1']))
-        const countAfterFirstSet = forageSetItemCallsForKey(remoteKey)
-        expect(countAfterFirstSet).toBeGreaterThan(countAfterInit)
-
-        await encoder.set(db, makeToSave(['char-remote-1']))
-        const countAfterSecondSet = forageSetItemCallsForKey(remoteKey)
-        expect(countAfterSecondSet).toBeGreaterThan(countAfterFirstSet)
-    })
-
-    test('B6 (guard): the account branch writes even when a prior local-storage write already recorded the name', async () => {
-        // Gate 2 round 3, item 2: B5 starts in account mode from the very
-        // first write, so it never proves the account branch ignores a name
-        // `checkedRemoteExistence` already holds -- only that account mode
-        // doesn't add to it. This drives the scenario the maintainer
-        // described: "save current data to account" flips
-        // `forageStorage.isAccount` true mid-page, after local (or Node
-        // server) storage already wrote -- and recorded -- this exact file.
-        const chaId = 'char-remote-account-switch'
-        const db: Database = {
-            formatversion: 5,
-            botPresets: [],
-            botPresetsId: 0,
-            modules: [],
-            loadouts: [],
-            plugins: [],
-            pluginCustomStorage: {},
-            characters: [
-                { chaId, type: 'character', name: 'Test Character', data: 'account switch content', chats: [] },
-            ],
-        } as unknown as Database
-        const encoder = new RisuSaveEncoder()
-
-        // First write happens on local (isAccount false) storage, which
-        // records the fileName in `checkedRemoteExistence`.
-        await encoder.init(db, { skipRemoteSavingOnCharacters: false })
-        const remoteKey = Array.from(remoteStore.keys())[0]
-        const countAfterLocalWrite = forageSetItemCallsForKey(remoteKey)
-        expect(countAfterLocalWrite).toBeGreaterThan(0)
-
-        // The backend switches to account storage mid-page. The content is
-        // unchanged, so this is the exact same fileName recorded above.
-        forageStorage.isAccount = true
-        await encoder.set(db, makeToSave([chaId]))
-
-        const countAfterAccountSet = forageSetItemCallsForKey(remoteKey)
-        expect(countAfterAccountSet).toBeGreaterThan(countAfterLocalWrite)
     })
 
     test('B7 (guard): a boot init() whose existence check confirms the file records it, and an unchanged set() then does not rewrite', async () => {

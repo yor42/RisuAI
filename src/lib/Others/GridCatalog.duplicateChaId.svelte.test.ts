@@ -48,7 +48,6 @@ vi.mock(
     () =>
         ({
             forageStorage: {
-                isAccount: false,
                 keys: vi.fn(async () => []),
                 getItem: vi.fn(async () => null),
                 setItem: vi.fn(async () => {}),

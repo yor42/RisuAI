@@ -37,7 +37,7 @@ RisuAI/
 | `process/` | Core processing logic (chat, requests, memory, models) |
 | `plugins/` | Plugin system (API v3.0, sandboxing, security) |
 | `gui/` | GUI utilities (colorscheme, highlight, animation) |
-| `drive/` | Cloud sync and backup |
+| `drive/` | Google Drive and local backup |
 | `translator/` | Translation system |
 | `model/` | Model definitions and integrations |
 | `cbs.ts` | Callback system |
@@ -168,9 +168,9 @@ You can safely apply Tailwind's opacity modifiers directly to these custom theme
 
 ### Data Layer
 
-- Database abstraction (`src/ts/storage/autoStorage.ts`) selects a backend at runtime, in priority order: account-sync (HTTP, `accountStorage.ts`) → Node server (HTTP, `nodeStorage.ts`) → OPFS (`opfsStorage.ts`) → LocalForage (fallback).
-- **OPFS for the main database is opt-in, off by default, on the web build**: `AutoStorage` only selects it when `localStorage['opfs_flag!'] === "able"`. As of Phase 1 (`Agents/Roadmap.md`), that flag is reachable through an in-app toggle (`src/lib/Setting/Pages/FilesSettings.svelte`, "Local Storage Backend" section) that migrates existing LocalForage data to OPFS and reloads; nothing sets it automatically, so a fresh browser profile still defaults to LocalForage for `database/database.bin`. Cold storage (`src/ts/process/coldstorage.svelte.ts`) has always used OPFS directly, independent of this flag. Don't assume "OPFS" in a file name means it's active for a given user — check the `opfs_flag!` gate (or the settings toggle's current state) first.
-- Tauri desktop bypasses this whole abstraction for the primary database write and calls `@tauri-apps/plugin-fs`'s `writeFile` directly (see `src/ts/globalApi.svelte.ts`'s `saveDb()`), including for "remote" character blocks. **Tauri is the only backend that bypasses the remote-block path.** On every non-Tauri build `encodeRemoteBlock` writes through `forageStorage` — the shared `AutoStorage` instance from `globalApi.svelte.ts` — so whichever backend it selected handles remote blocks: account-sync, Node server, OPFS or LocalForage alike, not the Node server alone.
+- Database abstraction (`src/ts/storage/autoStorage.ts`) selects a backend at runtime, in priority order: Node server (HTTP, `nodeStorage.ts`) → OPFS (`opfsStorage.ts`) → LocalForage (fallback).
+- **OPFS for the main database is opt-in, off by default, on the web build**: `AutoStorage` only selects it when `localStorage['opfs_flag!'] === "able"`. The flag is set through an in-app toggle on the **Backup & Files** settings tab, hosted by `src/lib/Setting/Pages/UserSettings.svelte` through a child component, `src/lib/Setting/Pages/StorageMaintenanceSettings.svelte` (logic in `src/ts/storage/storageMaintenance.ts`), that migrates existing LocalForage data to OPFS and reloads; nothing sets it automatically, so a fresh browser profile still defaults to LocalForage for `database/database.bin`. Cold storage (`src/ts/process/coldstorage.svelte.ts`) has always used OPFS directly, independent of this flag. Don't assume "OPFS" in a file name means it's active for a given user — check the `opfs_flag!` gate (or the settings toggle's current state) first.
+- Tauri desktop bypasses this whole abstraction for the primary database write and calls `@tauri-apps/plugin-fs`'s `writeFile` directly (see `src/ts/globalApi.svelte.ts`'s `saveDb()`), including for "remote" character blocks. **Tauri is the only backend that bypasses the remote-block path.** On every non-Tauri build `encodeRemoteBlock` writes through `forageStorage` — the shared `AutoStorage` instance from `globalApi.svelte.ts` — so whichever backend it selected handles remote blocks: Node server, OPFS or LocalForage alike, not the Node server alone.
 - Save file format: `.bin` files with encryption support, structured as a block/chunk format (`RisuSaveType` in `src/ts/storage/risuSave.ts`) — a root block plus one block per character/module/preset/etc., only-changed-blocks-re-encoded incrementally.
 - Character cards: Import/export in various formats (.risum, .risup, .charx)
 

@@ -309,19 +309,11 @@ describe('resolvePromptChoice', () => {
 
 describe('isRevisionAwareBackend', () => {
     it('is false for a plain localForage/OPFS backend', () => {
-        expect(isRevisionAwareBackend({ isNodeServer: false, isAccountSync: false })).toBe(false)
+        expect(isRevisionAwareBackend({ isNodeServer: false })).toBe(false)
     })
 
     it('is true for the self-hosted Node server', () => {
-        expect(isRevisionAwareBackend({ isNodeServer: true, isAccountSync: false })).toBe(true)
-    })
-
-    it('is true for account sync', () => {
-        expect(isRevisionAwareBackend({ isNodeServer: false, isAccountSync: true })).toBe(true)
-    })
-
-    it('is true when both are somehow true', () => {
-        expect(isRevisionAwareBackend({ isNodeServer: true, isAccountSync: true })).toBe(true)
+        expect(isRevisionAwareBackend({ isNodeServer: true })).toBe(true)
     })
 })
 

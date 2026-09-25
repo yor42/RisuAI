@@ -85,7 +85,7 @@ If your plugin relies on any of the above APIs, you will need to modify your cod
 
 `safeDocument`: A secure wrapper around the Document object that restricts access to sensitive data and methods. still it can be used to create elements, query elements, and manipulate the DOM. can also be accessed using `document`.
 
-`pluginStorage`: A storage object specific to the plugin, which is shared plugins. unlike `safeLocalStorage`, its data is safed safe file wise, not device wise, making it syncable between devices using the same save file.
+`pluginStorage`: A storage object specific to the plugin, which is shared plugins. unlike `safeLocalStorage`, its data is safed safe file wise, not device wise: it travels with the save file (a `.bin` backup and restore, or a Google Drive backup), not synced between devices on its own.
 - `getItem(key: string): any | null`
 - `setItem(key: string, value: any): void`
 - `removeItem(key: string): void`
@@ -160,7 +160,7 @@ The following APIs from v2.1 are still available in v3.0:
 - `removeRisuReplacer`: Remove a text replacer
 - `safeLocalStorage`: Secure localStorage wrapper (device-specific)
 - `getDatabase`: Get database with limited access
-- `pluginStorage`: Plugin-specific storage (save file-specific, syncable)
+- `pluginStorage`: Plugin-specific storage (save file-specific, travels with the save file)
 - `setDatabaseLite`: Set database (lightweight)
 - `setDatabase`: Set database (full)
 - `loadPlugins`: Load additional plugins
@@ -660,7 +660,7 @@ API v3.0 implements multiple security layers:
 1. **Use new naming conventions**: Prefer `getCharacter`/`setCharacter` over `getChar`/`setChar`
 2. **Use type-safe arguments**: Use `getArgument`/`setArgument` instead of deprecated `getArg`/`setArg`
 3. **Leverage iframe container**: Use `showContainer`/`hideContainer` for custom UIs
-4. **Use pluginStorage for persistence**: Prefer `pluginStorage` over `safeLocalStorage` for syncable data
+4. **Use pluginStorage for persistence**: Prefer `pluginStorage` over `safeLocalStorage` — it travels with the save file (a `.bin` backup and restore, or a Google Drive backup), not synced automatically between devices
 5. **Sanitize all user input**: Even though HTML is auto-sanitized, validate data before processing
 6. **Handle async errors**: Wrap async calls in try-catch blocks
 7. **Clean up resources**: Remove event listeners when no longer needed

@@ -103,7 +103,7 @@ Open **Settings** from the menu in the character list. The main sections are:
 | **Accessibility** | Input and accessibility options. |
 | **Modules** | See [[Modules]]. |
 | **Plugin** | See [[Plugin Docs]]. |
-| **Account & Files** | Backups, saves and account. |
+| **Backup & Files** | Local and Drive backups, and storage settings (fork-specific name; upstream calls this tab "Account & Files"). |
 | **Hotkey** | Keyboard shortcuts. |
 | **Advanced Settings** | Options for advanced users. |
 

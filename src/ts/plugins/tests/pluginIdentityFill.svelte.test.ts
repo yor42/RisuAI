@@ -75,7 +75,6 @@ vi.mock(import('../../globalApi.svelte'), () => ({
     saveAsset: vi.fn(),
     toGetter: vi.fn((obj: unknown) => obj),
     forageStorage: {
-        isAccount: false,
         keys: vi.fn(async () => []),
         getItem: vi.fn(async () => null),
         setItem: vi.fn(async () => {}),

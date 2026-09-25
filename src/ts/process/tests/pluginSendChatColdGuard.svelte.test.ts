@@ -136,7 +136,7 @@ vi.mock(import('../../alert'), () => ({
 
 vi.mock(import('../../globalApi.svelte'), () => ({
     checkCharOrder: vi.fn(),
-    forageStorage: { isAccount: false },
+    forageStorage: {},
     getFetchLogs: vi.fn(),
     // AV-3 (Report 15 §2.2, gate L6): getFileSrcCached calls this predicate.
     isPlainHttpFileSrc: vi.fn(() => false),

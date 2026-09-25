@@ -14,7 +14,6 @@ import { get } from "svelte/store"
 import type { NodeStorage } from "../storage/nodeStorage"
 import { compress as fflateCompress, decompress as fflateDecompress } from "fflate"
 import { v4 as uuidv4 } from "uuid"
-import { fetchProtectedResource } from "../sionyw"
 import { alertClear, alertConfirm, alertError, alertWait } from "../alert"
 import { language } from "src/lang"
 import type { Database, character } from "../storage/database.svelte"
@@ -26,7 +25,6 @@ export {
     getColdStorageBackupKey,
     getColdStorageBackupName,
     isColdStorageBackupData,
-    replaceColdStoragePayloadResources,
     listColdDataKeysFromDb
 } from "./coldstorageData"
 
@@ -41,28 +39,9 @@ async function decompress(data:Uint8Array) {
     })
 }
 
-export async function getColdStorageItem(key:string, opts:{
-    accountFallback?:boolean
-} = {}) {
+export async function getColdStorageItem(key:string) {
 
-    if(forageStorage.isAccount && !opts.accountFallback){
-        const d = await fetchProtectedResource('/hub/account/coldstorage', {
-            method: 'GET',
-            headers: {
-                'x-risu-key': key,
-            }
-        })
-
-        if(d.status === 200){
-            const buf = await d.arrayBuffer()
-            const text = new TextDecoder().decode(await decompress(new Uint8Array(buf)))
-            return JSON.parse(text)
-        }
-        return await getColdStorageItem(key, {
-            accountFallback: true
-        })
-    }
-    else if(isNodeServer){
+    if(isNodeServer){
         try {
             const storage = forageStorage.realStorage as NodeStorage
             const f = await storage.getItem('coldstorage/' + key)
@@ -115,8 +94,7 @@ export async function getColdStorageItem(key:string, opts:{
  *                    `null` (a plugin can legitimately store `null`) --
  *                    that is still `'ok'`, not `'missing'`.
  *   - `'missing'` -- the backend positively reported "no such item", per the
- *                    backend-specific rules below. Never returned for the
- *                    account branch (see `classifyAccountColdRead`).
+ *                    backend-specific rules below.
  *   - `'error'`   -- anything else: a transient I/O failure, a permission or
  *                    scope error, or a decode (decompress/JSON.parse)
  *                    failure. Every case that isn't clearly "the item was
@@ -243,56 +221,6 @@ export async function classifyNodeColdRead(
     }
 }
 
-/**
- * Pure classification seam for the account backend, with `fetchHub` and
- * `readLocal` injected. **Never returns `'missing'`** (plan §5.2 item 1):
- * the hub's 204 meaning is unverified and the hub is upstream-only
- * (`RisuAccount` cannot be modified from this repo), so a hub answer alone
- * can never be allowed to trigger the lost-data notice.
- *
- * On a non-200 status (401, 404, 500, 204, ...) or a network throw, this
- * falls back to `readLocal()`, and a local `'ok'` wins over the hub's
- * failure. A hub `'ok'` (status 200) that fails to decode is `'error'`
- * immediately, with no local fallback attempt -- the hub does have the
- * data, just not readable data. Everything that isn't a local `'ok'`
- * collapses to `'error'`, including a local `'missing'`: this is no more
- * aggressive than today's account branch, which also never trusted a bare
- * "not found" as proof of loss (the `isAccount` rule must never get more
- * aggressive than today).
- */
-export async function classifyAccountColdRead(
-    fetchHub: () => Promise<{ status: number, arrayBuffer: () => Promise<ArrayBuffer> }>,
-    readLocal: () => Promise<ColdStorageReadResult>,
-): Promise<ColdStorageReadResult> {
-    let hubResponse: { status: number, arrayBuffer: () => Promise<ArrayBuffer> } | null = null
-    try {
-        hubResponse = await fetchHub()
-    } catch (networkError) {
-        hubResponse = null
-    }
-
-    if (hubResponse && hubResponse.status === 200) {
-        try {
-            const buf = await hubResponse.arrayBuffer()
-            const value = await decodeColdStorageBytes(new Uint8Array(buf))
-            return { status: 'ok', value }
-        } catch (decodeError) {
-            return { status: 'error', error: decodeError }
-        }
-    }
-
-    const localResult = await readLocal()
-    if (localResult.status === 'ok') {
-        return localResult
-    }
-    return {
-        status: 'error',
-        error: hubResponse
-            ? new Error(`Cold storage account read failed with status ${hubResponse.status}`)
-            : new Error('Cold storage account read failed: network error')
-    }
-}
-
 async function readLocalColdStorageBytes(key: string): Promise<ColdStorageBytesResult> {
     if (isNodeServer) {
         const storage = forageStorage.realStorage as NodeStorage
@@ -321,25 +249,12 @@ async function readLocalColdStorageValue(key: string): Promise<ColdStorageReadRe
  * Classifies I/O and decoding only -- see `ColdStorageReadResult` above for
  * why there is no shape check here.
  *
- * `getColdStorageItem` above stays byte-identical (gate Q1): its existing
- * callers keep today's behaviour, including the account branch's
- * network-throw rejection that `globalApi.svelte.ts`/`drive.ts` rely on to
- * abort, and the `null`-on-any-failure shape `backuplocal.ts` expects. Only
- * `preLoadChat` and the plugin-storage bridge (`v3.svelte.ts`) moved to this
+ * `getColdStorageItem` above keeps its existing callers' behaviour,
+ * including the `null`-on-any-failure shape `backuplocal.ts` expects. Only
+ * `preLoadChat` and the plugin-storage bridge (`v3.svelte.ts`) use this
  * reader instead.
  */
 export async function readColdStorageItem(key: string): Promise<ColdStorageReadResult> {
-    if (forageStorage.isAccount) {
-        return await classifyAccountColdRead(
-            () => fetchProtectedResource('/hub/account/coldstorage', {
-                method: 'GET',
-                headers: {
-                    'x-risu-key': key,
-                }
-            }),
-            () => readLocalColdStorageValue(key),
-        )
-    }
     return await readLocalColdStorageValue(key)
 }
 
@@ -360,38 +275,8 @@ async function compressColdStorageValue(value:any):Promise<Uint8Array | null> {
     }
 }
 
-export async function setAccountColdStorageItem(key:string, value:any):Promise<boolean> {
-    const compressed = await compressColdStorageValue(value)
-    if(!compressed){
-        return false
-    }
-
-    try {
-        const res = await fetchProtectedResource('/hub/account/coldstorage', {
-            method: 'POST',
-            headers: {
-                'x-risu-key': key,
-                'content-type': 'application/octet-stream'
-            },
-            body: compressed as any
-        })
-        if(res.status !== 200){
-            console.error('Error setting cold storage item:', await res.text().catch(() => 'unknown'))
-            return false
-        }
-        return true
-    } catch (error) {
-        console.error('Cold storage account write failed:', error)
-        return false
-    }
-}
-
 export async function setColdStorageItem(key:string, value:any):Promise<boolean> {
     console.log("setting cold storage item", key, value)
-
-    if(forageStorage.isAccount){
-        return await setAccountColdStorageItem(key, value)
-    }
 
     const compressed = await compressColdStorageValue(value)
     if(!compressed){
@@ -436,21 +321,7 @@ export async function setColdStorageItem(key:string, value:any):Promise<boolean>
 }
 
 export async function listColdStorageItems():Promise<{items:string[]}> {
-    if(forageStorage.isAccount){
-        const d = await fetchProtectedResource('/hub/account/coldstorage', {
-            method: 'GET',
-            headers: {
-                'x-risu-key': '@list-keys',
-            }
-        })
-
-        if(d.status === 200){
-            return await d.json()
-        }
-        return null
-    }
-
-    else if(isNodeServer){
+    if(isNodeServer){
         const fullKeys = await (forageStorage.realStorage as NodeStorage).keys()
         const keys = fullKeys.filter(k => k.startsWith('coldstorage/')).map(k => k.replace('coldstorage/', ''))
         return {
@@ -610,7 +481,7 @@ export async function cleanColdStorage(){
             return
         }
 
-        if(forageStorage.isAccount || isNodeServer){
+        if(isNodeServer){
             await removeColdStorageItems(unusedKeys)
         }
         else{
@@ -623,11 +494,10 @@ export async function cleanColdStorage(){
 
         alertClear()
     } catch (error) {
-        // Anything past this point that throws -- listColdStorageItems()
-        // returning null in account mode (so its `.items` access throws a
-        // TypeError), a rejected Node `keys()`, or anything else -- must
-        // not leave the "Verifying..."/"Removing..." wait indicator on
-        // screen, and must not attempt any further deletion.
+        // Anything past this point that throws -- a rejected Node `keys()`,
+        // or anything else -- must not leave the "Verifying..."/"Removing..."
+        // wait indicator on screen, and must not attempt any further
+        // deletion.
         alertClear()
         console.error('Cold storage cleanup failed:', error)
         alertError(language.errors.coldStorageCleanupFailed)
@@ -635,25 +505,8 @@ export async function cleanColdStorage(){
 }
 
 async function removeColdStorageItems(keys:string[]) {
-    
-    if(forageStorage.isAccount){
-        try {
-            const res = await fetchProtectedResource('/hub/account/coldstorage', {
-                method: 'POST',
-                headers: {
-                    'x-risu-key': 'remove',
-                    'x-action': 'remove'
-                },
-                body: JSON.stringify({ keys })
-            })
-            if(res.status !== 200){
-                console.error('Error removing cold storage item:', await res.text().catch(() => 'unknown'))
-            }
-        } catch (error) {
-            console.error('Cold storage account remove failed:', error)
-        }
-    }
-    else if(isNodeServer){
+
+    if(isNodeServer){
         try {
             const storage = forageStorage.realStorage as NodeStorage
             const deleteKeys = keys.map(k => 'coldstorage/' + k);

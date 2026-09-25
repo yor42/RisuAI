@@ -89,7 +89,6 @@ vi.mock(import('src/ts/alert'), () => ({
     alertTOS: vi.fn(async () => true),
     alertToast: vi.fn(),
     alertInput: vi.fn(),
-    alertLogin: vi.fn(),
     alertNormalWait: vi.fn(),
     alertAddCharacter: vi.fn(),
     alertStore: writable({ type: 'none', msg: '' }),
@@ -173,21 +172,16 @@ vi.mock(import('src/ts/characterCards'), () => ({
     hubURL: 'https://example.invalid',
 }) as unknown as typeof import('src/ts/characterCards'))
 
-vi.mock(import('src/ts/drive/accounter'), () => ({
-    loadRisuAccountData: vi.fn(async () => {}),
-}) as unknown as typeof import('src/ts/drive/accounter'))
-
 vi.mock(import('src/ts/storage/dbChangeEffects.svelte'), () => ({
     registerDbChangeEffects: vi.fn(),
 }) as unknown as typeof import('src/ts/storage/dbChangeEffects.svelte'))
 
 // The one real export this file needs (`forageStorage.getItem`) exposed as a
 // freely controllable spy, instead of the real AutoStorage backend (which
-// would otherwise pull in localforage/OPFS/account-sync setup unrelated to
-// getFileSrc's own caching logic).
+// would otherwise pull in localforage/OPFS setup unrelated to getFileSrc's
+// own caching logic).
 vi.mock(import('src/ts/storage/autoStorage'), () => ({
     AutoStorage: class {
-        isAccount = false
         getItem = vi.fn(async (_key: string) => null as unknown)
         setItem = vi.fn(async () => null)
         keys = vi.fn(async () => [] as string[])
@@ -203,11 +197,6 @@ vi.mock(import('src/ts/gui/colorscheme'), () => ({
     updateColorScheme: vi.fn(),
     updateTextThemeAndCSS: vi.fn(),
 }) as unknown as typeof import('src/ts/gui/colorscheme'))
-
-vi.mock(import('src/ts/kei/backup'), () => ({
-    autoServerBackup: vi.fn(async () => {}),
-    saveDbKei: vi.fn(async () => {}),
-}) as unknown as typeof import('src/ts/kei/backup'))
 
 vi.mock(import('src/ts/observer.svelte'), () => ({
     startObserveDom: vi.fn(),
@@ -229,13 +218,9 @@ vi.mock(import('src/ts/process/modules'), () => ({
     moduleUpdate: vi.fn(async () => {}),
 }) as unknown as typeof import('src/ts/process/modules'))
 
-vi.mock(import('src/ts/storage/accountStorage'), () => ({
-    AccountSyncConflictError: class extends Error {},
-}) as unknown as typeof import('src/ts/storage/accountStorage'))
-
 // Not on getFileSrc's own path (only some unrelated chat-load helpers in
 // globalApi.svelte.ts reach it) -- mocked away rather than loaded for real to
-// avoid its own heavy import graph (fflate, sionyw, process/index.svelte...).
+// avoid its own heavy import graph (fflate, process/index.svelte...).
 vi.mock(import('src/ts/process/coldstorage.svelte'), () => ({
     getColdStorageItem: vi.fn(),
     makeColdData: vi.fn(),
@@ -285,7 +270,6 @@ beforeEach(() => {
     toStringSpy = vi.spyOn(globalThis.Buffer.prototype, 'toString')
     __fileCacheTestHooks.reset()
     setUsingSw(false)
-    forageStorage.isAccount = false
     vi.mocked(forageStorage.getItem).mockReset()
     vi.mocked(forageStorage.getItem).mockResolvedValue(null as unknown as never)
 })
@@ -294,7 +278,6 @@ afterEach(() => {
     toStringSpy.mockRestore()
     __fileCacheTestHooks.reset()
     setUsingSw(false)
-    forageStorage.isAccount = false
     vi.unstubAllGlobals()
 })
 
@@ -445,27 +428,12 @@ describe('AV-3 plain-HTTP getFileSrc cache (Report 15 §4)', () => {
         expect(result).toBe('data:image/png;base64,')
     })
 
-    test('T8 (guard): account + assets/... still returns the hub URL, with no read and no cache entry', async () => {
-        forageStorage.isAccount = true
-        const loc = 'assets/t8-account.png'
-
-        const result = await getFileSrc(loc)
-
-        expect(result).toBe('https://example.invalid/rs/' + loc)
-        expect(forageStorage.getItem).not.toHaveBeenCalled()
-        expect(__fileCacheTestHooks.stats().entries).toBe(0)
-    })
-
     test('T11: the predicate agrees with the branch getFileSrc actually takes (Tauri fixed false)', async () => {
         const combos = [
-            { isAccount: false, assets: false, usingSw: false },
-            { isAccount: false, assets: false, usingSw: true },
-            { isAccount: false, assets: true, usingSw: false },
-            { isAccount: false, assets: true, usingSw: true },
-            { isAccount: true, assets: false, usingSw: false },
-            { isAccount: true, assets: false, usingSw: true },
-            { isAccount: true, assets: true, usingSw: false },
-            { isAccount: true, assets: true, usingSw: true },
+            { assets: false, usingSw: false },
+            { assets: false, usingSw: true },
+            { assets: true, usingSw: false },
+            { assets: true, usingSw: true },
         ]
 
         // Only reached by the usingSw=true combos below, via getFileSrc's
@@ -478,18 +446,17 @@ describe('AV-3 plain-HTTP getFileSrc cache (Report 15 §4)', () => {
 
         const mismatches: string[] = []
         for (const combo of combos) {
-            forageStorage.isAccount = combo.isAccount
             setUsingSw(combo.usingSw)
             // Reset between combos so a `fileCache` entry left over from an
-            // earlier combo (same two locs are reused across all 8 combos)
+            // earlier combo (same two locs are reused across all 4 combos)
             // can't influence a later one.
             __fileCacheTestHooks.reset()
             const loc = combo.assets ? 'assets/t11.png' : 'other/t11.png'
-            const expectedPlainHttp = !(combo.isAccount && combo.assets) && !combo.usingSw
+            const expectedPlainHttp = !combo.usingSw
             const actual = isPlainHttpFileSrc(loc)
             if (actual !== expectedPlainHttp) {
                 mismatches.push(
-                    `isAccount=${combo.isAccount} assets=${combo.assets} usingSw=${combo.usingSw}: predicate expected ${expectedPlainHttp}, got ${actual}`,
+                    `assets=${combo.assets} usingSw=${combo.usingSw}: predicate expected ${expectedPlainHttp}, got ${actual}`,
                 )
             }
 
@@ -497,7 +464,7 @@ describe('AV-3 plain-HTTP getFileSrc cache (Report 15 §4)', () => {
             const resultIsPlainHttp = result.startsWith('data:image/png;base64,')
             if (resultIsPlainHttp !== actual) {
                 mismatches.push(
-                    `isAccount=${combo.isAccount} assets=${combo.assets} usingSw=${combo.usingSw}: getFileSrc's actual branch (plain-http=${resultIsPlainHttp}) disagreed with isPlainHttpFileSrc (${actual})`,
+                    `assets=${combo.assets} usingSw=${combo.usingSw}: getFileSrc's actual branch (plain-http=${resultIsPlainHttp}) disagreed with isPlainHttpFileSrc (${actual})`,
                 )
             }
         }

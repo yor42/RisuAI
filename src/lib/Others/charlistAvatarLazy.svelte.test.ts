@@ -117,7 +117,6 @@ vi.mock(
     () =>
         ({
             forageStorage: {
-                isAccount: false,
                 keys: vi.fn(async () => []),
                 getItem: vi.fn(async () => null),
                 setItem: vi.fn(async () => {}),
@@ -224,10 +223,9 @@ vi.mock(import('../../ts/characters'), async (importOriginal) => {
 // `getFileSrc`" -- exactly today's 'plain'/'css' behaviour -- so every
 // existing `getFileSrcSpy` count assertion in this file keeps measuring what
 // it always measured. `isThumbEligible` is left real: it is a pure,
-// synchronous predicate over already-mocked state
-// (`loc.startsWith('assets/') && !forageStorage.isAccount`), adds no async
-// hop of its own, and keeping it real exercises the real eligibility check
-// against this file's own fixture locs rather than assuming it.
+// synchronous predicate (`loc.startsWith('assets/')`), adds no async hop of
+// its own, and keeping it real exercises the real eligibility check against
+// this file's own fixture locs rather than assuming it.
 vi.mock(import('../../ts/media/avatarThumb'), async (importOriginal) => {
     const actual = await importOriginal()
     return {
@@ -1506,9 +1504,9 @@ describe('v12: entries must leave the visible set when items unmount', () => {
 // (`fireOn`/`instancesByMargin`/`orderedTargets`), not just the simpler
 // "everything visible immediately" fake `charlistAvatarLookups.svelte.test.ts`
 // uses. The other six call sites (`GridCatalog.svelte:133` list, `:161`
-// trash, `Sidebar.svelte:629` folder, `:756` folder member,
-// `AlertComp.svelte:399` selectChar, `MobileCharacters.svelte:85`) are NOT
-// covered here: each would need its own fixture (a trashed-character DB, a
+// trash, `Sidebar.svelte:629` folder, `:756` folder member, AlertComp's own
+// selectChar dialog, `MobileCharacters.svelte:85`) are NOT covered here: each
+// would need its own fixture (a trashed-character DB, a
 // folder DB, an AlertComp mount, a mobile-layout mount) PLUS this file's own
 // margin-band bookkeeping threaded through it, which is disproportionate to
 // what it would add -- the wiring itself (does this call site route through

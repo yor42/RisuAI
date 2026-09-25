@@ -28,14 +28,12 @@ import { checkDriverInit, syncDrive } from "./drive/drive";
 import { hasher } from "./parser/parser.svelte";
 import { characterURLImport, hubURL } from "./characterCards";
 import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from "./storage/defaultPrompts";
-import { loadRisuAccountData } from "./drive/accounter";
 import { decodeRisuSave, encodeRisuSaveLegacy, RisuSaveEncoder, type toSaveType } from "./storage/risuSave";
 import { registerDbChangeEffects } from "./storage/dbChangeEffects.svelte";
 import { installCharacterSaveMarks } from "./storage/characterSaveMarks";
 import { AutoStorage } from "./storage/autoStorage";
 import { updateAnimationSpeed } from "./gui/animation";
 import { updateColorScheme, updateTextThemeAndCSS } from "./gui/colorscheme";
-import { autoServerBackup, saveDbKei } from "./kei/backup";
 import { save } from "@tauri-apps/plugin-dialog";
 import { listen } from '@tauri-apps/api/event'
 import { language } from "src/lang";
@@ -45,13 +43,11 @@ import { updateLorebooks } from "./characters";
 import { initMobileGesture } from "./hotkey";
 import { fetch as TauriHTTPFetch } from '@tauri-apps/plugin-http';
 import { moduleUpdate } from "./process/modules";
-import type { AccountStorage } from "./storage/accountStorage";
 import { getColdStorageItem, makeColdData } from "./process/coldstorage.svelte";
 import { isTauri, isNodeServer } from "./platform";
 import { isLocalNetworkUrl } from "./network/localNetwork";
 import { decodeProxyJobWsChunk, formatProxyStreamErrorMessage, parseProxyJobWsEvent } from "./network/proxyJobWs";
 import { getNodeServerProxyAuth, NodeStorageConflictError } from "./storage/nodeStorage";
-import { AccountSyncConflictError } from "./storage/accountStorage";
 import { getMultiTabAction, isRevisionAwareBackend, nextAutoReloadHistory, resolvePromptChoice, resolveRevisionAwarePromptChoice, readAutoReloadHistory, writeAutoReloadHistory, shouldRetainOtherTabSavedSignal, type AutoReloadHistory } from "./storage/multiTabReload";
 import { hasLocalDrafts } from "./localDrafts";
 import { draftContentOrphanGate } from "./draftContentOrphanGate";
@@ -309,9 +305,6 @@ export async function getFileSrc(loc: string) {
         }
         return convertFileSrc(loc)
     }
-    if (forageStorage.isAccount && loc.startsWith('assets')) {
-        return hubURL + `/rs/` + loc
-    }
     try {
         if (usingSw) {
             const encoded = Buffer.from(loc, 'utf-8').toString('hex')
@@ -506,10 +499,7 @@ export async function saveAsset(data: Uint8Array, customId: string = '', fileNam
     }
     else {
         let form = `assets/${id}.${fileExtension}`
-        const replacer = await forageStorage.setItem(form, data)
-        if (replacer) {
-            return replacer
-        }
+        await forageStorage.setItem(form, data)
         return form
     }
 }
@@ -1197,7 +1187,7 @@ export async function saveDb() {
         tracker: changeTracker,
         installMarks: installCharacterSaveMarks,
         init: () => encoder.init(getDatabase(), {
-            compression: forageStorage.isAccount
+            compression: false
         }),
         createRealScheduler: () => saveTimeoutExecute
     })
@@ -1248,9 +1238,6 @@ export async function saveDb() {
     // still eventually escalates instead of degrading silently forever --
     // mirroring what the old unified `savetrys` counter did before
     // `primaryCommitted` split this catch into pre-/post-commit halves.
-    // (saveDbKei(), also called in this section, wraps its whole body in its
-    // own try/catch and only ever console.errors -- it never throws, so it
-    // cannot contribute to this streak.)
     let postCommitFailStreak = 0
     const POST_COMMIT_ESCALATE_THRESHOLD = 5
     // Logs a post-commit ancillary failure and, once per consecutive-failure
@@ -1315,8 +1302,8 @@ export async function saveDb() {
             if (action === 'prompt') {
                 lastPromptAt = now
                 saving.state = false
-                if (isRevisionAwareBackend({ isNodeServer, isAccountSync: forageStorage.isAccount })) {
-                    // On the self-hosted Node server and account sync, this tab's
+                if (isRevisionAwareBackend({ isNodeServer })) {
+                    // On the self-hosted Node server, this tab's
                     // known revision is now stale precisely because the other tab's
                     // save just landed -- and that revision is deliberately never
                     // refreshed from a 409 (see nodeStorage.ts). So a "save mine"
@@ -1404,7 +1391,7 @@ export async function saveDb() {
                 reloadFlag: requiresFullEncoderReload,
                 reinitEncoder: async () => {
                     const freshEncoder = await reloadSaveEncoder(encoder, getDatabase(), {
-                        compression: forageStorage.isAccount
+                        compression: false
                     })
                     try {
                         publishFrozenSaveIndicator(freshEncoder, getDatabase())
@@ -1482,9 +1469,6 @@ export async function saveDb() {
             // The primary database write has landed. Everything after this point
             // (backup write, getDbBackups) is best-effort and must never be
             // able to resurrect and re-commit this payload — see the catch below.
-            // saveDbKei() also runs later in this section, but it never throws
-            // (see the postCommitFailStreak comment above), so it cannot be a
-            // source of the failures this flag guards against.
             primaryCommitted = true
             if (channel) {
                 try {
@@ -1501,25 +1485,19 @@ export async function saveDb() {
                 }
             }
             else {
-                if (!forageStorage.isAccount && shouldWriteBackup) {
+                if (shouldWriteBackup) {
                     await forageStorage.setItem(`database/dbbackup-${(Date.now() / 100).toFixed()}.bin`, dbData)
                     lastBackupWriteTime = Date.now()
                 }
-                if (forageStorage.isAccount) {
-                    await sleep(3000)
-                }
             }
-            if (!forageStorage.isAccount) {
-                await getDbBackups()
-            }
+            await getDbBackups()
 
             savetrys = 0
             conflictAlertShown = false
-            await saveDbKei()
             // A full iteration -- primary write, backup write, and getDbBackups
-            // (the steps above that can actually throw), plus saveDbKei (which
-            // never throws) -- completed without error, so this is a genuinely
-            // clean cycle: reset the consecutive post-commit failure streak.
+            // (the steps above that can actually throw) -- completed without
+            // error, so this is a genuinely clean cycle: reset the consecutive
+            // post-commit failure streak.
             postCommitFailStreak = 0
             await sleep(500)
         } catch (error) {
@@ -1564,7 +1542,7 @@ export async function saveDb() {
                 changed = true
             } else {
                 // Primary write already succeeded and was already broadcast; only
-                // ancillary best-effort work (backup writes, getDbBackups, saveDbKei)
+                // ancillary best-effort work (backup writes, getDbBackups)
                 // failed. Do NOT restore the tracker or set `changed` — see the
                 // reasoning above.
                 savetrys = 0
@@ -1609,47 +1587,17 @@ export async function saveDb() {
                     console.error(error)
                     // Actually stop retrying, not just stop re-alerting: a short
                     // sleep-then-loop here would re-encode and resend the exact
-                    // same rejected state on every iteration forever (Codex
-                    // review caught this — the comment above already claimed
-                    // this wasn't "blindly retrying," but the code did exactly
-                    // that). Reload is the only real resolution today, so park
-                    // this loop indefinitely instead. Deliberately `sleepForever()`,
-                    // not `sleep(hugeNumber)` — a first attempt at this used
-                    // `sleep(100000000)` on the mistaken assumption it meant
-                    // "forever" (copying accountStorage.ts's reloadSession
-                    // handling, which has the same bug), but that's milliseconds,
-                    // so it only blocks for ~27.8 hours before silently resuming
-                    // and resending the known-stale write. `sleepForever()` never
-                    // resolves at all, so only a reload (which discards this
-                    // pending await along with all other JS state) can end it.
+                    // same rejected state on every iteration forever. Reload is
+                    // the only real resolution today, so park this loop
+                    // indefinitely instead. Deliberately `sleepForever()`, not
+                    // `sleep(hugeNumber)`: a millisecond count large enough to
+                    // look like "forever" still resolves eventually and
+                    // silently resumes sending the known-stale write, while
+                    // `sleepForever()` never resolves at all, so only a reload
+                    // (which discards this pending await along with all other
+                    // JS state) can end it.
                     saving.state = false
                     savingStoppedReason.set('node-conflict')
-                    await sleepForever()
-                }
-            }
-            else if (error instanceof AccountSyncConflictError) {
-                // Same reasoning as the NodeStorageConflictError branch above,
-                // for the account-sync backend: whether the hub actually
-                // enforces this today is unverified, but if it does, blindly
-                // retrying the same stale write is wrong for the same reason.
-                // Same `primaryCommitted` split as above too: a conflict on
-                // ancillary work after this device's write already landed is
-                // not a lost save.
-                if (primaryCommitted) {
-                    if (!conflictAlertShown) {
-                        conflictAlertShown = true
-                        alertToast('Your latest changes were saved. A background sync step could not complete because of a conflict on your account; this does not affect your saved data.')
-                    }
-                    notePostCommitAncillaryFailure(error)
-                    await sleep(500)
-                } else {
-                    if (!conflictAlertShown) {
-                        conflictAlertShown = true
-                        alertToast('Your local data conflicts with a newer version on your account — your latest changes could not be saved. Reload the app to get the current data (unsynced local changes will be lost).')
-                    }
-                    console.error(error)
-                    saving.state = false
-                    savingStoppedReason.set('account-conflict')
                     await sleepForever()
                 }
             }
@@ -1704,10 +1652,6 @@ export async function saveDb() {
  * @returns {Promise<number[]>} - A promise that resolves to an array of backup timestamps.
  */
 export async function getDbBackups() {
-    let db = getDatabase()
-    if (db?.account?.useSync && !isTauri && !isNodeServer) {
-        return []
-    }
     if (isTauri) {
         const keys = await readDir('database', { baseDir: BaseDirectory.AppData })
         let backups: number[] = []
@@ -1751,13 +1695,13 @@ export function setUsingSw(value: boolean) {
  * Reports whether `getFileSrc(loc)` would take the plain-HTTP branch (the one
  * that reads+encodes through `fileCache` above) right now, without calling it.
  * Must mirror getFileSrc's own branch conditions exactly — this is a
- * synchronous snapshot of the same three checks getFileSrc makes before its
+ * synchronous snapshot of the same two checks getFileSrc makes before its
  * first await, so a caller (parser.svelte.ts's getFileSrcCached, Report 15
  * §2.2) can decide, in the same tick, whether to route through its own
  * permanent cache or call getFileSrc directly every time.
  */
 export function isPlainHttpFileSrc(loc: string): boolean {
-    return !isTauri && !(forageStorage.isAccount && loc.startsWith('assets')) && !usingSw
+    return !isTauri && !usingSw
 }
 
 /**
@@ -1827,7 +1771,6 @@ function buildTimeoutSignal(originalSignal?: AbortSignal, timeoutMs?: number) {
  * @property {boolean} [rawResponse] - Whether to return the raw response.
  * @property {'POST' | 'GET'} [method] - The HTTP method to use.
  * @property {AbortSignal} [abortSignal] - The abort signal to cancel the request.
- * @property {boolean} [useRisuToken] - Whether to use the Risu token.
  * @property {string} [chatId] - The chat ID associated with the request.
  */
 export interface GlobalFetchArgs {
@@ -1838,7 +1781,6 @@ export interface GlobalFetchArgs {
     rawResponse?: boolean;
     method?: 'POST' | 'GET';
     abortSignal?: AbortSignal;
-    useRisuToken?: boolean;
     chatId?: string;
     interceptor?: string;
     requestTimeoutMs?: number;
@@ -2081,7 +2023,6 @@ async function fetchWithProxy(url: string, arg: GlobalFetchArgs): Promise<Global
             "risu-header": encodeURIComponent(JSON.stringify(arg.headers)),
             "risu-url": encodeURIComponent(url),
             "Content-Type": arg.body instanceof URLSearchParams ? "application/x-www-form-urlencoded" : "application/json",
-            ...(arg.useRisuToken && { "x-risu-tk": "use" }),
             ...(arg.requestTimeoutMs && { "risu-timeout-ms": Math.max(1, Math.floor(arg.requestTimeoutMs)).toString() }),
             ...(nodeProxyAuth && { "risu-auth": nodeProxyAuth }),
             ...(DBState?.db?.requestLocation && { "risu-location": DBState.db.requestLocation }),
@@ -2141,13 +2082,12 @@ export function getBasename(data: string) {
  *
  * `opts.swallowErrors` controls what happens when a `cha.coldstorage` read
  * throws:
- * - `false` (`getUncleanables`'s own behaviour, byte-for-byte the same as
- *   before this function existed): the read is awaited with no try/catch
- *   around it, so a throw rejects this function immediately, before any
- *   later character is scanned. The account branch of
- *   `getColdStorageItem` (`coldstorage.svelte.ts`) is the only one of its
- *   four backends that can actually do this -- Node/Tauri/OPFS each
- *   already swallow their own read errors into a `null` return.
+ * - `false` (`getUncleanables`'s own behaviour): the read is awaited with no
+ *   try/catch around it, so a throw rejects this function immediately,
+ *   before any later character is scanned. No current `getColdStorageItem`
+ *   (`coldstorage.svelte.ts`) backend actually does this -- Node, Tauri and
+ *   OPFS each swallow their own read errors into a `null` return -- so this
+ *   stays a defensive guard rather than a reachable path today.
  * - `true` (`buildAssetKeepSet`'s own behaviour): the read is wrapped in a
  *   try/catch, and a throw is recorded by setting `complete = false`
  *   instead of rejecting, so the boot-time asset sweep can still finish
@@ -2202,19 +2142,18 @@ async function resolveUncleanableChars(db: Database, opts: { swallowErrors: bool
 }
 
 /**
- * A throw from a `cha.coldstorage` read (only reachable via
- * `getColdStorageItem`'s account branch) propagates out of this function
- * exactly as it did before `resolveUncleanableChars` existed: nothing here
+ * A throw from a `cha.coldstorage` read -- not produced by any current
+ * `getColdStorageItem` backend, but this function passes one through if a
+ * future backend ever does -- propagates out of this function: nothing here
  * catches it, so `getUncleanables`'s own promise rejects with that same
- * error, before any later character is scanned. `drive.ts:312`'s
- * `loadDrive` relies on that rejection to abort a restore instead of
- * silently treating a broken account read as "nothing to protect" --
- * `buildAssetKeepSet` below is the function that swallows a read failure,
- * not this one.
+ * error, before any later character is scanned. `drive.ts`'s `loadDrive`
+ * relies on that rejection to abort a restore instead of silently treating a
+ * broken read as "nothing to protect" -- `buildAssetKeepSet` below is the
+ * function that swallows a read failure, not this one.
  */
-export async function getUncleanables(db: Database, uptype: 'basename' | 'pure' = 'basename') {
+export async function getUncleanables(db: Database) {
     const { chars } = await resolveUncleanableChars(db, { swallowErrors: false })
-    return getUncleanablesSync(db, uptype, { chars });
+    return getUncleanablesSync(db, { chars });
 }
 
 /**
@@ -2231,31 +2170,30 @@ export async function getUncleanables(db: Database, uptype: 'basename' | 'pure' 
  * every character. The sweeps (`sweepTauriAssets` / `sweepForageAssetKey`)
  * skip deleting anything when `complete` is explicitly `false`.
  *
- * `getUncleanables` itself is unaffected by this function -- `drive.ts:312`
- * keeps calling it directly and keeps seeing a throw reject, as documented
- * on `getUncleanables` above.
+ * `getUncleanables` itself is unaffected by this function -- `loadDrive`'s
+ * restore write (`drive.ts`) keeps calling it directly and keeps seeing a
+ * throw reject, as documented on `getUncleanables` above.
  */
 export async function buildAssetKeepSet(db: Database): Promise<{ uncleanable: Set<string>, complete: boolean }> {
     const { chars, complete } = await resolveUncleanableChars(db, { swallowErrors: true })
-    const uncleanable = new Set(getUncleanablesSync(db, 'basename', { chars }))
+    const uncleanable = new Set(getUncleanablesSync(db, { chars }))
     return { uncleanable, complete }
 }
 
 /**
- * Retrieves uncleanable resources from the database.
- * 
+ * Retrieves uncleanable resources from the database, by basename.
+ *
  * @param {Database} db - The database to retrieve uncleanable resources from.
- * @param {'basename'|'pure'} [uptype='basename'] - The type of uncleanable resources to retrieve.
  * @returns {Promise<string[]>} - An array of uncleanable resources.
  */
-export function getUncleanablesSync(db: Database, uptype: 'basename' | 'pure' = 'basename', options?:{
+export function getUncleanablesSync(db: Database, options?:{
     chars: (character|groupChat)[],
 }) {
     const uncleanable = new Set<string>();
 
     /**
      * Adds a resource to the uncleanable list if it is not already included.
-     * 
+     *
      * @param {string} data - The resource to add.
      */
     function addUncleanable(data: string) {
@@ -2265,8 +2203,7 @@ export function getUncleanablesSync(db: Database, uptype: 'basename' | 'pure' = 
         if (data === '') {
             return;
         }
-        const bn = uptype === 'basename' ? getBasename(data) : data;
-        uncleanable.add(bn);
+        uncleanable.add(getBasename(data));
     }
 
     addUncleanable(db.customBackground);
@@ -2365,50 +2302,6 @@ export function getUncleanablesSync(db: Database, uptype: 'basename' | 'pure' = 
     return Array.from(uncleanable);
 }
 
-
-/**
- * Replaces database resources with the provided replacer object.
- * 
- * @param {Database} db - The database object containing resources to be replaced.
- * @param {{[key: string]: string}} replacer - An object mapping original resource keys to their replacements.
- * @returns {Database} - The updated database object with replaced resources.
- */
-export function replaceDbResources(db: Database, replacer: { [key: string]: string }): Database {
-    /**
-     * Replaces a given data string with its corresponding value from the replacer object.
-     * 
-     * @param {string} data - The data string to be replaced.
-     * @returns {string} - The replaced data string or the original data if no replacement is found.
-     */
-    function replaceData(data: string): string {
-        if (!data) {
-            return data;
-        }
-        return replacer[data] ?? data;
-    }
-
-    db.customBackground = replaceData(db.customBackground);
-    db.userIcon = replaceData(db.userIcon);
-
-    for (const cha of db.characters) {
-        if (cha.image) {
-            cha.image = replaceData(cha.image);
-        }
-        if (cha.emotionImages) {
-            for (let i = 0; i < cha.emotionImages.length; i++) {
-                cha.emotionImages[i][1] = replaceData(cha.emotionImages[i][1]);
-            }
-        }
-        if (cha.type !== 'group') {
-            if (cha.additionalAssets) {
-                for (let i = 0; i < cha.additionalAssets.length; i++) {
-                    cha.additionalAssets[i][1] = replaceData(cha.additionalAssets[i][1]);
-                }
-            }
-        }
-    }
-    return db;
-}
 
 /**
  * Checks and updates the character order in the database.
@@ -3043,7 +2936,6 @@ async function fetchViaProxyJobWs(url: string, arg: {
  * @param {Object} [arg.headers] - The headers of the request.
  * @param {string} [arg.method="POST"] - The HTTP method of the request.
  * @param {AbortSignal} [arg.signal] - The signal to abort the request.
- * @param {boolean} [arg.useRisuTk] - Whether to use Risu token.
  * @param {string} [arg.chatId] - The chat ID associated with the request.
  * @returns {Promise<Object>} - A promise that resolves to an object containing the response body, headers, and status.
  * @returns {ReadableStream<Uint8Array>} body - The response body as a readable stream.
@@ -3056,7 +2948,6 @@ export async function fetchNative(url: string, arg: {
     headers?: { [key: string]: string },
     method?: "POST" | "GET" | "PUT" | "DELETE",
     signal?: AbortSignal,
-    useRisuTk?: boolean,
     chatId?: string
     interceptor?: string
     logFetch?: boolean
@@ -3270,15 +3161,7 @@ export async function fetchNative(url: string, arg: {
 
         const r = await fetch(getProxy2Url(), {
             body: realBody as any,
-            headers: arg.useRisuTk ? {
-                "risu-header": encodeURIComponent(JSON.stringify(headers)),
-                "risu-url": encodeURIComponent(url),
-                "Content-Type": "application/json",
-                "x-risu-tk": "use",
-                ...(arg.requestTimeoutMs && { "risu-timeout-ms": Math.max(1, Math.floor(arg.requestTimeoutMs)).toString() }),
-                ...(nodeProxyAuth ? { "risu-auth": nodeProxyAuth } : {}),
-                ...(DBState?.db?.requestLocation && { "risu-location": DBState.db.requestLocation }),
-            } : {
+            headers: {
                 "risu-header": encodeURIComponent(JSON.stringify(headers)),
                 "risu-url": encodeURIComponent(url),
                 "Content-Type": "application/json",

@@ -112,15 +112,15 @@ export function resolvePromptChoice(raw: string): MultiTabPromptChoice {
     return 'stay'
 }
 
-// On a revision-aware backend (self-hosted Node server, or account sync), a peer
-// tab's save is exactly what makes THIS tab's known revision stale — the backend
+// On a revision-aware backend (the self-hosted Node server), a peer tab's save
+// is exactly what makes THIS tab's known revision stale — the backend
 // deliberately never refreshes that revision from a 409 (see nodeStorage.ts), so a
 // "save mine" choice here is guaranteed to 409 again on write, pre-commit, every
 // single time. Offering it would promise something the optimistic-concurrency guard
 // exists to prevent. So this predicate exists to gate which prompt shape the caller
-// shows: revision-aware backends only ever get reload/stay, never a save-mine option.
-export function isRevisionAwareBackend(arg: { isNodeServer: boolean, isAccountSync: boolean }): boolean {
-    return arg.isNodeServer || arg.isAccountSync
+// shows: a revision-aware backend only ever gets reload/stay, never a save-mine option.
+export function isRevisionAwareBackend(arg: { isNodeServer: boolean }): boolean {
+    return arg.isNodeServer
 }
 
 export function resolveRevisionAwarePromptChoice(raw: string): RevisionAwarePromptChoice {

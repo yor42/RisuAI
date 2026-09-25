@@ -3,17 +3,17 @@
 
 /**
  * MC-081, I3. The fork must never write an `encryption.risudat` marker into
- * a local backup, and never treat it as a plain asset -- regardless of
- * `forageStorage.isAccount` or the page's origin. `SaveLocalBackup` and
- * `SavePartialLocalBackup` (`src/ts/drive/backuplocal.ts`) are driven for
- * real, with `LocalWriter` replaced by a spy on `writeBackup` so every entry
- * name either function writes can be inspected directly.
+ * a local backup, and never treat it as a plain asset -- regardless of the
+ * page's origin. `SaveLocalBackup` and `SavePartialLocalBackup`
+ * (`src/ts/drive/backuplocal.ts`) are driven for real, with `LocalWriter`
+ * replaced by a spy on `writeBackup` so every entry name either function
+ * writes can be inspected directly.
  *
  * This file's origin is pinned to `https://risuai.xyz/` via the per-file
- * `@vitest-environment-options` docblock, and `forageStorage.isAccount` is
- * `true`: the one combination under which upstream's `SaveLocalBackup`
- * fetches a key and encrypts the database into this marker entry. This fork
- * must never write it, under this combination or any other.
+ * `@vitest-environment-options` docblock: upstream's `SaveLocalBackup`
+ * fetches a key and encrypts the database into this marker entry only on
+ * that origin. This fork's writer must never write it, on this origin or
+ * any other.
  */
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { Database } from '../../storage/database.svelte'
@@ -67,7 +67,6 @@ vi.mock(import('../../globalApi.svelte'), () => ({
         close = localWriterCloseMock
     },
     forageStorage: {
-        isAccount: true,
         keys: vi.fn(async () => []),
         getItem: vi.fn(async () => null),
         setItem: vi.fn(async () => {}),
@@ -138,7 +137,7 @@ function writtenEntryNames(): unknown[] {
 }
 
 describe('a local backup never contains an account-sync encryption marker (I3)', () => {
-    test('SaveLocalBackup never writes an encryption.risudat entry, even when forageStorage.isAccount is true on risuai.xyz', async () => {
+    test('SaveLocalBackup never writes an encryption.risudat entry, even on risuai.xyz', async () => {
         expect(location.origin).toBe('https://risuai.xyz')
 
         await SaveLocalBackup()
@@ -151,7 +150,7 @@ describe('a local backup never contains an account-sync encryption marker (I3)',
         expect(fetchMock).not.toHaveBeenCalled()
     })
 
-    test('SavePartialLocalBackup never writes an encryption.risudat entry, even when forageStorage.isAccount is true on risuai.xyz', async () => {
+    test('SavePartialLocalBackup never writes an encryption.risudat entry, even on risuai.xyz', async () => {
         expect(location.origin).toBe('https://risuai.xyz')
 
         await SavePartialLocalBackup()
