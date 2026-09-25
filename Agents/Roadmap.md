@@ -1378,9 +1378,15 @@ run. Narrow.
 
 ### CHORE-33 — RisuAccount removal: drop the hub credential, keep Realm and Drive
 
-**Status (2026-09-25):** scoped, not planned; **next stage.** Scope and the migration-refusal
-decision are maintainer-decided (`MC-080`, `MC-081`); see
-`Agents/Reports/25-risuaccount-removal-strategy.md`. The maintainer set the timing: after the
+**Status (2026-09-25):** **planned; Gate 1 passed.**
+- **The plan is `Agents/Reports/28-risuaccount-removal-plan.md` rev 3.2**, in three sub-stages:
+  - 28A: the importer refusal;
+  - 28B: the removal, with the Backup & Files merge;
+  - 28C: agreement at first use of an upstream service.
+- **Gate 1:** ledger rows 193 to 197. Rounds 1 and 2 rejected on substance; round 3 approved.
+- **Decisions:** MC-080, MC-081 and MC-084 to MC-089. 28A waits on the maintainer's go.
+- **Background:** scope and the migration refusal were already maintainer-decided (`MC-080`,
+  `MC-081`); see `Agents/Reports/25-risuaccount-removal-strategy.md`. The maintainer set the timing: after the
 multiuser removal (CHORE-34, `911376cb`) and before W1, the order `senior-advisor` recommended.
 Its prerequisite, W0, is committed. The plan will be Report 28. Report 25's line numbers predate
 W0, CHORE-28 and CHORE-34. `SavePopupIcon.svelte` is now edited, not deleted, because it also

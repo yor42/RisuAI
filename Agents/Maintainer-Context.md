@@ -2182,6 +2182,191 @@ protected.
 
 ---
 
+### MC-084 — RisuRealm's standalone site has its own sign-in and upload
+
+- **Tag:** stated
+- **Date:** 2026-09-25
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, after reading Report 25, with a screenshot of the site's top bar.
+  The bar reads "RisuRealm" with a "Standalone" badge, a search box, and "Upload" and "Account"
+  menu items.
+- **Related:** MC-080, MC-012. It answers Report 25's open item on whether Realm offers its own
+  sign-in (section 10 item 5 and the section 11 uncertainty), which the report had left
+  unverified and ruled out probing.
+
+> I've been reading the doc, and noticed that agents marked that it is currently uncertain if
+> risurealm provides their own standalone sign in.
+> they do. this is the screenshot of top bar for risurealm standalone, and they have login and
+> upload menu.
+
+**What this settles:** a user can sign in to and upload on RisuRealm directly, without this app's
+hub sign-in. The statement covers the standalone site. It does not say whether the page the app
+embeds for its own anonymous upload offers a sign-in.
+
+---
+
+### MC-085 — The legal-documents notice is tied to RisuAccount; upstream's ToS and EULA mostly cover account sync and Realm
+
+- **Tag:** stated
+- **Date:** 2026-09-25
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, during the CHORE-33 blast-radius refresh.
+- **Related:** MC-080, MC-084. The notice is the "legal documents not configured" screen that
+  `App.svelte` shows unless the build sets `VITE_RISU_LEGAL_CONFIGURED`.
+
+> RisuAccount is also related to whole 'please set up legal document' warning that this project
+> requires, as when I gave upstream ToS and EULA a read, those were mostly about risu account
+> sync and risurealm.
+
+**What this means for the removal:** the legal-documents notice, and the Terms of Service
+acceptance it points to, are in scope for the RisuAccount stage's investigation. What, if
+anything, changes in them is the maintainer's decision. Realm is kept (MC-080), so the part of
+upstream's terms that covers Realm still bears on the fork after the removal. The stage fetches
+nothing from upstream's servers.
+
+**The documents, supplied the same day.** The maintainer then gave local copies of upstream's
+Korean terms, `ko_EULA.htm` and `ko_privacy.htm`, saying "this might provide more clarification
+of our scope." Both are headed "Sionyw Account":
+- the unified Terms of Service, effective 2026-04-11;
+- the Privacy Policy, effective 2026-04-15.
+
+What each clause means for the stage is recorded in the stage's evidence (ledger), not here.
+
+---
+
+### MC-086 — Ask for agreement to upstream's terms when the user first uses an upstream service, not at boot
+
+- **Tag:** decision
+- **Date:** 2026-09-25
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, after the upstream terms were read (MC-085).
+- **Related:** MC-080 (Realm, Drive backup and `/hub-proxy` are kept), MC-084, MC-085.
+
+> I think best call would be to move these agreement prompt to when users actually interact with
+> these upstream services if possible.
+
+**What was decided:** the direction. The prompt that asks the user to accept upstream's Terms of
+Service and Privacy Policy moves from app start to the point where the user first interacts with
+an upstream service that the fork keeps. The maintainer made this conditional on feasibility
+("if possible"). Whether it is possible, and for which services, is still being investigated. A
+request that leaves the app with no user action cannot be gated at the point of use.
+
+---
+
+### MC-087 — RisuAccount removal: answers to the step 1 questions
+
+- **Tag:** decision
+- **Date:** 2026-09-25
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, answering the eight questions from the CHORE-33 blast-radius
+  refresh (ledger rows 190 to 192).
+- **Related:** MC-080, MC-081, MC-083, MC-084, MC-085, MC-086, MC-011.
+
+> 1. yes.
+> 2. I think Init() should detect stale profile
+> 3a. initially hide the preview or display placeholder that asks for tos agreement. and start
+> displaying previews when user accepts the term.
+> 3b.separate ticket. iirc its a simple proxy due to CORS and provider compatibility issues.
+> 3c. 1 shared acceptance for both ToS and  Privacy policy would be a safer call. specifically
+> mentioning that it is service maintained by upstream.
+> 3d. I think we can keep it for now until everything is in place.
+> 4. (b)
+> 5. delete them.
+> 6. yes.
+> 7. okay
+> 8. yes, rename them.
+
+**What was decided:**
+1. **In-place upgrades are a supported migration route.** Swapping a self-hosted upstream install
+   for this fork on the same origin, with the same `save/` folder or Docker volume, is supported
+   alongside the `.bin` route (MC-080). Report 25's invariant 6 is therefore required on the Node
+   server, static web and OPFS profiles.
+2. **Stale-profile detection lives in `AutoStorage.Init()`**, and a detected profile lands on
+   whatever `Init()` would normally choose for that platform. The maintainer confirmed the
+   second half in a follow-up message: "I probably do not have technical knowledges about DBs to
+   tell what would be a better option in 2(a) straight from their names. so I will take your
+   recommendation on that." Neither choice deletes the frozen local copy.
+3. **Upstream-service agreement (refines MC-086):**
+   - **(a)** The home-screen Realm preview is hidden until the user agrees, or replaced by a
+     placeholder that asks for agreement. Previews start showing once the user accepts.
+   - **(b)** Static web builds relaying LLM requests through upstream's `/proxy2` is a separate
+     ticket, not this stage. The maintainer's recollection, stated not verified: it is a plain
+     proxy, there for CORS and provider-compatibility reasons.
+   - **(c)** One shared acceptance covers both the Terms of Service and the Privacy Policy. The
+     prompt says explicitly that the service is maintained by upstream.
+   - **(d)** `Legal.svelte` and the `VITE_RISU_LEGAL_CONFIGURED` gate stay unchanged for now,
+     until everything else is in place.
+4. **Sharing to Realm a character that already has a `realmId`:** a fresh upload, plus a one-line
+   notice that the existing listing is edited on Realm's own site, with its own sign-in (MC-084).
+   The button label stops switching to "Update".
+5. **The `src/lang` keys that the removal leaves unused are deleted**, in all 7 language files,
+   as with MC-083.
+6. **Dead code goes in the same pass:** the server-side Sionyw OAuth code in `server.cjs`,
+   `RealmUpload.svelte`, `shareRisuHub2`, `openRealm`, `risuLogin`, `globalFetch`'s
+   `useRisuToken`, `fetchNative`'s `useRisuTk`, and the expired `tos2` notice. `LiteMain.svelte`
+   gets its own ticket.
+7. **The stage edits these documents:** `AGENTS.md`'s Data Layer section; `plugins.md`
+   (`saveMethod` and the four "syncs across devices" passages); the fifth such passage, in
+   `src/ts/plugins/migrationGuide.md`; and a new migration wiki page. The parallel wiki session's
+   files stay untouched.
+8. **The "Account & Files" settings tab is renamed**, since the account half is gone. The
+   parallel session's wiki page of the same name follows it.
+
+---
+
+### MC-088 — Merge the unreachable Files page into the renamed tab, named "Backup & Files"
+
+- **Tag:** decision
+- **Date:** 2026-09-25
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, after the stage plan proposed renaming the tab to "Files".
+- **Related:** MC-087 #8, MC-080. Roadmap CHORE-14 UI-1 (the Files page has a render case but no
+  menu button, so it is unreachable in this fork and upstream alike).
+
+> iirc there is separate Files options are already there. can you double check? If there is, I
+> think we should merge these two and rename it to Backup & Files.
+
+**Checked before recording (Orchestrator, 2026-09-25):**
+- `FilesSettings.svelte` is rendered at `SettingsMenuIndex` 5, and nothing sets that index. This
+  is the same at upstream/main.
+- The page holds the fork's own Phase 1 controls:
+  - the Asset Cache Integrity panel, with the `checkCorruption` "Warn on startup" toggle and
+    "Verify Asset Cache Now";
+  - the OPFS "Local Storage Backend" switch.
+- Its Google Drive save and load buttons duplicate the ones on the Account & Files page.
+
+**What was decided:**
+- **The pages merge.** The Files page's content moves into the renamed tab, which is now called
+  "Backup & Files".
+- **The two Phase 1 panels become reachable** from the Settings menu for the first time.
+- **Duplicates go.** The duplicate Drive buttons and the unreachable page route are removed.
+- **Keys.** The label gets a new key. `files` and `account` are left unused and are deleted
+  (MC-087 #5).
+
+---
+
+### MC-089 — Keep the OPFS switch visible after the merge; the fork does not ship until every current ticket is cleared
+
+- **Tag:** decision
+- **Date:** 2026-09-25
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, answering the question of whether MC-088's merge should expose the
+  OPFS "Local Storage Backend" switch now. It had never been reachable, and Gate 1 round 2 (ledger
+  row 194) found a possible quota lockout in its migration.
+- **Related:** MC-088, MC-011. Report 28's ticket for the OPFS quota lockout.
+
+> leave it as is, as this fork won't ship until we clear every current tickets.
+
+**What was decided:**
+- **The switch stays visible.** The merged Backup & Files tab shows the OPFS switch in the CHORE-33
+  stage, as Report 28 plans.
+- **Nothing ships until every current ticket is cleared.** The first release of this fork waits
+  for every currently open ticket, the OPFS quota-lockout ticket included. A ticket's existence
+  is therefore not a reason to hide a feature for the release. This adds to MC-011's "the
+  campaign gates the first release".
+
+---
+
 ## Open questions
 
 The three entries below are questions addressed to the maintainer that were still unresolved as of

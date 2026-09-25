@@ -24,11 +24,80 @@ The branch is `fix/persistence-conflict-platform-hardening`. **It has not been p
 `wiki/Settings-*.md` files, `wiki/Home.md` and `wiki/_Sidebar.md`. Wait for the maintainer's
 update, and do not delete them.
 
-## Next session: start the RisuAccount removal (CHORE-33, `MC-080`/`MC-081`)
+**Uncommitted, from the CHORE-33 step 1 session:** ledger rows 190 to 192 and MC-084 to MC-086.
+The maintainer has not asked for a commit.
+
+## Current: RisuAccount removal (CHORE-33), step 1 done, waiting on the maintainer
+
+**Done 2026-09-25:** the blast-radius refresh. Ledger row 190 is the `code-searcher` survey,
+row 191 the legal-notice and ToS lens, row 192 the investigator workflow (6 repo lenses, 3 fork
+lenses, critic, gaps, 2 `deep-investigator` checks). The Orchestrator verified the key claims.
+The evidence packets are in this session's scratchpad (`survey/`, `inv6-stale-profile/`,
+`loadlocalbackup-write-order/` with the RUN red-test prototype, `tests-account-symbols/`,
+`changes-since-row173/`, `user-surface-and-scope/`, `docs-staleness/`, `fork-*/`, `gap-*/`,
+`contradiction-*/`, `legal-notice-and-tos/`). Scratchpad files do not survive the session;
+rows 190 to 192 are the durable record.
+
+**New maintainer input this session:**
+- MC-084: Realm's standalone site has its own sign-in and upload.
+- MC-085: the legal-documents notice is tied to RisuAccount. Upstream's ToS and Privacy Policy
+  mostly cover account sync and Realm. The maintainer supplied the Korean texts.
+- MC-086 (decision, "if possible"): move the ToS agreement prompt from boot to the first use of
+  an upstream service.
+
+**The maintainer answered the step 1 questions** (MC-087, 2026-09-25). They took the
+Orchestrator's recommendation for the landing backend.
+
+**Report 28 rev 1 is written** (`Agents/Reports/28-risuaccount-removal-plan.md`). It has three
+sub-stages:
+- 28A: the importer refusal;
+- 28B: the removal;
+- 28C: agreement at first use of an upstream service.
+
+**Gate 1 round 1 rejected rev 1** (ledger row 193): substantive, round 1 of the three-round
+count. The Orchestrator verified every finding. Its reviews are in the scratchpad
+(`gate1-*/review.md`).
+
+**Report 28 rev 2** takes every round 1 finding, plus MC-088.
+
+**Gate 1 round 2 rejected rev 2** (ledger row 194), the second substantive rejection. The
+mechanism question was answered yes:
+- **I6's stale-profile notice** now ends the boot: acknowledge, clear the flags, reload.
+- **28C's agreement** is now enforced in the functions that send requests upstream, not at UI
+  call sites.
+
+**Report 28 rev 3** carries both, plus every round 2 finding.
+
+**Gate 1 round 3 approved rev 3** (ledger row 195): all four lenses APPROVE-WITH-FINDINGS, no
+BLOCKER or MAJOR. **Gate 1 has passed.**
+- **Report 28 rev 3.1** folds in all 62 round 3 findings. Contradictions are fixed in place; the
+  rest is in section 11, which is binding.
+- **The fix-up review** (ledger row 196) rejected rev 3.1 for wording only. Two fold-ins were
+  wrong (the `compression` option, and section 5's translation rule), and some fixes existed only
+  in section 11.
+- **Rev 3.2** corrects them and merges section 11 into the home sections. Its re-check (ledger
+  row 197) approved with one MINOR, fixed in place. **The plan is final.**
+- **Waiting on the maintainer's go for 28A.**
+- **MC-089 (maintainer):** keep the OPFS switch visible. Nothing ships until every open ticket
+  is cleared.
+
+**Next, after the fix-up review:** report to the maintainer and ask to start 28A. 28A begins
+with `test-warrior`'s red test (T-A1 to T-A13), built from row 192's prototype.
+- **A substantive rejection** means escalating to `senior-advisor` with a dossier before rev 4.
+- **A mis-launch happened.** An accidental relaunch of the round 2 script
+  (`wiw5yfble`) was stopped within seconds. The round 2 review files were untouched: their
+  timestamps predate it.
+
+**MC-088 is in rev 2:** the unreachable `FilesSettings.svelte` page (CHORE-14 UI-1) merges into
+the renamed "Backup & Files" tab.
+
+**Next:** arbitrate round 2's findings against source, log ledger row 194, and report to the
+maintainer. No code before Gate 1 approves.
+
+The original stage brief follows.
 
 The maintainer chose it as the next stage on 2026-09-25, after CHORE-34 and before W1 (MC-080,
-"Timing"). Its scope and the migration refusal are already decided. Nothing of the stage itself
-has started.
+"Timing"). Its scope and the migration refusal are already decided.
 
 **Read first:**
 - `MC-080` (scope and timing) and `MC-081` (the encrypted-`.bin` refusal and its message) in
@@ -161,6 +230,9 @@ save/persistence, backend selection and the `.bin` importer):
 
 - **Git Bash here fails on heredocs, and on single commands longer than about 230 characters.**
   Write scripts with the Write tool, or use PowerShell. Commit with `git commit -F <file>`.
+- **Git Bash rewrites any argument that begins with `/`** (MSYS path conversion). `git grep
+  '/kei'` reported no matches when there were five. Prefix such commands with
+  `MSYS_NO_PATHCONV=1`, or drop the leading slash from the pattern.
 - **Four agents hold `Write`, for scratchpad files only:** `opus-reviewer`,
   `adversarial-reviewer`, `investigator` and `deep-investigator` (in effect since 2026-09-25).
   `code-searcher`, `doc-verifier` and `senior-advisor` lack it. Check `^tools:` in
