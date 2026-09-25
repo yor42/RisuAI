@@ -1378,13 +1378,13 @@ run. Narrow.
 
 ### CHORE-33 — RisuAccount removal: drop the hub credential, keep Realm and Drive
 
-**Status (2026-09-25):** scoped, not planned. Scope and the migration-refusal decision are
-maintainer-decided (`MC-080`, `MC-081`); see `Agents/Reports/25-risuaccount-removal-strategy.md`.
-Timing is deferred by the maintainer. The stage cannot start before W0 is committed, since it
-shares six files with W0 (`bootstrap.ts`, `characterCards.ts`, `globalApi.svelte.ts`,
-`kei/backup.ts`, `drive/accounter.ts`, `coldstorage.svelte.ts`). `senior-advisor` recommends W0,
-CHORE-28, the multiuser removal, then this stage, then W1 onward; placing it after W2 is to
-avoid.
+**Status (2026-09-25):** scoped, not planned; **next stage.** Scope and the migration-refusal
+decision are maintainer-decided (`MC-080`, `MC-081`); see
+`Agents/Reports/25-risuaccount-removal-strategy.md`. The maintainer set the timing: after the
+multiuser removal (CHORE-34, `911376cb`) and before W1, the order `senior-advisor` recommended.
+Its prerequisite, W0, is committed. The plan will be Report 28. Report 25's line numbers predate
+W0, CHORE-28 and CHORE-34. `SavePopupIcon.svelte` is now edited, not deleted, because it also
+holds CHORE-28's frozen-save indicator.
 
 - **Removes:** the hub sign-in and everything that uses its token — account sync, account data
   save and load, account backup restore, account cold storage, Kei auto-backup (its UI trigger
@@ -1397,6 +1397,25 @@ avoid.
   import (`MC-011`). An account-sync-encrypted `.bin` is refused upfront, before any write, with
   the two upstream alternatives named in the message (`MC-081`).
 - **Separate stage from the multiuser removal** (`MC-074`); the two are not folded together.
+
+### CHORE-34 — Multiuser removal
+
+**Status (2026-09-25): ✅ DONE (`911376cb`).** Gate 1 approved plan rev 2 (ledger rows 186
+and 187). Gate 2 round 1 rejected the implementation for wording only (row 188), and the fix-up
+review approved the corrections. The live smoke check passed on a production build (row 189).
+See
+`Agents/Reports/27-multiuser-removal-plan.md`, `MC-074`, `MC-083`, and ledger row 185.
+
+- **Removes:** `src/ts/sync/` (multiuser, PeerJS-based) whole, its 7 `src/lang` keys across all
+  7 language files, the `peerjs` dependency, and the "Create Multiuser Room" / "Join MultiUser
+  Room" UI entry points.
+- **Keeps:** `Message.name` and `Message.otherUser` on the `Message` type; `checkCharOrder`'s
+  `§temp` exclusion; `saveAsset`'s `customId` parameter; `sendChat`'s double save-mark mechanism
+  (only its comment's multiuser mention drops).
+- **Migration:** upstream data carrying multiuser fields (a stray `§temp` character, a named
+  message) keeps loading (`MC-011`); nothing is stripped or migrated on load (`MC-083`).
+- **Separate stage from the RisuAccount removal** (CHORE-33): no shared transport, helper or hub
+  route (ledger row 185).
 
 ## Sequencing Summary
 

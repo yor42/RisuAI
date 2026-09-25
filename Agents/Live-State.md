@@ -14,92 +14,102 @@ treat it as a log or history.
 
 ## Branch and commit state
 
-The branch is `fix/persistence-conflict-platform-hardening`, pushed to origin (yor42/RisuAI) and
-in sync at `21668b28`.
-- `2420d717`: the CHORE-28 code.
-- `21668b28`: the CHORE-28 records.
-
-A follow-up commit adds this briefing and the `Write` grants below.
+The branch is `fix/persistence-conflict-platform-hardening`. **It has not been pushed since
+`12841c19`.** The maintainer said the push can wait.
+- `911376cb`: CHORE-34, the multiuser removal (code, tests, `package.json`/`pnpm-lock.yaml`,
+  `AGENTS.md`, `wiki/Playground.md`).
+- The commit after it: the CHORE-34 records and this briefing.
 
 **Not staged, by the maintainer's instruction:** the parallel documentation session's
 `wiki/Settings-*.md` files, `wiki/Home.md` and `wiki/_Sidebar.md`. Wait for the maintainer's
 update, and do not delete them.
 
-## Next session: start the multiuser removal (`MC-074`)
+## Next session: start the RisuAccount removal (CHORE-33, `MC-080`/`MC-081`)
 
-The maintainer chose this as the next stage on 2026-09-25. Nothing has started yet.
+The maintainer chose it as the next stage on 2026-09-25, after CHORE-34 and before W1 (MC-080,
+"Timing"). Its scope and the migration refusal are already decided. Nothing of the stage itself
+has started.
 
 **Read first:**
-- `MC-074` in `Agents/Maintainer-Context.md` (its "How to apply" list is the investigation scope);
-- `MC-011`: upstream data carrying multiuser fields must still load;
-- Report 25, the RisuAccount removal strategy. It is the template for a removal: blast radius,
-  invariants, and "tests for removed behaviour are deleted".
-- Keep the RisuAccount removal a **separate** stage. Do not fold it in (Roadmap, CHORE-33).
+- `MC-080` (scope and timing) and `MC-081` (the encrypted-`.bin` refusal and its message) in
+  `Agents/Maintainer-Context.md`, plus `MC-011`, `MC-012`, `MC-025`, `MC-026` and `MC-002`.
+- **Report 25** (`Agents/Reports/25-risuaccount-removal-strategy.md`). It is the strategy:
+  - section 4: what goes and what stays;
+  - section 5: the nine invariants;
+  - section 6: the refusal message;
+  - section 10: next investigations and the do-not list;
+  - section 12: the records to update.
+- **Report 27** (the CHORE-34 plan). It is the template for this stage's plan: blast-radius
+  table, invariants with acceptance, and tests to delete, edit or pin.
+- Ledger rows 173 to 175: the original blast-radius map, the reference forks and the
+  `senior-advisor` scope call.
 
-**What is already known.** None of it has been investigated yet.
-- `src/ts/sync/multiuser.ts` is 448 lines. Its writes deliberately go to the live selection. It
-  contains one incidental `cha.chaId = '§temp'`.
-- **Files that import it:**
-  - `Chat.svelte`, `DefaultChatScreen.svelte`, `Sidebar.svelte`, `SideChatList.svelte`,
-    `PlaygroundMenu.svelte`;
-  - `process/index.svelte.ts`, which includes `sendMain`'s message `name` field via
-    `ConnectionOpenStore`;
-  - `storage/assetIntegrity.ts`.
-- **Test files that mock or cover it:**
-  - `sync/tests/multiuserReceiveChatSaveMarks.svelte.test.ts`;
-  - `sendChatSaveMarks`;
-  - `sendChatColdGuard`;
-  - three `Chat.*` tests;
-  - `SideChatList.newChat`.
-- `AlertComp.svelte` and all seven `src/lang/*.ts` files mention it.
+**Report 25's line numbers are stale.** They were cited against the W0 working tree, before W0,
+CHORE-28 and CHORE-34 were committed. CHORE-34 edited `AlertComp.svelte`, `index.svelte.ts` and
+others. Cite by name, and re-derive any location before relying on it.
 
-**Stage plan** (AGENTS.md section 4; opus-tier gates, because it touches the send path and the
-save marks):
-1. **Blast-radius investigation** (`investigator`; escalate to `deep-investigator` only on the
-   triggers). Cover:
-   - UI entry points;
-   - every `ConnectionOpenStore` and other exported-store read;
-   - the plugin API surface;
-   - saved fields in `database.svelte.ts` and characters;
-   - hub or network endpoints it uses (read the code only; **no probing**, `MC-081`);
-   - `server/`;
-   - tests and translations.
-   Log it in the ledger (next row 185).
-2. **Plan as Report 27, then Gate 1** (`opus-reviewer`, fresh). The plan must include:
-   - invariants: nothing reachable is left dangling;
-   - upstream data with multiuser fields loads;
-   - send and save-mark behaviour are unchanged for the single user;
-   - which tests are deleted, and which are kept or changed.
-3. **Decisions to put to the maintainer, if the investigation raises them:**
-   - whether to remove the now-unused `src/lang` keys, which the maintainer edits by hand;
-   - anything user-visible besides the menu entries.
-4. **Test first**, then `sonnet-coder`, then Gate 2 (`opus-reviewer` lenses), then commit on the
-   maintainer's word.
+**Stage plan** (AGENTS.md section 4; `opus-reviewer` gates throughout, since the stage touches
+save/persistence, backend selection and the `.bin` importer):
+1. **Refresh the blast radius**, one ledger row per dispatch, starting at row 190.
+   - One batched `code-searcher` survey of every Report 25 section 10 item 1 pattern, against
+     HEAD. The Orchestrator re-runs the counts.
+   - Then an `investigator` pass on what the survey cannot settle:
+     - invariant 6's scenario: `accountst = able` with a stale local database in the fallback
+       backend, and where detection could live;
+     - the exact write order in today's `LoadLocalBackup`, for the red test;
+     - the current test files that reference account symbols (Report 25 invariant 9 counted
+       23 before W0 landed);
+     - whatever changed since ledger row 173.
+   - Escalate to `deep-investigator` only on the 1.3 triggers.
+   - Section 10 item 6 (compare W1's file list) is moot, because the maintainer fixed the
+     order.
+   - Item 5 (whether Realm's upload page offers its own sign-in) needs a network visit. Do not
+     probe (`MC-081`); ask the maintainer if it matters.
+2. **Bring the maintainer the questions that are theirs.** Known open ones:
+   - **Invariant 6's two design choices:** which backend a detected profile lands on, and
+     whether detection lives in `AutoStorage.Init()` or in `bootstrap.ts`.
+   - **Anything user-visible** beyond what MC-080 already lists.
+   - **Unused `src/lang` keys:** delete them? For CHORE-34 the answer was yes (MC-083).
+3. **Plan as Report 28, then Gate 1** (`opus-reviewer`, fresh). The plan must carry all nine
+   Report 25 invariants with acceptance scenarios.
+4. **Tests.** The red test comes first: invariant 1's four-entry fixture (asset, cold entry,
+   marker, database) with write spies, red at HEAD. Then `sonnet-coder`, then Gate 2
+   (`opus-reviewer`), a live check on a production build, and a commit on the maintainer's word.
 
-**Operational notes for this environment:**
-- **Git Bash here fails on heredocs, and on single commands longer than about 230 characters.**
-  Write scripts with the Write tool, or use PowerShell.
-- **Four agents now hold `Write`, for scratchpad files only:** `opus-reviewer`,
-  `adversarial-reviewer`, `investigator` and `deep-investigator`. The profiles were edited on
-  2026-09-25 at the maintainer's request, and the change takes effect in a new session.
-  `code-searcher`, `doc-verifier` and `senior-advisor` still lack it. Check `^tools:` in
-  `.claude/agents/*.md` before a brief promises a tool.
-- Tell every agent to run shell commands from the scratchpad, never from the repo root, and never
-  to use globs in `mkdir` or `cp`.
-- Build mutants from the current source each round. When swapping in HEAD versions of files,
-  serve every changed file, including the `./en` import.
+**Stage obligations beyond `src/`:**
+- **`AGENTS.md`:** its "Data Layer" section names account-sync as the first backend and in the
+  remote-block paragraph. Both must change.
+- **`plugins.md`:** invariant 8's `saveMethod` values and the four "syncs across devices"
+  passages.
+- **The migration wiki page** (Report 25 section 6).
+- **`wiki/Settings-Account-and-Files.md`** belongs to the parallel wiki session. Do not edit it;
+  list what goes stale for them.
 
 ## Work order
 
 1. **W0: identity.** Done and committed.
 2. **CHORE-28.** Done and committed (Report 26).
-3. **The removals:**
-   - **Multiuser removal (`MC-074`).**
-   - **RisuAccount removal (`MC-080`/`MC-081`, CHORE-33, Report 25).** The scope is decided. The
-     timing is **deferred by the maintainer**.
-   - `senior-advisor` recommends doing both removals before W1, multiuser first.
-4. **W1: engine binding.** This closes CHORE-25 and CHORE-26. Then the composer stage (Report 22
+3. **Multiuser removal (CHORE-34, `MC-074`/`MC-083`, Report 27).** Done and committed
+   (`911376cb`).
+4. **RisuAccount removal (CHORE-33, `MC-080`/`MC-081`, Report 25).** Next.
+5. **W1: engine binding.** This closes CHORE-25 and CHORE-26. Then the composer stage (Report 22
    rev 3), then W2 and W3.
+
+## CHORE-34 facts later stages rely on
+
+- **`src/ts/sync/` no longer exists.** `peerjs` is gone from the dependencies. Nothing reads
+  `ConnectionOpenStore`.
+- **`saveAsset`'s custom-id parameter** has no production caller.
+  - `verifyAssetCacheEntry` judges a 64-hex custom id as a content hash, so a caller must never
+    pass a 64-hex id that is not the hash.
+  - A `uuidv4()` name, the fallback on non-secure origins, reports 'not-content-addressed'.
+- **`checkCharOrder`'s `§temp` exclusion** is the only remaining `§temp` reference, and T1 pins it
+  (`src/ts/checkCharOrder.tempCharacter.svelte.test.ts`). Upstream saves can carry such a
+  character.
+- **Upstream facts:**
+  - upstream still ships multiuser (`upstream/main`, 2026-09-23);
+  - upstream never writes `Message.otherUser`;
+  - user messages without `name` already exist upstream.
 
 ## CHORE-28 facts later stages rely on
 
@@ -121,7 +131,8 @@ save marks):
   - `reloadSaveEncoder` is the shared reload hand-over.
   - `checkFrozenKeysForResolution` is the idle step.
   - `publishFrozenSaveIndicator` feeds `frozenSaveKeysStore`, which `SavePopupIcon.svelte`
-    renders.
+    renders. The RisuAccount removal edits that file too, because it imports `AccountWarning`
+    (Report 25 invariant 4). Keep the frozen-key indicator.
   - The save loop's calls to the last two are covered by review only.
 - **Resolving a duplicate.** A normal delete only trashes a character, so the key stays duplicated.
   A permanent delete resolves it. `removeChar` and `restoreCharacterFromTrash` accept the
@@ -134,7 +145,9 @@ save marks):
   - pure fill, repair and duplicate warnings;
   - a missing id is always fresh;
   - `repairDatabaseIds` runs at boot and on every decoded backup before install, including the
-    local `.bin` restore.
+    local `.bin` restore. W0 also added it to `loadRisuAccountBackup` (`drive/accounter.ts`) and
+    `autoServerBackup` (`kei/backup.ts`). Those calls go with the functions the RisuAccount
+    removal deletes. **The local `.bin` restore's call must stay.**
 - **`src/ts/process/chatOrigin.ts`:** a target that is gone or held twice is skipped (`MC-075`,
   `MC-078`). There is no production caller yet; W1 binds the first.
 - **W1 must:**
@@ -143,6 +156,27 @@ save marks):
   - report the Lua and CBS resolution counts;
   - measure a production build with throttling;
   - prove that `runTrigger`'s whole-clone commit cannot drop a message.
+
+## Operational notes for this environment
+
+- **Git Bash here fails on heredocs, and on single commands longer than about 230 characters.**
+  Write scripts with the Write tool, or use PowerShell. Commit with `git commit -F <file>`.
+- **Four agents hold `Write`, for scratchpad files only:** `opus-reviewer`,
+  `adversarial-reviewer`, `investigator` and `deep-investigator` (in effect since 2026-09-25).
+  `code-searcher`, `doc-verifier` and `senior-advisor` lack it. Check `^tools:` in
+  `.claude/agents/*.md` before a brief promises a tool.
+- **Tell every agent** to run shell commands from the scratchpad, never from the repo root, and
+  never to use globs in `mkdir` or `cp`.
+- **Mutants:** build them from the current source each round, through a scratch Vitest config
+  that aliases the module. When swapping in HEAD versions of files, serve every changed file,
+  including the `./en` import.
+- **`pnpm remove`/`add` backfill `libc:` metadata** into unrelated lockfile entries (pnpm
+  10.34.1). Strip the added lines so the lockfile diff is only the intended change, then validate
+  with `pnpm install --frozen-lockfile --offline`.
+- **Line endings.** `core.autocrlf=true`, so git normalises them, and a CRLF/LF flip in a
+  working-tree file never shows in the diff. Judge by `git diff --numstat` and git's "LF will be
+  replaced" warnings, not by Git Bash `grep`/`od` counts, which misreported twice. The `Agents/`
+  documents are LF.
 
 ## Open items
 
@@ -158,35 +192,48 @@ save marks):
 
 ## Test suite
 
-**104 files: 1310 passed, 4 skipped, 0 failed.** `pnpm check` is clean.
+**104 files: 1311 passed, 4 skipped, 0 failed** at `911376cb`. `pnpm check` is clean.
 - Run the suite with `npx vitest run --exclude "**/.claude/**" --exclude "**/node_modules/**"`.
   Plain `pnpm test` also picks up `.claude/worktrees/**`.
 
 ## How to live-check this app
 
 - **Use Claude in Chrome, not the built-in pane.** The service worker kills the boot in the pane.
-- **Leave-site guard:** it is off on the Vite dev server. Use a production build: run
-  `pnpm run build` with `VITE_RISU_LEGAL_CONFIGURED=TRUE` set inline for that run only, then
-  `pnpm run runserver`.
-- **Model:** Echo is the fixture's model, so reroll needs no API key.
-- **Settings:** restore any setting you change.
+- **Build for production.** Run `pnpm run build` with `$env:VITE_RISU_LEGAL_CONFIGURED='TRUE'`
+  set for that one PowerShell command only, then start `pnpm run runserver` (port 6001) yourself
+  as a background process. The maintainer approved this on 2026-09-25.
+  - Do not use `preview_start`. It would open the app in the built-in pane on the same server
+    storage, making a second writer.
+- **The Node server's data is `save/`** (gitignored). It is a near-empty throwaway, not the
+  fixture.
+  - Before the check, copy it to the scratchpad.
+  - Afterwards, stop the server and restore it. Verify the restore by hash, and move any file the
+    test created out rather than deleting it.
+- **Model:** Echo needs no API key. In the model picker it sits under "For Developer" once "show
+  unrecommended settings" is ticked.
+- **Settings:** restore any setting you change. The `save/` restore covers the Node server's
+  settings.
+- **The leave-site guard prompts on every reload of the Node build**, by design
+  (`preload.beforeUnload.test.ts`). A forced navigation does not get past it, and closing the tab
+  hangs the tool.
+  - Confirm the save reached `save/` (mtime and `__revisions.json`), then ask the maintainer to
+    refresh or close the tab.
+  - Close the tab before the server restarts, or it can write stale state back.
 - **Network:** do not probe upstream services (`MC-081`).
 
 ## Method lessons from this session
 
-- **A fix that normalises one side of a comparison needs the other side checked too.** Gate 2
-  round 2 found that counting holders by `String(chaId)` while matching raw marks deleted
-  numeric-id characters. Asking the mechanism question up front in round 3 settled it.
-- **A suggested simplification can reintroduce a bug one layer out.** Converting the mark list in
-  place would have dropped marks via `mergeUnsavedChanges`. Check where a mutated value flows
-  after the function returns.
-- **Mutants go stale.** Mutant files generated before a later source fix silently revert that fix
-  too. Regenerate them from the current source each round.
-- **HEAD swaps must serve every changed file.** A regex that missed `./en` skewed one round's
-  counts.
-- **Check tool grants before briefing** (feedback memory). A brief told `adversarial-reviewer` to
-  use Write, which it does not have.
-- **Scratch hygiene.** Reviewers created stray files three times: a file in the repo root that
-  was deleted, a `cp` glob that matched another session's scratchpad, and an `ln -s` that made a
-  real copy in `%TEMP%`. Briefs say to run shell commands from the scratchpad and never to use
-  globs.
+- **Verifying a packet's refutation needs its own grep.** Row 185 called `sendMain` nonexistent.
+  The Orchestrator checked the half it expected (that `index.svelte.ts` never reads the store) and
+  wrote a false "correction" into MC-074. Gate 1 caught it. When a packet says something does not
+  exist, grep for that name.
+- **A comment rewrite inherits the plan's claim, so check the claim.** Report 27 rev 1 described a
+  doubled asset path that no upstream revision could produce. Gate 1 traced the call site
+  (`requestChar()` never takes an argument) and killed it.
+- **For a removal, the review budget goes on the words.** Both CHORE-34 gates rejected on wording
+  only, and neither found a code defect. The comments, the records and the commit message carried
+  every defect.
+- **A fix that normalises one side of a comparison needs the other side checked too** (CHORE-28).
+  Counting holders by `String(chaId)` while matching raw marks deleted numeric-id characters.
+- **A suggested simplification can reintroduce a bug one layer out** (CHORE-28). Check where a
+  mutated value flows after the function returns.

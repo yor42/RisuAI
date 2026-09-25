@@ -2066,6 +2066,10 @@ making a `.bin` local backup upstream and importing it here. That import path mu
 
 **Timing: deferred** by the maintainer ("decide later"). The removal cannot start before W0 is
 committed, because it shares six files with W0.
+
+**Timing, decided 2026-09-25**, after the multiuser removal was committed: "next work would be
+RisuAccount removal." It is the next stage, before W1. This is the order `senior-advisor`
+recommended.
 - `senior-advisor` recommends: W0, CHORE-28, the multiuser removal (MC-074), the account
   removal, then W1, the composer stage, W2 and W3.
 - **Acceptable alternative:** both removals after W1.
@@ -2148,6 +2152,33 @@ only on `risuai.xyz` origins.
 writes the first holder in list order once, then treats that block like any other duplicate: it
 is not rewritten until the duplicate is gone. The visible warning says only one of the two is
 protected.
+
+---
+
+### MC-083 — Multiuser removal: delete the lang keys, keep `Message.name`, leave `§temp` alone
+
+- **Tag:** decision
+- **Date:** 2026-09-25
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, answering ledger row 185's questions from the multiuser removal
+  investigation (MC-074).
+- **Reasoning:** the maintainer's own words below.
+- **Related:** MC-074, MC-011.
+
+> Delete the keys, keep name, leave §temp, edit both docs
+
+**What was decided:**
+1. The 7 multiuser-only `src/lang` keys are deleted from all 7 language files (49 entries):
+   `joinMultiUserRoom`, `connectionOpen`, `connectionOpenInfo`, `connectionHost`,
+   `connectionGuest`, `createMultiuserRoom`, `otherUserRequesting`.
+2. `Message.name` stays on the `Message` type (`database.svelte.ts`), so upstream chats that
+   carry it round-trip unchanged.
+3. Stray `§temp` characters in upstream saves are left alone: never stripped or migrated on
+   load; `checkCharOrder`'s `§temp` exclusion stays. Context: upstream's multiuser join pushes a
+   `§temp` copy of the host's character into `db.characters` and never removes it.
+4. The removal stage edits `wiki/Playground.md` (its "Join MultiUser Room" row) and `AGENTS.md`'s
+   `sync/` "Multi-user synchronization" directory-table row, since `src/ts/sync/` disappears
+   entirely.
 
 ---
 

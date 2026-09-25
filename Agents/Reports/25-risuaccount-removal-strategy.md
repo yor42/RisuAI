@@ -1,11 +1,20 @@
 # RisuAccount removal: scope, migration facts and staging strategy
 
-**STATUS:** open
+**STATUS:** open. This is the next stage, and no stage plan exists yet.
 
 **Status:** strategy, 2026-09-25. Scope and the migration-refusal decision are
-maintainer-decided (`MC-080`, `MC-081`). No stage is planned yet; the removal gets its own
-plan and gates (`opus-reviewer`, since it touches save/persistence and the storage backend
-selection).
+maintainer-decided (`MC-080`, `MC-081`). **The timing was decided later on 2026-09-25 (MC-080):**
+the removal is the next stage, after the multiuser removal (CHORE-34, committed `911376cb`) and
+before W1. The removal gets its own plan (Report 28) and gates (`opus-reviewer`, since it touches
+save/persistence and the storage backend selection).
+
+**Superseded by later commits (read before relying on this report):**
+- **Line numbers.** Every line number below predates the commits of W0, CHORE-28 and CHORE-34, so
+  refresh each location before using it.
+- **`SavePopupIcon.svelte` is no longer deleted whole.** Section 4 marks it "Removed", but
+  CHORE-28 added the frozen-save indicator (`frozenSaveKeysStore`) to the same file. The removal
+  must edit it: drop the `AccountWarning` import and branch, and the `'account-conflict'`
+  handling, and keep the rest.
 
 **Evidence:** ledger row 173 (blast-radius map: six `investigator` lenses on this repo plus
 HaejeokRisuai, each verified by `deep-investigator`, then a completeness critic with gap
@@ -347,7 +356,9 @@ get rotation like everyone else.
 - **Two stages, not one.** Multiuser goes first — it is smaller and carries no migration
   obligation.
 
-The maintainer deferred picking among these; nothing below assumes a slot has been chosen.
+The maintainer deferred picking among these when this report was written. **Decided later on
+2026-09-25 (MC-080): the recommended order.** The multiuser removal landed as `911376cb`, and
+this removal is next, before W1.
 
 ## 9. Reference forks, as precedent
 
