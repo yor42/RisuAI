@@ -14,28 +14,85 @@ treat it as a log or history.
 
 ## Branch and commit state
 
-The branch is `fix/persistence-conflict-platform-hardening`. Origin (yor42/RisuAI) is at
-`b50c8974`, which holds W0 and its records.
+The branch is `fix/persistence-conflict-platform-hardening`, pushed to origin (yor42/RisuAI) and
+in sync at `21668b28`.
+- `2420d717`: the CHORE-28 code.
+- `21668b28`: the CHORE-28 records.
 
-**CHORE-28 is implemented and has passed its gates, but is not committed.** It waits for the
-maintainer's go-ahead.
-- **Code and tests:** everything under `src/`, in the working tree.
-- **Records:**
-  - Report 26;
-  - `MC-082`;
-  - ledger rows 178 to 184;
-  - the Roadmap entry for CHORE-28;
-  - this file.
-- **Commit message draft:** `commit-chore28.txt` in the session scratchpad.
+A follow-up commit adds this briefing and the `Write` grants below.
 
 **Not staged, by the maintainer's instruction:** the parallel documentation session's
 `wiki/Settings-*.md` files, `wiki/Home.md` and `wiki/_Sidebar.md`. Wait for the maintainer's
 update, and do not delete them.
 
+## Next session: start the multiuser removal (`MC-074`)
+
+The maintainer chose this as the next stage on 2026-09-25. Nothing has started yet.
+
+**Read first:**
+- `MC-074` in `Agents/Maintainer-Context.md` (its "How to apply" list is the investigation scope);
+- `MC-011`: upstream data carrying multiuser fields must still load;
+- Report 25, the RisuAccount removal strategy. It is the template for a removal: blast radius,
+  invariants, and "tests for removed behaviour are deleted".
+- Keep the RisuAccount removal a **separate** stage. Do not fold it in (Roadmap, CHORE-33).
+
+**What is already known.** None of it has been investigated yet.
+- `src/ts/sync/multiuser.ts` is 448 lines. Its writes deliberately go to the live selection. It
+  contains one incidental `cha.chaId = '§temp'`.
+- **Files that import it:**
+  - `Chat.svelte`, `DefaultChatScreen.svelte`, `Sidebar.svelte`, `SideChatList.svelte`,
+    `PlaygroundMenu.svelte`;
+  - `process/index.svelte.ts`, which includes `sendMain`'s message `name` field via
+    `ConnectionOpenStore`;
+  - `storage/assetIntegrity.ts`.
+- **Test files that mock or cover it:**
+  - `sync/tests/multiuserReceiveChatSaveMarks.svelte.test.ts`;
+  - `sendChatSaveMarks`;
+  - `sendChatColdGuard`;
+  - three `Chat.*` tests;
+  - `SideChatList.newChat`.
+- `AlertComp.svelte` and all seven `src/lang/*.ts` files mention it.
+
+**Stage plan** (AGENTS.md section 4; opus-tier gates, because it touches the send path and the
+save marks):
+1. **Blast-radius investigation** (`investigator`; escalate to `deep-investigator` only on the
+   triggers). Cover:
+   - UI entry points;
+   - every `ConnectionOpenStore` and other exported-store read;
+   - the plugin API surface;
+   - saved fields in `database.svelte.ts` and characters;
+   - hub or network endpoints it uses (read the code only; **no probing**, `MC-081`);
+   - `server/`;
+   - tests and translations.
+   Log it in the ledger (next row 185).
+2. **Plan as Report 27, then Gate 1** (`opus-reviewer`, fresh). The plan must include:
+   - invariants: nothing reachable is left dangling;
+   - upstream data with multiuser fields loads;
+   - send and save-mark behaviour are unchanged for the single user;
+   - which tests are deleted, and which are kept or changed.
+3. **Decisions to put to the maintainer, if the investigation raises them:**
+   - whether to remove the now-unused `src/lang` keys, which the maintainer edits by hand;
+   - anything user-visible besides the menu entries.
+4. **Test first**, then `sonnet-coder`, then Gate 2 (`opus-reviewer` lenses), then commit on the
+   maintainer's word.
+
+**Operational notes for this environment:**
+- **Git Bash here fails on heredocs, and on single commands longer than about 230 characters.**
+  Write scripts with the Write tool, or use PowerShell.
+- **Four agents now hold `Write`, for scratchpad files only:** `opus-reviewer`,
+  `adversarial-reviewer`, `investigator` and `deep-investigator`. The profiles were edited on
+  2026-09-25 at the maintainer's request, and the change takes effect in a new session.
+  `code-searcher`, `doc-verifier` and `senior-advisor` still lack it. Check `^tools:` in
+  `.claude/agents/*.md` before a brief promises a tool.
+- Tell every agent to run shell commands from the scratchpad, never from the repo root, and never
+  to use globs in `mkdir` or `cp`.
+- Build mutants from the current source each round. When swapping in HEAD versions of files,
+  serve every changed file, including the `./en` import.
+
 ## Work order
 
 1. **W0: identity.** Done and committed.
-2. **CHORE-28.** Done and gated; awaiting commit (Report 26).
+2. **CHORE-28.** Done and committed (Report 26).
 3. **The removals:**
    - **Multiuser removal (`MC-074`).**
    - **RisuAccount removal (`MC-080`/`MC-081`, CHORE-33, Report 25).** The scope is decided. The
@@ -89,11 +146,8 @@ update, and do not delete them.
 
 ## Open items
 
-- **A stray folder to delete by hand:** `C:\Users\yor42\AppData\Local\Temp\qa1`. It is a
-  reviewer's scratch copy: Git Bash `ln -s` made a real copy.
-- **Also still present:**
-  - `C:\Projects\scratch_investigator_tmp`, which is empty;
-  - `Temp\claude\coldstorage.svelte.ts.bak`.
+- **Possibly still present:** `C:\Projects\scratch_investigator_tmp` (empty) and
+  `Temp\claude\coldstorage.svelte.ts.bak`. The maintainer deleted `%TEMP%\qa1`.
 - **Scratch trees with `node_modules` junctions.** Remove each junction with `cmd /c rmdir` before
   any recursive delete.
 - **The `.gitignore` entry** for `Asset Cache/Community Mitigation_Webrowser Plugin/` names a path
