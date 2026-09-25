@@ -126,13 +126,6 @@ vi.mock(import('../models/modelString'), () => ({
     getGenerationModelString: vi.fn(),
 }) as unknown as typeof import('../models/modelString'))
 
-vi.mock(import('../../sync/multiuser'), () => ({
-    connectionOpen: false,
-    peerRevertChat: vi.fn(),
-    peerSafeCheck: vi.fn(),
-    peerSync: vi.fn(),
-}) as unknown as typeof import('../../sync/multiuser'))
-
 vi.mock(import('../inlayScreen'), () => ({
     runInlayScreen: vi.fn(),
 }) as unknown as typeof import('../inlayScreen'))

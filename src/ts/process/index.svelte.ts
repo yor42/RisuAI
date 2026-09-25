@@ -21,7 +21,6 @@ import { HypaProcesser } from "./memory/hypamemory";
 import { additionalInformations } from "./embedding/addinfo";
 import { getInlayAsset } from "./files/inlays";
 import { getGenerationModelString } from "./models/modelString";
-import { connectionOpen, peerRevertChat, peerSafeCheck, peerSync } from "../sync/multiuser";
 import { runInlayScreen } from "./inlayScreen";
 import { addRerolls } from "./prereroll";
 import { runImageEmbedding } from "./transformers";
@@ -112,9 +111,9 @@ export interface SendChatArg {
  * `sendChatBody` reports its captured index/chaId through, so the thin outer
  * `sendChat` below can mark for save AFTER the body (and any nested
  * auto-continue recursion) has fully settled -- a write made mid-generation to
- * a character the user has since switched away from (hotkeys, Playground, Home
- * buttons and multiuser `receive-char` all change selection without checking
- * `doingChat`) would otherwise never get marked.
+ * a character the user has since switched away from (hotkeys, Playground and
+ * Home buttons all change selection without checking `doingChat`) would
+ * otherwise never get marked.
  */
 interface SendChatCallContext {
     /** The chaId captured right after `sendChatBody` resolves `nowChatroom` (near its top, before generation starts). */
@@ -124,13 +123,13 @@ interface SendChatCallContext {
 }
 
 /**
- * Thin outer wrapper (Report 17 Stage 1 §3.3, gate re-review finding F6): marks
- * both the chaId captured at generation start AND whatever character now sits
- * at that same index by the time this settles. Two marks, not one, because a
- * permanent delete during generation (`removeChar(..., 'permanent')`,
- * `characters.ts:825-854`) splices `db.characters` with no `doingChat` check,
- * so an index-based write inside the body can land on a different character
- * than the one that started the generation -- marking both covers both, and
+ * Thin outer wrapper (Report 17 Stage 1 §3.3): marks both the chaId captured
+ * at generation start AND whatever character now sits at that same index by
+ * the time this settles. Two marks, not one, because a permanent delete
+ * during generation (`removeChar(..., 'permanent')` in `characters.ts`)
+ * splices `db.characters` with no `doingChat` check, so an index-based write
+ * inside the body can land on a different character than the one that
+ * started the generation -- marking both covers both, and
  * `markCharacterForSave`'s de-duplication makes the common (unchanged) case
  * free. The auto-continue recursion inside `sendChatBody` (its two recursive
  * `sendChat(chatProcessIndex, ...)` calls) calls this outer function, not the
@@ -288,19 +287,6 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
         else{
             changeToPreset(findId, true)
         }
-    }
-
-    if(connectionOpen){
-        chatProcessStage.set(4)
-        const peerSafe = await peerSafeCheck()
-        if(!peerSafe){
-            peerRevertChat()
-            doingChat.set(false)
-            throwError(language.otherUserRequesting)
-            return false
-        }
-        await peerSync()
-        chatProcessStage.set(0)
     }
 
     DBState.db.statics.messages += 1
@@ -2018,8 +2004,6 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
             
         }
     }
-
-    peerSync()
 
     if(req.special){
         if(req.special.emotion){

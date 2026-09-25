@@ -33,7 +33,6 @@ Click the **Playground** icon (a shell) in the sidebar. The Playground opens on 
 | [MCP](#mcp) | List and call tools from your MCP servers |
 | [Inlay Assets Explorer](#inlay-assets-explorer) | Browse and delete images, audio and video saved in chats |
 | [Prompt Convertion](#prompt-convertion) | Turn SillyTavern preset files into a RisuAI preset |
-| **Join MultiUser Room** | Join a shared chat room |
 
 ### Chat
 

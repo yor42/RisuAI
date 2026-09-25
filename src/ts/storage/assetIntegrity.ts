@@ -18,18 +18,14 @@ const CONTENT_HASH_BASENAME = /^[0-9a-f]{64}$/i
  *
  * This works because saveAsset() (src/ts/globalApi.svelte.ts) names every
  * asset it creates after the SHA-256 hash of its own content (`hasher()`,
- * src/ts/parser/parser.svelte.ts), UNLESS called with an explicit custom id.
- * The only caller that does is multiuser sync's 'receive-asset' handler
- * (src/ts/sync/multiuser.ts, case 'receive-asset'), which saves an incoming
- * peer's asset bytes under an id the peer supplied — not re-hashed locally.
- * In normal operation that id is just the sender's own saveAsset() path
- * (already `<hash>.<ext>`), so saveAsset()'s `assets/${id}.${ext}` wrapping
- * doubles it into `assets/assets/<hash>.png.png` instead of overwriting the
- * original (that call's own return value is discarded, so nothing else
- * reads the doubled path back). A corrupted or mismatched pair from a peer
- * therefore surfaces here as 'not-content-addressed', not 'mismatch': the
- * doubled name's hash-shaped part still has a trailing extension attached,
- * so it fails the 64-hex check below. So for the overwhelming majority of
+ * src/ts/parser/parser.svelte.ts), with two exceptions: an explicit custom
+ * id, and the `uuidv4()` fallback when `hasher()` throws (`crypto.subtle` is
+ * undefined on a non-secure origin such as a plain-HTTP LAN host). A
+ * `uuidv4()` name fails the 64-hex check below and reports
+ * 'not-content-addressed'. A custom id is judged by its shape alone: a
+ * 64-hex custom id is treated as a content hash and reports 'mismatch'
+ * unless it is the SHA-256 of the bytes, so a caller must never pass a
+ * 64-hex custom id that is not. So for the overwhelming majority of
  * real assets, the filename already IS the expected content hash — no
  * separate freshness marker needs to be stored "alongside" the cache entry,
  * since one is already encoded in its name. Re-hashing just the cached copy

@@ -166,6 +166,47 @@ describe('RisuSave per-block checksum (Phase 1 item 11)', () => {
         expect((decoded as any).marker).toBe(ROOT_MARKER)
     })
 
+    // PIN of existing behaviour, not a fails-first test. Upstream saves can
+    // carry a stray `§temp` character and user messages with a `name`
+    // string (MC-083, MC-011), and `otherUser` is declared on the same
+    // `Message` type; these must round-trip intact whether or not any code
+    // in this fork writes those fields.
+    test('a save carrying a §temp character and named messages keeps those fields through a round trip', async () => {
+        const db = buildFixtureDb()
+        db.characters.push({
+            chaId: '§temp',
+            type: 'character',
+            name: 'Temp User',
+            chats: [],
+        } as unknown as Database['characters'][number])
+        db.characters[0].chats = [
+            {
+                id: 'char1-chat-0',
+                message: [
+                    { role: 'user', data: 'hi', name: 'SomeUser', otherUser: true },
+                    { role: 'user', data: 'hey', name: null },
+                ],
+                note: '',
+                name: '',
+                localLore: [],
+            },
+        ] as unknown as Database['characters'][number]['chats']
+
+        const encoder = new RisuSaveEncoder()
+        await encoder.init(db)
+        const encoded = encoder.encode()
+        expect(encoded).not.toBeNull()
+        const decoded = await decodeRisuSave(new Uint8Array(encoded!))
+
+        expect(decoded.characters?.some((c: any) => c.chaId === '§temp')).toBe(true)
+
+        const char1 = decoded.characters?.find((c: any) => c.chaId === 'char1')
+        const messages = (char1 as any)?.chats?.[0]?.message
+        expect(messages?.[0]?.name).toBe('SomeUser')
+        expect(messages?.[0]?.otherUser).toBe(true)
+        expect(messages?.[1]?.name).toBeNull()
+    })
+
     test('drops a corrupted non-root block instead of silently loading wrong data', async () => {
         const encoded = await encodeFixture()
         // Search for the JSON-content occurrence specifically (`"chaId":"char1"`),

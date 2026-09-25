@@ -14,7 +14,6 @@
     import { type MessageIdentity, type TranslationIdentity, type DraftRecord, isDraftRestore } from "src/ts/draftContents"
     import { formatDraftAge } from "src/ts/draftAge"
     import { chatWindowKey } from "src/ts/chatWindowPolicy"
-    import { ConnectionOpenStore } from "src/ts/sync/multiuser"
     import { capitalize, getUserIcon, getUserName, sleep } from "src/ts/util"
     import { onDestroy, onMount } from "svelte"
     import { fade } from "svelte/transition"
@@ -1145,15 +1144,13 @@
             {/if}
         </button>
     {/if}
-    {#if !$ConnectionOpenStore}
-        <button class="flex items-center hover:text-blue-500 transition-colors button-icon-remove" onclick={(e) => rm(e, false)} use:longpress={(e) => rm(e, true)}>
-            <TrashIcon size={20}/>
+    <button class="flex items-center hover:text-blue-500 transition-colors button-icon-remove" onclick={(e) => rm(e, false)} use:longpress={(e) => rm(e, true)}>
+        <TrashIcon size={20}/>
 
-            {#if showNames}
-                <span class="ml-1">{language.remove}</span>
-            {/if}
-        </button>
-    {/if}
+        {#if showNames}
+            <span class="ml-1">{language.remove}</span>
+        {/if}
+    </button>
 {/if}
 {/snippet}
 

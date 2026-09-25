@@ -40,7 +40,6 @@ RisuAI/
 | `drive/` | Cloud sync and backup |
 | `translator/` | Translation system |
 | `model/` | Model definitions and integrations |
-| `sync/` | Multi-user synchronization |
 | `cbs.ts` | Callback system |
 | `characterCards.ts` | Character card import/export |
 | `parser/` | Message parsing (`parser.svelte.ts`, `chatML.ts`, `chatVar.svelte.ts`, `partialEdit.ts`) |

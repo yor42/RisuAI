@@ -151,10 +151,6 @@ vi.mock(import('src/ts/model/modellist'), () => ({
     getModelInfo: vi.fn(() => ({ shortName: 'test-model' })),
 }) as unknown as typeof import('src/ts/model/modellist'))
 
-vi.mock(import('src/ts/sync/multiuser'), () => ({
-    ConnectionOpenStore: writable(false),
-}) as unknown as typeof import('src/ts/sync/multiuser'))
-
 vi.mock(import('src/ts/util'), () => ({
     capitalize: vi.fn((s: string) => s),
     getUserIcon: vi.fn(() => ''),

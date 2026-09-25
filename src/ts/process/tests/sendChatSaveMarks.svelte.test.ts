@@ -7,9 +7,9 @@
  * and whatever character now sits at that captured index, AFTER the body
  * (and any nested auto-continue recursion) has fully settled -- so a
  * selection change made WHILE a reply is still streaming (hotkeys,
- * Playground, Home buttons, multiuser `receive-char` all change selection
- * without checking `doingChat`) doesn't leave the generating character's
- * effect-6 tracking orphaned once the user has moved away from it.
+ * Playground and Home buttons all change selection without checking
+ * `doingChat`) doesn't leave the generating character's effect-6 tracking
+ * orphaned once the user has moved away from it.
  *
  * This test starts a generation on character 0 (selected), switches
  * `selectedCharID` to character 1 WHILE the reply is still streaming (via a
@@ -158,13 +158,6 @@ vi.mock(import('../files/inlays'), () => ({
 vi.mock(import('../models/modelString'), () => ({
     getGenerationModelString: vi.fn(() => undefined),
 }) as unknown as typeof import('../models/modelString'))
-
-vi.mock(import('../../sync/multiuser'), () => ({
-    connectionOpen: false,
-    peerRevertChat: vi.fn(),
-    peerSafeCheck: vi.fn(async () => true),
-    peerSync: vi.fn(async () => {}),
-}) as unknown as typeof import('../../sync/multiuser'))
 
 vi.mock(import('../inlayScreen'), () => ({
     runInlayScreen: vi.fn((_char: unknown, text: string) => ({ text, promise: undefined })),

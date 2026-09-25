@@ -172,10 +172,6 @@ vi.mock(import('src/ts/storage/characterSaveMarks'), () => ({
     markCharacterForSave: vi.fn(),
 }) as unknown as typeof import('src/ts/storage/characterSaveMarks'))
 
-vi.mock(import('src/ts/sync/multiuser'), () => ({
-    createMultiuserRoom: vi.fn(),
-}) as unknown as typeof import('src/ts/sync/multiuser'))
-
 // Stubbed out entirely -- renders unconditionally but pulls in an unrelated
 // dependency tree (module toggles, chat variables) that New Chat never
 // touches (see file header).

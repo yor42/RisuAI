@@ -26,7 +26,6 @@
     import { processMultiCommand } from 'src/ts/process/command';
     import { postChatFile } from 'src/ts/process/files/multisend';
     import { getInlayAsset } from 'src/ts/process/files/inlays';
-    import { ConnectionOpenStore } from 'src/ts/sync/multiuser';
     import { coldStorageHeader, preLoadChat, retryLegacyColdChatLoad } from 'src/ts/process/coldstorage.svelte';
     import { isColdChat, matchColdStorageLoadErrorKey } from 'src/ts/process/coldstorageData';
     import Chats from './Chats.svelte';
@@ -298,8 +297,7 @@
                     if(DBState.db.useSayNothing){
                         cha.push({
                             role: 'user',
-                            data: '*says nothing*',
-                            name: $ConnectionOpenStore ? DBState.db.username : null
+                            data: '*says nothing*'
                         })
                     }
                 }
@@ -316,16 +314,14 @@
                 cha.push({
                     role: 'user',
                     data: await processScript(char,messageInput,'editinput'),
-                    time: Date.now(),
-                    name: $ConnectionOpenStore ? DBState.db.username : null
+                    time: Date.now()
                 })
             }
             else{
                 cha.push({
                     role: 'user',
                     data: messageInput,
-                    time: Date.now(),
-                    name: $ConnectionOpenStore ? DBState.db.username : null
+                    time: Date.now()
                 })
             }
         }

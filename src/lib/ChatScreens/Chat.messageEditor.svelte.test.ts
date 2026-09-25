@@ -28,9 +28,9 @@
  * Everything else `Chat.svelte`/`BookmarkList.svelte` transitively pull in
  * that is heavy, has side effects, or is irrelevant to the editor/identity
  * logic under test (globalApi.svelte, storage/database.svelte, the parser,
- * the translator, process/* Lua and trigger machinery, TTS, multiuser sync,
- * the model list, util's Tauri-backed file pickers, `characters.ts`) is
- * mocked, following the precedent in
+ * the translator, process/* Lua and trigger machinery, TTS, the model list,
+ * util's Tauri-backed file pickers, `characters.ts`) is mocked, following
+ * the precedent in
  * `src/ts/globalApi.changeChatTo.svelte.test.ts`. `ChatBody.svelte` and
  * `PartialEditController.svelte` are stubbed to trivial components: neither
  * is exercised by the editor/identity logic this file tests (the fixture
@@ -140,10 +140,6 @@ vi.mock(import('src/ts/gui/colorscheme'), () => ({
 vi.mock(import('src/ts/model/modellist'), () => ({
     getModelInfo: vi.fn(() => ({ shortName: 'test-model' })),
 }) as unknown as typeof import('src/ts/model/modellist'))
-
-vi.mock(import('src/ts/sync/multiuser'), () => ({
-    ConnectionOpenStore: writable(false),
-}) as unknown as typeof import('src/ts/sync/multiuser'))
 
 vi.mock(import('src/ts/util'), () => ({
     capitalize: vi.fn((s: string) => s),
