@@ -40,6 +40,7 @@
             name:string
             desc:string
             chaId:string
+            charRef: Database['characters'][number]
         }[] = []
 
         for(let i=0;i<db.characters.length;i++){
@@ -57,7 +58,8 @@
                     type: c.type,
                     name: c.name,
                     desc: c.creatorNotes ?? 'No description',
-                    chaId: c.chaId
+                    chaId: c.chaId,
+                    charRef: c
                 })
             }
         }
@@ -144,7 +146,7 @@
                                 <SquareMousePointer />
                             </button>
                             <button class="hover:text-textcolor text-textcolor2" onclick={() => {
-                                removeChar(char.chaId, char.name)
+                                removeChar(char.charRef, char.name)
                             }}>
                                 <TrashIcon />
                             </button>
@@ -168,12 +170,12 @@
                         <span class="text-textcolor2 line-clamp-3 wrap-break-word">{parsedDesc['en'] || parsedDesc['xx'] || 'No description'}</span>
                         <div class="flex gap-2 justify-end">
                             <button class="hover:text-textcolor text-textcolor2" onclick={() => {
-                                restoreCharacterFromTrash(char.chaId)
+                                restoreCharacterFromTrash(char.charRef)
                             }}>
                                 <Undo2Icon />
                             </button>
                             <button class="hover:text-textcolor text-textcolor2" onclick={() => {
-                                removeChar(char.chaId, char.name, 'permanent')
+                                removeChar(char.charRef, char.name, 'permanent')
                             }}>
                                 <TrashIcon />
                             </button>

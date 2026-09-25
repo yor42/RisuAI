@@ -21,7 +21,7 @@ import streamSaver from 'streamsaver';
 import { setDatabase, type Database, defaultSdDataFunc, getDatabase, appVer, getCurrentCharacter, type character, type groupChat, type Chat, appSubVer } from "./storage/database.svelte";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { checkRisuUpdate } from "./update";
-import { MobileGUI, botMakerMode, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, bodyIntercepterStore, savingStoppedReason } from "./stores.svelte";
+import { MobileGUI, botMakerMode, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, bodyIntercepterStore, savingStoppedReason, frozenSaveKeysStore, type FrozenSaveKeyInfo } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
 import { alertConfirm, alertError, alertMd, alertNormal, alertSelect, alertTOS, alertToast, waitAlert } from "./alert";
 import { checkDriverInit, syncDrive } from "./drive/drive";
@@ -978,6 +978,145 @@ export function mergeUnsavedChanges(liveTracker: toSaveType, toSave: toSaveType)
 }
 
 /**
+ * Builds a fresh encoder for a full reload -- the one shared hand-over both
+ * `saveDb()` and its tests use, so a reload keeps a block the guard in
+ * `risuSave.ts` already kept, instead of losing it to a fresh, empty
+ * encoder. Passes the encoder being replaced into `init()`'s `previous`
+ * option, so `init()` decides, key by key, from its own fresh pass over
+ * `db`, whether to carry a block forward.
+ */
+export async function reloadSaveEncoder(previousEncoder: RisuSaveEncoder, db: Database, opts: { compression: boolean }): Promise<RisuSaveEncoder> {
+    const freshEncoder = new RisuSaveEncoder()
+    await freshEncoder.init(db, {
+        compression: opts.compression,
+        skipRemoteSavingOnCharacters: false,
+        previous: previousEncoder
+    })
+    return freshEncoder
+}
+
+// chaId keys this page load has already warned about via console.warn while
+// duplicated. A key is removed once it leaves the encoder's frozen set, so a
+// later, separate duplicate on the same id warns again.
+const warnedFrozenKeys = new Set<string>()
+
+// The entries `publishFrozenSaveIndicator` last wrote to `frozenSaveKeysStore`,
+// so a pass that changes nothing about which keys are frozen (the common
+// case: no key frozen at all) does not re-set the store and re-notify every
+// subscriber.
+let lastPublishedFrozenSaveKeys: FrozenSaveKeyInfo[] = []
+
+/** Same chaId keys, and for each the same names in the same order. */
+function frozenSaveKeysEqual(a: FrozenSaveKeyInfo[], b: FrozenSaveKeyInfo[]): boolean {
+    if (a.length !== b.length) {
+        return false
+    }
+    const namesByKeyInB = new Map(b.map((entry) => [entry.chaId, entry.names]))
+    for (const entry of a) {
+        const names = namesByKeyInB.get(entry.chaId)
+        if (!names || names.length !== entry.names.length) {
+            return false
+        }
+        for (let i = 0; i < names.length; i++) {
+            if (names[i] !== entry.names[i]) {
+                return false
+            }
+        }
+    }
+    return true
+}
+
+/**
+ * Publishes which characters are currently held by a duplicated chaId to
+ * `frozenSaveKeysStore`, for `SavePopupIcon.svelte`'s indicator, and warns
+ * once per key per episode via `console.warn`, re-arming once that key
+ * resolves. Called after every encode pass that can change which keys are
+ * frozen: boot's `init()`, a reload's `init()`, and every `set()` in the save
+ * loop below. Only writes the store when its content actually changes --
+ * same keys, same names -- so an ordinary pass with nothing frozen does not
+ * re-notify every subscriber. Never writes `alertStore` or shows an alert --
+ * that only happens from the indicator's own click handler.
+ */
+export function publishFrozenSaveIndicator(encoder: RisuSaveEncoder, db: Database): void {
+    const frozen = encoder.getFrozenKeys()
+    if (frozen.size === 0) {
+        if (warnedFrozenKeys.size > 0) {
+            warnedFrozenKeys.clear()
+        }
+        if (lastPublishedFrozenSaveKeys.length > 0) {
+            lastPublishedFrozenSaveKeys = []
+            frozenSaveKeysStore.set([])
+        }
+        return
+    }
+    for (const key of warnedFrozenKeys) {
+        if (!frozen.has(key)) {
+            warnedFrozenKeys.delete(key)
+        }
+    }
+    const namesByKey = new Map<string, string[]>()
+    for (const c of db?.characters ?? []) {
+        // Matched by `String(chaId)`, the same coercion the encoder counts
+        // holders by, so this agrees with which keys `frozen` actually holds.
+        const id = String(c?.chaId)
+        if (frozen.has(id)) {
+            const names = namesByKey.get(id) ?? []
+            names.push(c?.name || id)
+            namesByKey.set(id, names)
+        }
+    }
+    const entries: FrozenSaveKeyInfo[] = []
+    for (const key of frozen) {
+        const names = namesByKey.get(key) ?? []
+        entries.push({ chaId: key, names })
+        if (!warnedFrozenKeys.has(key)) {
+            warnedFrozenKeys.add(key)
+            console.warn(`RisuAI: saving is paused for a duplicated id (${key}): ${names.join(', ')}`)
+        }
+    }
+    if (!frozenSaveKeysEqual(entries, lastPublishedFrozenSaveKeys)) {
+        lastPublishedFrozenSaveKeys = entries
+        frozenSaveKeysStore.set(entries)
+    }
+}
+
+/**
+ * The save loop's idle-pass seam (called verbatim whenever `!changed`):
+ * while any key is frozen, re-counts its current holders from `chaId` alone
+ * -- no other field is read, and nothing is read at all when no key is
+ * frozen -- so a duplicate resolved without setting a save mark (e.g.
+ * permanently deleting the trashed copy) still gets exactly one save once it
+ * drops to fewer than two holders. Once that save runs, the key leaves the
+ * encoder's frozen set, so the next idle pass asks for nothing further.
+ */
+export function checkFrozenKeysForResolution(encoder: RisuSaveEncoder, db: Database): boolean {
+    const frozen = encoder.getFrozenKeys()
+    if (frozen.size === 0) {
+        return false
+    }
+    const holderCounts = new Map<string, number>()
+    for (const key of frozen) {
+        holderCounts.set(key, 0)
+    }
+    for (const c of db?.characters ?? []) {
+        // Counted by `String(chaId)`, the same coercion the encoder's own
+        // holder count applies, so this agrees with the encoder on what is
+        // duplicated.
+        const id = String(c?.chaId)
+        if (holderCounts.has(id)) {
+            holderCounts.set(id, (holderCounts.get(id) ?? 0) + 1)
+        }
+    }
+    let shouldSave = false
+    for (const count of holderCounts.values()) {
+        if (count < 2) {
+            shouldSave = true
+        }
+    }
+    return shouldSave
+}
+
+/**
  * Releases any orphan draft-content registration whose cap has elapsed
  * (Report 20 §6), by forwarding to
  * `draftContentOrphanGate.sweepExpiredRegistrations`. `now` is injectable
@@ -1062,6 +1201,12 @@ export async function saveDb() {
         }),
         createRealScheduler: () => saveTimeoutExecute
     })
+    try {
+        publishFrozenSaveIndicator(encoder, getDatabase())
+    } catch (error) {
+        // Must never stop boot or the save loop that follows it.
+        console.error('Failed to publish the frozen-save indicator:', error)
+    }
 
     $effect.root(() => {
         registerDbChangeEffects({
@@ -1223,8 +1368,24 @@ export async function saveDb() {
             }
         }
         if (!changed) {
-            await sleep(500)
-            continue
+            // While any chaId is frozen against a save-file rewrite, this
+            // asks the loop to run a pass even without a save mark, so a
+            // duplicate resolved by a change that sets no mark of its own
+            // (e.g. permanently deleting the trashed copy) still gets saved.
+            // A failure here must never stop the loop -- it just falls back
+            // to the ordinary sleep-and-continue idle pass.
+            let resolvedDuplicate = false
+            try {
+                resolvedDuplicate = checkFrozenKeysForResolution(encoder, getDatabase())
+            } catch (error) {
+                console.error('Frozen-key resolution check failed:', error)
+            }
+            if (resolvedDuplicate) {
+                changed = true
+            } else {
+                await sleep(500)
+                continue
+            }
         }
 
         saving.state = true
@@ -1242,11 +1403,16 @@ export async function saveDb() {
                 encoder,
                 reloadFlag: requiresFullEncoderReload,
                 reinitEncoder: async () => {
-                    const freshEncoder = new RisuSaveEncoder()
-                    await freshEncoder.init(getDatabase(), {
-                        compression: forageStorage.isAccount,
-                        skipRemoteSavingOnCharacters: false
+                    const freshEncoder = await reloadSaveEncoder(encoder, getDatabase(), {
+                        compression: forageStorage.isAccount
                     })
+                    try {
+                        publishFrozenSaveIndicator(freshEncoder, getDatabase())
+                    } catch (error) {
+                        // Must never fail the reload itself, or this would be
+                        // treated as a failed write and retried forever.
+                        console.error('Failed to publish the frozen-save indicator:', error)
+                    }
                     return freshEncoder
                 },
                 getDatabase,
@@ -1271,6 +1437,13 @@ export async function saveDb() {
             }
 
             await encoder.set(db, toSave)
+            try {
+                publishFrozenSaveIndicator(encoder, db)
+            } catch (error) {
+                // Must never fail this write, or it would be treated as a
+                // failed write and retried forever.
+                console.error('Failed to publish the frozen-save indicator:', error)
+            }
             const encoded = encoder.encode()
             if (!encoded) {
                 mergeUnsavedChanges(changeTracker, toSave)

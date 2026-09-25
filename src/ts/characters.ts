@@ -852,7 +852,7 @@ function dataURLtoBuffer(string:string){
     return Buffer.from(data, 'base64');
 }
 
-export async function removeChar(identifier:string|number,name:string, type:'normal'|'permanent'|'permanentForce' = 'normal'){
+export async function removeChar(identifier:string|number|character|groupChat,name:string, type:'normal'|'permanent'|'permanentForce' = 'normal'){
     const db = getDatabase()
     if(type !== 'permanentForce'){
         const conf = await alertConfirm(language.removeConfirm + name)
@@ -866,10 +866,15 @@ export async function removeChar(identifier:string|number,name:string, type:'nor
     }
     let chars = db.characters
     // Resolve identifier to actual index at the time of deletion to avoid
-    // race conditions when concurrent deletions shift the array.
+    // race conditions when concurrent deletions shift the array. A character
+    // object identifier is resolved by reference, so it still finds the
+    // right entry even if another entry shares its chaId, or its index moved
+    // while the confirms above were awaited.
     const index = typeof identifier === 'string'
         ? findCharacterIndexbyId(identifier)
-        : identifier
+        : typeof identifier === 'number'
+        ? identifier
+        : chars.indexOf(identifier)
     if (index === -1 || index >= chars.length) {
         return
     }
@@ -892,14 +897,20 @@ export async function removeChar(identifier:string|number,name:string, type:'nor
  * selected-character tracker and the identity tracker (element/whole-array
  * replacement only), so it never persisted without an explicit mark.
  */
-export function restoreCharacterFromTrash(chaId: string): void {
-    const restoreIdx = findCharacterIndexbyId(chaId)
+export function restoreCharacterFromTrash(identifier: string | character | groupChat): void {
+    const chars = DBState.db.characters
+    // A character object identifier is resolved by reference, so it still
+    // finds the right entry even if another entry shares its chaId.
+    const restoreIdx = typeof identifier === 'string'
+        ? findCharacterIndexbyId(identifier)
+        : chars.indexOf(identifier)
     if (restoreIdx === -1) {
         return
     }
-    DBState.db.characters[restoreIdx].trashTime = undefined
+    const restored = chars[restoreIdx]
+    restored.trashTime = undefined
     checkCharOrder()
-    markCharacterForSave(chaId)
+    markCharacterForSave(restored.chaId)
 }
 
 export async function addCharacter(arg:{

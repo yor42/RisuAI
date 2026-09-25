@@ -40,6 +40,8 @@ export const languageChineseTraditional = {
         "coldStorageCleanupAborted": (characterNames: string) =>
             `冷儲存清理已中止：無法驗證 ${characterNames || "未知角色"} 的冷儲存資料，因此未刪除任何內容。`,
         "coldStorageCleanupFailed": "冷儲存清理中途失敗。部分未使用的項目可能未被移除；其餘部分未受影響。",
+        "coldStorageBlockedByDuplicateChaId": (characterGroups: string) =>
+            `冷儲存清理已跳過，因為下列角色與另一個角色共用內部 ID，且已暫停為它們儲存：${characterGroups || "一個角色"}。當每個 ID 僅由一個角色持有時，儲存才會恢復——例如，永久刪除多餘的角色（先將其移至垃圾桶，再從垃圾桶中刪除）——然後再重試清理。`,
         "coldStorageChatStillLoading": "此對話尚未從冷儲存載入完成（仍在載入中，或載入失敗——請參閱對話中的提示）。在載入完成前無法傳送訊息。",
         "coldStorageChatLoadFailed": (coldDataKey: string) =>
             `此對話的儲存資料無法載入（金鑰：${coldDataKey}）。這可能是暫時性問題——請嘗試切換對話或重新啟動應用程式。若持續失敗，資料可能已遺失，您可以刪除此對話。在此之前，請勿執行「清理冷儲存」。`,
@@ -1061,6 +1063,8 @@ export const languageChineseTraditional = {
     "savingStoppedStayMessage": "此分頁已停止儲存。由於另一個分頁儲存了變更後您選擇留下，此分頁的資料副本已過期，無法再儲存。從現在起所做的變更將不會被保留。重新載入會取得目前的資料 — 任何未儲存的本機變更都將遺失。",
     "savingStoppedNodeConflictMessage": "此分頁已停止儲存。您的本機資料與自架伺服器上較新的版本發生衝突，因此此分頁已永久停止嘗試儲存。從現在起所做的變更將不會被保留。請重新載入應用程式以取得目前的資料 — 任何未同步的本機變更都將遺失。",
     "savingStoppedAccountConflictMessage": "此分頁已停止儲存。您的本機資料與您帳戶上較新的版本發生衝突，因此此分頁已永久停止嘗試儲存。從現在起所做的變更將不會被保留。請重新載入應用程式以取得目前的資料 — 任何未同步的本機變更都將遺失。",
+    "duplicateChaIdSavePausedMessage": (characterGroups: string) =>
+        `下列角色與另一個角色共用內部 ID，因此儲存檔對每個共用的 ID 只能保留一個：${characterGroups || "兩個角色"}。系統會保留在此問題發生之前最近一次儲存過的角色；如果兩者都從未儲存過，則保留最先寫入的角色。在此情況持續期間，這些角色的儲存都會暫停。當每個 ID 僅由一個角色持有時，儲存才會恢復——例如，永久刪除多餘的角色（先將其移至垃圾桶，再從垃圾桶中刪除）。`,
     "maxSupaChunkSize": "SupaMemory 最大區塊大小",
     "addCharacter": "新增角色",
     "importFromRealm": "從 RisuRealm 選擇",

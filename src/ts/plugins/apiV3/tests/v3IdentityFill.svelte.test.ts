@@ -1070,7 +1070,7 @@ describe('the duplicate-id warning reports state after the call, not blame', () 
         }
     })
 
-    test('a chaId duplicate warning contains the full wording contract, including the save-loss consequence', () => {
+    test('a chaId duplicate warning contains the full wording contract, including the save-pause consequence', () => {
         installDb()
         const api = makeApi('wording-test-plugin-2')
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -1086,7 +1086,8 @@ describe('the duplicate-id warning reports state after the call, not blame', () 
             expect(msg).toMatch(/may be transient/i)
             expect(msg).toMatch(/may predate this call/i)
             expect(msg).toMatch(/writes addressed by id to either holder are skipped/i)
-            expect(msg).toMatch(/the next save keeps only one character with that chaId/i)
+            expect(msg).toMatch(/saving is paused for that chaId/i)
+            expect(msg).toMatch(/last saved block is kept/i)
             expect(msg).toContain('wording-test-plugin-2')
             expect(msg).not.toMatch(/installed a duplicate|introduced/i)
         }

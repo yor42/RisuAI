@@ -124,6 +124,7 @@ vi.mock(import('../apiV3/transpiler'), () => ({
 import { getV2PluginAPIs } from '../plugins.svelte'
 import { DBState } from '../../stores.svelte'
 import { RisuSaveEncoder, decodeRisuSave } from '../../storage/risuSave'
+import type { toSaveType } from '../../storage/risuSave'
 import * as chatIdsModule from '../../process/chatIds'
 
 //#region fixtures
@@ -495,20 +496,40 @@ describe('setDatabase / setDatabaseLite warn about a chaId or chat id duplicate 
 })
 
 describe('the save format holds one block per chaId', () => {
-    test('a chaId held by two characters is saved as a single block', async () => {
+    // MC-078, MC-079: while a chaId is held by two characters, the block
+    // already saved for it is what the file keeps, regardless of which
+    // holder's mark set() processes or where each holder falls in the list.
+    // Listing the copy ahead of the already-saved original below is what
+    // makes this fail against a set() that simply overwrites the block from
+    // whichever holder its linear scan reaches while the mark is still
+    // present -- the fixed outcome itself does not depend on the order.
+    test('a marked set() pass keeps the block already saved for a chaId held by two characters', async () => {
         installDb()
-        DBState.db.characters = [
-            makeCharacter('dup-id', 'First'),
-            makeCharacter('dup-id', 'Second'),
-        ] as unknown as Database['characters']
-
+        const original = makeCharacter('dup-id', 'First')
         const encoder = new RisuSaveEncoder()
-        await encoder.init(snapshotDb(DBState.db), { compression: false })
+        // A block for 'dup-id' already exists, saved while it had only one
+        // holder.
+        await encoder.init(snapshotDb({ ...($state.snapshot(DBState.db) as Database), characters: [original] } as unknown as Database), { compression: false })
+
+        const copy = makeCharacter('dup-id', 'Second')
+        DBState.db.characters = [copy, original] as unknown as Database['characters']
+        const toSave: toSaveType = {
+            character: ['dup-id'],
+            chat: [],
+            botPreset: false,
+            modules: false,
+            loadouts: false,
+            plugins: false,
+            pluginCustomStorage: false,
+        }
+        await encoder.set(snapshotDb(DBState.db), toSave)
         const decoded = await decodeRisuSave(new Uint8Array(encoder.encode()!))
 
-        // Coverage, not proof: pins that the save file holds one block per
-        // chaId, so a duplicate collapses to a single decoded character.
+        // The save file still holds exactly one block per chaId.
         const matches = decoded.characters.filter((c: CharacterFixture) => c.chaId === 'dup-id')
         expect(matches.length).toBe(1)
+        // And that block is the one already saved, not the copy that
+        // consumed this pass's mark.
+        expect(matches[0].name).toBe('First')
     })
 })

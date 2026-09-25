@@ -40,6 +40,8 @@ export const languageChinese = {
         "coldStorageCleanupAborted": (characterNames: string) =>
             `冷存储清理已中止：无法验证 ${characterNames || "未知角色"} 的冷存储数据，因此未删除任何内容。`,
         "coldStorageCleanupFailed": "冷存储清理中途失败。部分未使用的项目可能未被移除；其他内容未受影响。",
+        "coldStorageBlockedByDuplicateChaId": (characterGroups: string) =>
+            `冷存储清理已跳过，因为以下角色与另一个角色共享内部 ID，保存已为它们暂停：${characterGroups || "一个角色"}。当每个 ID 只由一个角色持有时，保存才会恢复——例如，永久删除多余的角色（先将其移至垃圾桶，再从垃圾桶中删除）——然后再重试清理。`,
         "coldStorageChatStillLoading": "此聊天尚未从冷存储加载完成（仍在加载中，或加载失败——请查看聊天中的提示）。在加载完成前无法发送消息。",
         "coldStorageChatLoadFailed": (coldDataKey: string) =>
             `此聊天的存储数据无法加载（键：${coldDataKey}）。这可能是暂时性问题——请尝试切换聊天或重启。如果问题持续出现，数据可能已经丢失，您可以删除此聊天。在此之前，请勿运行"清理冷存储"。`,
@@ -1061,6 +1063,8 @@ export const languageChinese = {
     "savingStoppedStayMessage": "此标签页已停止保存。由于另一个标签页保存了更改后您选择留下，此标签页的数据副本已过期，无法再保存。从现在起所做的更改将不会被保留。重新加载会获取当前的数据 — 任何未保存的本地更改都将丢失。",
     "savingStoppedNodeConflictMessage": "此标签页已停止保存。您的本地数据与自托管服务器上较新的版本发生冲突，因此此标签页已永久停止尝试保存。从现在起所做的更改将不会被保留。请重新加载应用程序以获取当前的数据 — 任何未同步的本地更改都将丢失。",
     "savingStoppedAccountConflictMessage": "此标签页已停止保存。您的本地数据与您账户上较新的版本发生冲突，因此此标签页已永久停止尝试保存。从现在起所做的更改将不会被保留。请重新加载应用程序以获取当前的数据 — 任何未同步的本地更改都将丢失。",
+    "duplicateChaIdSavePausedMessage": (characterGroups: string) =>
+        `以下角色与另一个角色共享内部 ID，因此保存文件对每个共享 ID 只能保留一个：${characterGroups || "两个角色"}。系统会保留在此问题出现之前最近一次保存过的角色；如果两者都从未保存过，则保留最先写入的角色。在此问题持续期间，它们的保存都会暂停。当每个 ID 只由一个角色持有时，保存才会恢复——例如，永久删除多余的角色（先将其移至垃圾桶，再从垃圾桶中删除）。`,
     "maxSupaChunkSize": "最大 SupaMemory Chunk 大小",
     "addCharacter": "新增角色",
     "importFromRealm": "从 RisuRealm 选择",

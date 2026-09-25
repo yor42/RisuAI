@@ -40,6 +40,8 @@ export const languageVietnamese = {
         "coldStorageCleanupAborted": (characterNames: string) =>
             `Việc dọn dẹp bộ nhớ lạnh đã bị hủy: không thể xác minh dữ liệu bộ nhớ lạnh của ${characterNames || "nhân vật không xác định"}, nên không có gì bị xóa.`,
         "coldStorageCleanupFailed": "Việc dọn dẹp bộ nhớ lạnh đã thất bại giữa chừng. Một số mục không sử dụng có thể chưa được xóa; không có gì khác bị ảnh hưởng.",
+        "coldStorageBlockedByDuplicateChaId": (characterGroups: string) =>
+            `Việc dọn dẹp bộ nhớ lạnh đã bị bỏ qua vì nhân vật sau đây dùng chung ID nội bộ với một nhân vật khác, và việc lưu đã bị tạm dừng cho chúng: ${characterGroups || "một nhân vật"}. Việc lưu sẽ tiếp tục khi chỉ còn một nhân vật giữ mỗi ID — ví dụ, bằng cách xóa vĩnh viễn các nhân vật thừa (chuyển chúng vào thùng rác, sau đó xóa khỏi thùng rác) — rồi thử dọn dẹp lại.`,
         "coldStorageChatStillLoading": "Cuộc trò chuyện này chưa được tải từ bộ nhớ lạnh (vẫn đang tải, hoặc không thể tải được — xem thông báo trong cuộc trò chuyện). Việc gửi tin nhắn bị vô hiệu hóa cho đến khi tải xong.",
         "coldStorageChatLoadFailed": (coldDataKey: string) =>
             `Dữ liệu đã lưu của cuộc trò chuyện này không thể tải được (khóa: ${coldDataKey}). Đây có thể là sự cố tạm thời — hãy thử chuyển sang cuộc trò chuyện khác hoặc khởi động lại. Nếu vẫn tiếp tục thất bại, dữ liệu có thể đã bị mất và bạn có thể xóa cuộc trò chuyện này. Cho đến lúc đó, đừng chạy \"dọn dẹp bộ nhớ lạnh\".`,
@@ -1061,6 +1063,8 @@ export const languageVietnamese = {
     "savingStoppedStayMessage": "Tab này đã ngừng lưu. Bạn đã chọn ở lại sau khi một tab khác lưu thay đổi, vì vậy bản sao dữ liệu của tab này đã lỗi thời và không thể lưu được nữa. Các thay đổi thực hiện từ bây giờ sẽ không được giữ lại. Tải lại sẽ lấy dữ liệu hiện tại — mọi thay đổi cục bộ chưa lưu sẽ bị mất.",
     "savingStoppedNodeConflictMessage": "Tab này đã ngừng lưu. Dữ liệu cục bộ của bạn xung đột với một phiên bản mới hơn trên máy chủ tự lưu trữ, vì vậy tab này đã vĩnh viễn ngừng cố lưu. Các thay đổi thực hiện từ bây giờ sẽ không được giữ lại. Hãy tải lại ứng dụng để lấy dữ liệu hiện tại — mọi thay đổi cục bộ chưa đồng bộ sẽ bị mất.",
     "savingStoppedAccountConflictMessage": "Tab này đã ngừng lưu. Dữ liệu cục bộ của bạn xung đột với một phiên bản mới hơn trên tài khoản của bạn, vì vậy tab này đã vĩnh viễn ngừng cố lưu. Các thay đổi thực hiện từ bây giờ sẽ không được giữ lại. Hãy tải lại ứng dụng để lấy dữ liệu hiện tại — mọi thay đổi cục bộ chưa đồng bộ sẽ bị mất.",
+    "duplicateChaIdSavePausedMessage": (characterGroups: string) =>
+        `Nhân vật sau đây dùng chung ID nội bộ với một nhân vật khác, nên tệp lưu chỉ có thể giữ lại một nhân vật cho mỗi ID dùng chung: ${characterGroups || "hai nhân vật"}. Nó sẽ giữ lại nhân vật được lưu gần đây nhất trước khi việc này bắt đầu, hoặc nếu cả hai chưa từng được lưu, thì giữ lại nhân vật được ghi trước. Việc lưu bị tạm dừng cho tất cả chúng trong khi tình trạng này còn tiếp diễn. Việc lưu sẽ tiếp tục khi chỉ còn một nhân vật giữ mỗi ID — ví dụ, bằng cách xóa vĩnh viễn các nhân vật thừa (chuyển chúng vào thùng rác, sau đó xóa khỏi thùng rác).`,
     "maxSupaChunkSize": "Kích thước SupaMemory Chunk tối đa",
     "addCharacter": "Thêm nhân vật",
     "importFromRealm": "Chọn từ RisuRealm",

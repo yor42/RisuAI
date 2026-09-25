@@ -5,6 +5,7 @@ import { LocalWriter, forageStorage, requiresFullEncoderReload } from "../global
 import { isTauri } from "src/ts/platform"
 import { decodeRisuSave, encodeRisuSaveLegacy } from "../storage/risuSave";
 import { getDatabase, setDatabase } from "../storage/database.svelte";
+import { repairDatabaseIds } from "../process/chatIds";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { decryptBuffer, encryptBuffer, sleep } from "../util";
 import { hubURL } from "../characterCards";
@@ -562,6 +563,11 @@ export function LoadLocalBackup(){
                 return
             }
 
+            // The page reload below runs after setDatabase installs this object, and
+            // the save loop can run once in between; it repairs ids on the decoded
+            // backup before setDatabase, matching the other backup loads, instead of
+            // relying on the repair that boot itself runs after the reload completes.
+            repairDatabaseIds(dbData)
             setDatabase(dbData);
             requiresFullEncoderReload.state = true;
             if (isTauri) {

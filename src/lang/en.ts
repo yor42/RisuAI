@@ -41,6 +41,8 @@ export const languageEnglish = {
         coldStorageCleanupAborted: (characterNames: string) =>
             `Cold storage cleanup was aborted: the cold storage data for ${characterNames || "an unknown character"} could not be verified, so nothing was deleted.`,
         coldStorageCleanupFailed: "Cold storage cleanup failed partway through. Some unused items may not have been removed; nothing else was affected.",
+        coldStorageBlockedByDuplicateChaId: (characterGroups: string) =>
+            `Cold storage cleanup was skipped because the following character(s) share an internal id with another character, and saving is paused for them: ${characterGroups || "a character"}. Saving resumes once only one character holds each id -- for example, by permanently deleting the extra ones (move them to the trash, then delete them from the trash) -- then try cleanup again.`,
         coldStorageChatStillLoading: "This chat hasn't loaded from cold storage yet (it is still loading, or it could not be loaded — see the notice in the chat). Sending is disabled until it loads.",
         coldStorageChatLoadFailed: (coldDataKey: string) =>
             `This chat's stored data could not be loaded (key: ${coldDataKey}). It may be a temporary problem — try switching chats or restarting. If it keeps failing, the data may be lost and you can delete this chat. Until then, don't run "clean cold storage".`,
@@ -1196,6 +1198,8 @@ export const languageEnglish = {
     savingStoppedStayMessage: "This tab has stopped saving. You chose to stay after another tab saved changes, so this tab's copy of the data is out of date and can no longer be saved. Changes made from now on will not be kept. Reloading will fetch the current data — any unsaved local changes will be lost.",
     savingStoppedNodeConflictMessage: "This tab has stopped saving. Your local data conflicted with a newer version on the self-hosted server, so this tab has permanently stopped trying to save. Changes made from now on will not be kept. Reload the app to get the current data — any unsynced local changes will be lost.",
     savingStoppedAccountConflictMessage: "This tab has stopped saving. Your local data conflicted with a newer version on your account, so this tab has permanently stopped trying to save. Changes made from now on will not be kept. Reload the app to get the current data — any unsynced local changes will be lost.",
+    duplicateChaIdSavePausedMessage: (characterGroups: string) =>
+        `The following character(s) share an internal id with another character, so the save file can only keep one from each shared id: ${characterGroups || "two characters"}. It keeps whichever one was saved most recently before this started, or, if neither had ever been saved, whichever one was written first. Saving is paused for all of them while this continues. Saving resumes once only one character holds each id -- for example, by permanently deleting the extra ones (move them to the trash, then delete them from the trash).`,
     maxSupaChunkSize: "Max SupaMemory Chunk Size",
     addCharacter: "Add Character",
     importFromRealm: "Choose from RisuRealm",

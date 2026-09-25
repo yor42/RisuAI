@@ -9,7 +9,7 @@ import {
 } from "@tauri-apps/plugin-fs"
 import { forageStorage, requiresFullEncoderReload } from "../globalApi.svelte"
 import { isTauri, isNodeServer } from "src/ts/platform"
-import { DBState, selectedCharID } from "../stores.svelte"
+import { DBState, selectedCharID, frozenSaveKeysStore } from "../stores.svelte"
 import { get } from "svelte/store"
 import type { NodeStorage } from "../storage/nodeStorage"
 import { compress as fflateCompress, decompress as fflateDecompress } from "fflate"
@@ -559,7 +559,22 @@ async function collectColdCharacterKeysOrAbort(
     return { status: 'ok', keys }
 }
 
+/** One group per duplicated chaId, each a list of the display names sharing that id, formatted for `language.errors.coldStorageBlockedByDuplicateChaId`. */
+function frozenSaveKeyGroups(): string {
+    return get(frozenSaveKeysStore).map((k) => k.names.join(' and ')).join('; ')
+}
+
 export async function cleanColdStorage(){
+    // A kept block can reference a cold-storage key that memory does not:
+    // the frozen character's own current, unsaved edits can drop a
+    // reference that the saved block on disk still points at. Refusing
+    // outright while any chaId is frozen is what keeps this cleanup from
+    // deleting something that block still needs.
+    if(get(frozenSaveKeysStore).length > 0){
+        alertError(language.errors.coldStorageBlockedByDuplicateChaId(frozenSaveKeyGroups()))
+        return
+    }
+
     const db = DBState.db
 
     const coldCharacterCount = (db?.characters ?? []).filter(cha => cha?.coldstorage).length
@@ -584,6 +599,16 @@ export async function cleanColdStorage(){
         const allKeys = (await listColdStorageItems()).items
         const unusedKeys = allKeys.filter(k => !actualUsedKeys.has(k))
         console.log('Cleaning cold storage, actual used keys:', Array.from(actualUsedKeys), 'all keys:', allKeys, 'unused keys:', unusedKeys)
+
+        // Re-checked here, immediately before anything is removed, not only
+        // at entry: a chaId can become frozen while the verification and the
+        // listing above were in flight, and nothing must be removed once
+        // that has happened either.
+        if(get(frozenSaveKeysStore).length > 0){
+            alertClear()
+            alertError(language.errors.coldStorageBlockedByDuplicateChaId(frozenSaveKeyGroups()))
+            return
+        }
 
         if(forageStorage.isAccount || isNodeServer){
             await removeColdStorageItems(unusedKeys)

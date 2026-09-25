@@ -23,6 +23,12 @@ export const SizeStore = writable({
 
 export const loadedStore = writable(false)
 export const savingStoppedReason = writable('')
+/** One entry per chaId currently held by two or more characters, whose block the save file is keeping unchanged rather than rewriting (MC-078, MC-079, MC-082). */
+export interface FrozenSaveKeyInfo {
+    chaId: string
+    names: string[]
+}
+export const frozenSaveKeysStore = writable<FrozenSaveKeyInfo[]>([])
 export const DynamicGUI = writable(false)
 export const sideBarClosing = writable(false)
 export const sideBarStore = writable(window.innerWidth > 1024)

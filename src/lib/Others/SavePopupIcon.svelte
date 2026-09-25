@@ -3,7 +3,7 @@
   import { alertMd, alertNormal } from "src/ts/alert";
   import { saving } from "src/ts/globalApi.svelte";
   import { AccountWarning } from "src/ts/storage/accountStorage";
-  import { DBState, savingStoppedReason } from "src/ts/stores.svelte";
+  import { DBState, savingStoppedReason, frozenSaveKeysStore } from "src/ts/stores.svelte";
   import { language } from "src/lang";
 
   function savingStoppedMessage(reason: string){
@@ -21,6 +21,13 @@
 {#if $savingStoppedReason}
   <button class="absolute top-3 right-3 z-10 text-white bg-red-800 hover:bg-red-600 p-2 rounded-sm" onclick={() =>{
       alertNormal(savingStoppedMessage($savingStoppedReason))
+  }}>
+      <OctagonAlert size={24} />
+  </button>
+{:else if $frozenSaveKeysStore.length > 0}
+  <button class="absolute top-3 right-3 z-10 text-white bg-red-800 hover:bg-red-600 p-2 rounded-sm" onclick={() =>{
+      const groups = $frozenSaveKeysStore.map((k) => k.names.join(' and ')).join('; ')
+      alertNormal(language.duplicateChaIdSavePausedMessage(groups))
   }}>
       <OctagonAlert size={24} />
   </button>

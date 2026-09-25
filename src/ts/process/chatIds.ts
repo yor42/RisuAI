@@ -197,7 +197,7 @@ function warnDuplicateId(kind: 'chat id' | 'chaId', id: string, pluginName: stri
     const holder = kind === 'chaId' ? 'character' : 'chat'
     const lead = pluginName ? `After an install by plugin "${pluginName}", ` : 'After an install, '
     const consequence = kind === 'chaId'
-        ? 'writes addressed by id to either holder are skipped, and the next save keeps only one character with that chaId'
+        ? 'writes addressed by id to either holder are skipped, and saving is paused for that chaId, whose last saved block is kept'
         : 'writes addressed by id to either holder are skipped'
     console.warn(
         `${lead}${kind} (${id}) is held by more than one ${holder}. This may be transient -- the first `

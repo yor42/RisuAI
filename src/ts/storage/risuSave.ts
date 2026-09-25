@@ -139,6 +139,24 @@ function rawBlockBytesEqual(a: Uint8Array, b: Uint8Array): boolean {
 }
 
 /**
+ * Removes every occurrence of `value` from `list`, not only the first.
+ * `list` is `toSave.character`, declared `string[]`, but the selected-
+ * character effect (`frontUnshiftSelected`, `dbChangeEffects.svelte.ts`) and
+ * the identity tracker's own append (`appendIfAbsent`,
+ * `characterSaveMarks.ts`) push a character's raw chaId into it at runtime,
+ * whatever that declared type says -- so each element is compared by
+ * `String(list[i])`, not by identity, to still catch a raw, non-string
+ * chaId.
+ */
+function removeAllOccurrences(list: string[], value: string): void {
+    for (let i = list.length - 1; i >= 0; i--) {
+        if (String(list[i]) === value) {
+            list.splice(i, 1);
+        }
+    }
+}
+
+/**
  * Thrown for a block-parsing failure that must abort decoding entirely
  * rather than being silently skipped (RisuSaveDecoder's raw byte-parsing
  * loop otherwise treats every per-block error as "drop this one block and
@@ -261,14 +279,38 @@ export class RisuSaveEncoder {
     // macrotask boundary, so this is what keeps a run of skips yielding
     // periodically instead of running as one long task.
     private yieldBudget = createYieldBudget();
+    // chaId keys currently held by two or more characters in the last pass
+    // (`init` or `set`) this encoder ran. While a key is here, its block is
+    // held unchanged rather than rewritten from either holder (MC-078,
+    // MC-079, MC-082) -- see the duplicate handling in `init` and `set`
+    // below. Recomputed from scratch every pass; a key leaves this set the
+    // moment a pass sees it with fewer than two holders.
+    private frozenKeys = new Set<string>();
+
+    /** A snapshot of the chaId keys currently frozen against a rewrite. */
+    getFrozenKeys(): Set<string> {
+        return new Set(this.frozenKeys);
+    }
 
     async init(data:Database,arg:{
         compression?: boolean,
-        skipRemoteSavingOnCharacters?: boolean
+        skipRemoteSavingOnCharacters?: boolean,
+        /**
+         * The encoder this fresh one is replacing on a full reload. Consulted
+         * only for a key that this pass's own snapshot finds duplicated and
+         * for which this encoder has no block of its own: `previous.blocks`
+         * is read, never copied in bulk ahead of time, so a key duplicated in
+         * `previous` that this pass finds with zero or one holder is never
+         * carried, and a key `previous` never held a block for still falls
+         * through to a first-holder write. `previous` itself is never
+         * written to.
+         */
+        previous?: RisuSaveEncoder
     } = {}){
         const {
             compression = false,
-            skipRemoteSavingOnCharacters = true
+            skipRemoteSavingOnCharacters = true,
+            previous
         } = arg;
         this.compression = compression;
         this.encodedCharacterProxies = new Set();
@@ -315,18 +357,82 @@ export class RisuSaveEncoder {
             type: RisuSaveType.PLUGIN_STORAGE,
             name: 'pluginStorage'
         });
-        for( const character of data.characters) {
-            this.blocks[character.chaId] = await this.encodeBlock({
+        // One snapshot for this whole pass: a holder appended to the live
+        // array while this loop is still awaiting an earlier holder's block
+        // write is not seen until the next pass. Each holder's chaId is read
+        // once, here -- never re-read from the character later -- so a chaId
+        // edited mid-pass still encodes and freezes under the value it held
+        // when this pass started. `holderKeys` holds `String(chaId)`, the
+        // same coercion a plain object's own property access already applies
+        // to `this.blocks[chaId]`, so a numeric or missing chaId dedupes and
+        // freezes exactly as it would key a block; `holderRawKeys` keeps the
+        // uncoerced value, which is what `encodeBlock`'s `name` must receive
+        // so the written bytes are unchanged.
+        const snapshot = data.characters.slice();
+        const holderKeys: string[] = new Array(snapshot.length);
+        const holderRawKeys: string[] = new Array(snapshot.length);
+        const holderCounts = new Map<string, number>();
+        for (let i = 0; i < snapshot.length; i++) {
+            const rawKey = snapshot[i].chaId;
+            const key = String(rawKey);
+            holderRawKeys[i] = rawKey;
+            holderKeys[i] = key;
+            holderCounts.set(key, (holderCounts.get(key) ?? 0) + 1);
+        }
+
+        const encodedThisPass = new Set<string>();
+        const newFrozenKeys = new Set<string>();
+        for (let i = 0; i < snapshot.length; i++) {
+            const character = snapshot[i];
+            const key = holderKeys[i];
+            const rawKey = holderRawKeys[i];
+            if (encodedThisPass.has(key)) {
+                // At most one encode per key per pass -- a later holder of an
+                // already-handled key is neither written nor counted again.
+                continue;
+            }
+            encodedThisPass.add(key);
+            const holders = holderCounts.get(key) ?? 0;
+            if (holders > 1) {
+                const existingBlock = this.blocks[key] !== undefined ? this.blocks[key] : previous?.blocks[key];
+                if (existingBlock !== undefined) {
+                    // A block already exists for a key two or more characters
+                    // now hold -- either committed by this encoder already,
+                    // or carried from the encoder being replaced -- kept
+                    // unchanged, from neither holder.
+                    this.blocks[key] = existingBlock;
+                    newFrozenKeys.add(key);
+                    continue;
+                }
+                // MC-082: no block for this duplicated key in either encoder
+                // -- the first holder in snapshot order is written once,
+                // then frozen like any other duplicate.
+                this.blocks[key] = await this.encodeBlock({
+                    compression,
+                    data: JSON.stringify(character),
+                    type: RisuSaveType.CHARACTER_WITH_CHAT,
+                    name: rawKey,
+                    skipRemoteSaving: skipRemoteSavingOnCharacters
+                }, {
+                    remote: 'prefer'
+                });
+                this.encodedCharacterProxies.add(character);
+                newFrozenKeys.add(key);
+                continue;
+            }
+            this.blocks[key] = await this.encodeBlock({
                 compression,
                 data: JSON.stringify(character),
                 type: RisuSaveType.CHARACTER_WITH_CHAT,
-                name: character.chaId,
+                name: rawKey,
                 skipRemoteSaving: skipRemoteSavingOnCharacters
             }, {
                 remote: 'prefer'
             });
             this.encodedCharacterProxies.add(character);
         }
+        this.frozenKeys = newFrozenKeys;
+
         this.blocks['config'] = await this.encodeBlock({
             compression,
             data: JSON.stringify({
@@ -371,38 +477,108 @@ export class RisuSaveEncoder {
             }
         }
 
+        // One snapshot for this whole pass, same reasoning as init() above:
+        // an insert onto the live array partway through this loop is not
+        // seen until the next set() call, and each holder's chaId is read
+        // once, up front. `holderKeys` holds `String(chaId)`, matching the
+        // coercion a plain object's own property access already applies to
+        // `this.blocks[chaId]`; `holderRawKeys` keeps the uncoerced value for
+        // `encodeBlock`'s `name`, so the written bytes are unchanged.
+        const snapshot = data.characters.slice();
+        const holderKeys: string[] = new Array(snapshot.length);
+        const holderRawKeys: string[] = new Array(snapshot.length);
+        const holderCounts = new Map<string, number>();
+        for (let i = 0; i < snapshot.length; i++) {
+            const rawKey = snapshot[i].chaId;
+            const key = String(rawKey);
+            holderRawKeys[i] = rawKey;
+            holderKeys[i] = key;
+            holderCounts.set(key, (holderCounts.get(key) ?? 0) + 1);
+        }
+
+        const frozenBeforePass = this.frozenKeys;
         const savedId = new Set<string>();
-        for(const character of data.characters) {
-            const index = toSave.character.indexOf(character.chaId);
-            if (index !== -1) {
-                this.blocks[character.chaId] = await this.encodeBlock({
-                    compression: this.compression,
-                    data: JSON.stringify(character),
-                    type: RisuSaveType.CHARACTER_WITH_CHAT,
-                    name: character.chaId
-                }, {
-                    remote: 'prefer'
-                });
-                savedId.add(character.chaId);
-                toSave.character.splice(index, 1);
+        const encodedThisPass = new Set<string>();
+        const newFrozenKeys = new Set<string>();
+        for (let i = 0; i < snapshot.length; i++) {
+            const character = snapshot[i];
+            const key = holderKeys[i];
+            const rawKey = holderRawKeys[i];
+            if (encodedThisPass.has(key)) {
+                // At most one encode per key per pass.
+                continue;
             }
-            else if(!this.blocks[character.chaId]){
-                this.blocks[character.chaId] = await this.encodeBlock({
+            encodedThisPass.add(key);
+            const holders = holderCounts.get(key) ?? 0;
+            // Compares by `String(m)`, not identity: the selected-character
+            // effect (`frontUnshiftSelected`) and the identity tracker
+            // (`appendIfAbsent`) push a character's raw chaId into
+            // `toSave.character` at runtime, and that mark must still match
+            // this holder's own `String(chaId)` key. `toSave.character`
+            // itself is never rewritten to hold `String(chaId)` in place: a
+            // failed write folds it back into the live tracker via
+            // `mergeUnsavedChanges`, and `prepareSaveIteration`'s no-reload
+            // filter compares it against raw chaIds -- either one would drop
+            // a numeric chaId's mark turned into `"5"` here.
+            const markIndex = toSave.character.findIndex((m) => String(m) === key);
+
+            if (holders > 1) {
+                if (this.blocks[key] !== undefined) {
+                    // Kept unchanged, whichever holder is marked -- every
+                    // occurrence of the key is taken out of toSave.character
+                    // (a dirty-marking effect can add the same id twice), so
+                    // the deletion branch below never sees it.
+                    newFrozenKeys.add(key);
+                    savedId.add(key);
+                    removeAllOccurrences(toSave.character, key);
+                    continue;
+                }
+                // MC-082: never saved before -- the first holder in snapshot
+                // order is written once, then frozen the same way.
+                this.blocks[key] = await this.encodeBlock({
                     compression: this.compression,
                     data: JSON.stringify(character),
                     type: RisuSaveType.CHARACTER_WITH_CHAT,
-                    name: character.chaId
+                    name: rawKey
                 }, {
                     remote: 'prefer'
                 });
-                savedId.add(character.chaId);
+                savedId.add(key);
+                newFrozenKeys.add(key);
+                removeAllOccurrences(toSave.character, key);
+                continue;
+            }
+
+            // Exactly one holder this pass. A mark writes it; a key
+            // that was frozen going into this pass writes it too, even
+            // unmarked, so saving resumes with its current content as soon
+            // as the duplicate is gone -- not only once a new mark happens to
+            // arrive. A key with no block yet and no mark still gets its
+            // first write.
+            if (markIndex !== -1 || frozenBeforePass.has(key) || this.blocks[key] === undefined) {
+                this.blocks[key] = await this.encodeBlock({
+                    compression: this.compression,
+                    data: JSON.stringify(character),
+                    type: RisuSaveType.CHARACTER_WITH_CHAT,
+                    name: rawKey
+                }, {
+                    remote: 'prefer'
+                });
+                savedId.add(key);
+                if (markIndex !== -1) {
+                    toSave.character.splice(markIndex, 1);
+                }
             }
         }
+        this.frozenKeys = newFrozenKeys;
         if(toSave.character.length > 0){
             console.log(`Deleting character data: ${toSave.character.join(', ')}`);
             //probably deleted characters
             for(const chaId of toSave.character){
-                if(!savedId.has(chaId)){
+                // `savedId` holds `String(chaId)`, so a raw, possibly
+                // non-string mark left over here (see `markIndex` above) is
+                // compared the same way, not by identity.
+                if(!savedId.has(String(chaId))){
                     delete this.blocks[chaId];
                 }
             }
@@ -562,11 +738,13 @@ export class RisuSaveEncoder {
         // CHORE-17 Stage A (plan Report 18 §2): skip the cache write when
         // these bytes are already what `this.blocks[arg.name]` holds. Safe
         // because every assignment to `this.blocks[k]` comes from a
-        // previously *committed* `encodeRawBlock` call on this same instance
-        // (localforage resolves `setItem` only in `transaction.oncomplete`),
-        // so equal bytes here mean these exact bytes were already written
-        // under this cache key -- and since `arg.data` is always
-        // `JSON.stringify` output (well-formed, no lone surrogates),
+        // previously *committed* `encodeRawBlock` call under that same key --
+        // on this instance, or, for a key duplicated across a full reload
+        // (`init`'s `previous` option), on the instance being replaced.
+        // Either way, nothing writes that cache key while the key stays
+        // duplicated, so equal bytes here still mean these exact bytes were
+        // already written under this cache key -- and since `arg.data` is
+        // always `JSON.stringify` output (well-formed, no lone surrogates),
         // `TextEncoder` is injective on it, so equal encoded bytes also mean
         // equal source data. The block type byte is part of the compared
         // bytes, so two block kinds sharing a name can't false-match.

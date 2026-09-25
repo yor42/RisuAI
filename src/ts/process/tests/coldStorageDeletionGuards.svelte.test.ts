@@ -168,6 +168,7 @@ vi.mock(import('../../stores.svelte'), () => {
         CharEmotion: writable({}),
         MobileGUIStack: writable([]),
         OpenRealmStore: writable(false),
+        frozenSaveKeysStore: writable([]),
     } as unknown as typeof import('../../stores.svelte')
 })
 
@@ -526,7 +527,8 @@ import type { RetryLegacyColdChatSideFields } from '../coldstorageData'
 import { doingChat } from '../index.svelte'
 import { sweepTauriAssets, sweepForageAssetKey } from '../../storage/assetSweep'
 import { readDir, remove, BaseDirectory, readFile as tauriReadFile, exists as tauriExists } from '@tauri-apps/plugin-fs'
-import { DBState, selectedCharID } from '../../stores.svelte'
+import { DBState, selectedCharID, frozenSaveKeysStore } from '../../stores.svelte'
+import { alertError, alertClear } from 'src/ts/alert'
 import { compress as fflateCompress } from 'fflate'
 import type { ColdStorageReadResult } from '../coldstorage.svelte'
 
@@ -2608,5 +2610,97 @@ describe('CHORE-07 stage 7c-2: retryLegacyColdChatLoad', () => {
         const chat = DBState.db.characters[0].chats[0] as unknown as { message: { data: string }[] }
         expect(chat.message).toEqual(messageBefore)
         expect(chat.message[0].data).toBe(`[Cold storage data could not be loaded. Key: ${coldKey}]`)
+    })
+})
+
+// MC-078, MC-079, MC-082: a kept block for a frozen chaId can reference a
+// cold-storage entry that the in-memory character does not currently
+// reference, so cleanColdStorage refuses outright while any chaId is frozen
+// -- checked once at entry, and again immediately before anything is
+// removed, since verifying every cold-stored character in between is itself
+// awaited and can outlast the entry check.
+describe('cleanColdStorage refuses while a chaId is frozen against a save-file rewrite', () => {
+    beforeEach(() => {
+        frozenSaveKeysStore.set([])
+        ;(alertError as ReturnType<typeof vi.fn>).mockClear()
+        ;(alertClear as ReturnType<typeof vi.fn>).mockClear()
+    })
+
+    test('refuses at entry and deletes nothing when a chaId is already frozen', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+        const ORPHAN_KEY = 'g12-entry-orphan-key'
+        await setColdStorageItem(ORPHAN_KEY, { message: [{ time: 1, data: 'unrelated leftover', role: 'user' }] })
+        DBState.db = makeDb([])
+        frozenSaveKeysStore.set([{ chaId: 'g12-dup-id', names: ['A', 'B'] }])
+
+        await cleanColdStorage()
+
+        const afterItems = (await listColdStorageItems()).items
+        expect(afterItems).toContain(ORPHAN_KEY)
+        expect(alertError).toHaveBeenCalledTimes(1)
+    })
+
+    test('refuses when a chaId becomes frozen during verification, after the entry check already passed', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+        const ORPHAN_KEY = 'g12-mid-orphan-key'
+        await setColdStorageItem(ORPHAN_KEY, { message: [{ time: 1, data: 'unrelated leftover', role: 'user' }] })
+
+        const CHAR_CHA_ID = 'g12-mid-char'
+        const COLD_CHAR_KEY = 'g12-mid-cold-char-key'
+        await setColdStorageItem(COLD_CHAR_KEY, {
+            character: { type: 'character', chaId: CHAR_CHA_ID, name: 'G12 Character', chatPage: 0, chats: [] },
+        })
+        DBState.db = makeDb([{
+            chaId: CHAR_CHA_ID,
+            name: 'G12 Character',
+            type: 'character',
+            chatPage: 0,
+            coldstorage: COLD_CHAR_KEY,
+            coldStoragedChats: [],
+            chats: [{
+                message: [{ time: Date.now(), data: '', role: 'char' }],
+                note: '',
+                name: '',
+                localLore: [],
+            }],
+        } as unknown as CharacterFixture])
+
+        // Entry check passes: nothing is frozen yet (reset in beforeEach).
+        const originalGetFileHandle = mockDirectoryHandle.getFileHandle.bind(mockDirectoryHandle)
+        const spy = vi.spyOn(mockDirectoryHandle, 'getFileHandle').mockImplementation(async (name: string, opts?: { create?: boolean }) => {
+            if (name === opfsFilename(COLD_CHAR_KEY)) {
+                // A duplicate chaId appears while this cold character's own
+                // blob is being verified -- after the entry check, before
+                // anything is removed.
+                frozenSaveKeysStore.set([{ chaId: 'g12-dup-id-2', names: ['C', 'D'] }])
+            }
+            return originalGetFileHandle(name, opts)
+        })
+
+        await cleanColdStorage()
+        spy.mockRestore()
+
+        const afterItems = (await listColdStorageItems()).items
+        expect(afterItems).toContain(ORPHAN_KEY)
+        expect(afterItems).toContain(COLD_CHAR_KEY)
+        expect(alertClear).toHaveBeenCalled()
+        expect(alertError).toHaveBeenCalledTimes(1)
+    })
+
+    test('cleans normally once no chaId is frozen', async () => {
+        platformState.isTauri = false
+        resetOpfs()
+        const ORPHAN_KEY = 'g12-clean-orphan-key'
+        await setColdStorageItem(ORPHAN_KEY, { message: [{ time: 1, data: 'unrelated leftover', role: 'user' }] })
+        DBState.db = makeDb([])
+        frozenSaveKeysStore.set([])
+
+        await cleanColdStorage()
+
+        const afterItems = (await listColdStorageItems()).items
+        expect(afterItems).not.toContain(ORPHAN_KEY)
+        expect(alertError).not.toHaveBeenCalled()
     })
 })
