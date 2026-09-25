@@ -7,11 +7,11 @@ import { decodeRisuSave, encodeRisuSaveLegacy } from "../storage/risuSave";
 import { getDatabase, setDatabase } from "../storage/database.svelte";
 import { repairDatabaseIds } from "../process/chatIds";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { decryptBuffer, encryptBuffer, sleep } from "../util";
-import { hubURL } from "../characterCards";
+import { sleep } from "../util";
 import { language } from "src/lang";
 import { collectColdStorageBackupPayloads, confirmIncompleteColdStorageOperation, getColdStorageBackupKey, getColdStorageItem, isColdStorageBackupData, listColdDataKeys, setColdStorageItem } from "../process/coldstorage.svelte";
 import { DBState } from "../stores.svelte";
+import { BACKUP_ENCRYPTION_MARKER_NAME, decodeEntryName, findEncryptionMarkerEntry, parseBackupEntryHeader, type BackupEntryHeader } from "./backupContainer";
 
 function getBasename(data:string){
     const baseNameRegex = /\\/g
@@ -160,17 +160,9 @@ export async function SaveLocalBackup(){
     }
 
     const dbWithoutAccount = { ...db, account: undefined }
-    let dbData = encodeRisuSaveLegacy(dbWithoutAccount, 'compression')
+    const dbData = encodeRisuSaveLegacy(dbWithoutAccount, 'compression')
 
-    if(forageStorage.isAccount && location.origin.endsWith('risuai.xyz')){
-        const time = Date.now()
-        const key = (await (await fetch(`https://sv.risuai.xyz/cryptokey?key=${time}`)).json()).key
-        const encrypted = await encryptBuffer(dbData, key)
-        await writer.writeBackup('encryption.risudat', new TextEncoder().encode(JSON.stringify({ time, type: 'account' })))
-        dbData = new Uint8Array(encrypted)
-    }
-
-    alertWait(`Saving local Backup... (Saving database)`) 
+    alertWait(`Saving local Backup... (Saving database)`)
 
     await writer.writeBackup('database.risudat', dbData)
     await writer.close()
@@ -406,12 +398,6 @@ export async function SavePartialLocalBackup(){
 export function LoadLocalBackup(){
     try {
         const input = document.createElement('input');
-        const encryptionMeta:{
-            type: 'none' | 'account';
-            time?: number;
-        } = {
-            type: 'none'
-        }
         input.type = 'file';
         input.accept = '.bin';
         input.onchange = async () => {
@@ -421,6 +407,34 @@ export function LoadLocalBackup(){
             }
             const file = input.files[0];
             input.remove();
+
+            // Every write below -- an asset, a cold-storage item, or the
+            // database itself -- must wait until the whole file is known to
+            // carry no encryption.risudat entry (MC-081). A walk exception
+            // means the file could not be confirmed safe, so it is treated
+            // the same as finding the marker: nothing is written.
+            let hasEncryptionMarker: boolean;
+            try {
+                let lastWalkProgressText: string | null = null;
+                hasEncryptionMarker = await findEncryptionMarkerEntry(file, {
+                    onProgress: (scanned, total) => {
+                        const progress = total > 0 ? ((scanned / total) * 100).toFixed(2) : '100.00'
+                        const progressText = `Checking local backup... (${progress}%)`;
+                        if (progressText !== lastWalkProgressText) {
+                            lastWalkProgressText = progressText;
+                            alertWait(progressText);
+                        }
+                    }
+                });
+            } catch (e) {
+                console.error(e);
+                alertError(language.backupFileUnreadable);
+                return;
+            }
+            if (hasEncryptionMarker) {
+                alertError(language.encryptedBackupRefused);
+                return;
+            }
 
             const reader = file.stream().getReader();
             const CHUNK_SIZE = 1024 * 1024; // 1MB chunk size
@@ -444,45 +458,62 @@ export function LoadLocalBackup(){
                 newBuffer.set(value, remainingBuffer.length);
                 remainingBuffer = newBuffer;
 
-                let offset = 0;
-                while (offset + 4 <= remainingBuffer.length) {
-                    const nameLength = new Uint32Array(remainingBuffer.slice(offset, offset + 4).buffer)[0];
-
-                    if (offset + 4 + nameLength > remainingBuffer.length) {
-                        break;
-                    }
-                    const nameBuffer = remainingBuffer.slice(offset + 4, offset + 4 + nameLength);
-                    const name = new TextDecoder().decode(nameBuffer);
-
-                    if (offset + 4 + nameLength + 4 > remainingBuffer.length) {
-                        break;
-                    }
-                    const dataLength = new Uint32Array(remainingBuffer.slice(offset + 4 + nameLength, offset + 4 + nameLength + 4).buffer)[0];
-
-                    if (offset + 4 + nameLength + 4 + dataLength > remainingBuffer.length) {
-                        break;
-                    }
-                    const data = remainingBuffer.slice(offset + 4 + nameLength + 4, offset + 4 + nameLength + 4 + dataLength);
-
-                    if( name === 'encryption.risudat') {
-                        try {
-                            const meta = JSON.parse(new TextDecoder().decode(data)) as typeof encryptionMeta
-                            if (meta.type === 'account' && meta.time) {
-                                encryptionMeta.type = 'account'
-                                encryptionMeta.time = meta.time
-                            } else {
-                                alertError('Invalid encryption metadata, will attempt to load database backup without decryption.')
-                            }
-                        } catch (e) {
-                            console.error('Failed to parse encryption metadata:', e)
-                            alertError('Failed to parse encryption metadata, will attempt to load database backup without decryption.')
+                // Resolve every entry currently complete in remainingBuffer
+                // before writing any of them: a stream this walk already
+                // cleared can still disagree with the walk if the File's
+                // slice() and stream() views diverge, so this loop must
+                // independently refuse to write anything from a batch that
+                // itself contains the marker, including entries that sit
+                // before it in file order. A complete marker name counts as
+                // a match whether or not its data-length field or body fits
+                // in the batch, so the name is always checked before either
+                // of those is checked.
+                const resolvedEntries: { header: BackupEntryHeader; dataStart: number }[] = [];
+                let scanOffset = 0;
+                let markerInBatch = false;
+                while (true) {
+                    const entryBuffer = remainingBuffer.subarray(scanOffset);
+                    const result = parseBackupEntryHeader(entryBuffer);
+                    if (result.status === 'ok') {
+                        if (result.header.name === BACKUP_ENCRYPTION_MARKER_NAME) {
+                            markerInBatch = true;
+                            break;
                         }
+                        const dataStart = scanOffset + result.header.headerLength;
+                        const bodyEnd = dataStart + result.header.dataLength;
+                        if (bodyEnd > remainingBuffer.length) {
+                            break;
+                        }
+                        resolvedEntries.push({ header: result.header, dataStart });
+                        scanOffset = bodyEnd;
+                        continue;
                     }
+                    if (result.stage === 'dataLength' && !result.nameSkipped
+                            && decodeEntryName(entryBuffer, result.nameLength) === BACKUP_ENCRYPTION_MARKER_NAME) {
+                        markerInBatch = true;
+                    }
+                    break;
+                }
 
-                    else if (name === 'database.risudat') {
+                if (markerInBatch) {
+                    alertError(language.encryptedBackupImportStopped);
+                    return;
+                }
+
+                for (const { header, dataStart } of resolvedEntries) {
+                    const name = header.name;
+                    if (name === undefined) {
+                        // parseBackupEntryHeader is called above with no name-length
+                        // limit, so every entry name here is always decoded; this
+                        // only narrows the type.
+                        continue;
+                    }
+                    const data = remainingBuffer.slice(dataStart, dataStart + header.dataLength);
+
+                    if (name === 'database.risudat') {
                         pendingDatabase = new Uint8Array(data);
                     }
-                    
+
                     else {
                         const coldStorageKey = getColdStorageBackupKey(name)
                         let handledAsColdStorage = false
@@ -519,10 +550,8 @@ export function LoadLocalBackup(){
                     if (forageStorage.isAccount) {
                         await sleep(1000);
                     }
-
-                    offset += 4 + nameLength + 4 + dataLength;
                 }
-                remainingBuffer = remainingBuffer.slice(offset);
+                remainingBuffer = remainingBuffer.slice(scanOffset);
             }
 
             if(!pendingDatabase){
@@ -530,24 +559,7 @@ export function LoadLocalBackup(){
                 return
             }
 
-            let db = pendingDatabase;
-            if(encryptionMeta.type === 'account' && encryptionMeta.time){
-                try {
-                    const key = (await (await fetch(`https://sv.risuai.xyz/cryptokey?key=${encryptionMeta.time}`)).json()).key
-                    const decrypted = await decryptBuffer(db, key)
-                    db = new Uint8Array(decrypted)
-                }
-                catch (e) {
-                    console.error('Failed to decrypt database backup:', e)
-                    // Do not fall through to decoding the still-encrypted `db` bytes as
-                    // if they were plaintext — a failed decrypt previously left `db`
-                    // unchanged (still ciphertext), and decodeRisuSave() on that data can
-                    // in the worst case produce plausible-looking garbage that then gets
-                    // written over the live save file instead of throwing outright.
-                    alertError('Failed to decrypt database backup. Restore aborted — your current data has not been modified.')
-                    return
-                }
-            }
+            const db = pendingDatabase;
             const dbData = await decodeRisuSave(db);
             const missingColdStorageKeys:string[] = []
             for(const key of await listColdDataKeys(dbData)){

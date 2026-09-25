@@ -12,9 +12,10 @@
  *
  * Drives the real `LoadLocalBackup` end to end: a fake `<input type=file>`
  * (captured off `document.createElement`, since happy-dom has no real file
- * picker) feeds it a hand-built backup byte stream holding a single
- * `database.risudat` chunk, readable in pieces through a fake `stream().getReader()`
- * -- exactly the shape `LoadLocalBackup`'s own chunked reader expects.
+ * picker) feeds it a real happy-dom `File`, built over a hand-built backup
+ * byte stream holding a single `database.risudat` chunk, and read through
+ * the file's own real `stream().getReader()` -- exactly the shape
+ * `LoadLocalBackup`'s own chunked reader expects.
  * `decodeRisuSave`/`encodeRisuSaveLegacy` are the REAL `src/ts/storage/risuSave.ts`
  * functions, so the backup bytes this test builds and decodes are genuine.
  */
@@ -148,29 +149,19 @@ function buildChunk(name: string, data: Uint8Array): Uint8Array {
     return out
 }
 
-/** A fake `File`: only `.size` and `.stream().getReader().read()` are used by LoadLocalBackup. */
-function makeFakeFile(bytes: Uint8Array, chunkSize = 4096): File {
-    let offset = 0
-    return {
-        size: bytes.length,
-        stream: () => ({
-            getReader: () => ({
-                read: async () => {
-                    if (offset >= bytes.length) {
-                        return { done: true, value: undefined }
-                    }
-                    const end = Math.min(offset + chunkSize, bytes.length)
-                    const value = bytes.slice(offset, end)
-                    offset = end
-                    return { done: false, value }
-                },
-            }),
-        }),
-    } as unknown as File
+/** Narrows a `Uint8Array<ArrayBufferLike>` to the `Uint8Array<ArrayBuffer>` shape `BlobPart` requires; mirrors `asBuffer` in `src/ts/util.ts`. */
+function asBlobPart(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+    return bytes as unknown as Uint8Array<ArrayBuffer>
+}
+
+/** A real happy-dom `File` over `bytes`: LoadLocalBackup reads it through `.size`, `.slice()` (the marker walk) and `.stream()`. */
+function makeFakeFile(bytes: Uint8Array): File {
+    return new File([asBlobPart(bytes)], 'backup.bin')
 }
 
 let capturedInput: HTMLInputElement | null = null
 let createElementSpy: ReturnType<typeof vi.spyOn>
+const fetchMock = vi.hoisted(() => vi.fn())
 
 beforeEach(() => {
     setDatabaseMock.mockReset()
@@ -180,6 +171,11 @@ beforeEach(() => {
     setDatabaseMock.mockImplementation((db: unknown) => {
         duplicateFreeAtCall.calls.push(hasNoDuplicateChaId(db as never))
     })
+
+    fetchMock.mockReset()
+    fetchMock.mockImplementation(async () => ({ json: async () => ({ key: 'unused-test-key' }) }))
+    vi.stubGlobal('fetch', fetchMock)
+
     capturedInput = null
     const realCreateElement = document.createElement.bind(document)
     createElementSpy = vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
@@ -193,6 +189,7 @@ beforeEach(() => {
 
 afterEach(() => {
     createElementSpy.mockRestore()
+    vi.unstubAllGlobals()
 })
 
 /** Drives LoadLocalBackup() with `bytes` as the selected file's content, and awaits its onchange handler. */
