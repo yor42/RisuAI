@@ -34,8 +34,8 @@ The branch is `fix/persistence-conflict-platform-hardening`. **It is pushed and 
 the Roadmap and Reports 25/28, CHORE-35 to CHORE-41 filed, MC-092, Report 30, ledger rows
 223-228).
 
-**Uncommitted, in progress:** CHORE-39 step 1, the lock-seam refactor
-(`src/ts/storage/storageTabLocks.ts`, `globalApi.svelte.ts`, `autoStorage.ts`).
+**Committed 2026-09-26/27:** CHORE-39 (`37898465`) and its records (ledger rows 229-231, Report
+30, the Roadmap, this file). Not pushed since `877d233b`.
 
 ## CHORE-33 (RisuAccount removal): done
 
@@ -94,10 +94,10 @@ Report 25/28, see above).
 1. **The records** — done, committed.
 2. **The three optional 28C Gate 2 follow-ups** — done, committed (row 225).
 3. **The second comment-sweep pass** — done, committed (row 228).
-4. **CHORE-39** (OPFS migration) — **current.** Plan: Report 30 rev 2.1, Gate 1 passed (rows
-   226-227). Order: step 1, the lock-seam refactor (behaviour-preserving; in progress); step 2,
-   the tests, red where the plan says RED, failing for the real reason (N4); step 3, the fix;
-   Gate 2 by `opus-reviewer`. `MC-092` places it before W1.
+4. **CHORE-39** (OPFS migration) — done, committed (`37898465`); Gate 2 rows 229-230, live
+   check row 231.
+
+**Next: step 5, the removal stage.**
 5. **A removal stage:** Google Drive backup (CHORE-36, superseding `MC-080`'s "keep Drive"),
    CHORE-37's dead code, CHORE-38 (clear `risuaiAccountCached`, no recovery), and the Patreon list
    (part of CHORE-35's scope, removed rather than made opt-in).
@@ -214,12 +214,19 @@ bug) is blocked on the maintainer's console output, not scheduled by position.
 
 ## Test suite
 
-**124 files: 1493 passed, 4 skipped, 0 failed** — the Orchestrator's pre-gate check on the final
-28C snapshot (Report 28 rev 3.6, `d2653123`). `pnpm check` is clean; `pnpm run build` passes.
+**128 files: 1531 passed, 4 skipped, 0 failed** — the Orchestrator's check on the final CHORE-39
+snapshot (`37898465`, before its last comment-only corrections). `pnpm check` is clean; `pnpm run
+build` passes.
 - Run the suite with `npx vitest run --exclude "**/.claude/**" --exclude "**/node_modules/**"`.
   Plain `pnpm test` also picks up `.claude/worktrees/**`.
 
 ## How to live-check this app
+
+- **OPFS is not offered on the Node server.** To live-check the OPFS switch, build as below, then
+  serve `dist` with `pnpm run preview -- --port 4173 --strictPort` in the background and use a
+  Chrome window at least about 1300 px wide (narrower windows hide the Settings menu behind the
+  list button). Stop it by the PID listening on 4173. The localhost:4173 origin holds only
+  throwaway test data.
 
 - **Use Claude in Chrome, not the built-in pane.** The service worker kills the boot in the pane.
 - **Build for production.** Run `pnpm run build` with `$env:VITE_RISU_LEGAL_CONFIGURED='TRUE'`

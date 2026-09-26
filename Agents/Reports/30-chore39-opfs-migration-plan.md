@@ -1,6 +1,10 @@
 # CHORE-39 — OPFS migration: no lockout, no partial read, one migrator
 
-**STATUS:** plan rev 2.1, 2026-09-26. **Gate 1 passed.**
+**STATUS:** **done, committed as `37898465`** (2026-09-26). Gate 2 round 1 rejected the
+implementation (ledger row 229: the lock winner did not re-read the flag); round 2 closed it as
+[EDITORIAL] (row 230). The live check passed (row 231). Plan rev 2.1; Gate 1 as below.
+
+**Gate 1 passed.**
 - **Round 1 rejected rev 1** (`opus-reviewer`): one BLOCKER, three MAJOR, two MINOR and editorial
   points, all verified by the Orchestrator against source. Rev 2 answers each; section 6 maps
   finding to change.
@@ -14,7 +18,6 @@
   reason). Rev 2.1 applies all six; they are closed under AGENTS.md section 4's editorial-only
   rule.
 - Ledger: row 223 (the investigation), rows 226 and 227 (Gate 1 rounds 1 and 2).
-Not implemented.
 
 **Decisions:** MC-089 (the OPFS switch stays visible; nothing ships until every ticket clears),
 MC-092 (CHORE-39 goes before W1), MC-088 (the switch lives on the Backup & Files tab), MC-011

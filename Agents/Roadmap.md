@@ -1512,9 +1512,12 @@ CHORE-39 and before W1.
 
 ### CHORE-39 — OPFS migration has no quota-lockout fallback
 
-**Status (2026-09-26):** filed out of scope from CHORE-33's plan (Report 28 section 3.5, item 5),
+**Status (2026-09-26): ✅ DONE (`37898465`).** Gate 2 rows 229-230 (round 1 rejected: the lock
+winner did not re-read the flag; round 2 [EDITORIAL]); live check row 231. Report 30.
+
+**Filed:** filed out of scope from CHORE-33's plan (Report 28 section 3.5, item 5),
 found at CHORE-33 Gate 1 round 2 (ledger row 194): a possible quota lockout during the OPFS
-migration, not reproduced. Not fixed. `MC-089`: the fork does not ship until every current ticket,
+migration, not reproduced. `MC-089`: the fork does not ship until every current ticket,
 this one included, is cleared, so this is not a reason to hide the OPFS switch. **`MC-092`
 (2026-09-26): this ticket goes before W1**, ahead of the removal stage (CHORE-36/37/38 and the
 Patreon list) — "CHORE-39 goes before W1."
@@ -1524,8 +1527,10 @@ Patreon list) — "CHORE-39 goes before W1."
 - **Plan:** `Agents/Reports/30-chore39-opfs-migration-plan.md` rev 2.1; **Gate 1 passed**
   (ledger rows 223, 226, 227). The investigation and Gate 1 also found: a complete copy whose
   final `migrated` write fails locks out the same way; two tabs can run the boot copy at once;
-  cold storage's files in the OPFS root break every re-enable after a disable. Implementation
-  started 2026-09-26.
+  cold storage's files in the OPFS root break every re-enable after a disable. All four are fixed.
+- **Optional, not taken:** a test for a tab whose exclusive request timed out while the migrator
+  failed; without the not-granted path's flag check it would show an untrue "interrupted" notice
+  (it still lands on LocalForage).
 
 ### CHORE-40 — `Chat.svelte`'s copy button fetches any http(s) URL, unrelated to Realm or Drive
 
