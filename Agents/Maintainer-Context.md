@@ -2076,6 +2076,8 @@ recommended.
 - **To avoid:** placing either removal after W2.
 - The two removals stay separate stages.
 
+Its "keep Google Drive backup" part is superseded by MC-092 (2026-09-26).
+
 ---
 
 ### MC-081 — Account-sync-encrypted `.bin` backups are not supported; the user is told upfront
@@ -2464,6 +2466,47 @@ included. Ledger row 202 read them as data.
    re-verification wording, the blanket "a test that passes before and after proves nothing", the
    automatic `/clear`, the fresh-reviewer-every-round rule, and the full-suite-on-every-invocation
    rule. The earlier gate records stay as they are.
+
+---
+
+### MC-092 — Work order, and three infrastructure decisions: Drive, `risuaiAccountCached`, and the Patreon list
+
+- **Tag:** decision
+- **Date:** 2026-09-26
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, in reply to the Orchestrator's recommended work order and its
+  questions on CHORE-35, CHORE-36 and CHORE-38.
+- **Related:** `MC-080` (its "keep Google Drive backup" part is superseded here), `MC-089`,
+  `MC-091`.
+
+> go with your order, do the optional items now
+> CHORE-39 goes before W1.
+> CHORE-35 - proxy was there before EULA was introduced. but making these features opt-in sounds
+> more solid. Patreon can be removed though - I do not wish to take a donation, and upstream
+> patreon feels off to be in a fork.
+> CHORE-36 - let's remove the google drive sync - I do not wish to take a risk related to it.
+> CHORE-38 - I think it's safe to clear them
+
+**What was decided:**
+- **Work order:** the records; the three optional 28C follow-ups (a test for the Decline
+  republish, a store guard on `MainMenu`'s `online` listener, tidy the T-C15 mocks) now; the
+  second comment-sweep pass; CHORE-39 before W1; then a removal stage (below); then W1; the
+  CHORE-35 opt-in stage after W1.
+- **CHORE-36 → remove Google Drive backup.** Orchestrator's reading: remove Google Drive backup
+  entirely, web and Tauri — the Save/Load buttons, the OAuth flow, the `?code=`/`?state=`
+  handling, and their lang keys. This **supersedes MC-080's "keep Google Drive backup"**; Realm
+  and `/hub-proxy` stay kept. The upstream-agreement prompt from 28C then covers Realm only, and
+  its wording follows. Migration from upstream is still by local `.bin` backup (MC-011).
+  CHORE-36's restore-over-risuai.xyz question is moot once Drive is removed.
+- **CHORE-38 → clear `risuaiAccountCached`**; no recovery.
+- **CHORE-35 → make the upstream-infrastructure features opt-in** (the maintainer notes `/proxy2`
+  predates upstream's EULA). Orchestrator's reading of scope: the `/proxy2` default on static web,
+  the transformers CDN, the MCP OAuth helper, `#import=<url>`, `getProxyStreamJobBaseUrl`; design
+  to be planned and gated. **Remove the Patreon list** (the maintainer takes no donations, and
+  upstream's Patreon does not belong in a fork).
+- **Placement:** Drive removal (CHORE-36), CHORE-37 dead code, CHORE-38 and the Patreon removal
+  form one removal stage after CHORE-39 and before W1; CHORE-35's opt-in is its own stage after
+  W1. The Patreon removal may ride with either; the Orchestrator's default is the removal stage.
 
 ---
 

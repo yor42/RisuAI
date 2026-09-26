@@ -899,6 +899,13 @@ for the Orchestrator to decide whether it needs its own note.
   already inert; decide whether to expose or retire them. UI-2 is Low.
 - **Wiki coupling:** the Lorebook wiki page already says the Global Lorebook settings page can't be
   opened (per the report); a fix to UI-1 must update that page.
+- **Update (2026-09-26):** the Files part of UI-1 is resolved by CHORE-33's 28B (`87b974e5`,
+  `MC-088`; see Report 28 section 10). The Files page's controls (the asset-cache-integrity panel
+  and the OPFS switch) moved into the tab renamed "Backup & Files", hosted by `UserSettings.svelte`
+  through a child component, `StorageMaintenanceSettings.svelte`; `Settings.svelte`'s unreachable
+  `SettingsMenuIndex === 5` case is gone (verified at HEAD). Communities, Global Lorebook and
+  Global Regex (indices 7/8/9) are unchanged: their render cases are still there and still have no
+  menu button setting those indices (verified at HEAD).
 
 ### CHORE-15 — TTS: 7 suspected bugs (none lose data)
 
@@ -1378,25 +1385,46 @@ run. Narrow.
 
 ### CHORE-33 — RisuAccount removal: drop the hub credential, keep Realm and Drive
 
-**Status (2026-09-25):** **planned; Gate 1 passed.**
-- **The plan is `Agents/Reports/28-risuaccount-removal-plan.md` rev 3.2**, in three sub-stages:
-  - 28A: the importer refusal;
-  - 28B: the removal, with the Backup & Files merge;
-  - 28C: agreement at first use of an upstream service.
-- **Gate 1:** ledger rows 193 to 197. Rounds 1 and 2 rejected on substance; round 3 approved.
-- **Decisions:** MC-080, MC-081 and MC-084 to MC-089. 28A waits on the maintainer's go.
-- **Background:** scope and the migration refusal were already maintainer-decided (`MC-080`,
-  `MC-081`); see `Agents/Reports/25-risuaccount-removal-strategy.md`. The maintainer set the timing: after the
-multiuser removal (CHORE-34, `911376cb`) and before W1, the order `senior-advisor` recommended.
-Its prerequisite, W0, is committed. The plan will be Report 28. Report 25's line numbers predate
-W0, CHORE-28 and CHORE-34. `SavePopupIcon.svelte` is now edited, not deleted, because it also
-holds CHORE-28's frozen-save indicator.
+**Status (2026-09-26): ✅ DONE.** Plan: `Agents/Reports/28-risuaccount-removal-plan.md` rev 3.6, in
+three sub-stages, each with its own Gate 2 and live check. Gate 1 on the plan: ledger rows 193 to
+197 (rounds 1 and 2 rejected on substance; round 3 approved).
+- **28A** (`e1dd839c`, 2026-09-25): refuses an account-sync-encrypted `.bin` upfront, before any
+  write (`MC-081`). Gate 2: rows 198-199. Live check: row 200.
+- **28B** (`87b974e5`, 2026-09-26): removes RisuAccount, Kei and the hub sign-in; merges the
+  unreachable Files page into the renamed "Backup & Files" tab (`MC-088`). Gate 2: rows 203-204.
+  Live check: row 205.
+- **28C** (`d2653123`, 2026-09-26): asks for agreement to upstream's Terms of Service and Privacy
+  Policy at first use of Realm or Drive, not at boot (`MC-086`); the old boot ToS prompt
+  (`alertTOS`) is gone. Gate 2 took two rounds of substantive rejection on the same class of leak
+  (rows 213-214); round 3 (row 215) was interrupted by a process exit before a verdict, though its
+  scratch scenarios found two more leaks (E2/E4) in the same placeholder-control load logic. The
+  Orchestrator then escalated to `senior-advisor` (row 216) rather than write a fourth revision,
+  and landed on an Invariant A/B redesign; a fresh Gate 2 on that redesign returned `[EDITORIAL]`
+  (row 220), closed by a same-reviewer re-check (row 222). Live check: row 221 (production Node
+  build; nothing reached an upstream host before acceptance; the mobile landing view and the
+  accept path were not run live, covered by tests).
+
+See Report 28 for the full record. Six items Report 28 found out of scope for this stage are
+filed as CHORE-35 to CHORE-40 below.
+
+**Known limitation (Report 28 section 11.7, O1; not fixed here):** a blocking dialog posted while
+the agreement prompt is up — for example `saveDb`'s multi-tab conflict prompt — is hidden behind
+the prompt, and that dialog's wait takes the prompt's answer instead of its own. The conflict
+prompt falls back to its safe choice, `'stay'`, so this is not a data-loss path. A real fix needs
+an alert queue; that is a later fix, not part of 28C.
+
+- **Background:** scope and the migration refusal were maintainer-decided (`MC-080`, `MC-081`);
+  see `Agents/Reports/25-risuaccount-removal-strategy.md` for the strategy record (superseded by
+  Report 28 where they differ). The maintainer set the timing: after the multiuser removal
+  (CHORE-34, `911376cb`) and before W1, the order `senior-advisor` recommended. Later decisions
+  (`MC-084` to `MC-089`) refined the design: one shared agreement at first use of Realm or Drive
+  instead of a boot ToS screen (`MC-086`), the Files-page merge (`MC-088`), and keeping the OPFS
+  switch visible after the merge (`MC-089`). `SavePopupIcon.svelte` was edited, not deleted, since
+  it also holds CHORE-28's frozen-save indicator.
 
 - **Removes:** the hub sign-in and everything that uses its token — account sync, account data
-  save and load, account backup restore, account cold storage, Kei auto-backup (its UI trigger
-  is commented out, `UserSettings.svelte:188`; its one remaining automatic call fires only from
-  `bootstrap.ts:222`'s account-sync corruption-recovery path) and image generation, and in-app
-  edit and remove of the user's own Realm uploads.
+  save and load, account backup restore, account cold storage, Kei auto-backup and Kei image
+  generation, and in-app edit and remove of the user's own Realm uploads.
 - **Keeps:** Realm browse, info, download, report and anonymous upload; Google Drive backup; the
   self-hosted server's `/hub-proxy`.
 - **Migration:** a user migrating from upstream keeps their data via a `.bin` local backup
@@ -1422,6 +1450,115 @@ See
   message) keeps loading (`MC-011`); nothing is stripped or migrated on load (`MC-083`).
 - **Separate stage from the RisuAccount removal** (CHORE-33): no shared transport, helper or hub
   route (ledger row 185).
+
+### CHORE-35 — Upstream proxy and CDN infrastructure outside Realm and Drive have no agreement gate
+
+**Status (2026-09-26):** filed out of scope from CHORE-33's plan (Report 28 section 3.5, item 1),
+`MC-087` #3b. Traced to source, not fixed.
+
+**Decided (`MC-092`, 2026-09-26):** the upstream-infrastructure features below become **opt-in**,
+not removed — the maintainer notes `/proxy2` "was there before EULA was introduced," but "making
+these features opt-in sounds more solid." The **Patreon list is removed** ("I do not wish to take
+a donation, and upstream patreon feels off to be in a fork"), as part of the removal stage
+(CHORE-36/37/38), not this opt-in stage. This stage is scheduled after W1.
+
+- `/proxy2` (the default on static web builds; `usePlainFetch` bypasses it), the transformers CDN,
+  the Lua docs link, the MCP OAuth helper, `#import=<url>` in `characterURLImport` (fetches any
+  URL with no acceptance check; not a Realm feature), and `getProxyStreamJobBaseUrl` (the same
+  proxy infrastructure as `/proxy2`) all reach upstream or third-party hosts, and none of them is
+  covered by CHORE-33's Realm/Drive agreement gate.
+- The maintainer's recollection on `/proxy2`, stated but not verified: it is a plain proxy, there
+  for CORS and provider-compatibility reasons. `MC-087` #3b keeps it as a separate ticket.
+- **Observation (pre-existing, not Realm/Drive):** the Lua fetch ban-list checks
+  `startsWith('https://risuai.xyz')`, so it does not catch `sv.risuai.xyz` or
+  `nightly.sv.risuai.xyz`.
+
+### CHORE-36 — Remove Google Drive backup
+
+**Status (2026-09-26): decided (`MC-092`), not started.** Filed out of scope from CHORE-33's plan
+(Report 28 section 3.5, item 2) as a question about a possible restore-over-the-wrong-account bug
+(INFERRED, not reproduced — see below); the maintainer then decided to remove Google Drive backup
+entirely rather than investigate or fix it further — "let's remove the google drive sync - I do
+not wish to take a risk related to it." **This supersedes `MC-080`'s "keep Google Drive backup";**
+Realm and `/hub-proxy` stay kept. Placed in the removal stage, after CHORE-39 and before W1.
+
+- Drive's web flow redirects Google's OAuth to `https://risuai.xyz/`, where upstream's page
+  exchanges the code and backs up or restores against that origin's own data. A Load started from
+  this fork could therefore restore over the user's data on risuai.xyz (INFERRED, not reproduced)
+  — this question is now moot once Drive is removed.
+- **Scope (Orchestrator's reading of `MC-092`):** remove Google Drive backup entirely, on web and
+  Tauri — the Save/Load buttons, the OAuth flow, the `?code=`/`?state=` handling, and their lang
+  keys. Realm's upstream-agreement prompt (from 28C) then covers Realm only; its wording follows.
+  Migration from upstream is still by local `.bin` backup (`MC-011`).
+
+### CHORE-37 — Dead code left after the RisuAccount removal
+
+**Status (2026-09-26):** filed out of scope from CHORE-33's plan (Report 28 section 3.5, item 3).
+Traced to source (confirmed still present at HEAD), not fixed. Housekeeping only. **`MC-092`
+(2026-09-26): joins the removal stage**, alongside CHORE-36, CHORE-38 and the Patreon list, after
+CHORE-39 and before W1.
+
+- `src/LiteMain.svelte`, `src/etc/docs/docs_text.cbs`, and the Tauri `oauth_login` command
+  (`src-tauri/src/main.rs`) with the `oauth2` crate (`src-tauri/Cargo.toml`) are dead code CHORE-33
+  did not remove.
+
+### CHORE-38 — Decide what to do with the leftover `risuaiAccountCached` data
+
+**Status (2026-09-26): decided (`MC-092`), not started.** Filed out of scope from CHORE-33's plan
+(Report 28 section 3.5, item 4) as the maintainer's call to make; decided: clear it, no recovery
+— "I think it's safe to clear them." Placed in the removal stage, after CHORE-39 and before W1.
+
+- `risuaiAccountCached`, a leftover from account sync, is left in place by CHORE-33.
+
+### CHORE-39 — OPFS migration has no quota-lockout fallback
+
+**Status (2026-09-26):** filed out of scope from CHORE-33's plan (Report 28 section 3.5, item 5),
+found at CHORE-33 Gate 1 round 2 (ledger row 194): a possible quota lockout during the OPFS
+migration, not reproduced. Not fixed. `MC-089`: the fork does not ship until every current ticket,
+this one included, is cleared, so this is not a reason to hide the OPFS switch. **`MC-092`
+(2026-09-26): this ticket goes before W1**, ahead of the removal stage (CHORE-36/37/38 and the
+Patreon list) — "CHORE-39 goes before W1."
+
+- If the OPFS migration fails, fall back to LocalForage for that boot and say so, or check quota
+  before migrating.
+- **Plan:** `Agents/Reports/30-chore39-opfs-migration-plan.md` rev 2.1; **Gate 1 passed**
+  (ledger rows 223, 226, 227). The investigation and Gate 1 also found: a complete copy whose
+  final `migrated` write fails locks out the same way; two tabs can run the boot copy at once;
+  cold storage's files in the OPFS root break every re-enable after a disable. Implementation
+  started 2026-09-26.
+
+### CHORE-40 — `Chat.svelte`'s copy button fetches any http(s) URL, unrelated to Realm or Drive
+
+**Status (2026-09-26):** filed out of scope from CHORE-33's plan (Report 28 section 3.5, item 6).
+Traced to source, not fixed. The maintainer did not bring this into 28C.
+
+- `Chat.svelte`'s copy button fetches every http(s) URL in a rendered message, character icon or
+  user icon, including `sv.risuai.xyz`, from a click. It is not a Realm or Drive feature (Report
+  28 section 11.6's closing paragraph), so CHORE-33's agreement gate does not cover it.
+
+### CHORE-41 — Bug: the edit button on earlier messages sometimes opens no editor
+
+**Status (2026-09-26):** filed from the maintainer's bug report (`MC-090`) and two follow-up
+investigations, ledger rows 201, 202 and 206. Not fixed. Blocked on the maintainer's console
+output (below).
+
+- **Mechanism found (TRACED, ledger row 201, RUN on upstream `main` and this fork's HEAD):**
+  `Chats.svelte` does not render messages with `{#each}`; it mounts one `Chat` per visible message
+  by hand, keyed by a 32-bit hash of the message's `data`, `chatId`, index, portrait flag,
+  `disabled` and `ReloadChatPointer[index]`. `editMode` is plain local `$state` in `Chat.svelte`.
+  Whenever that hash changes for the message being edited, the instance is unmounted and
+  remounted, silently dropping the open editor with no error and a normal-looking button. This is
+  present in both upstream and this fork. The maintainer's supplied plugins (ledger row 202) were
+  ruled out as the trigger — none indexes messages or bumps the pointer that changes the hash.
+- **Still open: why the button stays dead across repeated clicks, not just once.** Ledger row 206
+  found a likely cause — a synchronous error thrown while building the `{#if editMode}` branch is
+  caught by nothing: there is no `<svelte:boundary>` anywhere in `src/`, upstream or this fork, so
+  the throw aborts that message's flush and every retry on a stable trigger replays it. The throw
+  site itself is not found. **Needs the maintainer's console output** at the moment of a failed
+  click, and whether the pencil icon flashes blue on the failed open.
+- **The report's build:** upstream's hosted site, risuai.xyz, on a roughly 36 GB `.bin` save
+  (`MC-090`); all data stored locally, no account sync. Whether the same triggers occur at this
+  fork's likely scale is unconfirmed.
 
 ## Sequencing Summary
 

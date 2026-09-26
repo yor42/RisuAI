@@ -1,6 +1,10 @@
 # RisuAccount removal: scope, migration facts and staging strategy
 
-**STATUS:** open. This is the next stage, and no stage plan exists yet.
+**STATUS:** closed. Carried out as CHORE-33 under `Agents/Reports/28-risuaccount-removal-plan.md`
+(rev 3.6), landed in `e1dd839c` (28A), `87b974e5` (28B) and `d2653123` (28C), all 2026-09-26. This
+report is now a historical strategy record; where it and Report 28 differ, Report 28 is
+authoritative. See the "Superseded by later commits" note below and `Agents/Roadmap.md`'s CHORE-33
+entry.
 
 **Status:** strategy, 2026-09-25. Scope and the migration-refusal decision are
 maintainer-decided (`MC-080`, `MC-081`). **The timing was decided later on 2026-09-25 (MC-080):**
@@ -9,12 +13,50 @@ before W1. The removal gets its own plan (Report 28) and gates (`opus-reviewer`,
 save/persistence and the storage backend selection).
 
 **Superseded by later commits (read before relying on this report):**
-- **Line numbers.** Every line number below predates the commits of W0, CHORE-28 and CHORE-34, so
+- **Line numbers.** Every line number below predates the commits of W0, CHORE-28 and CHORE-34, and
+  now also predates CHORE-33 itself: 28B deleted many of the files and functions cited by line, so
   refresh each location before using it.
 - **`SavePopupIcon.svelte` is no longer deleted whole.** Section 4 marks it "Removed", but
   CHORE-28 added the frozen-save indicator (`frozenSaveKeysStore`) to the same file. The removal
   must edit it: drop the `AccountWarning` import and branch, and the `'account-conflict'`
   handling, and keep the rest.
+- **Corrections from Report 28 section 2** ("Corrections to Report 25"), each at the confidence
+  Report 28 states:
+  - **Section 5, invariant 6's reasons are wrong.** The affected population is not "essentially
+    empty," and `AutoStorage.Init()` does have alert access (`alertStore`, since `App` mounts
+    before `loadData()`) — TRACED, ledger row 192. An in-place upgrade of a self-hosted upstream
+    install on the same origin carries both the `accountst` flag and the frozen pre-sync data
+    over; how many users that is remains the maintainer's judgement.
+  - **Section 5, invariant 7's disjunct contradicts MC-080.** "'Update on Realm' is either removed
+    or builds its URL correctly" is wrong: MC-080 removes the token-bearing edit branch outright,
+    which also removes `RealmFrame`'s malformed tokenless `&edit=` URL.
+  - **Section 4's dead-code note misattributes `testMode`.** It sits in `shareRisuHub2`, not in
+    `RealmUpload.svelte`.
+  - **Section 5, invariant 9's counts are wrong.** The actual count (ledger row 192, RUN) is 3
+    files wholly account behaviour, not 1; W0 added 6 test files, not 5; 30 tracked+untracked test
+    files reference account symbols in total, not 23.
+  - **Section 10, item 1's grep-completeness claim is wrong.** `/kei` still matches after the
+    stage (the Kei provider's unsupported-provider error keeps the string), and `sionyw` and
+    `cryptokey` can never reach zero, because both patterns also match out-of-scope hits (the MCP
+    OAuth helper, the SSRF denylist, a Vertex variable) — acceptance needs a scoped grep, not a
+    bare empty-match check.
+  - **This report's citation note (near the top) is stale.** It says `plugins.md` is "separately
+    modified, uncommitted, by an unrelated session." `plugins.md`'s corrections landed as part of
+    CHORE-33 itself (28B, `87b974e5`).
+  - **Section 6's "Show Unrecommended Settings" step.** The instruction to untick "Skip Saving
+    Assets on Web Sync" must carry the step that unhides it ("Show Unrecommended Settings" in
+    Advanced settings), since the toggle is hidden behind that setting. (Correction: section 6
+    below already carries this step — it says the toggle is "hidden behind 'show unrecommended
+    settings'" — so nothing further is needed there.)
+  - **Row 173's `155c915c`** (cited in the Evidence section above) is this repo's commit, not
+    HaejeokRisuai's; a later lens's "refutation" of it looked in the wrong repository.
+  - The line-numbers caveat above already covers Report 28's "line numbers went stale with
+    CHORE-28" correction.
+- **Section 4's "Removed"/"Kept" lists and section 12's records list are superseded by what
+  actually landed.** See `Agents/Reports/28-risuaccount-removal-plan.md` and `Agents/Roadmap.md`'s
+  CHORE-33 entry for the final scope and the records that were updated.
+- **The boot ToS prompt this report assumes throughout is gone.** 28C (`MC-086`) replaced it with
+  one shared agreement asked at first use of Realm or Drive, not at boot.
 
 **Evidence:** ledger row 173 (blast-radius map: six `investigator` lenses on this repo plus
 HaejeokRisuai, each verified by `deep-investigator`, then a completeness critic with gap
@@ -475,10 +517,21 @@ Option B's choice rather than the narrower Option A.
 
 ## 12. Records to update when the stage lands
 
+**This list is superseded by Report 28 section 10's own records list.** Checked against what
+landed (`git show --stat 87b974e5`; `git log -- plugins.md`): `plugins.md` and
+`src/ts/plugins/migrationGuide.md` are done — both edited inside `87b974e5` itself, not left for
+later. That `git show --stat`/`git log` sourcing applies only to those two files. The Roadmap item
+below is marked done by this session's uncommitted edit to `Agents/Roadmap.md`, not by a landed
+commit; the ledger append is likewise this session's uncommitted work. The one item still
+outstanding is `wiki/Settings-Account-and-Files.md`, owned by the parallel wiki session; Report 28
+section 10 lists it, and further pages, as a hand-off to that session rather than as work this
+stage did itself.
+
 - `Agents/Roadmap.md`: mark the CHORE entry for this stage done, with the landing commit(s).
 - `Agents/Investigation-Ledger.md`: append rows for the stage's plan and code review gates.
 - `Agents/Maintainer-Context.md`: an entry recording that MC-080/MC-081 shipped, if the
-  Orchestrator judges one warranted at that time.
+  Orchestrator judges one warranted at that time — **now covered by `MC-092`** (2026-09-26), which
+  records what shipped under CHORE-33 and the later change to Drive's disposition.
 - `wiki/Settings-Account-and-Files.md`: needs revision to drop the removed UI it currently
   documents (owned by its own session, not by this report).
 - `plugins.md`: correct the `saveMethod` documentation to the values the code returns, and the

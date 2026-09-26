@@ -1,11 +1,8 @@
 # CHORE-33 — RisuAccount removal
 
-**STATUS:** plan rev 3.6, 2026-09-26. **28C implemented and gated** on the `senior-advisor`'s
-Invariant A/B redesign (section 11.7): the store follows storage via `publishUpstreamAccepted()`
-on the Realm list/info consent branches, Accept and Decline; each view loads in response to
-acceptance only from its store-driven effect; the placeholder's control only asks. **Gate 2 on the
-new design is [EDITORIAL]** (ledger row 220): behaviour accepted, corrections in progress. **Commit
-pending the maintainer-approved sequence (comment sweep, then 28C, then docs). Not committed.**
+**STATUS:** plan rev 3.6, 2026-09-26. **CHORE-33 is done.** 28A (`e1dd839c`), 28B (`87b974e5`) and
+28C (`d2653123`) are all committed, live-checked (ledger rows 200, 205 and 221), and pushed. The
+plan is final at rev 3.6.
 **Gate 1 approved rev 3**: round 3, all four lenses APPROVE-WITH-FINDINGS, no BLOCKER or MAJOR
 (ledger row 195).
 - **Rev 3.1** folded in every round 3 finding, with **section 11 binding**.
@@ -19,28 +16,29 @@ pending the maintainer-approved sequence (comment sweep, then 28C, then docs). N
   maintainer's go.**
 - **28A is committed** as `e1dd839c` (2026-09-25). Gate 2 is ledger rows 198 and 199, and the
   live check row 200.
-- **28B is implemented and gated** (2026-09-26), uncommitted. Gate 2 is ledger rows 203 and 204,
-  and the live check row 205.
+- **28B was implemented and gated** (2026-09-26). Gate 2 is ledger rows 203 and 204, and the
+  live check row 205.
   - **Correction to I4:** both local `.bin` writers already stripped `account` before this
     change, so "local exports" was never a leak.
   - **An addition to I17:** the sample runs only when `checkCorruption` is on.
 - **28B is committed** as `87b974e5` (2026-09-26).
 - **Rev 3.3** adds section 11.6, 28C's readiness items from ledger row 207, and binds them for
   28C. Its review (row 208) approved with findings; R8 and the `bootstrap.ts` row were added.
-- **28C is implemented, uncommitted.** Red tests first (ledger rows 209-210), then implementation
+- **28C was implemented.** Red tests first (ledger rows 209-210), then implementation
   in two batches plus the Orchestrator's own stale-answer finding (row 211). **Gate 2 round 1**
   (row 213) and **round 2** (row 214) both rejected substantively and were both fixed; round 2 is
   the second consecutive substantive rejection under AGENTS.md section 4's three-round rule.
-  **Gate 2 round 3 is TODO(evidence)** as of this revision. Section 11.7 records rounds 1-2's
-  accepted limitations and load-bearing findings.
+  **Gate 2 round 3** (row 215) was interrupted by a process exit before a verdict; its scratch
+  scenarios found two more leaks in the same load logic, and the Orchestrator escalated to
+  `senior-advisor` rather than complete it. Section 11.7 records rounds 1-3's accepted
+  limitations and load-bearing findings.
 - **Rev 3.4** adds section 11.7 and the section 3.3/3.5/5/6/10 updates 28C's implementation and
   Gate 2 rounds 1-2 required.
 - **Rev 3.5** corrects section 3.3's `MainMenu.svelte`/`RealmMain.svelte` rows, which rev 3.4 had
   drifted into describing round 1-2's `'consent'` `hubStatus` and control-reload mechanism; they
   now state only the original ownership rule. Section 11.7 gains the round 1-3 history, the
   `senior-advisor`'s diagnosis (dossier `scratchpad/28c-escalation/dossier.md`; ledger row 216),
-  and the adopted Invariant A/B fix. That fix's implementation and Gate 2 outcome are
-  TODO(evidence).
+  and the adopted Invariant A/B fix.
 - **Rev 3.6** records Invariant A/B's implementation and its Gate 2 outcome (ledger rows 218-220).
   The first `test-warrior`/`sonnet-coder` pass built to a flawed red test (the `getRisuHub`
   stand-in did not publish on a fresh `'consent'` read, unlike the real function under Invariant
@@ -49,11 +47,17 @@ pending the maintainer-approved sequence (comment sweep, then 28C, then docs). N
   The check owner's final snapshot: 124 files, 1493 passed, 4 skipped; `pnpm check` 0; build ok. A
   fresh `opus-reviewer` Gate 2 returned **[EDITORIAL]** (ledger row 220): both invariants hold as
   scoped, every scenario holds, and every request/load mutant is killed; the required corrections
-  are to the commit message and to several test/code comments, not to behaviour. Corrections are
-  in progress; a targeted re-check by the same reviewer follows. Section 11.3 and 11.7 are
-  corrected below for two stale/overbroad claims found while writing up this revision.
-- **The comment sweep** (row 212) is done and approved, uncommitted, and lands in a separate
-  commit from CHORE-33.
+  were to the commit message and to several test/code comments, not to behaviour. **A targeted
+  re-check by the same reviewer** (ledger row 222) returned **[EDITORIAL]** again, with two new
+  one-phrase wording defects (`publishUpstreamAccepted`'s doc quoting a rule no other file states,
+  and the commit message overstating what the Realm requests publish); the Orchestrator applied
+  both fixes and closed the findings under AGENTS.md section 4's editorial-only rule. Section 11.3
+  and 11.7 are corrected below for two stale/overbroad claims found while writing up rev 3.6.
+- **28C is committed** as `d2653123` (2026-09-26), and its live check (row 221) has passed.
+- **The comment sweep** (row 212) landed as `57d1596a`, a separate commit from CHORE-33.
+- **The records this plan's section 10 lists were updated on 2026-09-26** (the Roadmap, Report
+  25's STATUS and Superseded note, and `Agents/Live-State.md`), except the parallel wiki session's
+  hand-off list, which is still to be delivered.
 
 **Rev 1** was rejected by Gate 1 round 1 (ledger row 193).
 
