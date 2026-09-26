@@ -1,10 +1,8 @@
 /**
- * Report 17 ("CHORE-01 + Phase 2 item 2") Stage 1, Gate 2 (opus-reviewer,
- * REJECT) should-fix item: "Backup-load wiring is untested" --
- * `loadInternalBackup()` (this file) had no test asserting
- * `requiresFullEncoderReload.state` actually gets set after a backup load,
- * despite its call site carrying a comment claiming exactly that (plan
- * §3.3, "the other three call sites already do this").
+ * `loadInternalBackup()` (this file) must set
+ * `requiresFullEncoderReload.state` after installing a backup, exactly as
+ * its call site's own comment claims: a backup load is an explicit user
+ * action to replace everything, so it must always trigger a full reload.
  *
  * Drives the REAL, unmocked `loadInternalBackup()` in `src/ts/globalApi.svelte.ts`,
  * with all I/O (the `AutoStorage`-backed `forageStorage`, `alertSelect`) mocked.
@@ -263,7 +261,7 @@ beforeEach(() => {
     setDatabaseCallState.idsCompleteAtCall.length = 0
 })
 
-describe('loadInternalBackup — Report 17 Stage 1 Gate 2 should-fix: backup-load wiring untested', () => {
+describe('loadInternalBackup — sets requiresFullEncoderReload.state after a real backup load', () => {
     test('a real backup load through the REAL loadInternalBackup() sets requiresFullEncoderReload.state', async () => {
         const backupDb = buildDb([makeCharacter('char-A', 'A from backup')])
         const encoder = new RisuSaveEncoder()
@@ -281,11 +279,9 @@ describe('loadInternalBackup — Report 17 Stage 1 Gate 2 should-fix: backup-loa
         await loadInternalBackup()
 
         expect(setDatabase).toHaveBeenCalledTimes(1)
-        // THE ASSERTION UNDER TEST -- red-proven by temporarily disabling the
-        // single `requiresFullEncoderReload.state = true` line in
-        // globalApi.svelte.ts's loadInternalBackup() and confirming this fails,
-        // then restoring the file byte-identical (see the Stage 1 gate-2 QA
-        // report for the diff-restore transcript).
+        // THE ASSERTION UNDER TEST: fails if `loadInternalBackup()` stops
+        // setting `requiresFullEncoderReload.state` after installing the
+        // backup.
         expect(requiresFullEncoderReload.state).toBe(true)
     })
 })

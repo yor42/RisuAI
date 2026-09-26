@@ -334,11 +334,11 @@ describe('registerDbChangeEffects — botPreset deep-read guards', () => {
 // Equivalence suite for the modules partition (an outer shape-effect plus
 // one child effect per element): pins that it tracks every mutation class a
 // single deep-read effect over the whole `modules` array would, so nothing
-// is under-tracked. The red-before-green proof test below additionally pins
-// that a leaf write to module k does not deep-read every other module; see
-// its own comment for that test's failing-source evidence.
+// is under-tracked. The proof test below additionally pins that a leaf
+// write to module k does not deep-read every other module; see its own
+// comment for how that is verified.
 
-//#region modules fixtures (Stage B, section 5)
+//#region modules fixtures (Stage B)
 
 // RisuModule's shape lives in src/ts/process/modules.ts, with nested
 // loreBook/customscript/triggerscript types in database.svelte.ts and

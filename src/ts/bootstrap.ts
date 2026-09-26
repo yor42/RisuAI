@@ -642,13 +642,11 @@ async function cleanChunks(options:{
                 // `.local.bin` suffix — a content-addressed (`v:2`,
                 // `<chaId>.<hash>.bin`) file returns null here and is
                 // correctly left untouched, matching the Tauri branch above.
-                // A hard-coded `.slice(0, -10)` (removing exactly the length
-                // of ".local.bin") used to stand in for this check, back when
-                // that was genuinely the only possible remote-file suffix —
-                // fed a hash-named file instead, it silently produced a
-                // bogus "character id" that never matches anything real,
-                // making a live block look orphaned and deletable after the
-                // grace period. See Agents/Reports/08-remote-block-gc-transactional-safety.md.
+                // A hash-named file must never be reduced to a bogus
+                // "character id" via a fixed-length suffix strip: that id
+                // would never match anything real, making a live block look
+                // orphaned and deletable after the grace period. See
+                // Agents/Reports/08-remote-block-gc-transactional-safety.md.
                 const name = getRemoteSavePayloadName(getBasename(asset))
                 if(!name){
                     continue

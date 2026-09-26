@@ -1,5 +1,5 @@
 /**
- * AV-3 (Report 15, `Agents/Reports/15-av3-plain-http-encode-plan.md` §4):
+ * AV-3 (Report 15, `Agents/Reports/15-av3-plain-http-encode-plan.md`):
  * T9/T10, the parser side of the plan (the `getFileSrcCached` function in
  * `src/ts/parser/parser.svelte.ts`, real, unmocked, driven through the
  * exported `ParseMarkdown`). T1-T8/T11-T13 (the `globalApi.svelte.ts` side)
@@ -9,7 +9,7 @@
  * test can pick which branch `getFileSrcCached` is meant to be taking
  * without depending on globalApi.svelte.ts's own internals.
  *
- * The AV-3 behaviour (Report 15 §2.2) has landed in `parser.svelte.ts`'s
+ * The AV-3 behaviour described above has landed in `parser.svelte.ts`'s
  * `getFileSrcCached`; every test below passes against it.
  *
  * Mock set for `../parser.svelte`'s own dependencies is copied, one-for-one,
@@ -33,9 +33,9 @@ vi.mock(
       appVer: '1234.5.67',
       // Deliberately minimal, matching trimMarkdownStyle.test.ts's convention.
       // `processScriptFull`'s `runTrigger` call reads more off this than these
-      // tests care to shape, but that call is wrapped in its own try/catch
-      // (scripts.ts:105-116) -- it logs a harmless console.error, caught, not
-      // thrown, and doesn't affect what these tests assert.
+      // tests care to shape, but that call is wrapped in its own try/catch in
+      // scripts.ts -- it logs a harmless console.error, caught, not thrown,
+      // and doesn't affect what these tests assert.
       getCurrentCharacter: () => ({}),
       getCurrentChat: () => ({}),
       getDatabase: () => ({ modules: [], enabledModules: [] }),
@@ -50,8 +50,9 @@ vi.mock(import('../../globalApi.svelte'), () => ({
   // (which is covered directly by globalApiFileCacheAv3.svelte.test.ts's T11).
   isPlainHttpFileSrc: vi.fn(() => false),
   setUsingSw: vi.fn(),
-  // AV-4 (Report 16 §4): avatarThumb.ts imports readImage eagerly at module
-  // load, through characters.ts's own import graph.
+  // AV-4 (Report 16, `Agents/Reports/16-av4-list-avatar-thumbnails-plan.md`):
+  // avatarThumb.ts imports readImage eagerly at module load, through
+  // characters.ts's own import graph.
   readImage: vi.fn(),
 }))
 

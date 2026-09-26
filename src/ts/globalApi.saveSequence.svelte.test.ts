@@ -1,9 +1,7 @@
 /**
- * Report 17 ("CHORE-01 + Phase 2 item 2") Stage 1 §3.1/§3.4:
- *
  * S11: `prepareSaveIteration` -- the full-reload branch, the snapshot/trim,
  * and the post-reload filter that keeps a reload from double-encoding an
- * already-marked character the same save iteration (gate finding F1).
+ * already-marked character the same save iteration.
  * S13: `bootSaveSequence` -- a mark made while a slow `init()` is still
  * pending is queued into the live tracker immediately and flushed by the
  * real scheduler once `init()` completes ("installing after init" would
@@ -275,7 +273,7 @@ beforeEach(() => {
 
 //#endregion
 
-describe('bootSaveSequence — Report 17 Stage 1 S13', () => {
+describe('bootSaveSequence — S13', () => {
     test('a mark made while a slow init() is pending lands in the tracker immediately, and the real scheduler flushes it once, after init completes', async () => {
         const tracker = makeTracker()
         let resolveInit!: () => void
@@ -329,8 +327,8 @@ describe('bootSaveSequence — Report 17 Stage 1 S13', () => {
     })
 })
 
-describe('prepareSaveIteration — Report 17 Stage 1 S11', () => {
-    test('a full reload restores characters present in the backup, drops ones absent from it, and encodes each present character exactly once (F1)', async () => {
+describe('prepareSaveIteration — S11', () => {
+    test('a full reload restores characters present in the backup, drops ones absent from it, and encodes each present character exactly once', async () => {
         const tracker = makeTracker()
         // char-A survived the backup load; char-C did not (deleted by the
         // backup); both were marked BEFORE the reload (e.g. by a plugin or
@@ -366,7 +364,7 @@ describe('prepareSaveIteration — Report 17 Stage 1 S11', () => {
         expect(reloadFlag.state).toBe(false) // consumed
         expect(onSnapshotTakenCalled).toBe(true)
         // char-A's proxy was already encoded by the reload's own init() --
-        // filtered OUT so set() below doesn't double-encode it (F1).
+        // filtered OUT so set() below doesn't double-encode it.
         expect(result.toSave.character).not.toContain('char-A')
         // char-C is absent from the post-backup db entirely -- kept, so
         // set() below runs its delete branch for it, but that's a no-op:
@@ -481,7 +479,7 @@ describe('prepareSaveIteration — Report 17 Stage 1 S11', () => {
         expect(tracker.chat).toEqual([['char-front', 'chat-0']])
     })
 
-    test('no reload: drops ids absent from db.characters so the encoder never deletes a block without a reload (B2)', async () => {
+    test('no reload: drops ids absent from db.characters so the encoder never deletes a block without a reload', async () => {
         const tracker = makeTracker()
         tracker.character = ['char-0', 'char-1']
         const reloadFlag = { state: false }
@@ -503,7 +501,7 @@ describe('prepareSaveIteration — Report 17 Stage 1 S11', () => {
             reinitEncoder,
             // char-1 is absent here -- e.g. a stale second plugin
             // setDatabase/setDatabaseLite call already reassigned
-            // db.characters away without a reload (B2). Since no reload
+            // db.characters away without a reload. Since no reload
             // happened this iteration, the encoder's delete branch must never
             // run for char-1 -- only a reload (which sets
             // requiresFullEncoderReload) may intentionally remove a block.
@@ -520,7 +518,7 @@ describe('prepareSaveIteration — Report 17 Stage 1 S11', () => {
         expect(decoded.characters?.find((c: CharacterFixture) => c.chaId === 'char-1')).toBeTruthy()
     })
 
-    test('B1: an edit made during a reload, on a character that reload already encoded, is still saved (Gate 2 REJECT, opus-reviewer, now fixed by taking the snapshot before reinitEncoder())', async () => {
+    test('an edit made during a reload, on a character that reload already encoded, is still saved because the snapshot is taken before reinitEncoder() runs', async () => {
         resetCharacterSaveMarksForTest()
         const tracker = makeTracker()
         // char-B is already marked before this iteration starts -- an unrelated
@@ -545,8 +543,7 @@ describe('prepareSaveIteration — Report 17 Stage 1 S11', () => {
                 // something writes char-A IN PLACE (same proxy init() just
                 // recorded in encodedCharacterProxies) and marks it. This lands
                 // the mark BEHIND char-B, since char-B was already in the
-                // tracker: tracker.character becomes ['char-B', 'char-A'],
-                // exactly the reviewer's "[B, A]" scenario.
+                // tracker: tracker.character becomes ['char-B', 'char-A'].
                 const fresh = new RisuSaveEncoder()
                 await fresh.init(db, { compression: false, skipRemoteSavingOnCharacters: false })
                 charA.chats[0].message.push({ role: 'char', data: 'reply tail written during reload', chatId: 'm1' })
@@ -556,14 +553,12 @@ describe('prepareSaveIteration — Report 17 Stage 1 S11', () => {
             getDatabase: () => db,
         })
 
-        // Reviewer, verbatim: "Snapshot [B,A]" -- but under the fix, the
-        // snapshot is taken BEFORE reinitEncoder() is even called, so it
-        // only ever contains ['char-B'] (char-A's mark above is added by the
-        // fake reinitEncoder() DURING the reload, after the snapshot already
-        // ran, and so lands in the LIVE tracker instead, behind the sticky
-        // front). "-> trim leaves [B]" still holds -- the live tracker is
-        // trimmed to the sticky front regardless of what the filter below
-        // does to `toSave`.
+        // The snapshot is taken BEFORE reinitEncoder() is even called, so it
+        // only ever contains ['char-B'] -- char-A's mark above is added by
+        // the fake reinitEncoder() DURING the reload, after the snapshot
+        // already ran, and so lands in the LIVE tracker instead, behind the
+        // sticky front. The live tracker is trimmed to the sticky front
+        // regardless of what the filter below does to `toSave`.
         expect(tracker.character).toEqual(['char-B'])
 
         await result.encoder.set(db, result.toSave)
@@ -580,39 +575,31 @@ describe('prepareSaveIteration — Report 17 Stage 1 S11', () => {
 
         const decoded = await decodeRisuSave(new Uint8Array(result2.encoder.encode()!))
         const decodedA = decoded.characters?.find((c: CharacterFixture) => c.chaId === 'char-A')
-        // FIXED (was F1's filter, over-applied): under the old post-reinit
-        // snapshot ordering, char-A's mark would have been filtered out of
-        // `toSave` in prepareSaveIteration() because its PROXY was already
-        // recorded by the reload's own init() -- even though init() encoded
-        // char-A's content BEFORE the edit above happened. Reviewer,
-        // verbatim (of the old bug): "the reply tail is never re-encoded."
-        // With the snapshot taken BEFORE reinitEncoder(), the snapshot here
-        // is only ['char-B'] -- char-A's mark above is never part of it. The
-        // post-reload filter then drops char-B instead (its proxy WAS
-        // recorded by this reload's own init()), leaving `toSave.character`
-        // empty; the fold loop (globalApi.svelte.ts's prepareSaveIteration,
-        // about lines 908-912) picks up char-A's mark from the live tracker
-        // afterward and pushes it in, unfiltered. So the FIRST set() call
-        // below (on `result`) is the one that actually writes the reply
-        // tail; the second iteration's set() (on `result2`) only re-encodes
-        // char-B.
+        // The snapshot taken here is only ['char-B'] -- char-A's mark above
+        // is never part of it, since it's added by reinitEncoder() itself,
+        // after the snapshot already ran. The post-reload filter then drops
+        // char-B instead (its proxy WAS recorded by this reload's own
+        // init()), leaving `toSave.character` empty; the fold loop in
+        // prepareSaveIteration (in globalApi.svelte.ts) picks up char-A's
+        // mark from the live tracker afterward and pushes it in, unfiltered.
+        // So the FIRST set() call below (on `result`) is the one that
+        // actually writes the reply tail; the second iteration's set() (on
+        // `result2`) only re-encodes char-B.
         expect(decodedA?.chats[0].message).toContainEqual({ role: 'char', data: 'reply tail written during reload', chatId: 'm1' })
 
         resetCharacterSaveMarksForTest()
     })
 })
 
-describe('prepareSaveIteration — onSnapshotRestored and reload-flag ordering (second Gate 2 REJECT, items A and B)', () => {
-    // A: before the fix, `onSnapshotTaken` (used by saveDb() to clear
-    // `dirtySinceLastSave`) ran before reinitEncoder(), but there was no
-    // matching callback for the case where reinitEncoder() THREW -- even
-    // though prepareSaveIteration already folded the snapshot back into the
-    // live tracker via mergeUnsavedChanges in that case (so nothing was
-    // lost), saveDb() had no way to know it needed to flag itself dirty
-    // again for a retry. The fix added an optional `onSnapshotRestored`
-    // callback, called right after that merge-back, which saveDb() wires to
-    // `dirtySinceLastSave = true`.
-    test('A: reinitEncoder() throwing calls onSnapshotRestored exactly once, after onSnapshotTaken, rejects with the same error, and restores the snapshot ids into the live tracker', async () => {
+describe('prepareSaveIteration — onSnapshotRestored and reload-flag ordering', () => {
+    // A: `onSnapshotTaken` (used by saveDb() to clear `dirtySinceLastSave`)
+    // runs before reinitEncoder(). If reinitEncoder() THROWS,
+    // prepareSaveIteration folds the snapshot back into the live tracker via
+    // mergeUnsavedChanges (so nothing is lost), but saveDb() still needs to
+    // know it must flag itself dirty again for a retry: the optional
+    // `onSnapshotRestored` callback is called right after that merge-back,
+    // and saveDb() wires it to `dirtySinceLastSave = true`.
+    test('reinitEncoder() throwing calls onSnapshotRestored exactly once, after onSnapshotTaken, rejects with the same error, and restores the snapshot ids into the live tracker', async () => {
         const tracker = makeTracker()
         tracker.character = ['char-A', 'char-C']
         tracker.chat = [['char-A', 'chat-0']]
@@ -646,7 +633,7 @@ describe('prepareSaveIteration — onSnapshotRestored and reload-flag ordering (
         expect(tracker.chat).toEqual(expect.arrayContaining([['char-A', 'chat-0']]))
     })
 
-    test('A guard: on a successful reload, onSnapshotRestored is never called', async () => {
+    test('guard: on a successful reload, onSnapshotRestored is never called', async () => {
         const tracker = makeTracker()
         tracker.character = ['char-A']
         const reloadFlag = { state: true }
@@ -670,13 +657,12 @@ describe('prepareSaveIteration — onSnapshotRestored and reload-flag ordering (
         expect(onSnapshotRestored).not.toHaveBeenCalled()
     })
 
-    // B: before the fix, `opts.reloadFlag.state = false` ran AFTER `await
-    // reinitEncoder()`, so a removeChar() or backup load that set the flag
-    // DURING the reload (requesting another full reload once this one
-    // finished) got silently erased by that post-await assignment. The fix
-    // clears the flag BEFORE the await instead, and sets it back to `true`
-    // if reinitEncoder() throws (confirmed by the "B2 guard" test below).
-    test('B1: reloadFlag.state set to true partway through reinitEncoder() (e.g. removeChar racing the reload) survives -- the flag is still true after prepareSaveIteration returns', async () => {
+    // `opts.reloadFlag.state = false` runs BEFORE `await reinitEncoder()`, so
+    // a removeChar() or backup load that sets the flag DURING the reload
+    // (requesting another full reload once this one finishes) is never
+    // silently erased by a later assignment. If reinitEncoder() throws, the
+    // flag is set back to `true` (confirmed by the guard test below).
+    test('reloadFlag.state set to true partway through reinitEncoder() (e.g. removeChar racing the reload) survives -- the flag is still true after prepareSaveIteration returns', async () => {
         const tracker = makeTracker()
         tracker.character = ['char-A']
         const reloadFlag = { state: true }
@@ -702,7 +688,7 @@ describe('prepareSaveIteration — onSnapshotRestored and reload-flag ordering (
         expect(reloadFlag.state).toBe(true)
     })
 
-    test('B2 guard: reinitEncoder() throwing still leaves the reload flag true afterward', async () => {
+    test('guard: reinitEncoder() throwing still leaves the reload flag true afterward', async () => {
         const tracker = makeTracker()
         tracker.character = ['char-A']
         const reloadFlag = { state: true }
@@ -720,7 +706,7 @@ describe('prepareSaveIteration — onSnapshotRestored and reload-flag ordering (
     })
 })
 
-describe('mergeUnsavedChanges — Report 17 Stage 1 S14', () => {
+describe('mergeUnsavedChanges — S14', () => {
     test('a mark added between the snapshot and the end of set() survives into the next save, without duplication', () => {
         const live = makeTracker()
         // Accumulated AFTER the snapshot was taken (e.g. during the in-flight write).
@@ -770,7 +756,7 @@ describe('mergeUnsavedChanges — Report 17 Stage 1 S14', () => {
     })
 })
 
-describe('sweepDraftRegistrations -- Report 20 §6', () => {
+describe('sweepDraftRegistrations', () => {
     // Extracted from `saveDb()`'s loop for the same reason `bootSaveSequence`/
     // `prepareSaveIteration` were (see this function's own comment in
     // `globalApi.svelte.ts`): the loop itself is a non-terminating
@@ -806,7 +792,7 @@ describe('sweepDraftRegistrations -- Report 20 §6', () => {
         // A function whose body is a no-op would never call through to the
         // real gate, so this would still be true.
         expect(hasLocalDrafts()).toBe(false)
-        // Only the REGISTRATION is released (§6.1) -- the content record
+        // Only the REGISTRATION is released -- the content record
         // itself must still be there, untouched.
         expect(draftContentOrphanGate.get(identity, 'base text')).toEqual({
             text: 'typed text',

@@ -126,8 +126,8 @@ vi.mock(
 
 // `getDatabase()` returns the same `DBState.db` the tests set directly --
 // unlike GridCatalog/MobileCharacters, which never call it, Sidebar.svelte's
-// own `$effect` (`:83-130`) calls `getCharacterIndexObject()`
-// (`src/ts/util.ts:278-287`), which calls `getDatabase()` unconditionally.
+// own `$effect` calls `getCharacterIndexObject()` (`src/ts/util.ts`), which
+// calls `getDatabase()` unconditionally.
 // A version that throws (as some other harnesses in this repo use, since
 // their components never reach this call) makes every Sidebar mount throw
 // inside that effect. The dynamic import inside the factory resolves to the
@@ -357,8 +357,8 @@ const SIDEBAR_N = 25
 
 /**
  * A separate, smaller, all-non-trashed fixture for Sidebar.svelte: the
- * sidebar's own `$effect` (`Sidebar.svelte:83-130`) walks
- * `DBState.db.characterOrder` directly (a flat list of plain `chaId`
+ * sidebar's own `$effect` walks `DBState.db.characterOrder` directly (a
+ * flat list of plain `chaId`
  * strings here -- no folders), independent of `formatChars`/`sortChar`'s
  * trash filtering, so mixing in trashed characters would only complicate
  * the expected call count for no reason relevant to AV-1.
@@ -393,8 +393,9 @@ function buildSidebarDb(n: number): Database {
 }
 
 /**
- * A single-folder Sidebar fixture (`Sidebar.svelte:629` for the folder's own
- * avatar, `:756` for its members' avatars once opened): `characterOrder`
+ * A single-folder Sidebar fixture (`Sidebar.svelte`'s folder row for the
+ * folder's own avatar, and its member rows for their avatars once opened):
+ * `characterOrder`
  * holds one `folder` entry (rather than the flat chaId strings
  * `buildSidebarDb` uses) whose `data` lists every member's chaId, and whose
  * `imgFile` is the folder's own thumbnail-eligible loc.

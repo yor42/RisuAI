@@ -1684,8 +1684,8 @@ export type hubType = {
  *   is still being read, so the body-parsing catch consults the same flag before falling back to
  *   `malformed`.
  * - `malformed` — a 200 response whose body is not valid JSON, or is valid JSON that is neither
- *   a bare array nor an object with an array `cards` property. This is the path that used to
- *   return `undefined` and make a caller's `.length` throw during render.
+ *   a bare array nor an object with an array `cards` property. This path must always resolve a
+ *   defined `RisuHubResult`, never `undefined`, or a caller's `.length` throws during render.
  * - `network` — anything else thrown (e.g. the request never reached a server at all).
  */
 export type RisuHubResult =

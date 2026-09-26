@@ -1,5 +1,5 @@
 /**
- * Report 17 ("CHORE-01 + Phase 2 item 2") Stage 1, §3.3/§3.4:
+ * Report 17 ("CHORE-01 + Phase 2 item 2") Stage 1:
  *
  * S1: `restoreCharacterFromTrash` (extracted from GridCatalog.svelte's trash
  * restore button, `src/ts/characters.ts`) on a NON-selected character, driven
@@ -8,7 +8,8 @@
  * the save: trashTime is cleared after decode.
  *
  * S8 (second half): "removeChar still sets requiresFullEncoderReload" --
- * a guard that the four-site invariant (plan §1.1) still holds for the real,
+ * a guard that the invariant shared by all four call sites that flip
+ * `requiresFullEncoderReload.state` to true still holds for the real,
  * unmodified `removeChar`.
  *
  * This file drives the REAL `src/ts/characters.ts` (unmodified for this
@@ -108,8 +109,9 @@ vi.mock(import('src/ts/storage/database.svelte'), () => ({
 
 // findCharacterIndexbyId/findCharacterbyId here are real-shaped re-implementations
 // (not the app's own real util.ts, which is heavy and would pull in Tauri
-// dialogs, PopupList.svelte, etc.) -- they mirror util.ts:252-273 exactly
-// (a linear scan over db.characters by chaId), reading through the same
+// dialogs, PopupList.svelte, etc.) -- they mirror util.ts's own
+// findCharacterIndexbyId/findCharacterbyId exactly (a linear scan over
+// db.characters by chaId), reading through the same
 // mocked getDatabase() above so this test still exercises the real "resolve
 // id -> index" contract restoreCharacterFromTrash and removeChar depend on.
 vi.mock(import('src/ts/util'), () => ({

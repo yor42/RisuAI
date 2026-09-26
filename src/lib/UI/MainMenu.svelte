@@ -189,7 +189,7 @@
     // hideRealm itself didn't change. Deriving the boolean first means the
     // effect depends on the value: Svelte 5 doesn't propagate a $derived
     // recompute that lands on the same value, so a DBState.db swap that
-    // leaves hideRealm alone no longer triggers a refetch.
+    // leaves hideRealm alone does not trigger a refetch.
     const realmHidden = $derived(DBState.db.hideRealm);
 
     // The one place this view loads in response to acceptance (MC-086, MC-087 #3, MC-087 #3a).
@@ -320,9 +320,9 @@
           {#if !realmHidden}
             <!--
               Fifth grid child, last in DOM order: on mobile every link card
-              stacks above it, so the realm preview can no longer push
-              Related Links below the fold; on desktop it sits beside and
-              below the link cards.
+              stacks above it, so the realm preview never pushes Related
+              Links below the fold; on desktop it sits beside and below the
+              link cards.
 
               lg:col-span-1 is load-bearing, not redundant: both the md: and
               lg: breakpoints are live at >=1024px, and md:col-span-2 emits

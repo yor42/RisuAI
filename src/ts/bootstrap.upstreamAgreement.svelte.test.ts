@@ -1,6 +1,5 @@
 /**
- * T-C6, T-C8, T-C10 (boot half) and T-C13 (Agents/Reports/28-risuaccount-removal-plan.md,
- * section 3.3, I11, I14, section 11.6 R1-R6).
+ * T-C6, T-C8, T-C10 (boot half) and T-C13 (Agents/Reports/28-risuaccount-removal-plan.md).
  *
  * Drives the REAL `loadData()` from `src/ts/bootstrap.ts`, non-Tauri branch, the same way
  * `bootstrap.staleAccountProfile.svelte.test.ts` does. Unlike that file, `src/ts/characterCards`

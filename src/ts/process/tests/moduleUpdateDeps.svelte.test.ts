@@ -5,29 +5,17 @@ import { trackModuleUpdateDeps } from '../moduleUpdateDeps'
 
 // Tests for trackModuleUpdateDeps() (src/ts/process/moduleUpdateDeps.ts).
 //
-// Written per Agents/Reports/09-stage-a-module-effect-narrowing-plan.md,
-// sections 4, 5, 5.5, against the STEP 1 source, which had a deliberately
-// over-broad body -- `JSON.stringify(modules)` -- deep-reading every
-// enumerable field of every module, matching the dependency set of the
-// $state.snapshot(...) deep-read it replaced. The narrowed body committed
-// alongside these tests reads only `id`, `namespace`, `hideIcon` and
-// `backgroundEmbedding`.
+// Written per Agents/Reports/09-stage-a-module-effect-narrowing-plan.md.
 //
-// The 11 tests below, labelled "verified failing before the narrowing",
-// are the proof that the narrowing is real: they assert that mutating a
-// non-consumed field does NOT re-run a $effect that depends on
-// trackModuleUpdateDeps(). They were run against the pre-narrowing
-// JSON.stringify body and confirmed RED there -- `AssertionError: expected
-// 2 to be 1` on every one of them, because JSON.stringify touches every
-// field and so registers a dependency on all of them. Only after that RED
-// run was confirmed was the body narrowed to the four fields above, which
-// turned all 11 GREEN. That red-before-green sequence, not the current
-// source text, is what makes them evidence rather than decoration.
+// trackModuleUpdateDeps() must depend on exactly `id`, `namespace`,
+// `hideIcon` and `backgroundEmbedding` on each module: mutating any other
+// field must NOT re-run a $effect that depends on it. The 11 tests below
+// each assert that non-dependency for one other field.
 //
-// Tests marked "coverage" pass both before and after the narrowing and are
-// kept only to guard against regressions in the parts of behaviour that
-// were never meant to change (the four consumed fields, and array-shape
-// changes). They are not evidence that the narrowing happened.
+// Tests marked "coverage" pin behaviour that must hold regardless of which
+// fields are consumed (the four consumed fields themselves, and
+// array-shape changes) -- present-tense guards, not evidence about which
+// fields are narrowed.
 //
 // Unlike src/ts/storage/tests/dbChangeEffects.svelte.test.ts, no vi.mock is
 // used here at all. moduleUpdateDeps.ts's only import is
@@ -35,10 +23,10 @@ import { trackModuleUpdateDeps } from '../moduleUpdateDeps'
 // compile time, so the module under test has zero runtime dependencies.
 // This file only imports `type RisuModule` too, for the same reason.
 //
-// Plan item 5.4 (HideIconStore / moduleBackgroundEmbedding end-to-end
-// parity) is deliberately NOT covered here. It requires the real
-// modules.ts / stores.svelte.ts graph and belongs to the manual smoke
-// check described in plan section 5.6, not to this leaf-module unit test.
+// HideIconStore / moduleBackgroundEmbedding end-to-end parity is
+// deliberately NOT covered here. It requires the real modules.ts /
+// stores.svelte.ts graph and belongs to a manual smoke check, not to this
+// leaf-module unit test.
 
 //#region fixtures
 
@@ -50,11 +38,10 @@ type CustomScriptEntry = NonNullable<RisuModule['regex']>[number]
 type TriggerEntry = NonNullable<RisuModule['trigger']>[number]
 type AssetEntry = NonNullable<RisuModule['assets']>[number]
 
-// Every field of RisuModule (modules.ts:19-35) is given a real, present
-// value -- none left undefined -- per the plan's instruction: an absent
-// property and a present one are not necessarily read the same way
-// through a $state proxy, and that ambiguity should not sit under the
-// result.
+// Every field of RisuModule (its type definition in modules.ts) is given a
+// real, present value -- none left undefined: an absent property and a
+// present one are not necessarily read the same way through a $state proxy,
+// and that ambiguity must not sit under the result.
 function makeModule(seed: string): RisuModule {
     const lorebookEntry: LoreBookEntry = {
         key: `key-${seed}`,
@@ -115,8 +102,8 @@ afterEach(() => {
 
 // `read` is a closure, not a bare array reference, so that tests can
 // exercise a *property* read (e.g. `box.modules`) and observe whole-array
-// reassignment -- mirroring how the real effect reads
-// `DBState?.db?.modules` at src/ts/stores.svelte.ts:197.
+// reassignment -- mirroring how the real effect in stores.svelte.ts reads
+// `DBState?.db?.modules`.
 function trackEffect(read: () => RisuModule[] | undefined | null) {
     runCount = 0
     cleanup = $effect.root(() => {
@@ -130,7 +117,7 @@ function trackEffect(read: () => RisuModule[] | undefined | null) {
 
 //#endregion
 
-describe('trackModuleUpdateDeps — 5.1 narrowing proof (verified failing before the narrowing)', () => {
+describe('trackModuleUpdateDeps — narrowing: a field moduleUpdate() does not read does not re-run the effect', () => {
     test('mutating modules[0].name does NOT re-run the effect', () => {
         const modules = $state([makeModule('a'), makeModule('b')])
         trackEffect(() => modules)
@@ -143,7 +130,7 @@ describe('trackModuleUpdateDeps — 5.1 narrowing proof (verified failing before
     })
 })
 
-describe('trackModuleUpdateDeps — 5.2-negative field-list pin (verified failing before the narrowing)', () => {
+describe('trackModuleUpdateDeps — field-list pin: fields outside the consumed four do not re-run the effect', () => {
     test('mutating modules[0].description does NOT re-run the effect', () => {
         const modules = $state([makeModule('a'), makeModule('b')])
         trackEffect(() => modules)
@@ -258,13 +245,11 @@ describe('trackModuleUpdateDeps — 5.2-negative field-list pin (verified failin
     })
 })
 
-describe('trackModuleUpdateDeps — 5.2-positive field-list pin (coverage: passes before AND after step 3)', () => {
-    // These four fields are exactly what step 3's narrowed body reads, so
-    // they must keep re-running the effect both before (JSON.stringify
-    // reads everything, including these) and after (the narrowed body
-    // reads exactly these). A passing result here is expected either way
-    // and is NOT proof that narrowing happened -- only the 5.1 /
-    // 5.2-negative tests above are. Run for both index 0 and index 1 so
+describe('trackModuleUpdateDeps — field-list pin: the four consumed fields re-run the effect (compatibility guard)', () => {
+    // These four fields are exactly what trackModuleUpdateDeps reads, so
+    // changing any of them must re-run the effect. A whole-module deep read
+    // would pass these too, so they are not proof of narrowing -- only the
+    // two describe blocks above are. Run for both index 0 and index 1 so
     // the assertion isn't accidentally satisfied by only ever touching the
     // first element of the array.
 
@@ -357,12 +342,12 @@ describe('trackModuleUpdateDeps — 5.2-positive field-list pin (coverage: passe
     })
 })
 
-describe('trackModuleUpdateDeps — 5.3 array-shape parity (coverage: passes before AND after step 3)', () => {
-    // Covered by I3 in the plan: length-changing operations are caught by
-    // the narrowed body's own loop bound, and whole-array replacement is
-    // caught by the property read of the array itself (here, `box.modules`)
-    // rather than by anything inside trackModuleUpdateDeps. These pass
-    // today against JSON.stringify too, so they are coverage, not proof.
+describe('trackModuleUpdateDeps — array-shape changes re-run the effect (compatibility guard)', () => {
+    // Length-changing operations are caught by trackModuleUpdateDeps's own
+    // loop bound, and whole-array replacement is caught by the property read
+    // of the array itself (here, `box.modules`) rather than by anything
+    // inside trackModuleUpdateDeps. A whole-module deep read would pass these
+    // too, so they are coverage, not proof of narrowing.
 
     test('push re-runs the effect', () => {
         const modules = $state([makeModule('a'), makeModule('b')])
@@ -424,7 +409,7 @@ describe('trackModuleUpdateDeps — 5.3 array-shape parity (coverage: passes bef
     })
 })
 
-describe('trackModuleUpdateDeps — degenerate inputs (coverage: passes before AND after step 3)', () => {
+describe('trackModuleUpdateDeps — degenerate inputs (compatibility guard)', () => {
     test('trackModuleUpdateDeps(undefined) returns without throwing', () => {
         expect(() => trackModuleUpdateDeps(undefined)).not.toThrow()
     })
@@ -439,7 +424,7 @@ describe('trackModuleUpdateDeps — degenerate inputs (coverage: passes before A
     })
 })
 
-// Deliberately NOT tested here (plan 5.4, deferred to the manual smoke
-// check in plan 5.6): end-to-end parity of HideIconStore and
+// Deliberately NOT tested here (covered by a manual smoke check instead):
+// end-to-end parity of HideIconStore and
 // moduleBackgroundEmbedding when hideIcon/backgroundEmbedding change on a
 // module reached through the real modules.ts / stores.svelte.ts graph.

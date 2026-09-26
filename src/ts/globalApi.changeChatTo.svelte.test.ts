@@ -1,6 +1,5 @@
 /**
- * Report 19 ("Chat list plan") §9 rev 3: the `changeChatTo` GUI-pointer
- * fan-out fix.
+ * The `changeChatTo` GUI-pointer fan-out fix.
  *
  * Pins four things, all against the REAL, unmocked
  * `src/ts/globalApi.svelte.ts` -- the module-mock set below is copied
@@ -22,8 +21,7 @@
  *    returns early without writing `chatPage` and without bumping.
  * 3. The reorder target helper `resolveReorderedChatIndex`. Signature:
  *    `resolveReorderedChatIndex(oldChats: Chat[], newChats: Chat[], currentPage: number): number`.
- *    Exported from `src/ts/globalApi.svelte.ts`, next to `changeChatTo`,
- *    per §9.2(b).
+ *    Exported from `src/ts/globalApi.svelte.ts`, next to `changeChatTo`.
  * 4. The `reorderChatsKeepingCurrent` seam that the two `SideChatList.svelte`
  *    drag-reorder handlers must call: resolve the target against the OLD
  *    chats, assign the new chats array, THEN call `changeChatTo`. Proven with
@@ -251,7 +249,7 @@ beforeEach(() => {
     mockedGetCurrentCharacter.mockReset()
 })
 
-describe('changeChatTo ordering (Report 19 §9.2(a))', () => {
+describe('changeChatTo ordering', () => {
     test('writes chatPage, flushes real pending effects, and only then bumps ReloadGUIPointer -- not merely "flushSync was called"', () => {
         const order: string[] = []
 
@@ -289,7 +287,7 @@ describe('changeChatTo ordering (Report 19 §9.2(a))', () => {
     })
 })
 
-describe('changeChatTo existing behaviour that must not regress (Report 19 §9, item 2)', () => {
+describe('changeChatTo existing behaviour that must not regress', () => {
     test('a number index writes chatPage and bumps ReloadGUIPointer', () => {
         const bump = vi.fn()
         const unsubscribe = ReloadGUIPointer.subscribe(bump)
@@ -347,7 +345,7 @@ describe('changeChatTo existing behaviour that must not regress (Report 19 §9, 
     })
 })
 
-describe('resolveReorderedChatIndex (Report 19 §9.2(b) helper)', () => {
+describe('resolveReorderedChatIndex (helper)', () => {
     test('returns the index of the SAME chat object in the reordered array, not the old page index read against the new array', () => {
         const chatA = makeChat('a')
         const chatB = makeChat('b')
@@ -402,12 +400,11 @@ describe('resolveReorderedChatIndex (Report 19 §9.2(b) helper)', () => {
     })
 })
 
-describe('reorderChatsKeepingCurrent (Report 19 §9, the two SideChatList drag-reorder handlers)', () => {
+describe('reorderChatsKeepingCurrent (the two SideChatList drag-reorder handlers)', () => {
     /**
-     * The seam the two `onEnd` handlers in SideChatList.svelte must be
-     * refactored to call, per the plan: compute the target against the OLD
-     * `chara.chats`, THEN assign `chara.chats = newChats`, THEN call
-     * `changeChatTo(target)`.
+     * The seam the two `onEnd` handlers in SideChatList.svelte must call:
+     * compute the target against the OLD `chara.chats`, THEN assign
+     * `chara.chats = newChats`, THEN call `changeChatTo(target)`.
      *
      * An end-state assertion alone cannot distinguish the correct order from
      * the old, reverted order ("changeChatTo(target); chara.chats =
@@ -474,8 +471,9 @@ describe('reorderChatsKeepingCurrent (Report 19 §9, the two SideChatList drag-r
         // (e.g. by making it depend on nothing `changeChatTo` touches)
         // would leave `sawInconsistentPair` at its initial `false` and this
         // test -- which carries the entire ordering contract, the only
-        // thing that kills the switch-then-assign mutant -- would pass for
-        // the wrong reason.
+        // test that would catch an implementation that calls `changeChatTo`
+        // before assigning `chara.chats = newChats` -- would pass for the
+        // wrong reason.
         const samplesDuringSeam = samples.length
         flushSync() // drain anything reorderChatsKeepingCurrent scheduled but didn't itself flush
 
@@ -496,10 +494,10 @@ describe('reorderChatsKeepingCurrent (Report 19 §9, the two SideChatList drag-r
     })
 
     test('computes the target against the OLD chats, not the new array indexed by the old page number', () => {
-        // This alone is an end-state check, which is enough to catch the
-        // target-computation mutant (resolving against newChats/newChats)
-        // even without sampling mid-flush, because that mutant lands on the
-        // WRONG final chat, not merely a transient one.
+        // This alone is an end-state check, which is enough to catch a
+        // target-computation bug (resolving against newChats/newChats) even
+        // without sampling mid-flush, because that bug lands on the WRONG
+        // final chat, not merely a transient one.
         resetDb()
         const chara = DBState.db.characters[0]
         chara.chats = [makeChat('a'), makeChat('b'), makeChat('c')]
@@ -515,7 +513,7 @@ describe('reorderChatsKeepingCurrent (Report 19 §9, the two SideChatList drag-r
         expect(chara.chats.map((c) => c.id)).toEqual(newChats.map((c) => c.id))
         expect(chara.chatPage).toBe(2)
         expect(chara.chats[chara.chatPage]).toBe(currentChat)
-        // The wrong result a "resolve against newChats twice" mutant would
+        // The wrong result a "resolve against newChats twice" bug would
         // produce: reading the OLD page index straight against newChats
         // lands on "a", not "b".
         expect(chara.chats[chara.chatPage]).not.toBe(readA)

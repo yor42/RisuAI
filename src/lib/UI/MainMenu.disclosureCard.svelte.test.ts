@@ -261,12 +261,12 @@ describe('MainMenu.svelte: Discord and Website carry the upstream marker (MC-054
         const target = mountMainMenu()
         const discordButton = findPlainLinkButton(target, language.homeLinkDiscordTitle)
 
-        // The bug this used to pin: `aria-label` on the button *replaces*
-        // its accessible name, discarding the description below. Checking
-        // this alone would only prove the attribute is gone, not that the
+        // `aria-label` on the button *replaces* its accessible name,
+        // discarding the description below, so it must stay absent here.
+        // Checking only that the attribute is gone would not prove the
         // marker survived -- a version that dropped the marker outright
-        // would also pass it, which is why the composed-name assertions
-        // below are the ones that matter.
+        // would also pass that check -- so the composed-name assertions
+        // below are what actually verify it.
         expect(discordButton.hasAttribute('aria-label')).toBe(false)
 
         const name = accessibleName(discordButton)

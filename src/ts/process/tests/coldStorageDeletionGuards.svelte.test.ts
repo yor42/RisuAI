@@ -1,43 +1,20 @@
 /**
  * CHORE-07 stage 7a step 2 -- "stop deleting" tests.
- * Agents/Reports/13-chore07-cold-read-failure-plan.md §2, especially §2.2b
- * and §2.4.
+ * Agents/Reports/13-chore07-cold-read-failure-plan.md.
  *
- * "RED" in a test name/comment is a HISTORICAL label: it records that, at
- * the time it was written, the test was confirmed FAILING against the
- * then-current (pre-fix) source, for the DATA-LOSS reason stated in its
- * comment (an asset or a cold-storage blob was actually deleted), not
- * because of a mistake in this file's own setup. It is not a live claim
- * about this file's exit code -- every test in this file passes with the
- * stage 7a fix applied; see STATUS below for where the recorded failures
- * are archived. "CHAR" means
- * the test passes both before and after the fix that turned the RED tests
- * GREEN -- a regression pin, not itself evidence that the fix changed
- * anything.
+ * These tests pin that a cold-storage read failure, an ambiguous read, or a
+ * mismatched character never causes `sweepTauriAssets`, `sweepForageAssetKey`
+ * or `cleanColdStorage` to delete an asset or a cold-storage key that a live
+ * character or chat still needs (`resolveUncleanableChars`/`buildAssetKeepSet`
+ * in globalApi.svelte.ts, `collectColdCharacterKeysOrAbort` in
+ * coldstorage.svelte.ts). A blob that was never written, a read that throws,
+ * or a `character.chaId` mismatch must all be treated as "keep, don't
+ * delete" -- never as proof that the underlying data is gone.
  *
- * STATUS: the stage 7a step 3 fix has landed
- * (`resolveUncleanableChars`/`buildAssetKeepSet` in globalApi.svelte.ts,
- * `collectColdCharacterKeysOrAbort` in coldstorage.svelte.ts). a1-a4, a7,
- * a11 and a11b were confirmed RED against the pre-fix source. The exact
- * failures are recorded in `Agents/Investigation-Ledger.md` row 32 (not
- * this file's git history: this file is committed together with the fix,
- * so that history would never contain a failing run), and copied here
- * briefly, in the style of
- * `src/ts/process/tests/moduleUpdateDeps.svelte.test.ts:20-22`: run against
- * the pre-fix source, exit 1, 7 failed / 4 passed / 1 skipped --
- * `expected false to be true` on `tauriFsHas('assets/emotion-happy.png')`
- * (a1; a2/a3/a4 the same shape, on `forageAssetStore.has(...)` for a2),
- * `expected [] to include 'a7-main-key'` (a7), `expected [
- * 'a11-cold-char-key' ] to include 'a11-chat-key'` (a11), and `expected []
- * to include 'a11b-orphan-key'` (a11b). They are GREEN now -- that
- * red-before-green sequence, not their current source text, is what makes
- * them evidence, matching the convention in
- * `src/ts/process/tests/moduleUpdateDeps.svelte.test.ts`. Their "RED"
- * labels are kept as that historical record, not a claim about today's
- * exit code.
- *
- * a12/a13 are new CHAR coverage for the fix, added by the same post-gate
- * review.
+ * Tests and assertions marked CHAR are compatibility guards: they hold
+ * regardless of that failure handling and pin that the ordinary
+ * (non-failure) deletion paths still delete what they are supposed to.
+ * a12/a13 are the describe-level instance.
  *
  * This file drives the REAL seams, not a replica:
  *   - `buildAssetKeepSet(db)` and `getUncleanables(db)`, `getBasename` from
@@ -576,7 +553,7 @@ function makeRetryDb(chaId: string, chat: unknown): Database {
 //#endregion
 
 describe('CHORE-07 stage 7a: boot-time asset sweep must skip on an incomplete cold read', () => {
-    test('a1 RED: Tauri sweep must not delete assets when the cold read is a transient failure', async () => {
+    test('a1: Tauri sweep must not delete assets when the cold read is a transient failure', async () => {
         platformState.isTauri = true
         resetTauriFs()
         const coldKey = 'a1-cold-key'
@@ -598,18 +575,16 @@ describe('CHORE-07 stage 7a: boot-time asset sweep must skip on an incomplete co
             getBasename,
         })
 
-        // Before the fix: `buildAssetKeepSet` already existed (the pure
-        // refactor added that seam first, with no behaviour change), but had
-        // no completeness tracking yet, so one transient cold-read failure
-        // left the stub (no emotionImages/additionalAssets) as the only view
-        // of this character, and the sweep had no signal to skip -- it
-        // wrongly deleted these still-in-use asset files.
+        // A transient cold-read failure leaves the stub (no
+        // emotionImages/additionalAssets) as the only view of this
+        // character; the sweep must treat that as an incomplete read and
+        // skip deleting these still-in-use asset files.
         expect(tauriFsHas('assets/emotion-happy.png')).toBe(true)
         expect(tauriFsHas('assets/emotion-sad.png')).toBe(true)
         expect(tauriFsHas('assets/additional-bg.png')).toBe(true)
     })
 
-    test('a2 RED: the web/forage sweep must not delete assets when the cold read is a transient failure', async () => {
+    test('a2: the web/forage sweep must not delete assets when the cold read is a transient failure', async () => {
         platformState.isTauri = true // see file header: the cold-read backend here is orthogonal to which deletion path is under test
         resetTauriFs()
         const forageAssetStore = new Map<string, Uint8Array>([
@@ -626,7 +601,7 @@ describe('CHORE-07 stage 7a: boot-time asset sweep must skip on an incomplete co
         armTransientTauriReadFailure(coldKey)
 
         const keepSet = await buildAssetKeepSet(db)
-        // Matches bootstrap.ts's web/Node loop (:653-660): one
+        // Matches bootstrap.ts's web/Node asset-sweep loop: one
         // sweepForageAssetKey call per 'assets/'-prefixed key.
         for (const key of Array.from(forageAssetStore.keys())) {
             await sweepForageAssetKey(key, {
@@ -636,13 +611,13 @@ describe('CHORE-07 stage 7a: boot-time asset sweep must skip on an incomplete co
             })
         }
 
-        // RED: same failure, same wrong outcome, on the OTHER deletion path.
+        // Same failure, same wrong outcome, on the OTHER deletion path.
         expect(forageAssetStore.has('assets/emotion-happy.png')).toBe(true)
         expect(forageAssetStore.has('assets/emotion-sad.png')).toBe(true)
         expect(forageAssetStore.has('assets/additional-bg.png')).toBe(true)
     })
 
-    test('a3 RED: the sweep must not delete assets when the cold blob was never written', async () => {
+    test('a3: the sweep must not delete assets when the cold blob was never written', async () => {
         platformState.isTauri = true
         resetTauriFs()
         const coldKey = 'a3-cold-key-never-written'
@@ -658,14 +633,15 @@ describe('CHORE-07 stage 7a: boot-time asset sweep must skip on an incomplete co
             getBasename,
         })
 
-        // RED: a genuinely missing blob is indistinguishable from a transient
-        // failure at this layer -- same wrongly-deleted outcome.
+        // A genuinely missing blob is indistinguishable from a transient
+        // failure at this layer -- it must be kept, not deleted, the same
+        // way.
         expect(tauriFsHas('assets/emotion-happy.png')).toBe(true)
         expect(tauriFsHas('assets/emotion-sad.png')).toBe(true)
         expect(tauriFsHas('assets/additional-bg.png')).toBe(true)
     })
 
-    test("a4 RED: the sweep must not delete assets when the blob's character.chaId does not match", async () => {
+    test("a4: the sweep must not delete assets when the blob's character.chaId does not match", async () => {
         platformState.isTauri = true
         resetTauriFs()
         const coldKey = 'a4-cold-key'
@@ -683,9 +659,9 @@ describe('CHORE-07 stage 7a: boot-time asset sweep must skip on an incomplete co
             getBasename,
         })
 
-        // RED: a chaId mismatch is treated the same as "coldData?.character"
+        // A chaId mismatch must be treated the same as "coldData?.character"
         // being falsy -- the stub's view is kept, and its emotion/additional
-        // assets are wrongly deleted.
+        // assets must not be deleted.
         expect(tauriFsHas('assets/emotion-happy.png')).toBe(true)
         expect(tauriFsHas('assets/emotion-sad.png')).toBe(true)
         expect(tauriFsHas('assets/additional-bg.png')).toBe(true)
@@ -770,15 +746,12 @@ describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recover
         expect(writeOk).toBe(true)
 
         // A chat that already holds the pre-7b error text -- this is the
-        // shape a chat is left in on an install that hit a failed cold read
-        // before CHORE-07 stage 7b shipped. Built directly with
+        // shape a chat can be left in by a failed cold read on an install
+        // from before CHORE-07 stage 7b. Built directly with
         // `formatColdStorageLoadError` rather than by driving the real
-        // `preLoadChat` under a simulated failure: as of stage 7b,
-        // `preLoadChat` no longer writes this text on a failed read (see the
-        // R1-R5 group below), so it can no longer produce this fixture
-        // itself. The old version of this test's assertion that
-        // `preLoadChat` wrote this exact text is now covered by R1 (which
-        // asserts the opposite -- stage 7b leaves the pointer untouched).
+        // `preLoadChat` under a simulated failure, because `preLoadChat`
+        // does not write this text on a failed read (see the R1-R5 group
+        // below, which pins that it leaves the pointer untouched instead).
         DBState.db = makeDb([{
             chaId: 'a7-char',
             name: 'A7 Character',
@@ -789,17 +762,17 @@ describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recover
 
         const chat = DBState.db.characters[0].chats[0] as unknown as { message: { data: string }[] }
 
-        // The user kept chatting after the error -- push further messages, as
-        // §2.2b requires this fixture to cover.
+        // The user kept chatting after the error -- push further messages so
+        // the fixture also covers a chat with live messages behind the
+        // stale error-text pointer.
         chat.message.push({ data: 'a later message the user sent after the error' } as never)
         chat.message.push({ data: 'and one more' } as never)
 
-        // Note: §2.2b's SUSPECTED-harmless claim about sendChat's
-        // risuChatParser(v.data, {runVar:true}) leaving this error text
-        // unchanged (index.svelte.ts:144-149) is NOT exercised here --
-        // parser.svelte.ts is mocked wholesale in this file (it transitively
-        // hits the stores.svelte $effect.root trap), so testing the real
-        // parser would need a separate, differently-mocked file.
+        // Note: whether sendChat's risuChatParser leaves this error text
+        // unchanged is NOT exercised here -- parser.svelte.ts is mocked
+        // wholesale in this file (it transitively hits the stores.svelte
+        // $effect.root trap), so testing the real parser would need a
+        // separate, differently-mocked file.
 
         // Sanity: the blob is still physically present at cleanup time --
         // the earlier failure was transient, not real loss.
@@ -810,14 +783,14 @@ describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recover
 
         const afterItems = (await listColdStorageItems()).items
         const afterRead = await getColdStorageItem(MAIN_KEY)
-        // Before the fix: listColdDataKeysFromDb only recognized a
-        // coldStorageHeader-prefixed message[0], which the error text
-        // destroyed, so this still-recoverable blob was deleted as "unused".
+        // A blob referenced only by a chat whose message[0] carries the
+        // stale error text (not a coldStorageHeader-prefixed pointer) is
+        // still in use and must not be deleted as "unused".
         expect(afterItems).toContain(MAIN_KEY)
         expect(afterRead).not.toBeNull()
     })
 
-    test("a11 RED: cleanColdStorage must not delete a chat's key when it is referenced only inside a cold-stored character's own blob", async () => {
+    test("a11: cleanColdStorage must not delete a chat's key when it is referenced only inside a cold-stored character's own blob", async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -836,8 +809,7 @@ describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recover
         // itself went cold -- the `coldStoragedChats` scan in
         // `makeColdDataForCharacter` only captures chats whose message[0]
         // STILL starts with coldStorageHeader at the moment of cold-storing,
-        // so this key is silently dropped from the stub's coldStoragedChats
-        // (F1 gap, ledger 26).
+        // so this key is silently dropped from the stub's coldStoragedChats.
         const CHAR_CHA_ID = 'a11-char'
         const COLD_CHAR_KEY = 'a11-cold-char-key'
         await setColdStorageItem(COLD_CHAR_KEY, {
@@ -874,19 +846,18 @@ describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recover
 
         const afterItems = (await listColdStorageItems()).items
         const afterRead = await getColdStorageItem(CHAT_KEY)
-        // Before the fix: cleanColdStorage never read a cold CHARACTER's own
-        // blob looking for such chats, so this key looked unused and was
-        // deleted.
+        // cleanColdStorage must read a cold CHARACTER's own blob looking for
+        // such chats too, or this key looks unused and gets deleted even
+        // though it is still referenced there.
         expect(afterItems).toContain(CHAT_KEY)
         expect(afterRead).not.toBeNull()
 
-        // Sanity, not the RED claim: the character's own cold blob has always
-        // been correctly protected via character.coldstorage, unaffected by
-        // this fix.
+        // Sanity: the character's own cold blob remains protected via
+        // character.coldstorage.
         expect(afterItems).toContain(COLD_CHAR_KEY)
     })
 
-    test("a11b RED: cleanColdStorage must abort entirely, deleting nothing, when a cold character's own blob cannot be read", async () => {
+    test("a11b: cleanColdStorage must abort entirely, deleting nothing, when a cold character's own blob cannot be read", async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -919,10 +890,10 @@ describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recover
         await cleanColdStorage()
 
         const afterItems = (await listColdStorageItems()).items
-        // Before the fix: cleanColdStorage never attempted to read cold
-        // characters' own blobs at all, so it had no abort trigger -- it just
-        // deleted ORPHAN_KEY as ordinarily unused, even though the broken
-        // cold character meant the "used" view was incomplete.
+        // cleanColdStorage must attempt to read cold characters' own blobs,
+        // and abort deleting anything when that read is unusable -- an
+        // unreadable cold character means the "used" view is incomplete, so
+        // ORPHAN_KEY must survive even though it looks ordinarily unused.
         expect(afterItems).toContain(ORPHAN_KEY)
     })
 
@@ -1122,26 +1093,21 @@ describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recover
 
 /**
  * CHORE-07 stage 7b -- "preLoadChat must never destroy data on a failed or
- * unusable read, and must never reject". Agents/Reports/13-chore07-cold-read-failure-plan.md
- * §3.
+ * unusable read, and must never reject". Agents/Reports/13-chore07-cold-read-failure-plan.md.
  *
- * R1-R5 are RED-first against pre-7b (65c90d7f): `preLoadChat` had no return
- * value there (always resolved `undefined`) and, on a falsy/invalid read,
- * overwrote `chat.message` with `formatColdStorageLoadError(key)` --
- * exactly the destructive behaviour this group exists to remove. Their
- * failing output against the pre-fix source is recorded in this round's
- * handoff, not in this file's git history (this file is committed together
- * with the fix). C1/C2 are CHARACTERISATION: they assert only the
- * message/side-field restore behaviour that was already correct on pre-7b
- * (65c90d7f) and must stay correct after the fix, so they deliberately do
- * NOT assert on `preLoadChat`'s return value (that value did not exist yet
- * on pre-7b (65c90d7f)).
+ * On a falsy, invalid or unreadable cold-storage read, `preLoadChat` must
+ * leave `chat.message` and every side field (`hypaV2Data`, `hypaV3Data`,
+ * `scriptstate`, `localLore`, `lastDate`) completely untouched and resolve a
+ * status ('error' or 'none', as covered below) instead of overwriting them
+ * with `formatColdStorageLoadError(key)`. C1/C2 pin only the message/
+ * side-field restore behaviour on a successful read; they do not assert on
+ * `preLoadChat`'s return value.
  * a7 above was re-fixtured into a C3-equivalent CHAR test for the same
  * reason -- see its own comment.
  */
 describe('CHORE-07 stage 7b: preLoadChat must not reject and must not mutate a chat on a failed/invalid read', () => {
     // CHORE-07 stage 7c-1 added a character-switch race check to
-    // `preLoadChat` (plan §5.2 item 4): after the read, it now also requires
+    // `preLoadChat`: after the read, it now also requires
     // that `get(selectedCharID)` still points at a character whose `chaId`
     // matches the character being loaded, else it returns 'none' with no
     // mutation. Every fixture in this describe block loads character index
@@ -1155,7 +1121,7 @@ describe('CHORE-07 stage 7b: preLoadChat must not reject and must not mutate a c
         selectedCharID.set(-1)
     })
 
-    test('R1 RED: a transient OPFS read failure leaves the chat untouched and resolves "error"', async () => {
+    test('R1: a transient OPFS read failure leaves the chat untouched and resolves "error"', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -1194,9 +1160,8 @@ describe('CHORE-07 stage 7b: preLoadChat must not reject and must not mutate a c
         armTransientOpfsFailure(coldKey)
         const result = await preLoadChat(0, 0)
 
-        // RED: on pre-7b (65c90d7f) this resolves `undefined` (no return
-        // value at all) and has already overwritten `chat.message` with the
-        // error text by the time this assertion runs.
+        // A transient OPFS read failure must resolve 'error' without ever
+        // overwriting `chat.message` with the error text.
         expect(result).toBe('error')
         expect(chat.message).toEqual(messageBefore)
         expect(chat.hypaV2Data).toBe(hypaV2Before)
@@ -1206,7 +1171,7 @@ describe('CHORE-07 stage 7b: preLoadChat must not reject and must not mutate a c
         expect(chat.lastDate).toBe(lastDateBefore)
     })
 
-    test('R2a RED: a blob shaped {message: string} resolves "error" with no mutation', async () => {
+    test('R2a: a blob shaped {message: string} resolves "error" with no mutation', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -1230,7 +1195,7 @@ describe('CHORE-07 stage 7b: preLoadChat must not reject and must not mutate a c
         expect(chat.message).toEqual(messageBefore)
     })
 
-    test('R2b RED: a blob shaped {character: {...}} (no message array) resolves "error" with no mutation', async () => {
+    test('R2b: a blob shaped {character: {...}} (no message array) resolves "error" with no mutation', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -1256,7 +1221,7 @@ describe('CHORE-07 stage 7b: preLoadChat must not reject and must not mutate a c
         expect(chat.message).toEqual(messageBefore)
     })
 
-    test('R4 RED: a pointer replaced during the read is left as the newer value, resolving "none"', async () => {
+    test('R4: a pointer replaced during the read is left as the newer value, resolving "none"', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -1287,14 +1252,14 @@ describe('CHORE-07 stage 7b: preLoadChat must not reject and must not mutate a c
 
         const result = await resultPromise
 
-        // RED: on pre-7b (65c90d7f) this branch does not exist -- the real
-        // read (once it resolves) unconditionally overwrites `chat.message`
-        // again, clobbering the replacement.
+        // If the chat pointer is replaced before the read resolves, the
+        // read's result must not overwrite `chat.message` again -- the
+        // replacement must be left as the newer value.
         expect(result).toBe('none')
         expect(chat.message).toEqual([{ time: 999, data: 'a brand new user message', role: 'user' }])
     })
 
-    test('R5 RED: a message pushed during the read is preserved after the restored messages', async () => {
+    test('R5: a message pushed during the read is preserved after the restored messages', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -1324,9 +1289,9 @@ describe('CHORE-07 stage 7b: preLoadChat must not reject and must not mutate a c
 
         const result = await resultPromise
 
-        // RED: on pre-7b (65c90d7f), the restored array replaces
-        // `chat.message` wholesale with no `.slice(1)` tail, so the pushed
-        // message is silently lost.
+        // A message pushed while the read is still pending must be
+        // preserved after the restored messages -- the restore must not
+        // replace `chat.message` wholesale and lose it.
         expect(result).toBe('ok')
         expect(chat.message).toEqual([
             { time: 1, data: 'archived', role: 'user' },
@@ -1415,30 +1380,26 @@ describe('CHORE-07 stage 7b: preLoadChat must not reject and must not mutate a c
 })
 
 /**
- * CHORE-07 stage 7b -- `isColdChat` is a brand-new, pure helper
- * (`coldstorageData.ts`). It did not exist on pre-7b (65c90d7f) at all, so
- * these cases are RED for the structural reason the task's protocol allows
- * citing instead of a run-time assertion failure: on pre-7b (65c90d7f),
- * `import { isColdChat } from '../coldstorageData'` resolves to `undefined`
- * (no such export), so calling it throws `TypeError: isColdChat is not a
- * function` rather than failing a behavioural assertion. That import error
- * is this group's red-before-green evidence.
+ * CHORE-07 stage 7b -- `isColdChat` (`coldstorageData.ts`) reports whether a
+ * chat's first message is still a live cold-storage pointer, as opposed to
+ * ordinary text, text produced by `formatColdStorageLoadError`, or an
+ * empty/missing chat.
  */
 describe('CHORE-07 stage 7b: isColdChat', () => {
-    test('RED: true for a chat whose first message is a live cold-storage pointer', () => {
+    test('true for a chat whose first message is a live cold-storage pointer', () => {
         const chat = makeColdChat('ic-1', 'ic-key')
         expect(isColdChat(chat as never)).toBe(true)
     })
 
-    test('RED: false for a chat with ordinary text', () => {
+    test('false for a chat with ordinary text', () => {
         expect(isColdChat({ message: [{ data: 'hello', role: 'user' }] } as never)).toBe(false)
     })
 
-    test('RED: false for a chat holding the (pre-7b) error text', () => {
+    test('false for a chat holding the cold-storage load-error text', () => {
         expect(isColdChat({ message: [{ data: formatColdStorageLoadError('ic-key'), role: 'char' }] } as never)).toBe(false)
     })
 
-    test('RED: false for an empty or missing chat', () => {
+    test('false for an empty or missing chat', () => {
         expect(isColdChat(undefined)).toBe(false)
         expect(isColdChat(null)).toBe(false)
         expect(isColdChat({ message: [] } as never)).toBe(false)
@@ -1448,19 +1409,16 @@ describe('CHORE-07 stage 7b: isColdChat', () => {
 /**
  * CHORE-07 stage 7c-1 -- `readColdStorageItem`'s per-backend classification
  * seams (`classifyTauriColdRead`/`classifyOpfsColdRead`/
- * `classifyNodeColdRead`), plan §5.2 item 1, §5.5.
- * These are brand-new, pure, dependency-injected functions -- none of them
- * existed on pre-7c-1 (92b9bba7), so every case below is RED for the same
- * structural reason as the `isColdChat` group above: on pre-7c-1, importing
- * any of these names from `../coldstorage.svelte` resolves to `undefined`
- * (no such export), so calling one throws `TypeError: classifyTauriColdRead
- * is not a function` (etc.) rather than failing a behavioural assertion.
- * That import error is this group's red-before-green evidence. No platform
- * mocking is needed for these -- every dependency is a plain injected
- * function.
+ * `classifyNodeColdRead`), Agents/Reports/13-chore07-cold-read-failure-plan.md.
+ * Each classifies a raw read outcome for its backend as `missing` (the
+ * file, key or directory genuinely doesn't exist) or `error` (anything else
+ * -- permission, corruption, an unrelated OS error), so a caller can tell a
+ * transient or ambiguous failure apart from a confirmed absence. No
+ * platform mocking is needed for these -- every dependency is a plain
+ * injected function.
  */
 describe('CHORE-07 stage 7c-1: classifyTauriColdRead', () => {
-    test('RED: "(os error 2)" with exists() false is missing', async () => {
+    test('"(os error 2)" with exists() false is missing', async () => {
         const readFileFn = vi.fn(async () => { throw new Error('reading file failed: (os error 2)') })
         const existsFn = vi.fn(async () => false)
         const result = await classifyTauriColdRead('./coldstorage/x.json', readFileFn, existsFn)
@@ -1468,7 +1426,7 @@ describe('CHORE-07 stage 7c-1: classifyTauriColdRead', () => {
         expect(existsFn).toHaveBeenCalledTimes(1)
     })
 
-    test('RED: "(os error 2)" with exists() true is error, not missing', async () => {
+    test('"(os error 2)" with exists() true is error, not missing', async () => {
         const readError = new Error('reading file failed: (os error 2)')
         const readFileFn = vi.fn(async () => { throw readError })
         const existsFn = vi.fn(async () => true)
@@ -1477,7 +1435,7 @@ describe('CHORE-07 stage 7c-1: classifyTauriColdRead', () => {
         expect((result as { error: unknown }).error).toBe(readError)
     })
 
-    test('RED: an exists() throw is error, not missing', async () => {
+    test('an exists() throw is error, not missing', async () => {
         const readFileFn = vi.fn(async () => { throw new Error('reading file failed: (os error 2)') })
         const existsError = new Error('simulated Tauri fs scope violation')
         const existsFn = vi.fn(async () => { throw existsError })
@@ -1486,7 +1444,7 @@ describe('CHORE-07 stage 7c-1: classifyTauriColdRead', () => {
         expect((result as { error: unknown }).error).toBe(existsError)
     })
 
-    test('RED: "(os error 3)" is error, and never calls exists()', async () => {
+    test('"(os error 3)" is error, and never calls exists()', async () => {
         const readFileFn = vi.fn(async () => { throw new Error('reading file failed: (os error 3)') })
         const existsFn = vi.fn(async () => false)
         const result = await classifyTauriColdRead('./coldstorage/x.json', readFileFn, existsFn)
@@ -1496,7 +1454,7 @@ describe('CHORE-07 stage 7c-1: classifyTauriColdRead', () => {
 })
 
 describe('CHORE-07 stage 7c-1: classifyOpfsColdRead', () => {
-    test('RED: a NotFoundError from getFileHandle() is missing', async () => {
+    test('a NotFoundError from getFileHandle() is missing', async () => {
         const getDirectoryFn = vi.fn(async () => ({
             getFileHandle: vi.fn(async () => { throw new MockNotFoundError('not found') }),
         }))
@@ -1504,7 +1462,7 @@ describe('CHORE-07 stage 7c-1: classifyOpfsColdRead', () => {
         expect(result).toEqual({ status: 'missing' })
     })
 
-    test('RED: a TypeMismatchError from getFileHandle() is error, not missing', async () => {
+    test('a TypeMismatchError from getFileHandle() is error, not missing', async () => {
         const getDirectoryFn = vi.fn(async () => ({
             getFileHandle: vi.fn(async () => { throw new FakeTypeMismatchError('type mismatch') }),
         }))
@@ -1512,7 +1470,7 @@ describe('CHORE-07 stage 7c-1: classifyOpfsColdRead', () => {
         expect(result.status).toBe('error')
     })
 
-    test('RED: a NotFoundError from getDirectory() is error, not missing', async () => {
+    test('a NotFoundError from getDirectory() is error, not missing', async () => {
         // A NotFoundError here is about OPFS's root directory, not about
         // `filename` -- it must never be conflated with "this file doesn't
         // exist". Distinguishing the two error sites is the whole point of
@@ -1525,13 +1483,13 @@ describe('CHORE-07 stage 7c-1: classifyOpfsColdRead', () => {
 })
 
 describe('CHORE-07 stage 7c-1: classifyNodeColdRead', () => {
-    test('RED: a null getItem is missing', async () => {
+    test('a null getItem is missing', async () => {
         const getItemFn = vi.fn(async () => null)
         const result = await classifyNodeColdRead(getItemFn, 'coldstorage/x')
         expect(result).toEqual({ status: 'missing' })
     })
 
-    test('RED: a throw is error', async () => {
+    test('a throw is error', async () => {
         const thrown = new Error('simulated Node getItem failure')
         const getItemFn = vi.fn(async () => { throw thrown })
         const result = await classifyNodeColdRead(getItemFn, 'coldstorage/x')
@@ -1541,11 +1499,11 @@ describe('CHORE-07 stage 7c-1: classifyNodeColdRead', () => {
 })
 
 describe('CHORE-07 stage 7c-1: decodeColdStorageBytes', () => {
-    test('RED: corrupt compressed bytes reject', async () => {
+    test('corrupt compressed bytes reject', async () => {
         await expect(decodeColdStorageBytes(new Uint8Array([1, 2, 3, 4]))).rejects.toBeTruthy()
     })
 
-    test('RED: validly-compressed but corrupt JSON rejects', async () => {
+    test('validly-compressed but corrupt JSON rejects', async () => {
         const badJsonBytes = await new Promise<Uint8Array>((resolve, reject) => {
             fflateCompress(new TextEncoder().encode('{not valid json'), (err, result) => {
                 if (err) {
@@ -1561,12 +1519,10 @@ describe('CHORE-07 stage 7c-1: decodeColdStorageBytes', () => {
 
 /**
  * CHORE-07 stage 7c-1 -- `readColdStorageItem` end to end, real OPFS
- * backend (same mock as the `preLoadChat`/a7-a14 groups above). RED for the
- * same structural (missing export) reason as the classify-function group
- * above.
+ * backend (same mock as the `preLoadChat`/a7-a14 groups above).
  */
 describe('CHORE-07 stage 7c-1: readColdStorageItem (OPFS backend)', () => {
-    test('RED: a stored null value is ok, not missing', async () => {
+    test('a stored null value is ok, not missing', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -1578,7 +1534,7 @@ describe('CHORE-07 stage 7c-1: readColdStorageItem (OPFS backend)', () => {
         expect(result).toEqual({ status: 'ok', value: null })
     })
 
-    test('RED: a {character} blob is ok', async () => {
+    test('a {character} blob is ok', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -1590,7 +1546,7 @@ describe('CHORE-07 stage 7c-1: readColdStorageItem (OPFS backend)', () => {
         expect(result).toEqual({ status: 'ok', value: payload })
     })
 
-    test('RED: a never-stored key is missing', async () => {
+    test('a never-stored key is missing', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -1601,7 +1557,7 @@ describe('CHORE-07 stage 7c-1: readColdStorageItem (OPFS backend)', () => {
 
 /**
  * CHORE-07 stage 7c-1 -- `preLoadChat`'s `'missing'` result and the
- * character-switch race fix, plan §5.2 item 4, §5.5.
+ * character-switch race fix.
  */
 describe('CHORE-07 stage 7c-1: preLoadChat missing result and the character-switch race', () => {
     beforeEach(() => {
@@ -1611,7 +1567,7 @@ describe('CHORE-07 stage 7c-1: preLoadChat missing result and the character-swit
         selectedCharID.set(-1)
     })
 
-    test('RED: a positively missing blob resolves "missing" and mutates nothing', async () => {
+    test('a positively missing blob resolves "missing" and mutates nothing', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -1629,15 +1585,14 @@ describe('CHORE-07 stage 7c-1: preLoadChat missing result and the character-swit
 
         const result = await preLoadChat(0, 0)
 
-        // RED: `'missing'` is not a `PreLoadChatResult` on pre-7c-1
-        // (92b9bba7) -- that source resolves `'error'` for this same
-        // never-written-key case, since it cannot distinguish "positively
-        // missing" from any other unusable read.
+        // A positively missing blob (the key was never written) must
+        // resolve 'missing', distinguished from any other unusable read,
+        // which resolves 'error'.
         expect(result).toBe('missing')
         expect(chat.message).toEqual(messageBefore)
     })
 
-    test('RED: switching the selected character during the read resolves "none" and mutates nothing', async () => {
+    test('switching the selected character during the read resolves "none" and mutates nothing', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -1679,12 +1634,11 @@ describe('CHORE-07 stage 7c-1: preLoadChat missing result and the character-swit
 
         const result = await resultPromise
 
-        // RED: this character-switch-by-chaId check does not exist at all
-        // on pre-7c-1 (92b9bba7) -- that source only re-checks the pointer
-        // string, which is untouched here, so it proceeds to restore into
-        // character 0's chat regardless of which character is selected,
-        // resolving 'ok' and mutating `chat.message` instead of leaving it
-        // alone.
+        // Checking only whether the pointer string changed is not enough:
+        // if the selected character itself changes while the read is
+        // pending, the restore must not proceed into character 0's chat --
+        // it must resolve 'none' and leave `chat.message` untouched,
+        // regardless of which character is now selected.
         expect(result).toBe('none')
         expect(chat.message).toEqual(messageBefore)
     })
@@ -1692,13 +1646,10 @@ describe('CHORE-07 stage 7c-1: preLoadChat missing result and the character-swit
 
 /**
  * CHORE-07 stage 7c-2 -- `mergeRetriedColdChatSideFields` (`coldstorageData.ts`),
- * a brand-new, pure, dependency-free function. Plan §5.3 item 2, §5.5. RED
- * for the same structural (missing export) reason as the 7c-1 groups above:
- * on pre-7c-2 source, importing it resolves to `undefined`, so calling it
- * throws `TypeError: mergeRetriedColdChatSideFields is not a function`.
+ * a brand-new, pure, dependency-free function.
  */
 describe('CHORE-07 stage 7c-2: mergeRetriedColdChatSideFields (pure)', () => {
-    test('RED: hypaV3 takes the blob wholesale when live has no summaries, even with a live modalSettings set', () => {
+    test('hypaV3 takes the blob wholesale when live has no summaries, even with a live modalSettings set', () => {
         const live = {
             hypaV3Data: { summaries: [], modalSettings: { displayMode: 'all', displayRangeFrom: 0, displayRangeTo: 0, displayRecentCount: 0, displayImportant: false, displaySelected: false } },
         } as unknown as RetryLegacyColdChatSideFields
@@ -1713,7 +1664,7 @@ describe('CHORE-07 stage 7c-2: mergeRetriedColdChatSideFields (pure)', () => {
         expect((result.hypaV3Data as { summaries: unknown[] }).summaries).toEqual(blob.hypaV3Data.summaries)
     })
 
-    test('RED: hypaV3 concatenates blob before live, unions categories by id, and strips the dropped memo from a live summary', () => {
+    test('hypaV3 concatenates blob before live, unions categories by id, and strips the dropped memo from a live summary', () => {
         const live = {
             hypaV3Data: {
                 summaries: [
@@ -1741,7 +1692,7 @@ describe('CHORE-07 stage 7c-2: mergeRetriedColdChatSideFields (pure)', () => {
         expect(hypaV3Data.categories).toEqual([{ id: 'catA', name: 'Blob Cat' }, { id: 'catB', name: 'Live Cat' }])
     })
 
-    test('RED (post-gate finding 3): hypaV3 drops a live summary entirely when stripping the dropped memo leaves it with no memos', () => {
+    test('hypaV3 drops a live summary entirely when stripping the dropped memo leaves it with no memos', () => {
         const live = {
             hypaV3Data: {
                 summaries: [
@@ -1769,7 +1720,7 @@ describe('CHORE-07 stage 7c-2: mergeRetriedColdChatSideFields (pure)', () => {
         ])
     })
 
-    test('RED: hypaV2 takes the blob wholesale when it has mainChunks', () => {
+    test('hypaV2 takes the blob wholesale when it has mainChunks', () => {
         const live = { hypaV2Data: { chunks: [], mainChunks: [{ id: 1, text: 'live', chatMemos: [], lastChatMemo: '' }], lastMainChunkID: 1 } } as unknown as RetryLegacyColdChatSideFields
         const blob = { hypaV2Data: { chunks: [], mainChunks: [{ id: 5, text: 'blob', chatMemos: [], lastChatMemo: '' }], lastMainChunkID: 5 } } as unknown as RetryLegacyColdChatSideFields
 
@@ -1778,12 +1729,8 @@ describe('CHORE-07 stage 7c-2: mergeRetriedColdChatSideFields (pure)', () => {
         expect(result.hypaV2Data).toBe(blob.hypaV2Data)
     })
 
-    // Not RED: confirmed against a temporary live-passthrough stub of this
-    // function (`return {...live}`, the exact stub plan §5.3's "extract
-    // seams first" step calls for) that this one assertion already holds --
-    // a trivial passthrough coincidentally satisfies "blob has no
-    // mainChunks, keep live" for hypaV2 specifically. Kept as regression
-    // coverage of the real merge function, not RED evidence.
+    // Regression coverage: hypaV2 must keep the live value untouched when
+    // the blob has no mainChunks.
     test('CHAR: hypaV2 keeps live untouched when the blob has no mainChunks', () => {
         const live = { hypaV2Data: { chunks: [], mainChunks: [{ id: 2, text: 'live', chatMemos: [], lastChatMemo: '' }], lastMainChunkID: 2 } } as unknown as RetryLegacyColdChatSideFields
         const blob = { hypaV2Data: { chunks: [], mainChunks: [], lastMainChunkID: 0 } } as unknown as RetryLegacyColdChatSideFields
@@ -1793,7 +1740,7 @@ describe('CHORE-07 stage 7c-2: mergeRetriedColdChatSideFields (pure)', () => {
         expect(result.hypaV2Data).toBe(live.hypaV2Data)
     })
 
-    test('RED: localLore concatenates blob then live, and scriptstate lets live win on a shallow merge', () => {
+    test('localLore concatenates blob then live, and scriptstate lets live win on a shallow merge', () => {
         const live = { localLore: [{ key: 'l', value: 'live-value' }], scriptstate: { b: 99, c: 3 } } as unknown as RetryLegacyColdChatSideFields
         const blob = { localLore: [{ key: 'b', value: 'blob-value' }], scriptstate: { a: 1, b: 2 } } as unknown as RetryLegacyColdChatSideFields
 
@@ -1805,14 +1752,14 @@ describe('CHORE-07 stage 7c-2: mergeRetriedColdChatSideFields (pure)', () => {
 })
 
 /**
- * CHORE-07 stage 7c-2 -- `makeColdDataForChat` (F4, plan §5.3 "scope" item
- * 1): a chat holding the pre-7b error text must not be made cold again,
- * which would bury the original recoverable key inside a brand-new blob.
- * `makeColdDataForChat` did exist before (module-private); it is exported
- * here purely as an extracted seam so this file can call it directly.
+ * CHORE-07 stage 7c-2 -- `makeColdDataForChat` (F4): a chat holding the
+ * pre-7b error text must not be made cold again, which would bury the
+ * original recoverable key inside a brand-new blob.
+ * `makeColdDataForChat` is module-private in `coldstorage.svelte.ts` and
+ * exported here only as a seam so this file can call it directly.
  */
 describe('CHORE-07 stage 7c-2: makeColdDataForChat must not re-cold-store an error-text chat (F4)', () => {
-    test('RED: an old, long error-text chat is not made cold again', async () => {
+    test('an old, long error-text chat is not made cold again', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -1830,11 +1777,11 @@ describe('CHORE-07 stage 7c-2: makeColdDataForChat must not re-cold-store an err
             chats: [errorChat],
         } as unknown as CharacterFixture])
 
-        // RED: on pre-7c-2 source, `makeColdDataForChat` only skips a chat
-        // whose message[0] starts with `coldStorageHeader` -- the error text
-        // does not, so this old (every message time is far in the past),
-        // 4-message chat was wrongly made cold again, burying `coldKey`
-        // inside a brand-new blob.
+        // A chat whose message[0] holds the error text (not a live
+        // coldStorageHeader pointer) must also be skipped from
+        // re-cold-storing -- even though it is old (every message time is
+        // far in the past) and would otherwise qualify -- or the original
+        // recoverable `coldKey` gets buried inside a brand-new blob.
         const madeCold = await makeColdDataForChat(0, 0, Date.now())
 
         expect(madeCold).toBe(false)
@@ -1842,7 +1789,7 @@ describe('CHORE-07 stage 7c-2: makeColdDataForChat must not re-cold-store an err
         expect(chat.message[0].data).toBe(`[Cold storage data could not be loaded. Key: ${coldKey}]`)
     })
 
-    test('Added by the gate, CHAR: an ordinary old chat is still made cold', async () => {
+    test('CHAR: an ordinary old chat is still made cold', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -1872,7 +1819,7 @@ describe('CHORE-07 stage 7c-2: makeColdDataForChat must not re-cold-store an err
         expect(storedChat.message[0].data.startsWith(coldStorageHeader)).toBe(true)
     })
 
-    test('Guard F4, RED: makeColdData() as a whole must not bury the error text, with the character kept hot so makeColdDataForCharacter does not run first', async () => {
+    test('Guard F4: makeColdData() as a whole must not bury the error text, with the character kept hot so makeColdDataForCharacter does not run first', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -1887,7 +1834,7 @@ describe('CHORE-07 stage 7c-2: makeColdDataForChat must not re-cold-store an err
             name: 'F4 Pipeline Character',
             type: 'character',
             chatPage: 0,
-            // Kept HOT (a recent lastInteraction) on purpose (gate 7): without
+            // Kept HOT (a recent lastInteraction) on purpose: without
             // this, whole-character cold storage (makeColdDataForCharacter)
             // would run first and replace this character with a pointer-only
             // stub before makeColdDataForChat ever saw this chat, which would
@@ -1907,12 +1854,10 @@ describe('CHORE-07 stage 7c-2: makeColdDataForChat must not re-cold-store an err
 
 /**
  * CHORE-07 stage 7c-2 -- `retryLegacyColdChatLoad` (`coldstorage.svelte.ts`),
- * plan §5.3 item 2, §5.5. A brand-new, exported function -- every case below
- * is RED for the same structural (missing export) reason as the 7c-1 groups
- * above, EXCEPT where a case is explicitly marked CHAR/Guard because the
- * behaviour it pins (e.g. "not an error-text chat" or "a near-miss string")
- * has no pre-7c-2 equivalent to regress from; it is new coverage, not a
- * fix to an existing wrong behaviour.
+ * a brand-new, exported function. Cases marked CHAR/Guard pin behaviour
+ * that has no legacy equivalent to regress from (e.g. "not an error-text
+ * chat" or "a near-miss string") -- new coverage, not a guard against an
+ * existing wrong behaviour.
  */
 describe('CHORE-07 stage 7c-2: retryLegacyColdChatLoad', () => {
     beforeEach(() => {
@@ -1924,7 +1869,7 @@ describe('CHORE-07 stage 7c-2: retryLegacyColdChatLoad', () => {
         doingChat.set(false)
     })
 
-    test('RL1 RED: ok with an object blob gives the restored messages followed by the tail, and empty live side fields take the blob\'s', async () => {
+    test('RL1: ok with an object blob gives the restored messages followed by the tail, and empty live side fields take the blob\'s', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -1969,7 +1914,7 @@ describe('CHORE-07 stage 7c-2: retryLegacyColdChatLoad', () => {
         expect(typeof chat.lastDate).toBe('number')
     })
 
-    test('RL2 RED: ok keeps non-empty live side fields when the blob\'s are the cold-storage reset state', async () => {
+    test('RL2: ok keeps non-empty live side fields when the blob\'s are the cold-storage reset state', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -2023,7 +1968,7 @@ describe('CHORE-07 stage 7c-2: retryLegacyColdChatLoad', () => {
         expect(chat.localLore).toEqual(liveLocalLore)
     })
 
-    test('RL3 RED: ok with a legacy array blob restores messages only, leaving every live side field untouched', async () => {
+    test('RL3: ok with a legacy array blob restores messages only, leaving every live side field untouched', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -2065,7 +2010,7 @@ describe('CHORE-07 stage 7c-2: retryLegacyColdChatLoad', () => {
         expect(chat.localLore).toBe(localLoreRef)
     })
 
-    test('RL4 RED: a positively missing blob resolves "missing" and mutates nothing', async () => {
+    test('RL4: a positively missing blob resolves "missing" and mutates nothing', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -2081,7 +2026,7 @@ describe('CHORE-07 stage 7c-2: retryLegacyColdChatLoad', () => {
         expect(chat.message).toEqual(messageBefore)
     })
 
-    test('RL5 RED: an ambiguous read failure resolves "error" and mutates nothing', async () => {
+    test('RL5: an ambiguous read failure resolves "error" and mutates nothing', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -2099,7 +2044,7 @@ describe('CHORE-07 stage 7c-2: retryLegacyColdChatLoad', () => {
         expect(chat.message).toEqual(messageBefore)
     })
 
-    test('RL6 RED: "busy" when doingChat is already set before the read starts', async () => {
+    test('RL6: "busy" when doingChat is already set before the read starts', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -2114,7 +2059,7 @@ describe('CHORE-07 stage 7c-2: retryLegacyColdChatLoad', () => {
         expect(result).toBe('busy')
     })
 
-    test('RL7 RED: "busy" when the chat\'s own isStreaming is set before the read starts', async () => {
+    test('RL7: "busy" when the chat\'s own isStreaming is set before the read starts', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -2128,7 +2073,7 @@ describe('CHORE-07 stage 7c-2: retryLegacyColdChatLoad', () => {
         expect(result).toBe('busy')
     })
 
-    test('RL8 Added by the gate, RED: "busy" when doingChat turns true during the read', async () => {
+    test('RL8: "busy" when doingChat turns true during the read', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -2145,11 +2090,9 @@ describe('CHORE-07 stage 7c-2: retryLegacyColdChatLoad', () => {
         expect(result).toBe('busy')
     })
 
-    // Not RED: confirmed against a temporary `return 'none'` stub of
-    // retryLegacyColdChatLoad (the exact stub plan §5.3's "extract seams
-    // first" step calls for) that any assertion of `result === 'none'`
-    // trivially holds against that stub -- it cannot fail. Kept as coverage
-    // of the real race check, not RED evidence.
+    // Guard, not proof the race check is real: a bare `result === 'none'`
+    // assertion would also pass against a naive stub that always returns
+    // 'none', so this test alone cannot fail against such a stub.
     test('RL9 Guard: switching the selected character during the read resolves "none" and mutates nothing', async () => {
         platformState.isTauri = false
         resetOpfs()
@@ -2188,8 +2131,7 @@ describe('CHORE-07 stage 7c-2: retryLegacyColdChatLoad', () => {
         expect(chat.message).toEqual(messageBefore)
     })
 
-    // Not RED, for the same reason as RL9 above -- a `result === 'none'`
-    // assertion cannot fail against the `return 'none'` stub.
+    // Same caveat as RL9 above.
     test('RL10 Guard: message[0] changing during the read (a double retry) resolves "none" and mutates nothing further', async () => {
         platformState.isTauri = false
         resetOpfs()
@@ -2210,7 +2152,7 @@ describe('CHORE-07 stage 7c-2: retryLegacyColdChatLoad', () => {
         expect(chat.message).toEqual([{ time: 999, data: 'restored by a concurrent retry', role: 'user' }])
     })
 
-    test('RL11 RED: an ok read with a shape this function does not recognize resolves "error" and mutates nothing', async () => {
+    test('RL11: an ok read with a shape this function does not recognize resolves "error" and mutates nothing', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -2258,8 +2200,8 @@ describe('CHORE-07 stage 7c-2: retryLegacyColdChatLoad', () => {
         expect(result).toBe('none')
     })
 
-    // Not RED, for the same reason as RL9 above.
-    test('RL14 Added by the gate: a chat reordered to a different index during the read resolves "none" and mutates nothing', async () => {
+    // Same caveat as RL9 above.
+    test('RL14: a chat reordered to a different index during the read resolves "none" and mutates nothing', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -2289,8 +2231,8 @@ describe('CHORE-07 stage 7c-2: retryLegacyColdChatLoad', () => {
         expect((DBState.db.characters[0].chats[1] as unknown as { message: unknown[] }).message).toEqual(messageBefore)
     })
 
-    // Not RED, for the same reason as RL9 above.
-    test('RL15 Added by the gate: the character being replaced (same chaId, a new chats array) during the read resolves "none"', async () => {
+    // Same caveat as RL9 above.
+    test('RL15: the character being replaced (same chaId, a new chats array) during the read resolves "none"', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -2302,7 +2244,7 @@ describe('CHORE-07 stage 7c-2: retryLegacyColdChatLoad', () => {
         const resultPromise = retryLegacyColdChatLoad(0, 0)
         // Synchronously, before the read settles, a plugin replaces the
         // whole character object (same chaId, a brand-new chats array) --
-        // e.g. via setCharacterToIndex (plan §5.4, accepted limit note).
+        // e.g. via setCharacterToIndex.
         DBState.db.characters[0] = {
             chaId: 'rl15-char',
             name: 'Replaced',
@@ -2315,7 +2257,7 @@ describe('CHORE-07 stage 7c-2: retryLegacyColdChatLoad', () => {
         expect(result).toBe('none')
     })
 
-    test('RL16 Added by the gate: the tail is kept by identity, chatId included', async () => {
+    test('RL16: the tail is kept by identity, chatId included', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -2343,7 +2285,7 @@ describe('CHORE-07 stage 7c-2: retryLegacyColdChatLoad', () => {
         expect(chat.message[chat.message.length - 1].chatId).toBe('rl16-memo')
     })
 
-    test('RL17 Added by the gate: the error message\'s chatId is stripped from a live summary\'s chatMemos during retry', async () => {
+    test('RL17: the error message\'s chatId is stripped from a live summary\'s chatMemos during retry', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -2377,7 +2319,7 @@ describe('CHORE-07 stage 7c-2: retryLegacyColdChatLoad', () => {
         expect(chat.hypaV3Data.summaries[0].chatMemos).toEqual(['rl17-other-memo'])
     })
 
-    test('RL18 Added by the gate, RED (post-gate finding 1): a malformed side field in the blob resolves "error" and leaves the chat completely untouched', async () => {
+    test('RL18: a malformed side field in the blob resolves "error" and leaves the chat completely untouched', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -2396,12 +2338,10 @@ describe('CHORE-07 stage 7c-2: retryLegacyColdChatLoad', () => {
 
         const result = await retryLegacyColdChatLoad(0, 0)
 
-        // RED (post-gate): before the fix, `chat.message` was assigned
-        // BEFORE the merge ran, so a throw from the merge left the chat
-        // half-mutated (message replaced, side fields not) instead of
-        // leaving it completely untouched, and the throw itself propagated
-        // out of retryLegacyColdChatLoad as a rejection instead of
-        // resolving 'error'.
+        // A throw from the merge must not leave the chat half-mutated
+        // (message replaced, side fields not), and must not propagate out
+        // of retryLegacyColdChatLoad as a rejection -- it must resolve
+        // 'error' with the chat completely untouched.
         expect(result).toBe('error')
         const chat = DBState.db.characters[0].chats[0] as unknown as { message: { data: string }[] }
         expect(chat.message).toEqual(messageBefore)

@@ -1,19 +1,17 @@
 /**
- * AV-3 (Report 15, `Agents/Reports/15-av3-plain-http-encode-plan.md` §4):
- * tests T1-T8, T11-T13 for `getFileSrc`'s plain-HTTP branch and its
+ * AV-3: tests T1-T8, T11-T13 for `getFileSrc`'s plain-HTTP branch and its
  * `fileCache` (see the `fileCache`/`touchFileCache`/`getFileSrc`/
  * `__fileCacheTestHooks` definitions in `src/ts/globalApi.svelte.ts`, real,
  * unmocked -- these tests drive the actual cache/eviction logic through the
- * test-only `__fileCacheTestHooks` seam added alongside them). T9/T10 (the
+ * test-only `__fileCacheTestHooks` seam). T9/T10 (the
  * parser's `getFileSrcCached`) live in
  * `src/ts/parser/tests/fileSrcCacheAv3.test.ts` instead, because that side
- * needs `getFileSrc` itself (and the new predicate) mocked, not real.
+ * needs `getFileSrc` itself (and the predicate) mocked, not real.
  *
- * The AV-3 behaviour (Report 15 §2) has landed in `src/ts/globalApi.svelte.ts`;
- * every test below passes against it. Tests labelled "guard" pin
- * pre-existing behaviour (mainly the orphaned-retry identity guard in
- * `touchFileCache`/`getFileSrc`) that AV-3 had to not break, not a new
- * requirement.
+ * `globalApi.svelte.ts` implements the AV-3 behaviour; every test below
+ * passes against it. Tests labelled "guard" pin pre-existing behaviour
+ * (mainly the orphaned-retry identity guard in `touchFileCache`/
+ * `getFileSrc`) that AV-3 must not break, not a new requirement.
  *
  * This file drives the REAL `globalApi.svelte.ts` (unmocked). Every other
  * module it transitively imports is mocked below so only its own
@@ -261,11 +259,12 @@ function base64EncodeCount(): number {
 }
 
 beforeEach(() => {
-    // polyfill.ts:43 (not imported by this file) is what replaces
+    // The `globalThis.Buffer = BufferPolyfill` assignment in
+    // `src/ts/polyfill.ts` (not imported by this file) is what replaces
     // globalThis.Buffer in the real app; under vitest, Node's own global
     // Buffer is already present at import time, so spying here (after this
     // file's own imports have run) observes every base64 encode `getFileSrc`
-    // performs, exactly as Report 15 §4 (gate L1) specifies.
+    // performs.
     toStringSpy = vi.spyOn(globalThis.Buffer.prototype, 'toString')
     __fileCacheTestHooks.reset()
     setUsingSw(false)
@@ -280,7 +279,7 @@ afterEach(() => {
     vi.unstubAllGlobals()
 })
 
-describe('AV-3 plain-HTTP getFileSrc cache (Report 15 §4)', () => {
+describe('AV-3 plain-HTTP getFileSrc cache', () => {
     test('T1: 3 calls for one loc produce one read and one encode', async () => {
         const loc = 't1-plain-http'
         vi.mocked(forageStorage.getItem).mockResolvedValue(bytes(10) as unknown as never)

@@ -726,7 +726,7 @@ describe('v1: only the fake-reported-intersecting items resolve, per layout', ()
         await teardown(target, app)
     })
 
-    test('AlertComp selectChar dialog (AlertComp.svelte:385-388)', async () => {
+    test('AlertComp selectChar dialog', async () => {
         DBState.db = buildSidebarDb(V_N)
         alertStore.set({ type: 'selectChar', msg: '' } as never)
         getFileSrcSpy.mockClear()
@@ -871,8 +871,8 @@ describe('v5 (new): nested MobileCharacters-inside-GridCatalog root selection', 
         await settle(target)
 
         const scrollBoxes = Array.from(target.querySelectorAll('.overflow-y-auto')) as HTMLElement[]
-        // GridCatalog's own outer scroll box (GridCatalog.svelte:57) is the first
-        // in document order; MobileCharacters' own nested one (:73) is the second.
+        // GridCatalog's own outer scroll box is the first in document
+        // order; MobileCharacters' own nested scroll box is the second.
         expect(scrollBoxes.length).toBeGreaterThanOrEqual(2)
         const gridOuter = scrollBoxes[0]
         const mobileCharsRoot = scrollBoxes[1]
@@ -1390,14 +1390,14 @@ describe('v12: entries must leave the visible set when items unmount', () => {
     })
 })
 
-// Covers only the grid layout (`GridCatalog.svelte:110`) and Sidebar's
-// normal-row avatar (`Sidebar.svelte:616`) -- proving that the wiring also
+// Covers only the grid layout (`GridCatalog.svelte`) and Sidebar's
+// normal-row avatar (`Sidebar.svelte`) -- proving that the wiring also
 // survives THIS file's real, margin-banded `IntersectionObserver` fake
 // (`fireOn`/`instancesByMargin`/`orderedTargets`), not just the simpler
 // "everything visible immediately" fake `charlistAvatarLookups.svelte.test.ts`
-// uses. The other six call sites (`GridCatalog.svelte:133` list, `:161`
-// trash, `Sidebar.svelte:629` folder, `:756` folder member, AlertComp's own
-// selectChar dialog, `MobileCharacters.svelte:85`) are NOT covered here: each
+// uses. The other six call sites (`GridCatalog.svelte`'s list and trash
+// rows, `Sidebar.svelte`'s folder and folder-member rows, AlertComp's own
+// selectChar dialog, `MobileCharacters.svelte`) are NOT covered here: each
 // would need its own fixture (a trashed-character DB, a
 // folder DB, an AlertComp mount, a mobile-layout mount) PLUS this file's own
 // margin-band bookkeeping threaded through it, which is disproportionate to

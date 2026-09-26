@@ -95,18 +95,18 @@ function mergeHypaV3Categories(
 
 /**
  * hypaV3 links a summary to the messages it covers by `chatId` memo, not by
- * index (`hypav3.ts:212-228`) -- keeping only the live post-error memory
- * would push every restored message before `startIdx`, so it would never be
- * summarized or prompted again. Emptiness is judged on `summaries.length`
- * alone (semantic, not deep-equal to the cold-storage reset shape): a live
- * chat that never re-accumulated any summary of its own takes the blob's
- * data wholesale, even if some OTHER field (e.g. `modalSettings`) happens to
- * be set on it (CHORE-07).
+ * index (`hypav3.ts`'s `startIdx` computation) -- keeping only the live
+ * post-error memory would push every restored message before `startIdx`, so
+ * it would never be summarized or prompted again. Emptiness is judged on
+ * `summaries.length` alone (semantic, not deep-equal to the cold-storage
+ * reset shape): a live chat that never re-accumulated any summary of its
+ * own takes the blob's data wholesale, even if some OTHER field (e.g.
+ * `modalSettings`) happens to be set on it (CHORE-07).
  *
  * **Accepted limit.** This only protects BLOB messages the blob's own
  * summaries already covered. After the merge, the last summary is a live
- * post-error one, so `startIdx` (`hypav3.ts:212-228`, `[...lastSummary.
- * chatMemos].at(-1)`) is computed from THAT summary's memos -- any blob
+ * post-error one, so `startIdx` (`[...lastSummary.chatMemos].at(-1)`) is
+ * computed from THAT summary's memos -- any blob
  * message the blob never got around to summarizing (or every blob message,
  * if the blob has `{summaries:[]}` while live has summaries) falls before
  * `startIdx` and is never summarized or prompted again. The same applies to
@@ -127,11 +127,11 @@ function mergeHypaV3SideField(
     }
 
     // The dropped error-text message may have picked up a `chatId` memo on
-    // the user's first post-error send (`index.svelte.ts:269-272`). Any live
+    // the user's first post-error send (`index.svelte.ts`). Any live
     // summary that still references it must have that one memo removed, or
-    // `cleanOrphanedSummary` (`hypav3.ts:1646`) would delete the whole
+    // `cleanOrphanedSummary` (`hypav3.ts`) would delete the whole
     // summary on the next send, since the message it was keyed to is gone
-    // -- unless `preserveOrphanedMemory` is set (`hypav3.ts:208`). If
+    // -- unless `preserveOrphanedMemory` is set (also in `hypav3.ts`). If
     // stripping that one memo leaves a summary with NO memos left at all,
     // this drops the summary outright here instead: `hypav3.ts`'s own
     // `startIdx` computation reads `[...lastSummary.chatMemos].at(-1)`,

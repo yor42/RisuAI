@@ -104,7 +104,7 @@ export async function downloadFile(name: string, dat: Uint8Array | ArrayBuffer |
 
 type FileCacheEntry = {
     status: 'loading' | 'done' | 'missing'
-    // AV-3 (Report 15 §2.1): plain-HTTP 'done' entries store the finished,
+    // AV-3: plain-HTTP 'done' entries store the finished,
     // full `data:image/png;base64,...` string here, built once inside the
     // loading producer in getFileSrc, instead of raw bytes that got
     // re-encoded into a fresh string on every call. Every cache hit, the
@@ -146,7 +146,7 @@ const FILE_CACHE_DEFAULT_MAX_ENTRIES = 200
 // Mutable only so the test-only seam (__fileCacheTestHooks.setLimits) can shrink
 // it for a test and restore it afterward; production code never changes it.
 let FILE_CACHE_MAX_ENTRIES = FILE_CACHE_DEFAULT_MAX_ENTRIES
-// AV-3 budget (Report 15 §2.1): total bytes of encoded payload the cache may
+// AV-3 budget: total bytes of encoded payload the cache may
 // hold across all entries (see fileCacheEntryCost — the shared prefix on each
 // `src` is excluded). Service-worker, loading and missing entries cost 0.
 const FILE_CACHE_DEFAULT_MAX_BYTES = 64 * 1024 * 1024
@@ -161,7 +161,7 @@ let fileCacheMaxBytes = FILE_CACHE_DEFAULT_MAX_BYTES
 let fileCacheBytes = 0
 const fileCache = new Map<string, FileCacheEntry>()
 
-// AV-3 (Report 15 §2.1, gate M2): the most recent oversized `getFileSrc` result
+// AV-3: the most recent oversized `getFileSrc` result
 // (one whose cost, see fileCacheEntryCost, exceeds fileCacheMaxBytes). Oversized
 // results are never committed to the budgeted `fileCache` map above, but
 // without this one-slot memo a caller that re-requests the same oversized loc
@@ -171,13 +171,10 @@ const fileCache = new Map<string, FileCacheEntry>()
 // here is the full string too, returned as-is, same as a cached entry's.
 let oversizedMemo: { loc: string, src: string } | null = null
 
-// The byte cost of one cache entry for budget purposes. This is `src.length`
-// MINUS the constant-length `FILE_CACHE_SRC_PREFIX` every `src` carries — the
-// cost counts only the encoded payload, not the shared prefix. This
-// deliberately departs from Report 15 §2.1's "an entry costs src.length" (the
-// Orchestrator's instruction, given `src` here is the full prefixed string
-// rather than the bare payload the plan assumed). Entries with no `src`
-// (service-worker, loading, missing) cost 0.
+// The byte cost of one cache entry for budget purposes: `src.length` MINUS
+// the constant-length `FILE_CACHE_SRC_PREFIX` every `src` carries, so the
+// budget tracks only the encoded payload, not the prefix shared by every
+// entry. Entries with no `src` (service-worker, loading, missing) cost 0.
 function fileCacheEntryCost(entry: FileCacheEntry): number {
     return entry.src ? entry.src.length - FILE_CACHE_SRC_PREFIX.length : 0
 }
@@ -201,7 +198,7 @@ function fileCacheDelete(loc: string) {
     fileCache.delete(loc)
 }
 
-// Test-only seam for AV-3 (Report 15 §4). Not used by any production code path.
+// Test-only seam for AV-3. Not used by any production code path.
 // Lets a test shrink the cache's limits, reset it between cases (the module
 // otherwise has no way to clear `fileCache`), and read both the running byte
 // total and one recomputed from the Map, so tests can assert the two never
@@ -361,7 +358,7 @@ export async function getFileSrc(loc: string) {
             let resolved: FileCacheEntry
 
             if (!existing) {
-                // AV-3 (Report 15 §2.1, gate M2): an oversized result from a
+                // AV-3: an oversized result from a
                 // previous call for this exact loc is never committed to the
                 // budgeted cache below, so check the one-slot memo before
                 // starting a fresh read — otherwise a caller that repeatedly
@@ -377,7 +374,7 @@ export async function getFileSrc(loc: string) {
                     // read and this same encode, and every caller served from
                     // the same cache entry or memo slot gets the same string
                     // object instead of each re-encoding or re-concatenating
-                    // its own copy on every call (Report 15 §2.1). `src` is
+                    // its own copy on every call. `src` is
                     // the FULL `data:image/png;base64,...` string, prefix
                     // included — every return path below hands it out as-is,
                     // never rebuilding it per call. A caller that arrives
@@ -398,8 +395,7 @@ export async function getFileSrc(loc: string) {
                         if (resolved.src !== undefined && fileCacheEntryCost(resolved) > fileCacheMaxBytes) {
                             // Oversized: don't let one asset evict the entire
                             // budgeted cache. Remove the loading placeholder and
-                            // memoize the result on the side instead (Report 15
-                            // §2.1, gate M2).
+                            // memoize the result on the side instead.
                             fileCacheDelete(loc)
                             oversizedMemo = { loc, src: resolved.src }
                         } else {
@@ -631,7 +627,7 @@ export const tabPresenceLockAcquired: Promise<void> = acquireOwnSharedPresenceLo
  * supported in this browser at all. Internally also acquires `dbWriteLock` —
  * callers must NOT separately acquire it themselves.
  *
- * Ordering here is load-bearing, worked out over several rounds of review:
+ * Ordering here is load-bearing:
  *
  * 1. `dbWriteLock` is acquired FIRST, before this tab even attempts the
  *    cross-tab exclusive lock. A tab that has only QUEUED for the exclusive
@@ -708,9 +704,7 @@ export interface BootSaveSequenceOptions {
 }
 
 /**
- * Extracted from saveDb()'s startup (Report 17 Stage 1 §3.1 "named seams", so
- * S13 can drive the real sequence with a slow fake `init`): install
- * character-save marks with a scheduler that only records "pending" while
+ * Installs character-save marks with a scheduler that only records "pending" while
  * `encoder.init` (a seconds-long window at 1000 characters, ledger row 61) is
  * still running, then create and swap in the real scheduler
  * (`saveTimeoutExecute`) and flush once if a mark arrived during that window.
@@ -747,8 +741,8 @@ export interface PrepareSaveIterationOptions {
     getDatabase: () => Database
     /**
      * Called right after the snapshot is taken, before the live tracker is
-     * trimmed -- saveDb() uses it to reset `dirtySinceLastSave`, preserving
-     * the original inline statement order exactly.
+     * trimmed -- saveDb() uses it to reset `dirtySinceLastSave` at that exact
+     * point.
      */
     onSnapshotTaken?: () => void
     /**
@@ -759,8 +753,7 @@ export interface PrepareSaveIterationOptions {
      * so it can flag itself dirty again for a retry (a multi-tab auto-reload
      * must not treat this tab as clean and silently discard its edits by
      * reloading out from under it). saveDb() wires this to
-     * `dirtySinceLastSave = true` (Report 17 Stage 1, second Gate 2 REJECT,
-     * item A).
+     * `dirtySinceLastSave = true`.
      */
     onSnapshotRestored?: () => void
 }
@@ -771,23 +764,19 @@ export interface PrepareSaveIterationResult {
 }
 
 /**
- * Extracted from saveDb()'s per-iteration setup (Report 17 Stage 1 §3.1
- * "named seams", driven directly by S11), with the reorder documented below
- * and the presence filtering documented further down -- both behaviour
- * changes, not a pure extraction: the snapshot-and-trim of the live tracker, the
+ * Prepares one save iteration: the snapshot-and-trim of the live tracker, the
  * full-reload branch (`requiresFullEncoderReload`), and the post-reload
- * filter (§3.2) that keeps a full reload from double-encoding a character
- * already marked before this same iteration started.
+ * filter documented further down that keeps a full reload from
+ * double-encoding a character already marked before this same iteration
+ * started.
  *
- * The snapshot and trim run BEFORE `reinitEncoder()` (gate 2 finding B1, was
- * after): `reinitEncoder()` can take seconds at 1000 characters (ledger row
- * 61), and if something edits a character IN PLACE during that window (same
- * proxy `init()` already recorded) and marks it, that mark must not be
- * confused with "already encoded by this reload" just because it arrived
- * before the OLD snapshot-after-reinit ordering took its snapshot. Doing the
- * snapshot/trim first means such a mark instead lands in the live tracker,
- * behind the sticky front, entirely outside what the filter below ever sees
- * -- it gets folded into `toSave` unfiltered afterward instead.
+ * The snapshot and trim run BEFORE `reinitEncoder()`: `reinitEncoder()` can
+ * take seconds at 1000 characters (ledger row 61), so an edit made to a
+ * character IN PLACE while it's running (same proxy `init()` already
+ * recorded) and marked during that window must land in the live tracker,
+ * behind the sticky front, entirely outside what the snapshot already
+ * captured -- never in the snapshot, so the post-reload filter below can
+ * never mistake it for something this reload already encoded.
  */
 export async function prepareSaveIteration(opts: PrepareSaveIterationOptions): Promise<PrepareSaveIterationResult> {
     let encoder = opts.encoder
@@ -810,8 +799,8 @@ export async function prepareSaveIteration(opts: PrepareSaveIterationOptions): P
     opts.tracker.pluginCustomStorage = false
 
     if (opts.reloadFlag.state) {
-        // Cleared BEFORE the await, not after (second Gate 2 REJECT, item B):
-        // if something racing this reload (e.g. removeChar(), or a backup
+        // Cleared BEFORE the await, not after: if something racing this
+        // reload (e.g. removeChar(), or a backup
         // load) sets the flag again WHILE `reinitEncoder()` is still running,
         // clearing it here first means that later write always wins -- a
         // post-await `= false` would instead clobber it back to false and
@@ -825,17 +814,15 @@ export async function prepareSaveIteration(opts: PrepareSaveIterationOptions): P
             // next iteration still reloads instead of silently treating this
             // as handled.
             opts.reloadFlag.state = true
-            // The snapshot/trim above already ran, so a throw here (gate 2
-            // finding B1) must not silently drop `toSave` the way it would
-            // have under the old post-reinit ordering (where nothing had
-            // been touched yet). Fold it back into the live tracker --
+            // The snapshot/trim above already ran, so a throw here must not
+            // silently drop `toSave`. Fold it back into the live tracker --
             // same rule saveDb()'s own catch uses for a failed write --
             // before propagating, so the caller's existing catch still has
             // nothing extra to merge.
             mergeUnsavedChanges(opts.tracker, toSave)
-            // An additional signal for saveDb()'s `dirtySinceLastSave`
-            // (second Gate 2 REJECT, item A): the merge-back above already
-            // makes sure nothing is lost, but saveDb() still needs to know
+            // An additional signal for saveDb()'s `dirtySinceLastSave`: the
+            // merge-back above already makes sure nothing is lost, but
+            // saveDb() still needs to know
             // this iteration failed to reload so a later multi-tab
             // auto-reload doesn't treat this tab as clean and reload out
             // from under its restored edits.
@@ -845,17 +832,16 @@ export async function prepareSaveIteration(opts: PrepareSaveIterationOptions): P
 
         // Filter the SNAPSHOT taken above (never the live tracker): drop ids
         // whose CURRENT proxy this reload's own `init()` just encoded, since
-        // the reload already wrote their latest state as of init (plan §3.2,
-        // gate finding F1). A mark added WHILE `reinitEncoder()` was still
-        // running -- e.g. an in-place edit to a character on the very proxy
-        // `init()` already recorded -- was never part of this snapshot (it
-        // landed in the live tracker, behind the sticky front, after the
-        // trim above), so it can never be wrongly dropped here for "already
-        // being encoded" when its edit actually happened after that encode
-        // (gate 2 finding B1).
+        // the reload already wrote their latest state as of init. A mark
+        // added WHILE `reinitEncoder()` was still running -- e.g. an
+        // in-place edit to a character on the very proxy `init()` already
+        // recorded -- was never part of this snapshot (it landed in the
+        // live tracker, behind the sticky front, after the trim above), so
+        // it can never be wrongly dropped here for "already being encoded"
+        // when its edit actually happened after that encode.
         // take (not read): releases the fresh encoder's references to the
         // character objects it just encoded once this filter is done with
-        // them (Report 17 Stage 1, Gate 2 should-fix (memory)).
+        // them.
         const encodedProxies = encoder.takeEncodedCharacterProxies()
         const db = opts.getDatabase()
         // Built once per call instead of re-scanning `db.characters` for
@@ -883,12 +869,12 @@ export async function prepareSaveIteration(opts: PrepareSaveIterationOptions): P
         // rebuilds every character present in `db` regardless, so this is
         // harmless/a no-op safety net for the reload path specifically.
         //
-        // The actual rule (second Gate 2 REJECT: "an id in `toSave.character`
-        // is always present in `db.characters`" is FALSE, and always has
-        // been): without a reload this iteration, only present ids ever
-        // reach `set()` -- the no-reload branch below filters on exactly
-        // that. After a reload, the snapshot filter above deliberately does
-        // NOT presence-filter: an id absent from `db.characters` (e.g. a
+        // The actual rule: "an id in `toSave.character` is always present in
+        // `db.characters`" is FALSE. Without a reload this iteration, only
+        // present ids ever reach `set()` -- the no-reload branch below
+        // filters on exactly that. After a reload, the snapshot filter above
+        // deliberately does NOT presence-filter: an id absent from
+        // `db.characters` (e.g. a
         // character the backup load just deleted) is deliberately KEPT in
         // `toSave.character` (S11 asserts this). In THAT case it's a no-op:
         // the fresh encoder's own `init()` never had a block for an id
@@ -912,8 +898,8 @@ export async function prepareSaveIteration(opts: PrepareSaveIterationOptions): P
         }
         opts.tracker.character = opts.tracker.character.length === 0 ? [] : [opts.tracker.character[0]]
     } else {
-        // B2 fix (Report 17 Stage 1 gate 2): without a reload this
-        // iteration, `RisuSaveEncoder.set()` (risuSave.ts) can't tell a
+        // Without a reload this iteration, `RisuSaveEncoder.set()`
+        // (risuSave.ts) can't tell a
         // genuinely removed character apart from an id that's merely stale
         // in `toSave.character` for some unrelated reason -- its "probably
         // deleted characters" branch deletes the block outright either way.
@@ -947,7 +933,7 @@ export async function prepareSaveIteration(opts: PrepareSaveIterationOptions): P
  * captured `toSave` but didn't end up persisting it, so nothing pending gets
  * silently dropped. Pure — takes the live tracker explicitly instead of closing
  * over saveDb()'s `changeTracker`, so it can be driven directly by tests
- * (Report 17 Stage 1 §3.1 "named seams", S14).
+ * (S14).
  */
 export function mergeUnsavedChanges(liveTracker: toSaveType, toSave: toSaveType): void {
     for (const chaId of toSave.character) {
@@ -1107,8 +1093,8 @@ export function checkFrozenKeysForResolution(encoder: RisuSaveEncoder, db: Datab
 }
 
 /**
- * Releases any orphan draft-content registration whose cap has elapsed
- * (Report 20 §6), by forwarding to
+ * Releases any orphan draft-content registration whose cap has elapsed, by
+ * forwarding to
  * `draftContentOrphanGate.sweepExpiredRegistrations`. `now` is injectable
  * (defaulting to `Date.now()`) so a test can pin this function's own body
  * without depending on real wall-clock time.
@@ -1175,7 +1161,7 @@ export async function saveDb() {
         }, debounceTime);
     }
 
-    // Character-save marks (CHORE-01 / Report 17 Stage 1 §3.1) are installed
+    // Character-save marks (CHORE-01) are installed
     // BEFORE `encoder.init`, which can take seconds at 1000 characters (ledger
     // row 61) while the UI is already live (bootstrap.ts un-awaits saveDb()
     // after loadedStore.set(true)). A mark made during that window is kept
@@ -1205,15 +1191,14 @@ export async function saveDb() {
             // Seeds the identity tracker's WeakSet with exactly the character
             // proxies the `encoder.init` above encoded, so a whole-db/element
             // replacement that happened DURING that init window isn't treated
-            // as "already seen" the first time this effect runs (plan §3.2).
+            // as "already seen" the first time this effect runs.
             // take (not read): registerDbChangeEffects only ever needs this
             // once, at registration, and taking here releases the encoder's
             // own references to these boot-time character objects.
             // registerDbChangeEffects then releases its own copy (`opts.seed
             // = undefined`) once it has built the WeakSet from it -- between
             // the two releases, nothing here is left holding every boot-time
-            // character strongly reachable for the app's whole lifetime
-            // (Report 17 Stage 1, Gate 2 should-fix (memory)).
+            // character strongly reachable for the app's whole lifetime.
             seed: encoder.takeEncodedCharacterProxies()
         })
     })
@@ -1235,9 +1220,8 @@ export async function saveDb() {
     // run of post-commit failures masquerade as an active pre-commit retry
     // storm, or vice versa. Reset to 0 only when a full iteration completes
     // without error, so a persistently broken backup write or pruning step
-    // still eventually escalates instead of degrading silently forever --
-    // mirroring what the old unified `savetrys` counter did before
-    // `primaryCommitted` split this catch into pre-/post-commit halves.
+    // still eventually escalates instead of degrading silently forever, the
+    // same guarantee `savetrys` gives the pre-commit path on its own.
     let postCommitFailStreak = 0
     const POST_COMMIT_ESCALATE_THRESHOLD = 5
     // Logs a post-commit ancillary failure and, once per consecutive-failure
@@ -1254,12 +1238,12 @@ export async function saveDb() {
     }
     await sleep(1000)
     while (true) {
-        // Report 20 §6: releases any orphan draft-content registration whose
+        // Releases any orphan draft-content registration whose
         // cap has elapsed. Runs every iteration of this loop -- roughly every
         // ~500ms once idle (see the `if (!changed)` branch below) -- rather
         // than on a per-record timer, so there is no timer to leak. This only
         // ever removes a `localDrafts` registration, never a `draftContents`
-        // record (§6.1); the record stays bounded solely by its own LRU cap.
+        // record; the record stays bounded solely by its own LRU cap.
         // Extracted to `sweepDraftRegistrations` (see its own comment) so
         // this call is a named seam rather than dead-looking code.
         sweepDraftRegistrations()
@@ -1345,9 +1329,8 @@ export async function saveDb() {
                     if (choice === 'flush') {
                         // "Save mine": once this write lands, this tab's data IS the
                         // newest committed state -- reloading would just re-read its
-                        // own write and gain nothing, while a reload here is exactly
-                        // what used to destroy edits landing during the write window
-                        // (this used to be the `finalFlushPending` reload, now removed).
+                        // own write and gain nothing, while a reload here would risk
+                        // destroying edits landing during the write window instead.
                         // Just let the normal save loop pick this up and stay put.
                         changed = true
                     }
@@ -1409,8 +1392,7 @@ export async function saveDb() {
                 // tell this outer scope the attempt failed -- without this,
                 // a peer tab's broadcast could see `dirtySinceLastSave` still
                 // false from the `onSnapshotTaken` reset above and reload
-                // this tab out from under its restored, still-unsaved edits
-                // (second Gate 2 REJECT, item A).
+                // this tab out from under its restored, still-unsaved edits.
                 onSnapshotRestored: () => { dirtySinceLastSave = true }
             })
             encoder = prepared.encoder
@@ -1501,10 +1483,10 @@ export async function saveDb() {
             postCommitFailStreak = 0
             await sleep(500)
         } catch (error) {
-            // `primaryCommitted` splits this catch into two independent concerns that
-            // used to be conflated: (1) whether it's safe to retry — restore the
-            // tracker, mark `changed`, and loop back to re-encode/re-write — and (2)
-            // how to classify and report the error to the user. Only (1) depends on
+            // `primaryCommitted` separates two independent concerns: (1) whether
+            // it's safe to retry — restore the tracker, mark `changed`, and loop
+            // back to re-encode/re-write — and (2) how to classify and report the
+            // error to the user. Only (1) depends on
             // `primaryCommitted`: retrying after the primary write already landed
             // would re-commit an already-committed payload and could overwrite a peer
             // tab that has since flushed its own state in response to our broadcast —
@@ -1696,9 +1678,9 @@ export function setUsingSw(value: boolean) {
  * that reads+encodes through `fileCache` above) right now, without calling it.
  * Must mirror getFileSrc's own branch conditions exactly — this is a
  * synchronous snapshot of the same two checks getFileSrc makes before its
- * first await, so a caller (parser.svelte.ts's getFileSrcCached, Report 15
- * §2.2) can decide, in the same tick, whether to route through its own
- * permanent cache or call getFileSrc directly every time.
+ * first await, so a caller (parser.svelte.ts's getFileSrcCached) can decide,
+ * in the same tick, whether to route through its own permanent cache or
+ * call getFileSrc directly every time.
  */
 export function isPlainHttpFileSrc(loc: string): boolean {
     return !isTauri && !usingSw
@@ -2077,8 +2059,7 @@ export function getBasename(data: string) {
  * Resolves each character to the full data `getUncleanablesSync` should
  * scan for asset references, swapping in a cold-stored character's own
  * blob when it is readable and matches. Shared by `getUncleanables` and
- * `buildAssetKeepSet` so the two cannot drift (CHORE-07 stage 7a,
- * `Agents/Reports/13-chore07-cold-read-failure-plan.md` §2.1, gate R9).
+ * `buildAssetKeepSet` so the two cannot drift (CHORE-07 stage 7a).
  *
  * `opts.swallowErrors` controls what happens when a `cha.coldstorage` read
  * throws:
@@ -2099,8 +2080,7 @@ export function getBasename(data: string) {
  * `cha.chaId` (the existing check below) -- neither of those is a throw,
  * so both flag values reach this same branch. In every case where a full
  * character could not be substituted, `cha` itself (the stub) is still
- * what gets scanned, matching this function's behaviour before `complete`
- * was tracked.
+ * what gets scanned.
  */
 async function resolveUncleanableChars(db: Database, opts: { swallowErrors: boolean }): Promise<{
     chars: (character|groupChat)[]
@@ -2160,8 +2140,7 @@ export async function getUncleanables(db: Database) {
  * Builds the keep-set the boot-time asset sweep (`cleanChunks`'s
  * `sweepTauriAssets` / `sweepForageAssetKey`, `src/ts/storage/assetSweep.ts`)
  * uses to decide what NOT to delete. Shares `resolveUncleanableChars` with
- * `getUncleanables` so the two cannot drift (CHORE-07 stage 7a,
- * `Agents/Reports/13-chore07-cold-read-failure-plan.md` §2.1, gate R9).
+ * `getUncleanables` so the two cannot drift (CHORE-07 stage 7a).
  *
  * Unlike `getUncleanables`, a `cha.coldstorage` read that throws here does
  * NOT reject this function: it is swallowed and reported as
@@ -3308,7 +3287,7 @@ export async function loadInternalBackup() {
     setDatabase(decoded)
     // A backup load is an explicit user action to replace everything, so a
     // full reload (and dropping characters absent from the backup) is
-    // intended -- the other three call sites already do this (plan §3.3).
+    // intended -- the other three call sites already do this.
     requiresFullEncoderReload.state = true
 
     alertNormal('Loaded backup')
@@ -3662,8 +3641,8 @@ export function changeChatTo(IdOrIndex: string | number) {
 
     DBState.db.characters[selIdState.selId].chatPage = index
     // Flush before bumping so the bump fans its reparse out over the new
-    // (usually much smaller) window instead of the outgoing one (Report 19
-    // §9). This flush only guarantees that a write the flush itself must
+    // (usually much smaller) window instead of the outgoing one. This flush
+    // only guarantees that a write the flush itself must
     // observe has already landed if it happened before this call; that is
     // why `reorderChatsKeepingCurrent` assigns `chara.chats` before calling
     // this function, not after. Writes that instead depend on the switch
@@ -3676,7 +3655,7 @@ export function changeChatTo(IdOrIndex: string | number) {
     // this chat window. No current caller reaches it from inside an effect
     // or another flush -- that is what makes it safe today, and a future
     // caller must not break that property without rechecking that the flush
-    // is still safe there (Report 19 §9.6).
+    // is still safe there.
     flushSync()
     ReloadGUIPointer.set(Math.random())
 }
@@ -3689,8 +3668,7 @@ export function changeChatTo(IdOrIndex: string | number) {
  * survives the reorder and is what must be looked up. Returns -1 when the
  * chat is no longer present. That is not handled specially: `changeChatTo`'s
  * existing early return skips writing `chatPage`, so the user is left on
- * whatever chat now occupies the stale page index. That is unchanged from
- * the pre-change behaviour, not a new defect (Report 19 §9.2(b)).
+ * whatever chat now occupies the stale page index.
  */
 export function resolveReorderedChatIndex(oldChats: Chat[], newChats: Chat[], currentPage: number): number {
     return newChats.indexOf(oldChats[currentPage])
@@ -3701,7 +3679,7 @@ export function resolveReorderedChatIndex(oldChats: Chat[], newChats: Chat[], cu
  * same chat, then switches to it. The order of the three steps is the entire
  * point: `chara.chats` must already be the reordered array before
  * `changeChatTo` runs, because `changeChatTo` flushes synchronously, and the
- * target index is only meaningful against the new array (Report 19 §9.2(b)).
+ * target index is only meaningful against the new array.
  */
 export function reorderChatsKeepingCurrent(chara: character | groupChat, newChats: Chat[], currentPage: number): void {
     const target = resolveReorderedChatIndex(chara.chats, newChats, currentPage)

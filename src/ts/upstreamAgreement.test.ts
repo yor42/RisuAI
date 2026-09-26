@@ -398,7 +398,7 @@ describe('resetUpstreamAgreementForTests(): discards a still-pending, unanswered
     })
 })
 
-describe('askUpstreamAgreement(): a storage write failure never blocks acceptance (section 11.3)', () => {
+describe('askUpstreamAgreement(): a storage write failure never blocks acceptance', () => {
     // happy-dom binds `setItem` onto the `localStorage` instance the first time any code calls
     // it, which every earlier test in this file already has by the time this block runs; once
     // that instance-level binding exists, a spy on `Storage.prototype` does not sit in the call
