@@ -1,6 +1,7 @@
 import { alertError, alertInput, alertNormal, alertSelect, alertStore } from "../alert";
 import { getDatabase, type Database } from "../storage/database.svelte";
 import { dbWriteLock, forageStorage, getUncleanables, openURL } from "../globalApi.svelte";
+import { askUpstreamAgreement, isUpstreamAccepted } from "../upstreamAgreement";
 import { isTauri } from "src/ts/platform"
 import { BaseDirectory, exists, readFile, readDir, writeFile } from "@tauri-apps/plugin-fs";
 import { language } from "../../lang";
@@ -11,6 +12,9 @@ import { decodeRisuSave, encodeRisuSaveLegacy } from "../storage/risuSave";
 import { collectColdStorageBackupPayloads, confirmIncompleteColdStorageOperation, getColdStorageBackupName, isColdStorageBackupData, listColdDataKeys, setColdStorageItem } from "../process/coldstorage.svelte";
 
 export async function checkDriver(type:'save'|'load'|'loadtauri'|'savetauri'){
+    if(!await askUpstreamAgreement()){
+        return
+    }
     const CLIENT_ID = '580075990041-l26k2d3c0nemmqiu3d3aag01npfrkn76.apps.googleusercontent.com';
     const REDIRECT_URI = "https://risuai.xyz/"
     const SCOPE = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.appdata';
@@ -51,15 +55,28 @@ export async function checkDriverInit() {
     try {
         const loc = new URLSearchParams(location.search)
         const code = loc.get('code')
-    
-        if(code){
+        const state = loc.get('state') ?? ''
+
+        if(code || state){
+            const knownStates = ['save', 'load', 'savetauri', 'loadtauri']
+            if(!code || !isUpstreamAccepted() || !knownStates.includes(state)){
+                // Without a code, without acceptance, or for a state this app
+                // does not recognize even with acceptance, the token exchange
+                // must never run: strip whichever of code/state is present
+                // and make no request.
+                const currentURL = new URL(location.href)
+                currentURL.searchParams.delete('code')
+                currentURL.searchParams.delete('state')
+                window.history.replaceState({}, "", currentURL.href)
+                return false
+            }
             const res = await fetch(hubURL + `/drive/token?code=${encodeURIComponent(code)}`)
             if(res.status >= 200 && res.status < 300){
                 const json:{
                     access_token:string,
                     expires_in:number
                 } = await res.json()
-                const da = loc.get('state')
+                const da = state
                 if(da === 'save'){
                     await backupDrive(json.access_token)
                 }

@@ -91,7 +91,6 @@ vi.mock(import('src/ts/alert'), () => ({
     alertMd: vi.fn(),
     alertNormal: vi.fn(),
     alertSelect: vi.fn(),
-    alertTOS: vi.fn(async () => true),
     alertToast: vi.fn(),
     alertInput: vi.fn(),
     alertNormalWait: vi.fn(),

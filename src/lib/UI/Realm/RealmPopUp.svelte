@@ -3,7 +3,8 @@
     import { language } from "src/lang";
     import { alertConfirm, alertInput, alertNormal } from "src/ts/alert";
     import { hubURL, type hubType, downloadRisuHub, getRealmInfo } from "src/ts/characterCards";
-    
+    import { askUpstreamAgreement } from "src/ts/upstreamAgreement";
+
     import { DBState } from 'src/ts/stores.svelte';
     import RealmLicense from "./RealmLicense.svelte";
     import MultiLangDisplay from "../GUI/MultiLangDisplay.svelte";
@@ -83,6 +84,9 @@
                 const conf = await alertConfirm('Report this character?')
                 if(conf){
                     const report = await alertInput('Write a report text that would be sent to the admin (for copywrite issues, use email)')
+                    if(!(await askUpstreamAgreement())){
+                        return
+                    }
                     const da = await fetch(hubURL + '/hub/report', {
                         method: "POST",
                         body: JSON.stringify({

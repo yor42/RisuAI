@@ -7,6 +7,12 @@
     import { getRealmUploadUrl } from "src/ts/realmUploadUrl";
     import { sleep } from "src/ts/util";
     import { onDestroy, onMount } from "svelte";
+    import { isUpstreamAccepted } from "src/ts/upstreamAgreement";
+
+    // Read once, before the first render: a flag that started `true` and
+    // was corrected in `onMount` would still mount the `<iframe>` (and start
+    // loading realm.risuai.net) for one frame.
+    const accepted = isUpstreamAccepted()
 
     const close =  () => {
         $ShowRealmFrameStore = ''
@@ -50,6 +56,14 @@
     }
 
     onMount(async () => {
+        if(!accepted){
+            // No export, no listener, no iframe: closing here resets the
+            // store the parent mounts this component on, so it unmounts
+            // without ever having sent anything upstream.
+            close()
+            return
+        }
+
         window.addEventListener('message', pmfunc)
 
         let data:{
@@ -110,8 +124,10 @@
         <div class="loadmove"></div>
     </div>
     {/if}
+    {#if accepted}
     <iframe bind:this={iframe}
         src={getRealmUploadUrl()}
         title="upload" class="w-full flex-1" class:hidden={loadingStage < 1}
 ></iframe>
+    {/if}
 </div>

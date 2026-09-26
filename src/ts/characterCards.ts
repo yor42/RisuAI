@@ -1,5 +1,6 @@
 import { writable, get, type Writable } from "svelte/store"
-import { alertCardExport, alertConfirm, alertError, alertInput, alertNormal, alertStore, alertTOS, alertWait } from "./alert"
+import { alertCardExport, alertConfirm, alertError, alertInput, alertNormal, alertStore, alertWait } from "./alert"
+import { askUpstreamAgreement, isUpstreamAccepted, publishUpstreamAccepted } from "./upstreamAgreement"
 import { defaultSdDataFunc, type character, setDatabase, type customscript, type loreSettings, type loreBook, type triggerscript, importPreset, type groupChat, getDatabase, setDatabaseLite, appVer } from "./storage/database.svelte"
 import { checkNullish, decryptBuffer, isKnownUri, selectFileByDom, sleep } from "./util"
 import { language } from "src/lang"
@@ -294,10 +295,24 @@ export async function importCharacterProcess<T extends boolean = false>(f:{
     
 }
 
-export const getRealmInfo = async (realmPath:string) => {
+// The last `?realm=` path seen without acceptance, drained by
+// handlePendingRealmLink() once boot reaches loadedStore.
+let pendingRealmPath: string | null = null
+
+export const getRealmInfo = async (realmPath:string): Promise<'consent'|void> => {
     const url = new URL(location.href);
     url.searchParams.delete('realm');
-    window.history.pushState(null, '', url.toString());
+    window.history.replaceState(null, '', url.toString());
+
+    if(!isUpstreamAccepted()){
+        // `publishUpstreamAccepted()` (`src/ts/upstreamAgreement.ts`) makes a subscribed
+        // `upstreamAccepted` agree with this fresh read, so a view that cached a stale `true`
+        // before this check ran is corrected rather than left showing accepted content it has no
+        // real access to.
+        publishUpstreamAccepted()
+        pendingRealmPath = realmPath
+        return 'consent'
+    }
 
     const res = await fetch(`${hubURL}/hub/info/${realmPath}`)
     if(res.status !== 200){
@@ -305,6 +320,24 @@ export const getRealmInfo = async (realmPath:string) => {
         return
     }
     showRealmInfoStore.set(await res.json())
+}
+
+/**
+ * Drains a `?realm=` path recorded by `getRealmInfo` while the upstream-
+ * services agreement had not yet been given. A no-op with nothing pending.
+ * Clears the pending path before asking, so a decline never leaves a stale
+ * path for a later call to act on.
+ */
+export async function handlePendingRealmLink(): Promise<void> {
+    const path = pendingRealmPath
+    if(!path){
+        return
+    }
+    pendingRealmPath = null
+    if(!await askUpstreamAgreement()){
+        return
+    }
+    await getRealmInfo(path)
 }
 
 export const showRealmInfoStore:Writable<null|hubType> = writable(null)
@@ -626,13 +659,18 @@ export async function exportChar(charaID:number):Promise<string> {
 /**
  * The single opener for the Realm upload frame (`ShowRealmFrameStore`),
  * shared by the export dialog's Realm option and every character/preset
- * share button. Uploading a character that already has a `realmId` creates
- * a NEW Realm listing, since editing an existing listing in-app is not
- * supported -- so that case alone confirms first; declining leaves the store
- * untouched. A preset target, and a character with no `realmId` yet, upload
- * without asking.
+ * share button. It asks for the upstream-services agreement first
+ * (MC-086); declining leaves the store untouched. Uploading a character that
+ * already has a `realmId` then creates a NEW Realm listing, since editing an
+ * existing listing in-app is not supported -- so that case alone shows a
+ * second confirm, and declining it likewise leaves the store untouched. A
+ * preset target, and a character with no `realmId` yet, upload once the
+ * agreement is given, without the second confirm.
  */
 export async function openRealmUpload(target: string): Promise<void> {
+    if(!await askUpstreamAgreement()){
+        return
+    }
     if(target === 'character'){
         const db = getDatabase()
         const selected = db.characters[get(selectedCharID)]
@@ -1652,7 +1690,7 @@ export type hubType = {
  */
 export type RisuHubResult =
     | { ok: true; cards: hubType[]; additionalHTML: string }
-    | { ok: false; reason: 'http' | 'network' | 'timeout' | 'malformed' | 'offline'; status?: number }
+    | { ok: false; reason: 'http' | 'network' | 'timeout' | 'malformed' | 'offline' | 'consent'; status?: number }
 
 // A manual AbortController + setTimeout, not AbortSignal.timeout: distinguishing `timeout` from
 // `network` needs a local flag we control. AbortSignal.timeout gives no such handle — it only
@@ -1666,6 +1704,15 @@ export async function getRisuHub(arg:{
     nsfw:boolean
     sort:string
 }):Promise<RisuHubResult> {
+    if(!isUpstreamAccepted()){
+        // `publishUpstreamAccepted()` (`src/ts/upstreamAgreement.ts`) makes a subscribed
+        // `upstreamAccepted` agree with this fresh read, so a view that cached a stale `true`
+        // before this check ran is corrected rather than left showing accepted content it has no
+        // real access to.
+        publishUpstreamAccepted()
+        return { ok: false, reason: 'consent' }
+    }
+
     const controller = new AbortController()
     let timedOut = false
     const timeoutId = setTimeout(() => {
@@ -1720,10 +1767,10 @@ export async function downloadRisuHub(id:string, arg:{
     forceRedirect?: boolean
 } = {}) {
     try {
+        if(!(await askUpstreamAgreement())){
+            return
+        }
         if(!arg.forceRedirect){
-            if(!(await alertTOS())){
-                return
-            }
             alertStore.set({
                 type: "wait",
                 msg: "Downloading..."

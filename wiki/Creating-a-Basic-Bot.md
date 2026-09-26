@@ -57,6 +57,6 @@ On the share page (share icon), **Export Character** saves the character as a fi
 - **Character Card V3**, in the format **CHARX**, **CHARX-JPEG**, **PNG** or **JSON**.
 - **Character Card V2**, the older PNG format that more apps can read.
 
-**Share to RisuRealm** publishes it to RisuRealm instead.
+**Share to RisuRealm** publishes it to RisuRealm instead. If you have not already accepted upstream RisuAI's Terms of Service and Privacy Policy, it asks for that agreement first.
 
 <!-- src/lib/Others/AlertComp.svelte:740-810; src/ts/characterCards.ts:689-717 -->

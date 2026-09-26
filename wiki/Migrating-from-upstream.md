@@ -16,6 +16,11 @@ This does **not** affect RisuRealm or Google Drive backup. You can still browse,
 anonymously upload to RisuRealm, and back up to and restore from Google Drive, without signing
 in to RisuAccount.
 
+The first time you use either one, this fork asks you to accept upstream RisuAI's Terms of
+Service and Privacy Policy, since Realm and Google Drive backup are services upstream
+operates, not this app. Accepting once covers both. An acceptance you already gave in
+upstream RisuAI itself does not carry over; this fork asks again, the first time.
+
 ## The normal route: a `.bin` local backup
 
 For almost everyone, migrating is the same as moving between any two RisuAI installs: on

@@ -22,12 +22,6 @@
  * `appDataDir`/`join` plus a `fetch` stub for the one URL this branch reads
  * the database through (`convertFileSrc` is a pass-through mock here, so the
  * "asset URL" IS the joined file path).
- *
- * `localStorage['tos4'] = 'true'` avoids the same dangling
- * `alertTOS()`-then-`waitAlert()` loop the sibling file's header documents:
- * with nothing to answer boot's own trailing, un-awaited `alertTOS()` alert,
- * `waitAlert()`'s real polling loop (against this file's near-instant mocked
- * `sleep()`) never terminates.
  */
 import { test, expect, vi } from 'vitest'
 import { writable, get } from 'svelte/store'
@@ -98,6 +92,7 @@ vi.mock(import('src/ts/drive/drive'), () => ({
 
 vi.mock(import('src/ts/characterCards'), () => ({
     characterURLImport: vi.fn(),
+    handlePendingRealmLink: vi.fn(async () => { }),
     hubURL: 'https://realm.risuai.net',
 }) as unknown as typeof import('src/ts/characterCards'))
 
@@ -222,7 +217,6 @@ const { loadedStore } = await import('src/ts/stores.svelte') as unknown as {
 
 test('a Tauri boot never reads or removes accountst, dosync or fallbackRisuToken', async () => {
     localStorage.clear()
-    localStorage.setItem('tos4', 'true')
     localStorage.setItem('accountst', 'able')
     localStorage.setItem('dosync', 'sync')
     localStorage.setItem('fallbackRisuToken', JSON.stringify({ token: 'x' }))

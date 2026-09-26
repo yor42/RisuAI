@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { untrack } from "svelte";
     import { downloadRisuHub, getRisuHub, type hubType } from "src/ts/characterCards";
     import { handleHubHtmlClick, sanitizeHubHtml } from "src/ts/hubHtml";
     import { ArrowLeft, ArrowRight, MenuIcon, SearchIcon, XIcon } from "@lucide/svelte";
@@ -7,7 +8,11 @@
     import RisuHubIcon from "./RealmHubIcon.svelte";
     import { MobileGUI, RealmInitialOpenChar } from "src/ts/stores.svelte";
     import RealmPopUp from "./RealmPopUp.svelte";
+    import { askUpstreamAgreement, upstreamAccepted } from "src/ts/upstreamAgreement";
 
+    // Whether the upstream-services agreement still needs confirming is read
+    // directly from `$upstreamAccepted` in the template below, not tracked
+    // as a member of this type.
     type HubStatus = 'offline' | 'pending' | 'failed' | 'empty' | 'populated';
 
     let openedData:null|hubType = $state(null)
@@ -30,7 +35,17 @@
     // write below -- pending, success and failure alike.
     let hubGeneration = 0
 
+    // The single guarded load entry point: every explicit control (search, sort, NSFW, paging,
+    // Retry, the online listener) calls this directly, and it is inert while this view still
+    // believes the upstream-services agreement needs confirming (MC-086, MC-087 #3) -- nothing
+    // reaches `getRisuHub` through this path until acceptance, in any tab. The acceptance effect
+    // further down calls this too, since its own `$upstreamAccepted` check already decides when a
+    // call is warranted.
     async function getHub(){
+        if(!$upstreamAccepted){
+            return
+        }
+
         const generation = ++hubGeneration
         hubStatus = 'pending'
 
@@ -46,6 +61,14 @@
         }
 
         if(result.ok !== true){
+            if(result.reason === 'consent'){
+                // `getRisuHub` already published a fresh, negative read into `upstreamAccepted`
+                // before returning this via `publishUpstreamAccepted()`
+                // (`src/ts/upstreamAgreement.ts`) -- the placeholder is showing again because
+                // `$upstreamAccepted` now agrees with storage, not because of anything this
+                // branch still needs to do.
+                return
+            }
             hubStatus = result.reason === 'offline' ? 'offline' : 'failed'
             return
         }
@@ -70,9 +93,16 @@
         return getHub()
     }
 
-    getHub()
-
-
+    // The one place this view loads in response to acceptance (MC-086, MC-087 #3, MC-087 #3a),
+    // without tracking `search`/`page`/`nsfw`/`sort` as dependencies -- typing or paging afterwards
+    // must not retrigger this effect on its own. Reruns only on a genuine transition of
+    // `$upstreamAccepted` (a Svelte store skips notifying on a write that reconfirms its current
+    // value), so this never becomes a second, redundant call alongside one `getHub()` already made.
+    $effect(() => {
+        if($upstreamAccepted){
+            untrack(() => { getHub() })
+        }
+    })
 
     $effect(() => {
         if($RealmInitialOpenChar){
@@ -193,7 +223,20 @@
 <div onclick={handleHubHtmlClick}>
     {@html sanitizeHubHtml(hubAnnouncement)}
 </div>
-{#if hubStatus === 'offline'}
+{#if !$upstreamAccepted}
+    <div role="status" aria-live="polite" data-testid="upstream-consent-placeholder" class="w-full flex flex-col justify-center items-center gap-2 text-textcolor2">
+        <span>{language.upstreamConsentPlaceholder}</span>
+        <button
+            data-testid="upstream-consent-accept"
+            onclick={(event) => {
+                event.stopPropagation()
+                // Only asks; the acceptance effect above is the sole thing that loads in
+                // response to whatever answer this resolves to (MC-086, MC-087 #3, MC-087 #3a).
+                askUpstreamAgreement()
+            }}
+        >{language.upstreamConsentShow}</button>
+    </div>
+{:else if hubStatus === 'offline'}
     <div role="status" aria-live="polite" class="w-full flex justify-center items-center gap-2 text-textcolor2">
         <span>{language.hubOffline}</span>
         <button aria-disabled="true" class="cursor-not-allowed opacity-50" onclick={() => {}}>{language.hubRetry}</button>

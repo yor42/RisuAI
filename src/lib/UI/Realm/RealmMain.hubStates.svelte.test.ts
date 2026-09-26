@@ -27,9 +27,10 @@
 
 import { flushSync, mount, unmount } from 'svelte'
 import { writable } from 'svelte/store'
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { language } from 'src/lang'
 import type { RisuHubResult, hubType } from 'src/ts/characterCards'
+import { UPSTREAM_AGREEMENT_KEY, resetUpstreamAgreementForTests } from 'src/ts/upstreamAgreement'
 
 //#region module mocks
 
@@ -74,6 +75,10 @@ vi.mock(import('src/ts/stores.svelte'), () => {
         selectedCharID: writable(-1),
         MobileGUI: writable(false),
         RealmInitialOpenChar: writable(null),
+        // `src/ts/upstreamAgreement.ts` reads and writes this store directly,
+        // never through `src/ts/alert.ts` -- a mock lacking it leaves the
+        // agreement helper writing to `undefined`.
+        alertStore: writable({ type: 'none', msg: '' }),
     } as unknown as typeof import('src/ts/stores.svelte')
 })
 
@@ -159,6 +164,14 @@ function deferred<T>() {
     return { promise, resolve }
 }
 
+// This suite's own assertions are about banner reactivity and the
+// generation guard, not the agreement gate, so acceptance is seeded through
+// the module for every case.
+beforeEach(() => {
+    localStorage.setItem(UPSTREAM_AGREEMENT_KEY, 'accepted')
+    resetUpstreamAgreementForTests()
+})
+
 afterEach(async () => {
     const instances = mountedInstances.splice(0)
     for (const instance of instances) {
@@ -167,6 +180,8 @@ afterEach(async () => {
     mountedTargets.splice(0).forEach((t) => t.remove())
     document.body.replaceChildren()
     hubMock.setImpl(async () => ({ ok: true, cards: [], additionalHTML: '' } satisfies RisuHubResult))
+    localStorage.removeItem(UPSTREAM_AGREEMENT_KEY)
+    resetUpstreamAgreementForTests()
     vi.clearAllMocks()
 })
 

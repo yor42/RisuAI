@@ -7,6 +7,7 @@
     import { language } from "src/lang";
     import { getRisuHub, type hubType } from "src/ts/characterCards";
     import { handleHubHtmlClick, sanitizeHubHtml } from "src/ts/hubHtml";
+    import { askUpstreamAgreement, upstreamAccepted } from "src/ts/upstreamAgreement";
     import RealmPreviewRow from "./Realm/RealmPreviewRow.svelte";
     import SourceDisclosure, { type Destination } from "./SourceDisclosure.svelte";
     import Title from "./Title.svelte";
@@ -116,11 +117,14 @@
       }
     ];
 
-    // Five-state model replacing the old `{#await}` — offline/pending/
-    // failed/empty/populated, the card list, the announcement string, and
-    // a load function the Retry control below calls — so failure reads as
+    // Five-state model replacing the old `{#await}` -- offline/pending/
+    // failed/empty/populated, the card list, the announcement string, and a
+    // load function the Retry control below calls -- so failure reads as
     // distinguishable from empty (`MC-056`), pending is visibly announced
     // (`MC-057`), and offline gets its own inert control (`MC-060`).
+    // Whether the upstream-services agreement still needs confirming is read
+    // directly from `$upstreamAccepted` in the template below, not tracked
+    // as a member of this type.
     type HubPreviewStatus = 'offline' | 'pending' | 'failed' | 'empty' | 'populated';
 
     let hubStatus: HubPreviewStatus = $state('pending');
@@ -136,7 +140,9 @@
       // Captured, then written before the request-issuing await below:
       // nothing else can run between the increment and this write (both
       // happen synchronously), so it is always the newest generation at
-      // the moment it is written.
+      // the moment it is written. Two calls can be in flight at once (the
+      // acceptance effect below, Retry, the online listener); this is what
+      // keeps a slower, superseded response from stomping a newer result.
       const generation = ++hubGeneration;
       hubStatus = 'pending';
 
@@ -154,6 +160,14 @@
       }
 
       if (result.ok !== true) {
+        if (result.reason === 'consent') {
+          // `getRisuHub` checks `isUpstreamAccepted()` before any await, in the same tick as
+          // this call, and already published that fresh, negative read into `upstreamAccepted`
+          // before returning this via `publishUpstreamAccepted()` (`src/ts/upstreamAgreement.ts`)
+          // -- the placeholder is showing again because `$upstreamAccepted` now agrees with
+          // storage, not because of anything this branch still needs to do.
+          return;
+        }
         hubStatus = result.reason === 'offline' ? 'offline' : 'failed';
         return;
       }
@@ -178,8 +192,13 @@
     // leaves hideRealm alone no longer triggers a refetch.
     const realmHidden = $derived(DBState.db.hideRealm);
 
+    // The one place this view loads in response to acceptance (MC-086, MC-087 #3, MC-087 #3a).
+    // Reruns whenever either dependency actually changes value -- including a revisit, such as
+    // hiding then unhiding -- since `upstreamAccepted` (a Svelte store) and `realmHidden` (a
+    // `$derived`) both skip notifying on a write that reconfirms their current value, so a rerun
+    // here always corresponds to a genuine transition.
     $effect(() => {
-      if (!realmHidden) {
+      if (!realmHidden && $upstreamAccepted) {
         loadHubPreview();
       }
     });
@@ -421,12 +440,27 @@
                   </div>
                 </div>
               {:else}
-                <!-- All non-populated messages (pending/failed/empty/offline)
-                     share one announced region, so a screen reader hears the
-                     transition between them, including into and out of
-                     offline. -->
+                <!-- All non-populated messages (the consent placeholder,
+                     pending/failed/empty/offline) share one announced
+                     region, so a screen reader hears the transition between
+                     them, including into and out of offline. -->
                 <div role="status" aria-live="polite" class="relative z-10 flex grow flex-col items-center justify-center gap-2 text-center text-textcolor/80">
-                  {#if hubStatus === 'pending'}
+                  {#if !$upstreamAccepted}
+                    <div data-testid="upstream-consent-placeholder" class="flex flex-col items-center gap-2">
+                      <span>{language.upstreamConsentPlaceholder}</span>
+                      <button
+                        data-testid="upstream-consent-accept"
+                        class="transition-all duration-300 hover:-translate-y-1"
+                        onclick={(event) => {
+                          event.stopPropagation();
+                          // Only asks; the acceptance effect above is the sole thing that loads
+                          // in response to whatever answer this resolves to (MC-086, MC-087 #3,
+                          // MC-087 #3a).
+                          askUpstreamAgreement();
+                        }}
+                      >{language.upstreamConsentShow}</button>
+                    </div>
+                  {:else if hubStatus === 'pending'}
                     <div class="h-8 w-8 rounded-full border-2 border-textcolor border-t-transparent animate-spin"></div>
                     <span>{language.loading}...</span>
                   {:else if hubStatus === 'offline'}

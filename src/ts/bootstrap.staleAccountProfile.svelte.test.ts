@@ -81,6 +81,7 @@ const getUncleanablesSyncMock = vi.hoisted(() => vi.fn((): string[] => []))
 const verifyAssetCacheEntryMock = vi.hoisted(() => vi.fn(async (_path: string): Promise<AssetVerifyResult> => ({ status: 'ok' })))
 const checkDriverInitMock = vi.hoisted(() => vi.fn(async () => false))
 const characterURLImportMock = vi.hoisted(() => vi.fn())
+const handlePendingRealmLinkMock = vi.hoisted(() => vi.fn(async () => { }))
 const loadPluginsMock = vi.hoisted(() => vi.fn(async () => { }))
 const makeColdDataMock = vi.hoisted(() => vi.fn(async () => { }))
 const saveDbMock = vi.hoisted(() => vi.fn(async () => { }))
@@ -176,6 +177,7 @@ vi.mock(import('src/ts/drive/drive'), () => ({
 
 vi.mock(import('src/ts/characterCards'), () => ({
     characterURLImport: characterURLImportMock,
+    handlePendingRealmLink: handlePendingRealmLinkMock,
     hubURL: 'https://realm.risuai.net',
 }) as unknown as typeof import('src/ts/characterCards'))
 
@@ -400,14 +402,6 @@ async function freshLoadData() {
 
 beforeEach(() => {
     localStorage.clear()
-    // Boot's own trailing, never-awaited `alertTOS().then(...)` (see
-    // bootstrap.ts's loadData()) posts a real 'tos' alert and waits on it
-    // forever otherwise: nothing in any scenario here ever answers that
-    // alert, and alert.ts's real waitAlert() polls with this file's mocked
-    // (near-instant) `sleep()`, spinning a runaway background loop that
-    // outlives the test and corrupts later tests' timing. tos4='true' makes
-    // alertTOS() return immediately without posting anything.
-    localStorage.setItem('tos4', 'true')
     fsStore.clear()
     forageState.staleAccountProfile = false
     forageState.items.clear()

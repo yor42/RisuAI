@@ -33,7 +33,6 @@ vi.mock(import('src/ts/alert'), () => ({
     alertMd: vi.fn(),
     alertNormal: vi.fn(),
     alertStore: writable({ type: 'none', msg: '' }),
-    alertTOS: vi.fn(async () => true),
     alertWait: vi.fn(),
 }) as unknown as typeof import('src/ts/alert'))
 

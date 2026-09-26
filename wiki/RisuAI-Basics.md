@@ -26,7 +26,7 @@ If the sidebar is closed, open it with the arrow button in the top-left corner. 
 - Click a character to switch to it. Drag characters to reorder them.
 - Drag one character onto another to make a folder. Right-click a folder to rename it, or change its color or image.
 - The **+** button opens the add-character menu:
-  - **Choose from RisuRealm**: browse shared characters.
+  - **Choose from RisuRealm**: browse shared characters. Until you accept upstream RisuAI's Terms of Service and Privacy Policy (asked the first time you use Realm or Google Drive backup), the Realm preview and browser show a placeholder instead of listings.
   - **Import Character**: load a character card file (`.png`, `.json`, `.charx`, `.jpg` or `.jpeg`).
   - **Create from Scratch**: make an empty character.
   - **Create Group Chat**: chat with several characters at once.

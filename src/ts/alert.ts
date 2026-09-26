@@ -274,32 +274,6 @@ export async function alertCardExport(type:string = ''){
     }
 }
 
-export async function alertTOS(){
-
-    if(localStorage.getItem('tos4') === 'true'){
-        return true
-    }
-
-    alertStoreImported.set({
-        'type': 'tos',
-        'msg': 'tos'
-    })
-
-    await waitAlert()
-
-    if(get(alertStoreImported).msg === 'yes'){
-        localStorage.setItem('tos4', 'true')
-        return true
-    }
-
-    if(localStorage.getItem('tos2') && Date.now() - new Date('2026-05-15').getTime() < 0){
-        //apply grace period until 2026-05-15 for users who accepted tos2
-        return true
-    }
-
-    return false
-}
-
 export async function alertInput(msg:string, datalist?:[string, string][], defaultValue?:string) {
 
     alertStoreImported.set({

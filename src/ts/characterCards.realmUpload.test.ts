@@ -22,7 +22,7 @@
  */
 
 import { get, writable } from 'svelte/store'
-import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 //#region module mocks -- everything characterCards.ts imports directly,
 // other than svelte/store, uuid, src/lang and type-only imports, none of
@@ -44,7 +44,6 @@ vi.mock(import('src/ts/alert'), () => ({
     alertMd: vi.fn(),
     alertNormal: vi.fn(),
     alertStore: writable({ type: 'none', msg: '' }),
-    alertTOS: vi.fn(async () => true),
     alertWait: vi.fn(),
 }) as unknown as typeof import('src/ts/alert'))
 
@@ -93,9 +92,6 @@ vi.mock(import('src/ts/media'), () => ({
     getImageType: vi.fn(() => 'png'),
 }) as unknown as typeof import('src/ts/media'))
 
-// Minimal store shape (subscribe/set), not `svelte/store`'s `writable`
-// itself: `vi.hoisted` factories run before this file's own `import`
-// bindings are initialised, so `writable` is not yet available here.
 const showRealmFrameStore = vi.hoisted(() => {
     let value = ''
     const subs = new Set<(v: string) => void>()
@@ -131,6 +127,7 @@ vi.mock(import('src/ts/stores.svelte'), () => ({
     DBState: testDb,
     SettingsMenuIndex: writable(0),
     ShowRealmFrameStore: showRealmFrameStore,
+    alertStore: writable({ type: 'none', msg: '' }),
     selectedCharID,
     settingsOpen: writable(false),
 }) as unknown as typeof import('src/ts/stores.svelte'))
@@ -171,6 +168,24 @@ vi.mock('@tauri-apps/plugin-deep-link', () => ({
 
 import { exportChar, hubURL, openRealmUpload } from 'src/ts/characterCards'
 import { language } from 'src/lang'
+import { alertStore } from 'src/ts/stores.svelte'
+import {
+    UPSTREAM_AGREEMENT_ACCEPT,
+    UPSTREAM_AGREEMENT_DECLINE,
+    UPSTREAM_AGREEMENT_KEY,
+    resetUpstreamAgreementForTests,
+} from 'src/ts/upstreamAgreement'
+
+/** Bounded, real-time poll: a hanging or never-posted prompt must fail with a
+ * message naming what was expected, not hang the file or pass by accident. */
+async function waitFor(predicate: () => boolean, description: string): Promise<void> {
+    const deadline = Date.now() + 300
+    while (Date.now() < deadline) {
+        if (predicate()) return
+        await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    throw new Error(`timed out waiting for ${description}`)
+}
 
 function makeCharacter(realmId: string) {
     return {
@@ -189,12 +204,28 @@ function installCharacter(realmId: string, index = 0): void {
 
 beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn())
+    vi.stubEnv('VITE_RISU_LEGAL_CONFIGURED', 'TRUE')
     alertConfirmMock.mockReset()
     alertConfirmMock.mockResolvedValue(true)
     alertCardExportMock.mockReset()
     alertCardExportMock.mockResolvedValue({ type: 'realm', type2: '' })
     showRealmFrameStore.set('')
+    alertStore.set({ type: 'none', msg: '' })
+    // Every case above the decline-focused describes below exercises
+    // openRealmUpload/exportChar on the far side of the consent gate.
+    localStorage.setItem(UPSTREAM_AGREEMENT_KEY, 'accepted')
+    resetUpstreamAgreementForTests()
     void hubURL // referenced so the real module's top-level export is exercised
+})
+
+afterEach(() => {
+    // Not vi.unstubAllGlobals(): that would also remove vitest.setup.ts's
+    // safeStructuredClone stub, which exportChar needs on every test after
+    // the first. beforeEach's own vi.stubGlobal('fetch', ...) call already
+    // gives every test a fresh fetch mock.
+    vi.unstubAllEnvs()
+    localStorage.clear()
+    resetUpstreamAgreementForTests()
 })
 
 describe('exportChar\'s realm option, for a character that already has a realmId', () => {
@@ -296,5 +327,69 @@ describe('openRealmUpload(target), driven directly, with no confirm expected', (
 
         expect(alertConfirmMock).not.toHaveBeenCalled()
         expect(get(showRealmFrameStore)).toBe('preset:0')
+    })
+})
+
+describe("openRealmUpload('preset:0'), without acceptance of the upstream agreement", () => {
+    test('leaves ShowRealmFrameStore empty, including while the agreement prompt is pending', async () => {
+        localStorage.removeItem(UPSTREAM_AGREEMENT_KEY)
+        resetUpstreamAgreementForTests()
+
+        const pending = openRealmUpload('preset:0')
+        expect(get(showRealmFrameStore)).toBe('')
+
+        await waitFor(() => get(alertStore).type === 'tos', 'openRealmUpload to post the agreement prompt')
+        expect(get(showRealmFrameStore)).toBe('')
+        alertStore.set({ type: 'none', msg: UPSTREAM_AGREEMENT_DECLINE })
+
+        await pending
+        expect(get(showRealmFrameStore)).toBe('')
+    })
+})
+
+describe("exportChar's realm option, without acceptance of the upstream agreement", () => {
+    test('leaves ShowRealmFrameStore empty for a character with no realmId', async () => {
+        installCharacter('')
+        localStorage.removeItem(UPSTREAM_AGREEMENT_KEY)
+        resetUpstreamAgreementForTests()
+
+        const pending = exportChar(0)
+        expect(get(showRealmFrameStore)).toBe('')
+
+        await waitFor(() => get(alertStore).type === 'tos', 'exportChar to post the agreement prompt')
+        expect(get(showRealmFrameStore)).toBe('')
+        alertStore.set({ type: 'none', msg: UPSTREAM_AGREEMENT_DECLINE })
+        await pending
+
+        expect(get(showRealmFrameStore)).toBe('')
+    })
+})
+
+describe('order: the agreement prompt precedes the new-listing confirm', () => {
+    test('for a character with a realmId, the agreement is answered before the confirm is shown; the store stays empty while either is pending, and accepting both writes it', async () => {
+        installCharacter('existing-realm-id')
+        localStorage.removeItem(UPSTREAM_AGREEMENT_KEY)
+        resetUpstreamAgreementForTests()
+        let resolveConfirm: (v: boolean) => void = () => {}
+        alertConfirmMock.mockImplementation(() => new Promise<boolean>((resolve) => { resolveConfirm = resolve }))
+
+        const pending = openRealmUpload('character')
+        await Promise.resolve()
+        await Promise.resolve()
+
+        // The agreement prompt must be live before the new-listing confirm is
+        // ever shown, so a user who has not agreed cannot reach it.
+        expect(get(alertStore).type).toBe('tos')
+        expect(alertConfirmMock).not.toHaveBeenCalled()
+        expect(get(showRealmFrameStore)).toBe('')
+
+        alertStore.set({ type: 'none', msg: UPSTREAM_AGREEMENT_ACCEPT })
+        await waitFor(() => alertConfirmMock.mock.calls.length > 0, 'the new-listing confirm to be shown')
+        expect(get(showRealmFrameStore)).toBe('')
+
+        resolveConfirm(true)
+        await pending
+
+        expect(get(showRealmFrameStore)).toBe('character')
     })
 })

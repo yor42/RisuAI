@@ -1,5 +1,6 @@
 <script lang="ts">
     import { alertGenerationInfoStore, STALE_ACCOUNT_NOTICE_ACK } from "../../ts/alert";
+    import { UPSTREAM_AGREEMENT_ACCEPT, UPSTREAM_AGREEMENT_DECLINE } from "../../ts/upstreamAgreement";
     
     import { DBState } from 'src/ts/stores.svelte';
     import { getCharImage } from '../../ts/characters';
@@ -210,26 +211,11 @@
                 <!-- svelte-ignore a11y_missing_attribute -->
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
 
-                <div class="text-textcolor">
-                    You should accept
-                    <a role="button" tabindex="0" class="text-green-600 hover:text-green-500 transition-colors duration-200 cursor-pointer" onclick={() => {
+                <div class="text-textcolor">{language.upstreamAgreementPromptBefore}<a role="button" tabindex="0" class="text-green-600 hover:text-green-500 transition-colors duration-200 cursor-pointer" onclick={() => {
                         openURL('https://account.sionyw.com/terms')
-                    }}>Terms of Service</a>
-
-                    and
-
-                    <a role="button" tabindex="0" class="text-green-600 hover:text-green-500 transition-colors duration-200 cursor-pointer" onclick={() => {
+                    }}>{language.upstreamAgreementTermsOfService}</a>{language.upstreamAgreementPromptBetween}<a role="button" tabindex="0" class="text-green-600 hover:text-green-500 transition-colors duration-200 cursor-pointer" onclick={() => {
                         openURL('https://account.sionyw.com/privacy')
-                    }}>Privacy Policy</a>
-
-                    to continue
-                </div>
-
-                {#if localStorage.getItem('tos2') && Date.now() - new Date('2026-05-15').getTime() < 0}
-                    <div class="text-gray-500 mt-4 text-sm">
-                        You can still continue using Risuai using original terms until {new Date('2026-05-15').toLocaleDateString()}.
-                    </div>
-                {/if}
+                    }}>{language.upstreamAgreementPrivacyPolicy}</a>{language.upstreamAgreementPromptAfter}</div>
             {:else if $alertStore.type === 'pluginconfirm'}
                 {@const parts = $alertStore.msg.split('\n\n')}
                 {@const mainPart = parts[0]}
@@ -313,15 +299,15 @@
                     <Button className="mt-4 grow" onclick={() => {
                         alertStore.set({
                             type: 'none',
-                            msg: 'yes'
+                            msg: UPSTREAM_AGREEMENT_ACCEPT
                         })
-                    }}>Accept</Button>
+                    }}>{language.upstreamAgreementAccept}</Button>
                     <Button styled={'outlined'} className="mt-4 grow" onclick={() => {
                         alertStore.set({
                             type: 'none',
-                            msg: 'no'
+                            msg: UPSTREAM_AGREEMENT_DECLINE
                         })
-                    }}>Do not Accept</Button>
+                    }}>{language.upstreamAgreementDecline}</Button>
                 </div>
             {:else if $alertStore.type === 'select'}
                 {@const hasDisplay = $alertStore.msg.startsWith('__DISPLAY__')}

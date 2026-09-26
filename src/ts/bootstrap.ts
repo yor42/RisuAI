@@ -16,9 +16,9 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { checkRisuUpdate } from "./update";
 import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
-import { alertError, alertMd, alertTOS, alertStaleAccountNotice, waitAlert, alertConfirm, alertInput, alertToast } from "./alert";
+import { alertError, alertMd, alertStaleAccountNotice, waitAlert, alertConfirm, alertInput, alertToast } from "./alert";
 import { checkDriverInit } from "./drive/drive";
-import { characterURLImport } from "./characterCards";
+import { characterURLImport, handlePendingRealmLink } from "./characterCards";
 import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from "./storage/defaultPrompts";
 import { decodeRisuSave, encodeRisuSaveLegacy } from "./storage/risuSave";
 import { updateAnimationSpeed } from "./gui/animation";
@@ -247,13 +247,11 @@ export async function loadData() {
             // Detached: its own store, its own try/catch, never awaited so a
             // slow or failing sweep can't hold up boot.
             void startAvatarThumbSweep()
-            alertTOS().then((a) => {
-                if (a === false) {
-                    markAppInitiatedReload()
-                    location.reload()
-                }
-            })
-            
+            // Drains a `?realm=` link recorded as pending before the
+            // upstream-services agreement was given: not awaited,
+            // so boot never blocks on the user's answer.
+            void handlePendingRealmLink()
+
         } catch (error) {
             alertError(error)
         }

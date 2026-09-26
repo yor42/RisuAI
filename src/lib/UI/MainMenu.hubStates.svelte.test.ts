@@ -22,9 +22,10 @@
 
 import { flushSync, mount, unmount } from 'svelte'
 import { get, writable } from 'svelte/store'
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { language } from 'src/lang'
 import type { RisuHubResult, hubType } from 'src/ts/characterCards'
+import { UPSTREAM_AGREEMENT_KEY, resetUpstreamAgreementForTests } from 'src/ts/upstreamAgreement'
 
 //#region module mocks
 
@@ -64,6 +65,10 @@ vi.mock(import('src/ts/stores.svelte'), () => {
         DBState: state,
         OpenRealmStore: writable(false),
         RealmInitialOpenChar: writable(null),
+        // `src/ts/upstreamAgreement.ts` reads and writes this store directly,
+        // never through `src/ts/alert.ts` -- a mock lacking it leaves the
+        // agreement helper writing to `undefined`.
+        alertStore: writable({ type: 'none', msg: '' }),
     } as unknown as typeof import('src/ts/stores.svelte')
 })
 
@@ -144,6 +149,15 @@ function deferred<T>() {
     return { promise, resolve }
 }
 
+// Every case here is about the five-state model itself, not the agreement
+// gate, so acceptance is seeded through the module before each one -- the
+// one test that also covers the unaccepted placeholder withdraws and
+// re-seeds it around just its own assertions (see that test).
+beforeEach(() => {
+    localStorage.setItem(UPSTREAM_AGREEMENT_KEY, 'accepted')
+    resetUpstreamAgreementForTests()
+})
+
 afterEach(async () => {
     const instances = mountedInstances.splice(0)
     for (const instance of instances) {
@@ -157,14 +171,39 @@ afterEach(async () => {
     OpenRealmStore.set(false)
     RealmInitialOpenChar.set(null)
     hubMock.setImpl(async () => ({ ok: true, cards: [], additionalHTML: '' } satisfies RisuHubResult))
+    localStorage.removeItem(UPSTREAM_AGREEMENT_KEY)
+    resetUpstreamAgreementForTests()
     vi.clearAllMocks()
 })
 
 describe('MainMenu.svelte realm card: the five-state model', () => {
     test('each of the five states renders its own marker, and no two states render the same text', async () => {
+        // consent -- withdrawn ahead of the module-wide seed above, so this
+        // mount starts from the same "nothing accepted yet" state a fresh
+        // profile boots into.
+        localStorage.removeItem(UPSTREAM_AGREEMENT_KEY)
+        resetUpstreamAgreementForTests()
+        let target = mountMainMenu()
+        flushSync()
+        const consentPlaceholder = target.querySelector('[data-testid="upstream-consent-placeholder"]')
+        expect(consentPlaceholder).toBeTruthy()
+        expect(hubMock.getRisuHub).not.toHaveBeenCalled()
+        const consentMarker = consentPlaceholder?.textContent?.trim() ?? null
+
+        // This instance's own effect would react to the acceptance seeded
+        // below and load its own preview too, so it is unmounted first: the
+        // markers checked below come only from the mount that follows.
+        const consentInstance = mountedInstances.pop()
+        mountedTargets.pop()
+        await unmount(consentInstance as never)
+        target.remove()
+
+        localStorage.setItem(UPSTREAM_AGREEMENT_KEY, 'accepted')
+        resetUpstreamAgreementForTests()
+
         // pending -- synchronous, before the load's promise ever resolves
         hubMock.setPending(() => new Promise(() => {}))
-        let target = mountMainMenu()
+        target = mountMainMenu()
         const pendingMarker = statusMarker(target)
         expect(pendingMarker).toContain(`${language.loading}...`)
 
@@ -197,7 +236,7 @@ describe('MainMenu.svelte realm card: the five-state model', () => {
         const rows = previewRowButtons(target).map((b) => b.textContent?.trim())
         expect(rows.some((t) => t?.includes('populated-chara'))).toBe(true)
 
-        const markers = [pendingMarker, offlineMarker, failedMarker, emptyMarker]
+        const markers = [consentMarker, pendingMarker, offlineMarker, failedMarker, emptyMarker]
         expect(markers.every((m) => typeof m === 'string' && m.length > 0)).toBe(true)
         expect(new Set(markers).size).toBe(markers.length)
     })

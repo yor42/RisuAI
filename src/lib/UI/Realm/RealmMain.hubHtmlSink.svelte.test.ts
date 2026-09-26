@@ -11,15 +11,12 @@
  * sink fails here even though it would still pass every unit test on
  * `hubHtml.ts` alone.
  *
- * Before Stage 2, this sink read a module-global `hubAdditionalHTML` binding
- * synchronously at mount, so this test needed no `await`. Stage 2 deletes
- * that binding: `getHub()` now resolves the discriminated `RisuHubResult`
- * (`src/ts/characterCards.ts`) and assigns its `additionalHTML` into
- * component `$state` only after the fetch resolves -- fixing the bug where
- * this exact sink was frozen at mount. The same assertions this test always
- * made now have to run after awaiting that resolution; skipping the wait
- * would observe the sink before `hubAnnouncement` is ever set and pass
- * vacuously against an empty string.
+ * `hubAnnouncement` is component `$state`, assigned from `getHub()`'s
+ * resolved `RisuHubResult` (`src/ts/characterCards.ts`) only after the fetch
+ * settles, so this test's assertions must run after awaiting that
+ * resolution: asserting immediately after mount would observe the sink
+ * before `hubAnnouncement` is ever set and pass vacuously against an empty
+ * string.
  *
  * `getRisuHub` is mocked (to resolve to the hostile payload) so the real
  * network fetch never fires. `./RealmHubIcon.svelte` and `./RealmPopUp.svelte`
@@ -34,7 +31,8 @@
 
 import { flushSync, mount, unmount } from 'svelte'
 import { writable } from 'svelte/store'
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { UPSTREAM_AGREEMENT_KEY, resetUpstreamAgreementForTests } from 'src/ts/upstreamAgreement'
 
 //#region module mocks
 
@@ -68,6 +66,10 @@ vi.mock(import('src/ts/stores.svelte'), () => {
         selectedCharID: writable(-1),
         MobileGUI: writable(false),
         RealmInitialOpenChar: writable(null),
+        // `src/ts/upstreamAgreement.ts` reads and writes this store directly,
+        // never through `src/ts/alert.ts` -- a mock lacking it leaves the
+        // agreement helper writing to `undefined`.
+        alertStore: writable({ type: 'none', msg: '' }),
     } as unknown as typeof import('src/ts/stores.svelte')
 })
 
@@ -97,6 +99,13 @@ function mountRealmMain() {
     return target
 }
 
+// This suite's own assertion is about the sanitizer wiring, not the
+// agreement gate, so acceptance is seeded through the module.
+beforeEach(() => {
+    localStorage.setItem(UPSTREAM_AGREEMENT_KEY, 'accepted')
+    resetUpstreamAgreementForTests()
+})
+
 afterEach(async () => {
     const instances = mountedInstances.splice(0)
     for (const instance of instances) {
@@ -105,6 +114,8 @@ afterEach(async () => {
     mountedTargets.splice(0).forEach((t) => t.remove())
     document.body.replaceChildren()
     hubState.result = { ok: true, cards: [], additionalHTML: '' }
+    localStorage.removeItem(UPSTREAM_AGREEMENT_KEY)
+    resetUpstreamAgreementForTests()
     vi.clearAllMocks()
 })
 
@@ -117,11 +128,9 @@ describe('RealmMain.svelte: the additionalHTML sink is wired to sanitizeHubHtml'
         }
 
         const target = mountRealmMain()
-        // Before Stage 2 this sink read a synchronous module binding and was
-        // asserted immediately. It is now `$state` fed from `getHub()`'s
-        // resolved result, so the banner must not appear before that await
-        // settles -- otherwise this test would pass vacuously against an
-        // implementation that leaves the sink frozen at mount.
+        // The banner must not appear before getHub()'s await settles --
+        // otherwise this test would pass vacuously against an implementation
+        // that leaves the sink frozen at mount.
         expect(target.innerHTML).not.toContain('safe text')
 
         // Let RealmMain's top-level `getHub()` call resolve.

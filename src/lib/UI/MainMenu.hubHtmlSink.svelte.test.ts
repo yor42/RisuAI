@@ -11,16 +11,12 @@
  * replaced with a no-op) fails this test even though it would still pass
  * every unit test on `hubHtml.ts` alone.
  *
- * Stage 2 deletes the module-global `hubAdditionalHTML` binding this test
- * used to control and replaces `getRisuHub`'s `Promise<hubType[]>` contract
- * with the discriminated `RisuHubResult` (`src/ts/characterCards.ts`). The
- * banner also moves out of the realm card to a sibling below the Related
- * Links grid, and it now renders whenever the resolved `additionalHTML` is
- * non-empty -- independent of how many hub cards came back. The previous
- * version of this file required "at least one hub character" because the
- * sink used to sit inside `{#if charas.length > 0}`; that premise no longer
- * holds, and this test asserts zero cards specifically to guard against it
- * being reintroduced.
+ * `getRisuHub` returns the discriminated `RisuHubResult`
+ * (`src/ts/characterCards.ts`). The banner sits below the Related Links grid,
+ * not inside the realm card, and renders whenever the resolved
+ * `additionalHTML` is non-empty, independent of how many hub cards came
+ * back. This test asserts zero cards specifically, to guard against the
+ * banner being gated behind `{#if charas.length > 0}`.
  *
  * `src/ts/characterCards` is mocked for two reasons: `getRisuHub` performs a
  * network fetch this test must not make, and controlling its resolved value
@@ -33,7 +29,8 @@
 
 import { flushSync, mount, unmount } from 'svelte'
 import { writable } from 'svelte/store'
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { UPSTREAM_AGREEMENT_KEY, resetUpstreamAgreementForTests } from 'src/ts/upstreamAgreement'
 
 //#region module mocks
 
@@ -54,6 +51,7 @@ vi.mock(import('src/ts/stores.svelte'), () => {
         DBState: state,
         OpenRealmStore: writable(false),
         RealmInitialOpenChar: writable(null),
+        alertStore: writable({ type: 'none', msg: '' }),
     } as unknown as typeof import('src/ts/stores.svelte')
 })
 
@@ -80,6 +78,13 @@ function mountMainMenu() {
     return target
 }
 
+// This suite's own assertions are about the sanitizer wiring, not the
+// agreement gate, so acceptance is seeded through the module for every case.
+beforeEach(() => {
+    localStorage.setItem(UPSTREAM_AGREEMENT_KEY, 'accepted')
+    resetUpstreamAgreementForTests()
+})
+
 afterEach(async () => {
     const instances = mountedInstances.splice(0)
     for (const instance of instances) {
@@ -88,6 +93,8 @@ afterEach(async () => {
     mountedTargets.splice(0).forEach((t) => t.remove())
     document.body.replaceChildren()
     hubState.result = null
+    localStorage.removeItem(UPSTREAM_AGREEMENT_KEY)
+    resetUpstreamAgreementForTests()
     vi.clearAllMocks()
 })
 

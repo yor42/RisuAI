@@ -107,7 +107,6 @@ const alertMocks = vi.hoisted(() => ({
     alertConfirm: vi.fn(async () => true),
     alertPluginConfirm: vi.fn(async () => true),
     alertCardExport: vi.fn(async () => ({ type: '', type2: '' })),
-    alertTOS: vi.fn(async () => true),
     alertInput: vi.fn(async () => ''),
     alertModuleSelect: vi.fn(async () => ''),
     alertRequestData: vi.fn(),

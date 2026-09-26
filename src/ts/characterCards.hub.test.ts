@@ -18,7 +18,7 @@
  * that machinery running or touching the filesystem/network.
  */
 
-import { writable } from 'svelte/store'
+import { get, writable } from 'svelte/store'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 //#region module mocks -- everything characterCards.ts imports directly,
@@ -38,7 +38,6 @@ vi.mock(import('src/ts/alert'), () => ({
     alertMd: vi.fn(),
     alertNormal: vi.fn(),
     alertStore: writable({ type: 'none', msg: '' }),
-    alertTOS: vi.fn(async () => true),
     alertWait: vi.fn(),
 }) as unknown as typeof import('src/ts/alert'))
 
@@ -91,6 +90,7 @@ vi.mock(import('src/ts/stores.svelte'), () => ({
     DBState: { db: {} as unknown as Record<string, unknown> },
     SettingsMenuIndex: writable(0),
     ShowRealmFrameStore: writable(false),
+    alertStore: writable({ type: 'none', msg: '' }),
     selectedCharID: writable(-1),
     settingsOpen: writable(false),
 }) as unknown as typeof import('src/ts/stores.svelte'))
@@ -128,6 +128,7 @@ vi.mock('@tauri-apps/plugin-deep-link', () => ({
 //#endregion
 
 import { getRisuHub, hubURL } from 'src/ts/characterCards'
+import { UPSTREAM_AGREEMENT_KEY, resetUpstreamAgreementForTests, upstreamAccepted } from 'src/ts/upstreamAgreement'
 
 /** A `hubType`-shaped card, minimal but valid for the tests below. */
 function makeCard(id: string) {
@@ -172,12 +173,21 @@ beforeEach(() => {
     // navigator.onLine defaults to true in happy-dom; make every test's
     // starting point explicit rather than relying on that default.
     onLineSpy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+    vi.stubEnv('VITE_RISU_LEGAL_CONFIGURED', 'TRUE')
+    // Every case in this file exercises getRisuHub's success/failure shapes
+    // on the far side of the consent gate; only the dedicated consent
+    // block below overrides this to the unaccepted state.
+    localStorage.setItem(UPSTREAM_AGREEMENT_KEY, 'accepted')
+    resetUpstreamAgreementForTests()
 })
 
 afterEach(() => {
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
     onLineSpy.mockRestore()
     vi.useRealTimers()
+    localStorage.clear()
+    resetUpstreamAgreementForTests()
 })
 
 const arg = { search: '', page: 0, nsfw: false, sort: 'recommended' }
@@ -345,5 +355,55 @@ describe('getRisuHub -- request shape', () => {
         const [url, init] = vi.mocked(fetch).mock.calls[0]
         expect(String(url).startsWith(hubURL)).toBe(true)
         expect(init?.signal).toBeInstanceOf(AbortSignal)
+    })
+})
+
+describe('getRisuHub -- consent', () => {
+    beforeEach(() => {
+        localStorage.removeItem(UPSTREAM_AGREEMENT_KEY)
+        resetUpstreamAgreementForTests()
+    })
+
+    test('without acceptance: consent, and no request is sent', async () => {
+        vi.mocked(fetch).mockResolvedValue(jsonResponse(200, []))
+
+        const result = await getRisuHub(arg)
+
+        expect(result).toEqual({ ok: false, reason: 'consent' })
+        expect(fetch).not.toHaveBeenCalled()
+    })
+
+    test('consent is checked before offline: an offline, unaccepted caller still sees consent, not offline', async () => {
+        onLineSpy.mockReturnValue(false)
+
+        const result = await getRisuHub(arg)
+
+        expect(result).toEqual({ ok: false, reason: 'consent' })
+        expect(fetch).not.toHaveBeenCalled()
+    })
+
+    // `getRisuHub`'s own fresh `isUpstreamAccepted()` check finding no acceptance makes it call
+    // `publishUpstreamAccepted()` (`src/ts/upstreamAgreement.ts`), correcting `upstreamAccepted`
+    // to agree with that read. A subscriber attached before the key is removed keeps the store's
+    // cached value at `true` across the removal, since nothing dispatches a `storage` event for a
+    // same-tab `removeItem` -- exactly the staleness that check is meant to resolve.
+    test('a stale-true store is corrected to false once a call finds no acceptance on a fresh read', async () => {
+        localStorage.setItem(UPSTREAM_AGREEMENT_KEY, 'accepted')
+        resetUpstreamAgreementForTests()
+        // Kept open for the whole test: dropping to zero subscribers and calling `get()` again
+        // would itself trigger a fresh re-read through the store's own start function, which is
+        // exactly the staleness this test means to hold open long enough to observe.
+        const hold = upstreamAccepted.subscribe(() => {})
+        try {
+            localStorage.removeItem(UPSTREAM_AGREEMENT_KEY)
+            expect(get(upstreamAccepted)).toBe(true)
+
+            const result = await getRisuHub(arg)
+
+            expect(result).toEqual({ ok: false, reason: 'consent' })
+            expect(get(upstreamAccepted)).toBe(false)
+        } finally {
+            hold()
+        }
     })
 })
