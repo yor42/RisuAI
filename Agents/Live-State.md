@@ -159,9 +159,9 @@ Never stage the wiki session's files: `wiki/Settings*.md`, `wiki/Home.md` and `w
 - **Still open, unrelated to 28C:** the "Backup & Files" tab still uses the old account tab's
   person icon (cosmetic).
 
-**28C (agreement at first use of Realm or Drive): the request/boot/module layer stands as rounds
-1-2 left it; the placeholder's load logic is being redesigned per a `senior-advisor` escalation
-(see below); not committed.**
+**28C (agreement at first use of Realm or Drive) is committed as `d2653123`, and its live check
+has passed (ledger row 221).** The history below (the escalation, the redesign, Gate 2) is kept
+as the record of how it was built.
 - **Red tests first** (ledger rows 209-210). Workflow `chore33-28c-red-tests` (3 `test-warrior`s +
   3 `adversarial-reviewer` checks, ~1.61M tokens, 467 tool uses) wrote 126 tests across 16 files
   against the seam contract (`scratchpad/28c/seams.md`); 55 failed at HEAD. Reviews: module-boot
@@ -243,12 +243,19 @@ Never stage the wiki session's files: `wiki/Settings*.md`, `wiki/Home.md` and `w
   several test and code comments (a nonexistent "last-handled tracking", test titles claiming the
   control reloads, an unmount comment describing the removed pulse/flag design, an undefined
   "Invariant A" label and an unscoped statement of it, a false "search input's value still
-  changes", a misleading example in the Decline branch). **Corrections are in progress; a targeted
-  re-check by the same reviewer follows.** Optional, not taken now: a test for the Decline
-  republish; a store guard on `MainMenu`'s online listener; tidy the T-C15 mocks.
+  changes", a misleading example in the Decline branch). **Corrections were folded in and the
+  design is committed as `d2653123`.** Optional, not taken: a test for the Decline republish; a
+  store guard on `MainMenu`'s online listener; tidy the T-C15 mocks.
 - **Check owner's final snapshot** (Orchestrator): 124 files, 1493 passed, 4 skipped; `pnpm check`
-  0; build ok. The commit message draft is `scratchpad/28c/commit-28c.txt` and needs the
-  red-evidence correction above before use.
+  0; build ok.
+- **28C is committed as `d2653123`** (2026-09-26): the module, request functions, boot, prompt,
+  views, lang keys and their tests.
+- **The live check** (ledger row 221) passed on every item run live: no request to `/hub-proxy`,
+  `risuai.xyz`, `risuai.net` or Sionyw before acceptance, at boot, from the home placeholder, from
+  the desktop Realm browser, or from a `?realm=` deep link; declining left everything in place and
+  fetched nothing on a reload; `save/` was byte-identical afterwards. Not run live: the
+  `betaMobileGUI` mobile landing view (covered by T-C2m) and the accept path (proven by tests, not
+  run live per MC-081).
 
 **The comment sweep (history-narrating comments, AGENTS.md's "Comments state invariants, never
 history") is done and approved, uncommitted, and lands in a separate commit from CHORE-33.**
@@ -284,22 +291,23 @@ file, Report 28). None of these three commits' file lists overlap.
 `wiki/_Sidebar.md`.
 
 **Next for CHORE-33:**
-1. **The editorial re-check.** Fold in Gate 2's required corrections (ledger row 220; Report 28
-   section 11.7 rev 3.6) — the commit message's red-evidence claim and two overstatements, plus
-   the named test/code comments — and give the same `opus-reviewer` a targeted re-check. No
-   behaviour change is expected; this is wording only.
-2. **The live check** for 28C on a production Node build (Report 28 section 8's 28C bullet), still
-   outstanding: watch `/hub-proxy/`, `sv.risuai.xyz`, `nightly.sv.risuai.xyz` and
-   `realm.risuai.net` on a profile past first setup that has not accepted; confirm the placeholders
-   on desktop and `betaMobileGUI`; confirm declining and a declined `?realm=` link fetch nothing.
-3. **Update the records** listed in Report 28 section 10:
-   - the Roadmap, including the six tickets from section 3.5;
+1. **Push**, when the maintainer says. The branch has not been pushed since `12841c19` (see
+   "Branch and commit state" above); the comment sweep (`57d1596a`), 28C (`d2653123`) and the
+   docs commit (`fd13d930`) are all already committed but unpushed.
+2. **Optional follow-ups from Gate 2** (ledger row 220), not required for the commit: a test for
+   the Decline republish path; a store guard on `MainMenu`'s online listener; tidy the T-C15
+   mocks.
+3. **The second comment-sweep pass**, held back by ledger row 212 while 28C was still editing its
+   files: `globalApi.svelte.ts`, every file 28C touched, and the test files that held `alertTOS`
+   mocks.
+4. **Update the records** listed in Report 28 section 10 — still outstanding; this session's check
+   of `Agents/Roadmap.md` found its CHORE-33 entry still reads "planned; Gate 1 passed", not
+   updated for 28A/28B/28C:
+   - the Roadmap, including the six tickets from section 3.5, and 28A/28B/28C's completed status;
    - Report 25's "Superseded" note;
    - Report 28's STATUS;
    - hand the wiki session its list, including the 28C additions (`Settings-Chat-Bot.md`,
      `Settings-Display.md`).
-4. **Commit on the maintainer's word, as three separate commits:** the comment sweep, then 28C,
-   then docs (`AGENTS.md`, `.claude/agents/*.md`, `Agents/**`).
 
 **The edit-button bug (MC-090): the mechanism is found, and it is upstream's and this fork's**
 (ledger rows 201 and 202).

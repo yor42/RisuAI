@@ -1276,8 +1276,13 @@ trigger rather than keep guarding it.
 Gate 2 on the new design returned **[EDITORIAL]**: both invariants hold as scoped, every scenario
 holds, and every request/load mutant is killed. The required corrections are to the commit message
 and to test/code comments, not to behaviour; a targeted re-check by the same reviewer follows.
-**TODO(evidence): that re-check's outcome, and the live check on a production Node build (section
-8's 28C bullet), are not yet in.**
+
+**STATUS: 28C is committed as `d2653123` and has been live-checked.** The live check (ledger row
+221) ran on a production Node build: no request to `/hub-proxy`, `risuai.xyz`, `risuai.net` or
+Sionyw before acceptance at boot, from the home placeholder, from the desktop Realm browser, or
+from a `?realm=` deep link; declining left everything in place; `save/` was byte-identical
+afterwards. Not run live: the `betaMobileGUI` mobile landing view (covered by T-C2m) and the accept
+path (proven by tests, not run live per MC-081).
 
 **Process lesson (AGENTS.md section 4).** A non-normative mechanism suggestion in a fix brief
 (round 1's "reloads only if the view is in the consent state") can itself be the load-bearing
