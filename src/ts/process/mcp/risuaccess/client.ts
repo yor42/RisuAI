@@ -83,7 +83,7 @@ backgroundEmbedding is an HTML string mainly for custom styling. It can, and mos
   }
 
   async callTool(toolName: string, args: any): Promise<RPCToolCallContent[]> {
-    // Fork-specific internal API (Report 17 Stage 1 §3.3): per-call context,
+    // Fork-specific internal API (CHORE-01): per-call context,
     // not a module-level one, so overlapping calls touching different
     // characters can't clear each other's marks. Marking must happen AFTER
     // the handler settles (success or throw), not before the mutation --

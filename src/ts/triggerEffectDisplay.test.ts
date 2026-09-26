@@ -291,13 +291,10 @@ describe('formatEffectDisplay: {{hole}} interpolation escaping, branch by branch
         expect(result).toContain(HOSTILE_ESCAPED)
     })
 
-    // Kept as a regression guard, but retitled from an earlier name that
-    // overclaimed ("never the raw field value"): this cannot by itself
-    // distinguish `d ? 'true' : 'false'` from plain `String(d)`, because
-    // `String(true)` is ALSO the string "true" -- an escaping mutant that
-    // replaced the ternary with `String(d)` would still pass this
-    // assertion. It only pins that a `true` boolean field renders as the
-    // word "true" wrapped in the expected span, not the raw boolean or "1".
+    // This cannot by itself distinguish `d ? 'true' : 'false'` from plain
+    // `String(d)`, because `String(true)` is ALSO the string "true". It only
+    // pins that a `true` boolean field renders as the word "true" wrapped in
+    // the expected span, not the raw boolean or "1".
     test('boolean branch renders "true" for a true field (does not distinguish the ternary from String(d))', () => {
         const ctx = supportedContext()
         const effect = {
@@ -482,14 +479,13 @@ describe('formatEffectDisplay: unrecognised effect type (the template fallback b
 // The other half of the same property, and the reason the fallback above
 // must escape only ITSELF, not the whole expression: a RECOGNISED type's
 // template text is the app's own copy (`language.triggerDesc[...]`), never
-// card-controlled, and must reach `{@html}` byte-for-byte. A mutant that
-// "fixes" the fallback by wrapping the WHOLE expression in `escapeHtml`
-// (template text included) would pass every test above and still be wrong:
-// it would corrupt any template containing an HTML-special character.
-// `v2SetLorebookActivationDesc` ("...index {{index}}'s activation state
-// to...") has exactly such a character -- a literal apostrophe sitting in
-// the template text, outside any `{{hole}}`. An escape-the-whole-expression
-// mutant turns it into `&#39;s`; this test catches that specifically.
+// card-controlled, and must reach `{@html}` byte-for-byte. Escaping the
+// WHOLE expression (template text included) would corrupt any template
+// containing an HTML-special character. `v2SetLorebookActivationDesc`
+// ("...index {{index}}'s activation state to...") has exactly such a
+// character -- a literal apostrophe sitting in the template text, outside
+// any `{{hole}}`; escaping the whole expression would turn it into `&#39;s`,
+// which this test catches.
 describe("formatEffectDisplay: a recognised type's template text stays unescaped", () => {
     test("the literal apostrophe in v2SetLorebookActivationDesc survives untouched, only the holes are escaped", () => {
         const ctx = supportedContext()

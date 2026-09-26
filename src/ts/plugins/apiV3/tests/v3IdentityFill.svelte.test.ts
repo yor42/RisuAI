@@ -945,10 +945,10 @@ describe('a chat-id duplicate that predates a character swap is not blamed when 
     // 'd' is under test: it must not fire, because character 1's own
     // chats already held that duplicate before either call.
     //
-    // Coverage, not proof: the pre-change code logs no duplicate warnings
-    // at all, so this passes there. It guards the per-owner attribution:
-    // it fails if the check compares against the slot's previous occupant
-    // instead of the same chaId's prior holder.
+    // Coverage, not proof: holds whether or not duplicate warnings are
+    // logged at all. It guards the per-owner attribution: it fails if the
+    // check compares against the slot's previous occupant instead of the
+    // same chaId's prior holder.
     test('via setCharacterToIndex: no chat-id warning when the character carrying the duplicate is installed first', () => {
         installMovedDuplicate()
         const api = makeApi()
@@ -965,10 +965,10 @@ describe('a chat-id duplicate that predates a character swap is not blamed when 
         expect(warnedAboutChatIdD).toBe(false)
     })
 
-    // Coverage, not proof: the pre-change code logs no duplicate warnings
-    // at all, so this passes there. It guards the per-owner attribution:
-    // it fails if the check compares against the slot's previous occupant
-    // instead of the same chaId's prior holder.
+    // Coverage, not proof: holds whether or not duplicate warnings are
+    // logged at all. It guards the per-owner attribution: it fails if the
+    // check compares against the slot's previous occupant instead of the
+    // same chaId's prior holder.
     test('via setChar under a changing selection: no chat-id warning when the character carrying the duplicate is installed first', () => {
         installMovedDuplicate()
         const api = makeApi()

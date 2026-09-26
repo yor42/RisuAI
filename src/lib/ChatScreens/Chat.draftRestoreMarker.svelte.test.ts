@@ -1,19 +1,18 @@
 // @vitest-environment happy-dom
 
 /**
- * Tests for Report 20 ("durable drafts") §5.4 / MC-068 -- the restore marker
- * and one-click revert -- plus the translation editor's capture wiring from
- * §4.2/§4.3/§4.4/§5.3.
+ * Tests for MC-068 -- the restore marker and one-click revert -- plus the
+ * translation editor's capture wiring.
  *
  * Kept as a SIBLING file to `Chat.messageEditor.svelte.test.ts` rather than
- * an extension of it: that file is already large and scoped to §5.1/§5.2/
- * §5.3/§5.5 identity-and-seeding behaviour for the main editor only. This
- * file adds a materially different surface (the translation editor, its own
- * mocked `getLLMCache`/`setLLMCache` return values varied per test) on top
- * of the marker/revert affordance, so folding it into the existing file
- * would both bloat it and force per-test overrides of a shared default mock
- * that the existing tests rely on staying put. The module-mock block below
- * is intentionally duplicated from that file (vi.mock factories are hoisted
+ * an extension of it: that file is already large and scoped to the main
+ * editor's own identity-and-seeding behaviour. This file adds a materially
+ * different surface (the translation editor, its own mocked
+ * `getLLMCache`/`setLLMCache` return values varied per test) on top of the
+ * marker/revert affordance, so folding it into the existing file would both
+ * bloat it and force per-test overrides of a shared default mock that the
+ * existing tests rely on staying put. The module-mock block below is
+ * intentionally duplicated from that file (vi.mock factories are hoisted
  * per-file in Vitest and cannot be shared across files) rather than
  * extracted, to keep each test file's fixture self-contained and honest
  * about what it mocks.
@@ -24,27 +23,26 @@
  * under test is mocked, following the same precedent as
  * `Chat.messageEditor.svelte.test.ts`.
  *
- * Most of these tests fail without the durable-drafts change: it is what
- * adds the marker, the revert affordance, and the translation editor's
- * capture. Six already pass beforehand and are guards, not durable-drafts
- * pins -- kept so a future change can't regress the behaviour each one
- * checks:
- * - "no stored draft at all: no marker": beforehand there is no marker
- *   markup at all, so the check that none renders holds regardless.
+ * Most of these tests exercise the marker, the revert affordance, and the
+ * translation editor's capture. Six are guards rather than feature pins --
+ * each holds independent of whether the marker/capture logic exists, so a
+ * future change can't regress the behaviour each one checks:
+ * - "no stored draft at all: no marker": holds regardless, since with no
+ *   stored draft to seed from, there is nothing to render a marker for.
  * - "the record's updatedAt is unchanged by merely opening the editor on it"
- *   (main editor): beforehand opening never reads or writes the content
- *   store at all, so a record set directly by the test is left untouched.
+ *   (main editor): holds regardless, since the editor's own record lookup
+ *   never calls the store's write path, so nothing re-stamps `updatedAt`.
  * - both "restore, type away ... type back" tests (main editor, and the
- *   through-the-base-text variant): beforehand typing is never captured to
- *   the store at all, so the record the test sets directly before mounting
- *   is left untouched throughout -- it already equals the expected final
- *   text.
- * - "a tr: record never seeds the main (original-text) editor": beforehand
- *   opening the main editor never reads the store at all, so a tr: record
- *   trivially can't reach it.
- * - "a msg: record never seeds the translation editor": beforehand opening
- *   the translation editor never reads the store at all either, so a msg:
- *   record trivially can't reach it.
+ *   through-the-base-text variant): each test's final buffer value equals
+ *   the text the record already held before mounting, so the assertion
+ *   holds independent of whether typing is captured to the store during the
+ *   test.
+ * - "a tr: record never seeds the main (original-text) editor": holds
+ *   regardless, since the main editor's own lookup only ever queries a
+ *   `msg:`-kind identity, which a `tr:` record can never match.
+ * - "a msg: record never seeds the translation editor": holds regardless,
+ *   since the translation editor's own lookup only ever queries a `tr:`-kind
+ *   identity, which a `msg:` record can never match.
  */
 
 import { flushSync, mount, tick, unmount } from 'svelte'
@@ -332,7 +330,7 @@ beforeEach(() => {
 
 //#endregion
 
-describe('Chat.svelte main editor: the restore marker (§5.4, MC-068)', () => {
+describe('Chat.svelte main editor: the restore marker (MC-068)', () => {
     test('a draft whose text differs from the base text opens with the marker shown, naming the draft age', () => {
         vi.useFakeTimers()
         const openedAt = 1_700_000_000_000
@@ -358,7 +356,7 @@ describe('Chat.svelte main editor: the restore marker (§5.4, MC-068)', () => {
         expect(status).not.toBeNull()
         expect(status!.textContent).toContain(language.draftRestored)
 
-        // §5.4 / MC-068: the marker must also name how long ago the draft is
+        // MC-068: the marker must also name how long ago the draft is
         // from. `formatDraftAge` is pure (see draftAge.test.ts), so the
         // expected string is computed with the very same function, the same
         // (updatedAt, now) pair the record/system clock establish, and the
@@ -385,7 +383,7 @@ describe('Chat.svelte main editor: the restore marker (§5.4, MC-068)', () => {
         // This exact state (baseData === current message text, AND
         // record.text === that same text) never arises from live editing of
         // a msg: record -- the app only ever offers a stored record back
-        // when its text differs from the current message (§5.4/MC-068). This
+        // when its text differs from the current message (MC-068). This
         // is a defensive read-time check (`startOriginalEdit`'s own
         // `isDraftRestore` test) for a state reachable only by writing
         // directly to the store, as this test does, not by any live editing
@@ -657,7 +655,7 @@ describe('Chat.svelte: markerOnLightSurface applies the same light palette to mo
     })
 })
 
-describe('Chat.svelte main editor: revert (§5.4)', () => {
+describe('Chat.svelte main editor: revert', () => {
     test('clicking Revert replaces the buffer with the message text, deletes the record, and hides the marker -- the editor stays open', () => {
         DBState.db = baseDb() as never
         const chat = makeChat([makeMessage('original text', 'chat-id-1')])
@@ -707,7 +705,7 @@ describe('Chat.svelte main editor: revert (§5.4)', () => {
     })
 })
 
-describe('Chat.svelte main editor: the marker on the cardboard theme surface (§5.4 -- both surfaces)', () => {
+describe('Chat.svelte main editor: the marker on the cardboard theme surface (both surfaces)', () => {
     test('the cardboard raw textarea also shows the marker with the draft age', () => {
         vi.useFakeTimers()
         const openedAt = 1_700_000_000_000
@@ -833,7 +831,7 @@ describe('Chat.svelte main editor: deliberate exits hide the marker (save and lo
     })
 })
 
-describe('Chat.svelte translation editor: capture, marker and revert (§4.2, §4.3, §4.4, §5.3, §5.4)', () => {
+describe('Chat.svelte translation editor: capture, marker and revert', () => {
     function setUpTranslatable(messageText: string) {
         DBState.db = baseDb({ translatorType: 'llm', translator: 'dummy-translator' }) as never
         const chat = makeChat([makeMessage(messageText, 'chat-id-1')])
@@ -972,7 +970,7 @@ describe('Chat.svelte translation editor: capture, marker and revert (§4.2, §4
         // reachable by the live app, not only by writing directly to the
         // store as this test does: baseData (the source-text key) and the
         // seed compared here (the CACHED TRANSLATION) are independent axes
-        // for a tr: record (§4.2). A user can draft translation D, close
+        // for a tr: record. A user can draft translation D, close
         // without saving (record: text=D, baseData=key K), and then a
         // RETRANSLATE for that same source text can update the cache for K
         // to a new value that happens to equal D -- baseData is untouched

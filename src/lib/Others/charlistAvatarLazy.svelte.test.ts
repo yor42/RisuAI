@@ -1,25 +1,17 @@
 // @vitest-environment happy-dom
 
 /**
- * Red-before-green tests for plan AV-2 (`Agents/Reports/14-av2-lazy-avatar-plan.md`,
- * sections 3 and 5/5.1): avatars should resolve only near the viewport, using a
- * shared, injectable `IntersectionObserver`, instead of every listed avatar
- * resolving unconditionally at mount (AV-1's fixed behaviour, `64777a34`).
+ * Avatars resolve only near the viewport, using a shared, injectable
+ * `IntersectionObserver`, instead of every listed avatar resolving
+ * unconditionally at mount.
  *
- * NEW FILE vs. EXTENDING `charlistAvatarLookups.svelte.test.ts` (AV-1's file):
- * this file COPIES that file's mock setup and fixture-building helpers rather
- * than extending it in place, because:
- *   (a) the instructions for this task say to put v1-v10 in a new file, and
- *   (b) this file needs one more piece of global test infrastructure the AV-1
- *       file has no reason to carry -- a controllable fake
- *       `globalThis.IntersectionObserver` (installed for the whole file) and an
- *       injected `<style>` stylesheet (see below) -- keeping that out of the
- *       AV-1 regression file keeps that file's mocks exactly as narrow as its
- *       own header already documents.
- * Copying is the smaller, safer diff: the AV-1 file is a passing regression
- * suite for a different, already-shipped stage, and it must keep passing
- * unmodified (v8 in the plan's table is exactly "AV-1's 16 still pass",
- * verified by running that file, not by importing anything from it here).
+ * This file copies `charlistAvatarLookups.svelte.test.ts`'s mock setup and
+ * fixture-building helpers rather than extending that file in place, because
+ * this file needs one more piece of global test infrastructure that file has
+ * no reason to carry: a controllable fake `globalThis.IntersectionObserver`
+ * (installed for the whole file) and an injected `<style>` stylesheet (see
+ * below). Keeping that out of `charlistAvatarLookups.svelte.test.ts` keeps
+ * that file's mocks exactly as narrow as its own header documents.
  *
  * MOCKED, same reasons as `charlistAvatarLookups.svelte.test.ts`'s header
  * (`localforage`, `src/ts/globalApi.svelte`'s `getFileSrc` as a counting spy,
@@ -31,54 +23,31 @@
  * `getCharImage` and `isThumbEligible` are both real. See that file for the
  * full rationale; it is not repeated line-by-line here.
  *
- * THE FAKE INTERSECTION OBSERVER (plan section 3.1 "test seam"): AV-2's design
- * reads `globalThis.IntersectionObserver` at use time, specifically so tests can
- * `vi.stubGlobal` a controllable fake and fire hand-built entries -- no
- * source-text guards, and this file never imports the not-yet-existing
- * `src/ts/gui/nearViewport.svelte.ts`. `FakeIntersectionObserver` below records
- * every constructed instance (with its `root`/`rootMargin` options), every
- * target it is asked to `observe`, and whether `disconnect` was called. Tests
- * drive it only through `fire(...)`, which mirrors a real observer: it only
- * reports the subset of a given batch of entries that instance itself is
- * observing.
+ * THE FAKE INTERSECTION OBSERVER (test seam): the lazy-loading code reads
+ * `globalThis.IntersectionObserver` at use time, so tests can `vi.stubGlobal`
+ * a controllable fake and fire hand-built entries -- no source-text guards,
+ * and this file never imports `src/ts/gui/nearViewport.svelte.ts` directly.
+ * `FakeIntersectionObserver` below records every constructed instance (with
+ * its `root`/`rootMargin` options), every target it is asked to `observe`,
+ * and whether `disconnect` was called. Tests drive it only through
+ * `fire(...)`, which mirrors a real observer: it only reports the subset of a
+ * given batch of entries that instance itself is observing.
  *
- * COMPUTED-STYLE SEAM (per the Orchestrator's note on this task): the plan's
- * root-selection rule (section 3.1) is "the nearest ancestor whose COMPUTED
- * overflow-y is auto or scroll". The app expresses that only via the Tailwind
- * utility classes `overflow-y-auto` (and, elsewhere in the app,
+ * COMPUTED-STYLE SEAM: the root-selection rule is "the nearest ancestor whose
+ * COMPUTED overflow-y is auto or scroll". The app expresses that only via the
+ * Tailwind utility classes `overflow-y-auto` (and, elsewhere in the app,
  * `overflow-y-scroll`), and no Tailwind CSS is loaded in happy-dom, so without
  * help `getComputedStyle` would report `visible` for every element and every
- * root would fall back to `null` -- v5 would then pass trivially and prove
- * nothing. This file injects a plain `<style>` element mapping those two
- * classes to the real CSS property before any component mounts, and the very
- * first test below is a one-off sanity check, run against a throwaway element,
- * that happy-dom's `getComputedStyle` actually honours it. That check was run
- * standalone first (outside this suite) and passed; it stays in the suite as a
- * live guard, so if a happy-dom upgrade ever stops honouring stylesheet rules,
- * v5 fails for an obvious, diagnosable reason instead of silently passing for
- * the wrong one.
+ * root would fall back to `null`, and the root-selection test would pass
+ * trivially and prove nothing. This file injects a plain `<style>` element
+ * mapping those two classes to the real CSS property before any component
+ * mounts. The very first test below is a live guard, run against a throwaway
+ * element, that happy-dom's `getComputedStyle` actually honours it, so a
+ * happy-dom upgrade that stops honouring stylesheet rules fails there for an
+ * obvious, diagnosable reason instead of silently passing for the wrong one.
  *
- * RED BEFORE GREEN, AND WHY EACH ONE FAILS TODAY: every assertion below is
- * written against the AFTER state in the plan's section 5 table. Two distinct
- * "today" failure modes show up, and each test's own comment says which one
- * applies:
- *   - Most v1/v2/v6/v10 assertions fail because today EVERY avatar resolves
- *     unconditionally at mount, with no visibility gating of any kind -- the
- *     bug this stage fixes.
- *   - v3, v5 and v9 fail for a shallower reason, stated honestly in each test:
- *     today NOTHING ever constructs `new IntersectionObserver(...)` at all, so
- *     `FakeIntersectionObserver.instances` stays empty throughout. Each of
- *     those tests asserts, as an explicit precondition, that at least one
- *     instance (of the right band) exists; that precondition itself is what
- *     fails today. This is an accepted tradeoff, but it means these
- *     three are weaker regression proof than v1/v2/v6/v10 until the feature
- *     exists: a test harness bug that made the fake wholly inert would produce
- *     the same failure. v4 and v7 are CHAR (already true today, must keep
- *     being true after).
- *
- * N is kept deliberately small everywhere (max 8 characters per fixture),
- * following AV-1 test's own OOM caution (a fresh N=1000 mount caused a heap
- * OOM in the harness this pattern is based on).
+ * N is kept deliberately small everywhere (max 8 characters per fixture): a
+ * much larger fixture risks a heap OOM in this mount/settle harness.
  */
 import { flushSync, mount, unmount } from 'svelte'
 import { writable } from 'svelte/store'
@@ -141,7 +110,7 @@ vi.mock(
             getFetchLogs: vi.fn(() => []),
             getFetchData: vi.fn(() => ({})),
             aiLawApplies: vi.fn(() => false),
-            // AV-3 (Report 15 §2.2, gate L6): getFileSrcCached calls this predicate.
+            // getFileSrcCached calls this predicate.
             isPlainHttpFileSrc: vi.fn(() => false),
         }) as unknown as typeof import('src/ts/globalApi.svelte'),
 )
@@ -212,19 +181,15 @@ vi.mock(import('../../ts/characters'), async (importOriginal) => {
     }
 })
 
-// T12 (AV-4, `Agents/Reports/16-av4-list-avatar-thumbnails-plan.md` §4): the
-// real `avatarThumb` module adds genuine async hops on top of a call
-// `getCharImage` never used to make -- a store lookup, a queue and (once per
-// session) a canvas readback probe -- none of which this file's `settle()`
-// convergence loop was designed to absorb; it predates AV-4 and only ever
-// measured `getFileSrc` call counts through an immediately-resolving
-// 'plain'/'css' path. `getAvatarThumbSrc` is replaced with a spy that
-// resolves `null` by default, i.e. "no thumbnail, fall back to
-// `getFileSrc`" -- exactly today's 'plain'/'css' behaviour -- so every
-// existing `getFileSrcSpy` count assertion in this file keeps measuring what
-// it always measured. `isThumbEligible` is left real: it is a pure,
-// synchronous predicate (`loc.startsWith('assets/')`), adds no async hop of
-// its own, and keeping it real exercises the real eligibility check against
+// The real `avatarThumb` module adds genuine async hops on top of `getCharImage`
+// -- a store lookup, a queue and (once per session) a canvas readback probe --
+// none of which this file's `settle()` convergence loop is designed to absorb.
+// `getAvatarThumbSrc` is replaced with a spy that resolves `null` by default,
+// i.e. "no thumbnail, fall back to `getFileSrc`" -- the plain/css fallback
+// path -- so every `getFileSrcSpy` count assertion in this file keeps
+// measuring only that fallback path. `isThumbEligible` is left real: it is a
+// pure, synchronous predicate (`loc.startsWith('assets/')`), adds no async hop
+// of its own, and keeping it real exercises the real eligibility check against
 // this file's own fixture locs rather than assuming it.
 vi.mock(import('../../ts/media/avatarThumb'), async (importOriginal) => {
     const actual = await importOriginal()
@@ -242,7 +207,7 @@ import GridCatalog from './GridCatalog.svelte'
 import Sidebar from '../SideBars/Sidebar.svelte'
 import AlertComp from './AlertComp.svelte'
 
-//#region fake IntersectionObserver (plan section 3.1 "test seam")
+//#region fake IntersectionObserver (test seam)
 
 type FakeEntry = { target: Element; isIntersecting: boolean }
 
@@ -309,12 +274,10 @@ class FakeIntersectionObserver implements Pick<IntersectionObserver, 'observe' |
 }
 
 /**
- * v11's fake (plan post-gate defect 1): a constructor that always throws,
- * simulating a broken/unsupported `IntersectionObserver` implementation.
- * `nearViewport.svelte.ts`'s `new IO(...)` call (~:111) has no try/catch
- * around it, so this exercises whatever actually happens today -- there is
- * no documented "caught and treated as fail-open" behaviour to assert
- * against a mock; the fake's job here is only to make the constructor throw.
+ * A constructor that always throws, simulating a broken/unsupported
+ * `IntersectionObserver` implementation. The fake's only job is to make the
+ * constructor throw; the assertions in v11 below establish what fail-open
+ * behaviour actually results.
  */
 class ThrowingIntersectionObserver {
     constructor() {
@@ -326,25 +289,22 @@ const NEAR_MARGIN = '100% 0px'
 const FAR_MARGIN = '300% 0px'
 
 /**
- * v11c's fake (AV-2 re-gate coverage gap): a constructor that HALF-succeeds --
- * it returns a working instance for the near band (`rootMargin: '100% 0px'`)
- * and only throws for the far band (`rootMargin: '300% 0px'`). `v11`'s own
- * fake above ALWAYS throws, so it only ever exercises `nearViewport.svelte.ts`'s
- * FIRST construction (`getOrCreateEntry(root, NEAR_MARGIN, IO)`, ~:258)
- * throwing; it never reaches the SECOND construction
- * (`getOrCreateEntry(root, FAR_MARGIN, IO)`, ~:259) at all, so a real bug
- * where the first construction succeeds -- one live observer already
- * created and registered -- and only the SECOND one throws was never
- * actually exercised.
+ * A constructor that HALF-succeeds -- it returns a working instance for the
+ * near band (`rootMargin: '100% 0px'`) and only throws for the far band
+ * (`rootMargin: '300% 0px'`). `v11`'s own fake above ALWAYS throws, so it only
+ * ever exercises `nearViewport.svelte.ts`'s FIRST construction throwing; it
+ * never exercises a real bug where the first construction succeeds -- one
+ * live observer already created and registered -- and only the SECOND one
+ * throws.
  *
  * Which band is made to throw is deliberate, not arbitrary: reading
  * `nearViewport.svelte.ts`'s `nearViewport` function confirms it constructs
- * the near entry FIRST and the far entry SECOND (in that literal order,
- * ~:258-259), so making the FAR band the one that throws here puts the
- * throw on the SECOND construction in the real call order -- exactly the
- * half-succeeded state this test needs. Had that source instead constructed
- * far before near, this fake's throwing band would need to flip to near, to
- * keep the throw on the second one actually attempted.
+ * the near entry FIRST and the far entry SECOND, so making the FAR band the
+ * one that throws here puts the throw on the SECOND construction in the real
+ * call order -- exactly the half-succeeded state this test needs. Had that
+ * source instead constructed far before near, this fake's throwing band would
+ * need to flip to near, to keep the throw on the second one actually
+ * attempted.
  */
 class HalfThrowingIntersectionObserver implements Pick<IntersectionObserver, 'observe' | 'unobserve' | 'disconnect' | 'takeRecords'> {
     static nearInstances: HalfThrowingIntersectionObserver[] = []
@@ -656,7 +616,7 @@ describe('test-infrastructure sanity check (not one of v1-v10)', () => {
 })
 
 describe('v1: only the fake-reported-intersecting items resolve, per layout', () => {
-    test('RED: grid layout (GridCatalog.svelte, selected=0)', async () => {
+    test('grid layout (GridCatalog.svelte, selected=0)', async () => {
         DBState.db = buildDb(V_N, 0)
         getFileSrcSpy.mockClear()
         const { target, app } = mountGridCatalog()
@@ -672,17 +632,14 @@ describe('v1: only the fake-reported-intersecting items resolve, per layout', ()
         )
         await settle(target)
 
-        // RED: today every avatar resolves unconditionally at mount, with no
-        // gating on intersection at all -- so by the time we clear the spy and
-        // fire "only the first k are intersecting", every avatar has ALREADY
-        // resolved, the fired entries are inert (nothing left to trigger), and
-        // this observes 0 new calls, not V_K (3).
+        // Only the fired-and-intersecting items resolve: firing the first k
+        // triggers exactly V_K new calls, none for the rest.
         expect(getFileSrcSpy.mock.calls.length).toBe(V_K)
 
         await teardown(target, app)
     })
 
-    test('RED: list layout (GridCatalog.svelte, selected=1)', async () => {
+    test('list layout (GridCatalog.svelte, selected=1)', async () => {
         DBState.db = buildDb(V_N, 0)
         getFileSrcSpy.mockClear()
         const { target, app } = mountGridCatalog()
@@ -698,13 +655,13 @@ describe('v1: only the fake-reported-intersecting items resolve, per layout', ()
         )
         await settle(target)
 
-        // RED: same reason as the grid case above -- 0 new calls, not V_K (3).
+        // Same invariant as the grid case above.
         expect(getFileSrcSpy.mock.calls.length).toBe(V_K)
 
         await teardown(target, app)
     })
 
-    test('RED: trash layout (GridCatalog.svelte, selected=2)', async () => {
+    test('trash layout (GridCatalog.svelte, selected=2)', async () => {
         const k = Math.min(V_K, V_TRASHED)
         DBState.db = buildDb(V_N, V_TRASHED)
         getFileSrcSpy.mockClear()
@@ -721,15 +678,14 @@ describe('v1: only the fake-reported-intersecting items resolve, per layout', ()
         )
         await settle(target)
 
-        // RED: today every trashed avatar shown in this tab also resolves
-        // unconditionally before we ever fire anything, so this observes 0 new
-        // calls, not k (2).
+        // Same invariant as the grid case above, for the trashed avatars
+        // shown in this tab.
         expect(getFileSrcSpy.mock.calls.length).toBe(k)
 
         await teardown(target, app)
     })
 
-    test('RED: simple layout (MobileCharacters.svelte, GridCatalog default selected=3)', async () => {
+    test('simple layout (MobileCharacters.svelte, GridCatalog default selected=3)', async () => {
         DBState.db = buildDb(V_N, 0)
         getFileSrcSpy.mockClear()
         const { target, app } = mountGridCatalog() // defaults to selected=3 (simple)
@@ -743,13 +699,13 @@ describe('v1: only the fake-reported-intersecting items resolve, per layout', ()
         )
         await settle(target)
 
-        // RED: same reason as the grid case above -- 0 new calls, not V_K (3).
+        // Same invariant as the grid case above.
         expect(getFileSrcSpy.mock.calls.length).toBe(V_K)
 
         await teardown(target, app)
     })
 
-    test('RED: Sidebar (Sidebar.svelte)', async () => {
+    test('Sidebar (Sidebar.svelte)', async () => {
         DBState.db = buildSidebarDb(V_N)
         getFileSrcSpy.mockClear()
         const { target, app } = mountSidebar()
@@ -763,17 +719,14 @@ describe('v1: only the fake-reported-intersecting items resolve, per layout', ()
         )
         await settle(target)
 
-        // RED: same reason as the grid case above -- Sidebar's own
-        // `{@const avatarSrc = ... getCharImage(imgPath, "plain") ...}`
-        // (Sidebar.svelte:594, :606, :732) resolves every listed character's
-        // avatar unconditionally today, with no visibility gating -- 0 new
-        // calls, not V_K (3).
+        // Same invariant as the grid case above, for Sidebar's own
+        // `{@const avatarSrc = ... getCharImage(imgPath, "plain") ...}` avatars.
         expect(getFileSrcSpy.mock.calls.length).toBe(V_K)
 
         await teardown(target, app)
     })
 
-    test('RED: AlertComp selectChar dialog (AlertComp.svelte:385-388)', async () => {
+    test('AlertComp selectChar dialog (AlertComp.svelte:385-388)', async () => {
         DBState.db = buildSidebarDb(V_N)
         alertStore.set({ type: 'selectChar', msg: '' } as never)
         getFileSrcSpy.mockClear()
@@ -788,9 +741,7 @@ describe('v1: only the fake-reported-intersecting items resolve, per layout', ()
         )
         await settle(target)
 
-        // RED: same reason as the grid case above -- this is the "adjacent O(N)
-        // site" the plan folds into AV-2 (section 1, "Adjacent O(N) site").
-        // 0 new calls, not V_K (3).
+        // Same invariant as the grid case above, for AlertComp's selectChar dialog.
         expect(getFileSrcSpy.mock.calls.length).toBe(V_K)
 
         await teardown(target, app)
@@ -799,7 +750,7 @@ describe('v1: only the fake-reported-intersecting items resolve, per layout', ()
 })
 
 describe('v2: firing a single intersecting entry for item j resolves only j', () => {
-    test('RED: grid layout -- item j renders its own loc= path', async () => {
+    test('grid layout -- item j renders its own loc= path', async () => {
         DBState.db = buildDb(V_N, 0)
         getFileSrcSpy.mockClear()
         const { target, app } = mountGridCatalog()
@@ -807,9 +758,7 @@ describe('v2: firing a single intersecting entry for item j resolves only j', ()
         clickLayoutButton(target, 0)
         await settle(target)
 
-        // RED: today nothing is gated on visibility, so every item is already
-        // resolved right after mount -- there is nothing left "not yet visible"
-        // to single out with a fired entry.
+        // Nothing has fired yet, so nothing is resolved.
         expect(resolvedAvatarButtons(target).length).toBe(0)
 
         const j = 2
@@ -826,13 +775,13 @@ describe('v2: firing a single intersecting entry for item j resolves only j', ()
         await teardown(target, app)
     })
 
-    test('RED: Sidebar -- item j renders its loc= path as the <img> src', async () => {
+    test('Sidebar -- item j renders its loc= path as the <img> src', async () => {
         DBState.db = buildSidebarDb(V_N)
         getFileSrcSpy.mockClear()
         const { target, app } = mountSidebar()
         await settle(target)
 
-        // RED: same reason as the grid case above.
+        // Nothing has fired yet, so nothing is resolved.
         expect(target.querySelectorAll('img.sidebar-avatar').length).toBe(0)
 
         const j = 3
@@ -851,7 +800,7 @@ describe('v2: firing a single intersecting entry for item j resolves only j', ()
 })
 
 describe('v3: release -- leaving the far band shows the placeholder again; re-entry resolves again', () => {
-    test('RED (new): grid layout, near band (100% 0px) resolves, far band (300% 0px) releases', async () => {
+    test('grid layout, near band (100% 0px) resolves, far band (300% 0px) releases', async () => {
         DBState.db = buildDb(5, 0)
         getFileSrcSpy.mockClear()
         const { target, app } = mountGridCatalog()
@@ -866,21 +815,16 @@ describe('v3: release -- leaving the far band shows the placeholder again; re-en
             fireOn(instancesByMargin(NEAR_MARGIN), [{ target: itemTarget, isIntersecting: true }])
             await settle(target)
         }
-        // Holds today too (everything is already resolved at mount, near-band
-        // firing or not), so this line alone would not be RED.
+        // This alone does not distinguish gated resolution from unconditional
+        // resolution at mount -- the far-band release below is the real check.
         expect(avatarButtons(target)[j].getAttribute('style') ?? '').toContain('background: url(')
 
         if (itemTarget) {
             fireOn(instancesByMargin(FAR_MARGIN), [{ target: itemTarget, isIntersecting: false }])
             await settle(target)
         }
-        // RED (new): today there is no far-band ('300% 0px') observer at all --
-        // FakeIntersectionObserver.instances never contains one, because nothing
-        // in the source calls `new IntersectionObserver(...)` yet. So `itemTarget`
-        // is `undefined`, nothing is fired, and the avatar -- already resolved
-        // since mount -- never returns to the placeholder. This fails simply
-        // because the release feature does not exist yet, not because a real
-        // release picked the wrong band.
+        // Firing a non-intersecting entry on the far-band ('300% 0px') observer
+        // releases a resolved avatar back to its placeholder.
         expect(avatarButtons(target)[j].getAttribute('style') ?? '').not.toContain('background: url(')
 
         const callsBeforeReentry = getFileSrcSpy.mock.calls.length
@@ -889,8 +833,8 @@ describe('v3: release -- leaving the far band shows the placeholder again; re-en
             await settle(target)
         }
         expect(avatarButtons(target)[j].getAttribute('style') ?? '').toContain('background: url(')
-        // Re-entry re-runs the base64 encode on plain HTTP (plan section 3.3):
-        // no string cache survives a release, so getFileSrc is called again.
+        // Re-entry re-runs the base64 encode on plain HTTP: no string cache
+        // survives a release, so getFileSrc is called again.
         expect(getFileSrcSpy.mock.calls.length).toBeGreaterThan(callsBeforeReentry)
 
         await teardown(target, app)
@@ -898,7 +842,7 @@ describe('v3: release -- leaving the far band shows the placeholder again; re-en
 })
 
 describe('v4: no IntersectionObserver global means every avatar still resolves (fail open)', () => {
-    test('CHAR: grid layout resolves all N with the global absent', async () => {
+    test('grid layout resolves all N with the global absent', async () => {
         vi.stubGlobal('IntersectionObserver', undefined)
         try {
             DBState.db = buildDb(V_N, 0)
@@ -920,7 +864,7 @@ describe('v4: no IntersectionObserver global means every avatar still resolves (
 })
 
 describe('v5 (new): nested MobileCharacters-inside-GridCatalog root selection', () => {
-    test('RED (new): the chosen root for MobileCharacters items is its own overflow-y-auto container, not GridCatalog\'s outer one', async () => {
+    test('the chosen root for MobileCharacters items is its own overflow-y-auto container, not GridCatalog\'s outer one', async () => {
         DBState.db = buildDb(V_N, 0)
         getFileSrcSpy.mockClear()
         const { target, app } = mountGridCatalog() // defaults to selected=3 (simple, nested)
@@ -938,10 +882,8 @@ describe('v5 (new): nested MobileCharacters-inside-GridCatalog root selection', 
         const nearInNested = instancesByMargin(NEAR_MARGIN).filter((inst) =>
             Array.from(inst.observed).some((el) => mobileCharsRoot.contains(el)),
         )
-        // RED (new): today nothing ever calls `new IntersectionObserver(...)`, so
-        // there is no near-band instance at all for MobileCharacters' items. This
-        // fails simply because the feature does not exist yet, not because a real
-        // root-selection picked the wrong element.
+        // Precondition: at least one near-band instance was actually created
+        // for MobileCharacters' items.
         expect(nearInNested.length).toBeGreaterThan(0)
         for (const inst of nearInNested) {
             // The specific expected root: MobileCharacters' own container, not
@@ -954,7 +896,7 @@ describe('v5 (new): nested MobileCharacters-inside-GridCatalog root selection', 
 })
 
 describe('v6: hideAllImages toggled while items are off-screen', () => {
-    test('RED/CHAR: becoming visible while hideAllImages is true shows the placeholder; toggling back resolves with the fresh value', async () => {
+    test('becoming visible while hideAllImages is true shows the placeholder; toggling back resolves with the fresh value', async () => {
         DBState.db = buildDb(V_N, 0)
         getFileSrcSpy.mockClear()
         const { target, app } = mountGridCatalog()
@@ -962,9 +904,7 @@ describe('v6: hideAllImages toggled while items are off-screen', () => {
         clickLayoutButton(target, 0)
         await settle(target)
 
-        // RED: today there is no off-screen state at all -- everything already
-        // resolved at mount, so there is nothing left "not yet visible" for
-        // hideAllImages to interact with.
+        // Nothing has fired yet, so nothing is resolved.
         expect(resolvedAvatarButtons(target).length).toBe(0)
 
         DBState.db.hideAllImages = true
@@ -976,9 +916,9 @@ describe('v6: hideAllImages toggled while items are off-screen', () => {
             fireOn(instancesByMargin(NEAR_MARGIN), [{ target: itemTarget, isIntersecting: true }])
             await settle(target)
         }
-        // CHAR (preserved behaviour): getCharImage returns '' for css type while
-        // hideAllImages is true, regardless of visibility, so a newly-visible item
-        // still shows no background-url style.
+        // getCharImage returns '' for css type while hideAllImages is true,
+        // regardless of visibility, so a newly-visible item still shows no
+        // background-url style.
         expect(avatarButtons(target)[j].getAttribute('style') ?? '').not.toContain('background: url(')
 
         DBState.db.hideAllImages = false
@@ -991,7 +931,7 @@ describe('v6: hideAllImages toggled while items are off-screen', () => {
 })
 
 describe('v7: Sidebar data-char-id and DOM order', () => {
-    test('CHAR: every item carries data-char-id, in characterOrder\'s order, independent of resolution', async () => {
+    test('every item carries data-char-id, in characterOrder\'s order, independent of resolution', async () => {
         DBState.db = buildSidebarDb(V_N)
         getFileSrcSpy.mockClear()
         const { target, app } = mountSidebar()
@@ -1007,8 +947,8 @@ describe('v7: Sidebar data-char-id and DOM order', () => {
     })
 })
 
-describe('v9 (new): observer registry lifecycle across repeated mount/unmount and dialog open/close', () => {
-    test('RED (new): every observer created across three grid mounts and three selectChar opens gets disconnect, holding no targets afterward', async () => {
+describe('v9: observer registry lifecycle across repeated mount/unmount and dialog open/close', () => {
+    test('every observer created across three grid mounts and three selectChar opens gets disconnect, holding no targets afterward', async () => {
         for (let i = 0; i < 3; i++) {
             DBState.db = buildDb(4, 0)
             const { target, app } = mountGridCatalog()
@@ -1027,12 +967,9 @@ describe('v9 (new): observer registry lifecycle across repeated mount/unmount an
         }
         await teardown(alertTarget, alertApp)
 
-        // RED (new): today nothing ever calls `new IntersectionObserver(...)`, so
-        // `FakeIntersectionObserver.instances` is empty here. This fails simply
-        // because the feature (and its registry) does not exist yet, not because
-        // of a disconnect/leak bug in a real registry. Tested through the fake's
-        // own records, since the real registry (a WeakMap, per the plan) is
-        // private and cannot be imported or inspected directly.
+        // Precondition: at least one observer was actually created. Tested
+        // through the fake's own records, since the real registry (a WeakMap)
+        // is private and cannot be imported or inspected directly.
         expect(FakeIntersectionObserver.instances.length).toBeGreaterThan(0)
 
         for (const inst of FakeIntersectionObserver.instances) {
@@ -1043,16 +980,15 @@ describe('v9 (new): observer registry lifecycle across repeated mount/unmount an
 })
 
 describe('v10: not-yet-visible Sidebar items render the no-src placeholder', () => {
-    test('CHAR/RED: sized and classed like the resolved state, without having started the async lookup', async () => {
+    test('sized and classed like the resolved state, without having started the async lookup', async () => {
         DBState.db = buildSidebarDb(V_N)
         getFileSrcSpy.mockClear()
         const { target, app } = mountSidebar()
         await settle(target)
 
-        // CHAR: SidebarAvatar's pending-await placeholder and its no-src placeholder
-        // (SidebarAvatar.svelte ~:92-98 and ~:111-119) share the same size and
-        // classes as the eventually-resolved <img> -- this holds regardless of
-        // which of the two placeholder branches is live, so it is true today.
+        // Guard: SidebarAvatar's pending-await placeholder and its no-src
+        // placeholder share the same size and classes as the eventually-resolved
+        // <img>, whichever of the two placeholder branches is live.
         const placeholder = target.querySelector('[data-char-id] .sidebar-avatar') as HTMLElement | null
         expect(placeholder).toBeTruthy()
         expect(placeholder!.style.width).toBe('56px')
@@ -1060,58 +996,37 @@ describe('v10: not-yet-visible Sidebar items render the no-src placeholder', () 
         expect(placeholder!.classList.contains('sidebar-avatar')).toBe(true)
         expect(placeholder!.classList.contains('rounded-md')).toBe(true)
 
-        // RED: today Sidebar's own `{@const avatarSrc = imgPath ? getCharImage(imgPath, "plain") : ...}`
-        // (Sidebar.svelte:594, also :606 and :732 for folder items) calls
-        // getCharImage() for every item unconditionally at mount, so the async
-        // lookup for item 0 has already started (and, against this mock,
-        // already resolved) well before any intersection entry could be fired
-        // -- there is no "not-yet-visible, lookup-not-yet-started" state to
-        // observe. A fixed AV-2 defers the lookup itself (not just the DOM it
-        // feeds), landing in SidebarAvatar's literal no-src branch (`src`
-        // itself undefined) rather than its pending-await branch.
+        // Not-yet-visible items defer the lookup itself (not just the DOM it
+        // feeds): item 0's async lookup has not started, landing in
+        // SidebarAvatar's literal no-src branch (`src` itself undefined)
+        // rather than its pending-await branch.
         expect(getFileSrcSpy.mock.calls.some((c) => c[0] === DBState.db.characters[0].image)).toBe(false)
 
         await teardown(target, app)
     })
 })
 
-//#region v11/v12: AV-2 post-implementation-gate defects (plan section 5's
-// table is already green; `nearViewport.svelte.ts` and its four call sites
-// already exist, per `Agents/Reports/14-av2-lazy-avatar-plan.md`). These two
-// defects were found in AV-2's post-gate, not in the plan's own table.
-//#endregion
-
 describe('v11: a throwing IntersectionObserver constructor must fail open', () => {
-    // Today: `nearViewport.svelte.ts`'s `new IO(...)` call (~:111) has no
-    // try/catch. `nearViewport(node, options)` itself calls `getOrCreateEntry`
-    // (which does `new IO(...)`) synchronously, inline in the action's setup --
-    // i.e. inline in the effect Svelte runs to mount that `{#each}` item. There
-    // is no error boundary anywhere in `GridCatalog`/`MobileCharacters`/
-    // `Sidebar`/`AlertComp`, so whatever Svelte does with an uncaught error
-    // thrown from inside a template effect is exactly what these tests
-    // observe -- not a documented, already-correct "caught and treated as
-    // fail-open" behaviour.
+    // `nearViewport(node, options)` calls `getOrCreateEntry` (which does
+    // `new IO(...)`) synchronously, inline in the action's setup -- i.e.
+    // inline in the effect Svelte runs to mount that `{#each}` item. There is
+    // no error boundary anywhere in `GridCatalog`/`MobileCharacters`/
+    // `Sidebar`/`AlertComp`, so `nearViewport.svelte.ts` itself must catch a
+    // throwing constructor for every avatar to keep resolving.
 
-    // Both tests below obtain a valid, already-mounted `app` handle BEFORE the
+    // Both tests below obtain a valid, already-mounted `app` handle before the
     // throwing fake ever runs (an empty character list, or Sidebar's
     // `menuSideBar` gate, means the initial mount drives zero `nearViewport`
-    // calls). Only a SUBSEQUENT, later reactive update introduces the items
-    // whose `use:nearViewport` first calls the throwing constructor -- this is
-    // deliberate, not just a way to get a handle: it is the reviewer's exact
-    // "action throwing during a LATER reactive mount" scenario, not the
-    // initial one. It also means `app` is always valid for cleanup in
-    // `finally`, regardless of whether the reactive update throws -- an
-    // uncaught error from a `use:` action escapes Svelte's own root boundary
-    // uncleaned (confirmed below; see also this suite's own header run log),
-    // and without this guaranteed cleanup, the earlier version of these two
-    // tests left a still-reactive, half-mounted component behind that kept
-    // reacting to later tests' `DBState.db` reassignments and corrupted
-    // unrelated v12 tests' `orderedTargets(...)` counts (observed directly:
-    // v12a's own precondition, itself unchanged from v1's passing pattern,
-    // failed with 0 instead of 3 only when run after these two -- and passed
-    // when run alone).
+    // calls). Only a later reactive update introduces the items whose
+    // `use:nearViewport` first calls the throwing constructor, exercising a
+    // throw during a later reactive mount rather than the initial one. This
+    // also keeps `app` valid for cleanup in `finally` regardless of whether the
+    // reactive update throws: an uncaught error from a `use:` action escapes
+    // Svelte's own root boundary uncleaned, and a half-mounted, still-reactive
+    // component left behind would keep reacting to later tests' `DBState.db`
+    // reassignments and corrupt unrelated tests' target counts.
 
-    test('RED: grid layout still resolves every avatar when the constructor throws on a later, reactive mount', async () => {
+    test('grid layout still resolves every avatar when the constructor throws on a later, reactive mount', async () => {
         DBState.db = buildDb(0, 0) // no characters yet: initial mount drives zero nearViewport calls
         getFileSrcSpy.mockClear()
         const { target, app } = mountGridCatalog()
@@ -1126,10 +1041,8 @@ describe('v11: a throwing IntersectionObserver constructor must fail open', () =
             clickLayoutButton(target, 0)
             await settle(target)
 
-            // RED: per the plan's own fail-open invariant (section 3.1, section 4:
-            // "Fail open everywhere ... an observer error [means] the avatar
-            // resolves as it does today"), every avatar should still resolve even
-            // though the observer is unusable.
+            // Fail open: every avatar still resolves even though the observer
+            // is unusable.
             expect(resolvedAvatarButtons(target).length).toBe(V_N)
             expect(avatarButtons(target).length).toBe(V_N)
         } finally {
@@ -1139,14 +1052,12 @@ describe('v11: a throwing IntersectionObserver constructor must fail open', () =
         }
     })
 
-    test('RED: Sidebar still renders every item with data-char-id when the constructor throws on a later, reactive mount', async () => {
-        // Sidebar's own top-level `{#if DBState.db.menuSideBar}` gate (Sidebar.svelte:405)
-        // lets us mount with the item list ABSENT (no `nearViewport` call fires at
-        // all, since that branch has no items), then flip `menuSideBar` to false
-        // afterward -- a genuine reactive mount of the item-bearing branch on an
-        // already-mounted component, matching the reviewer's "action throwing
-        // during a later reactive mount" scenario without a wrapper component
-        // (this file may only add cases to itself, not a new .svelte harness).
+    test('Sidebar still renders every item with data-char-id when the constructor throws on a later, reactive mount', async () => {
+        // Sidebar's own top-level `{#if DBState.db.menuSideBar}` gate lets us
+        // mount with the item list absent (no `nearViewport` call fires at
+        // all, since that branch has no items), then flip `menuSideBar` to
+        // false afterward -- a genuine reactive mount of the item-bearing
+        // branch on an already-mounted component.
         DBState.db = buildSidebarDb(V_N)
         DBState.db.menuSideBar = true
         getFileSrcSpy.mockClear()
@@ -1157,7 +1068,7 @@ describe('v11: a throwing IntersectionObserver constructor must fail open', () =
             DBState.db.menuSideBar = false
             await settle(target)
 
-            // RED: same fail-open invariant as the grid case above.
+            // Fail open: same invariant as the grid case above.
             const idEls = Array.from(target.querySelectorAll('[data-char-id]'))
             expect(idEls.length).toBe(V_N)
         } finally {
@@ -1169,25 +1080,22 @@ describe('v11: a throwing IntersectionObserver constructor must fail open', () =
 })
 
 describe('v11c: a HALF-throwing constructor (near succeeds, far throws) must still fail open', () => {
-    // AV-2 re-gate coverage gap: see `HalfThrowingIntersectionObserver`'s own
-    // doc comment above for why this fake exists and why the far band is the
-    // one made to throw (it is the SECOND construction in
-    // `nearViewport.svelte.ts`'s real call order, confirmed by reading that
-    // file).
+    // See `HalfThrowingIntersectionObserver`'s own doc comment above for why
+    // this fake exists and why the far band is the one made to throw (it is
+    // the second construction in `nearViewport.svelte.ts`'s real call order,
+    // confirmed by reading that file).
     //
-    // This is CHAR, not RED: the try/catch already wrapping BOTH
-    // `getOrCreateEntry` calls (`nearViewport.svelte.ts` ~:256-283) fails
-    // open and cleans up regardless of which of the two constructions
-    // throws, so this should already pass against today's source -- the gap
-    // being closed here is in test coverage, not in the source.
+    // The try/catch wrapping both `getOrCreateEntry` calls in
+    // `nearViewport.svelte.ts` fails open and cleans up regardless of which
+    // of the two constructions throws.
     //
     // Same later-reactive-mount and unmount-in-finally shape as v11 above
-    // (see that describe block's own long comment for the full rationale):
-    // an empty character list drives zero `nearViewport` calls at initial
-    // mount, so `app` is a valid, already-mounted handle before the
-    // half-throwing fake is ever installed, and cleanup always runs in
-    // `finally` -- a half-mounted, still-reactive component here can never
-    // leak into later tests.
+    // (see that describe block's own comment for the full rationale): an
+    // empty character list drives zero `nearViewport` calls at initial mount,
+    // so `app` is a valid, already-mounted handle before the half-throwing
+    // fake is ever installed, and cleanup always runs in `finally` -- a
+    // half-mounted, still-reactive component here can never leak into later
+    // tests.
     function currentAlertType(): string {
         let type = ''
         const unsubscribe = alertStore.subscribe((value) => {
@@ -1197,7 +1105,7 @@ describe('v11c: a HALF-throwing constructor (near succeeds, far throws) must sti
         return type
     }
 
-    test('CHAR: every avatar resolves, the created near instance is torn down empty, console.warn fires without an alert, and unmount does not throw', async () => {
+    test('every avatar resolves, the created near instance is torn down empty, console.warn fires without an alert, and unmount does not throw', async () => {
         DBState.db = buildDb(0, 0) // no characters yet: initial mount drives zero nearViewport calls
         getFileSrcSpy.mockClear()
         const { target, app } = mountGridCatalog()
@@ -1260,7 +1168,7 @@ describe('v11c: a HALF-throwing constructor (near succeeds, far throws) must sti
 })
 
 describe('v12: entries must leave the visible set when items unmount', () => {
-    test('RED (new): switching tabs away and back requires a fresh near entry per remounted item', async () => {
+    test('switching tabs away and back requires a fresh near entry per remounted item', async () => {
         DBState.db = buildDb(V_N, 0)
         getFileSrcSpy.mockClear()
         const { target, app } = mountGridCatalog()
@@ -1284,15 +1192,11 @@ describe('v12: entries must leave the visible set when items unmount', () => {
         clickLayoutButton(target, 0)
         await settle(target)
 
-        // RED: `GridCatalog.svelte`'s `visibleIndices` is one `SvelteSet` shared
-        // by grid/list/trash (declared once at the component's top level, per its
-        // own comment), and `nearViewport`'s `destroy()` only calls `removeTarget`
-        // -- it never calls `onChange(false)`. So the indices fired above are
-        // never removed from `visibleIndices` when their old DOM nodes are
-        // destroyed on the tab switch. The freshly remounted grid items for those
-        // same indices read `isVisible = visibleIndices.has(char.index)` as
-        // already `true`, and resolve immediately -- with NO fresh near entry
-        // fired for their new nodes. Today this is `V_K` (3), not `0`.
+        // `nearViewport`'s `destroy()` calls `onChange(false)`, which removes
+        // the destroyed node's index from `GridCatalog.svelte`'s shared
+        // `visibleIndices`. The freshly remounted grid items for those same
+        // indices therefore read `isVisible = visibleIndices.has(char.index)`
+        // as `false` again, with no fresh near entry fired for their new nodes.
         expect(resolvedAvatarButtons(target).length).toBe(0)
 
         // Firing a fresh near entry for the same indices' new nodes resolves them
@@ -1308,7 +1212,7 @@ describe('v12: entries must leave the visible set when items unmount', () => {
         await teardown(target, app)
     })
 
-    test('RED (new): narrowing then restoring the search requires a fresh near entry for the restored items', async () => {
+    test('narrowing then restoring the search requires a fresh near entry for the restored items', async () => {
         DBState.db = buildDb(V_N, 0)
         getFileSrcSpy.mockClear()
         const { target, app } = mountGridCatalog()
@@ -1339,13 +1243,10 @@ describe('v12: entries must leave the visible set when items unmount', () => {
         searchInput.dispatchEvent(new Event('input'))
         await settle(target)
 
-        // RED: index 0's node was never unmounted, so it stays correctly
-        // resolved. Indices 1..V_N-1 are fresh nodes, but `visibleIndices` still
-        // holds their stale entries from the "fire near for everything" step
-        // above (nothing ever removed them on unmount, same bug as the tab-switch
-        // case), so they resolve immediately too. Today this is `V_N` (8), not
-        // `1` -- the restored items need their own fresh near entry, which
-        // nothing here has fired yet.
+        // Index 0's node was never unmounted, so it stays correctly resolved.
+        // Indices 1..V_N-1 are fresh nodes whose entries were removed from
+        // `visibleIndices` on unmount, so they need their own fresh near entry,
+        // which nothing here has fired yet.
         expect(resolvedAvatarButtons(target).length).toBe(1)
 
         // Firing a fresh near entry for the restored items resolves them.
@@ -1361,16 +1262,15 @@ describe('v12: entries must leave the visible set when items unmount', () => {
     })
 
     describe('v12b: ordering hazard on grid -> list', () => {
-        test('CHAR: a list item resolves once its own near entry fires after switching from grid, even without ever firing in grid mode', async () => {
-            // This guards against a fix for the above RED cases landing as
-            // "call onChange(false) on destroy" in a way where the OLD grid
-            // item's destroy-time removal runs after the NEW list item's
-            // add -- which would incorrectly strip the just-added index back out
-            // of `visibleIndices` and leave the freshly-fired list item stuck on
-            // the placeholder. Never firing anything in grid mode first isolates
-            // this from the v12a stale-entry bug above: there is nothing stale to
-            // fall back on here, so if this ever regresses to "does not resolve",
-            // it is this ordering hazard, not v12a's bug.
+        test('a list item resolves once its own near entry fires after switching from grid, even without ever firing in grid mode', async () => {
+            // Guards against an ordering hazard: if the OLD grid item's
+            // destroy-time `onChange(false)` ran after the NEW list item's
+            // `onChange(true)` add, it would incorrectly strip the just-added
+            // index back out of `visibleIndices` and leave the freshly-fired
+            // list item stuck on the placeholder. Never firing anything in grid
+            // mode first isolates this from the stale-entry case in the tests
+            // above: there is nothing stale to fall back on here, so if this
+            // ever regresses to "does not resolve", it is this ordering hazard.
             DBState.db = buildDb(V_N, 0)
             getFileSrcSpy.mockClear()
             const { target, app } = mountGridCatalog()
@@ -1389,16 +1289,12 @@ describe('v12: entries must leave the visible set when items unmount', () => {
             )
             await settle(target)
 
-            // Holds today: `nearViewport`'s `destroy()` never calls `onChange` at
-            // all yet, so there is no destroy-time removal to race against the
-            // new item's add in the first place. This is CHAR now (a fix must
-            // keep it true), not RED.
             expect(resolvedAvatarButtons(target).length).toBe(V_K)
 
             await teardown(target, app)
         })
 
-        test('CHAR: no IntersectionObserver global -- grid to list tab switch still resolves every list avatar (fail-open)', async () => {
+        test('no IntersectionObserver global -- grid to list tab switch still resolves every list avatar (fail-open)', async () => {
             vi.stubGlobal('IntersectionObserver', undefined)
             try {
                 DBState.db = buildDb(V_N, 0)
@@ -1410,10 +1306,9 @@ describe('v12: entries must leave the visible set when items unmount', () => {
                 clickLayoutButton(target, 1)
                 await settle(target)
 
-                // CHAR: fail-open calls `onChange(true)` unconditionally at every
-                // mount, tab switch or not (v4 covers the single-layout case; this
-                // is the grid -> list hop specifically, tested here as v12b's
-                // fail-open variant).
+                // Fail open calls `onChange(true)` unconditionally at every
+                // mount, tab switch or not (v4 covers the single-layout case;
+                // this is the grid -> list hop specifically).
                 expect(resolvedAvatarButtons(target).length).toBe(V_N)
                 expect(getFileSrcSpy.mock.calls.length).toBeGreaterThanOrEqual(V_N)
 
@@ -1424,7 +1319,7 @@ describe('v12: entries must leave the visible set when items unmount', () => {
         })
     })
 
-    test('RED (new): Sidebar folder members need a fresh near entry after close/reopen; top-level items stay resolved', async () => {
+    test('Sidebar folder members need a fresh near entry after close/reopen; top-level items stay resolved', async () => {
         DBState.db = buildSidebarFolderDb(2, 3)
         getFileSrcSpy.mockClear()
         const { target, app } = mountSidebar()
@@ -1475,13 +1370,10 @@ describe('v12: entries must leave the visible set when items unmount', () => {
         folderAvatar.click()
         await settle(target)
 
-        // RED: today `visibleCharIndices` (shared by top-level items and folder
-        // members, per `Sidebar.svelte`'s own comment) never has the members'
-        // indices removed when the folder closes and their DOM nodes are
-        // destroyed -- `nearViewport`'s `destroy()` never calls `onChange`.
-        // Reopening remounts fresh member nodes that read those same stale
-        // indices as already visible, and they resolve with no fresh near entry
-        // fired. Today this is 5 (2 top-level + 3 stale members), not 2.
+        // `nearViewport`'s `destroy()` calls `onChange(false)`, removing the
+        // closed members' indices from `visibleCharIndices` (shared by
+        // top-level items and folder members). Reopening remounts fresh
+        // member nodes that need their own fresh near entry.
         expect((Array.from(target.querySelectorAll('img.sidebar-avatar')) as HTMLImageElement[]).length).toBe(2)
 
         // Firing a fresh near entry for the reopened members resolves them
@@ -1518,7 +1410,7 @@ describe('v12: entries must leave the visible set when items unmount', () => {
 // the call, which grid+Sidebar-normal below already establish for both a
 // CSS-background site and an `<img src>` site -- the two rendering shapes
 // every other site's avatar also uses.
-describe('T12: getAvatarThumbSrc is wired into the grid layout and Sidebar (AV-4, plan §4)', () => {
+describe('T12: getAvatarThumbSrc is wired into the grid layout and Sidebar', () => {
     afterEach(() => {
         for (const key of Object.keys(thumbOverride)) {
             delete thumbOverride[key]

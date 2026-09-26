@@ -4,17 +4,12 @@
  * S1: `restoreCharacterFromTrash` (extracted from GridCatalog.svelte's trash
  * restore button, `src/ts/characters.ts`) on a NON-selected character, driven
  * through the REAL `registerDbChangeEffects` and the REAL `RisuSaveEncoder`,
- * end to end (encode -> mutate -> encode -> decode). This is the
- * `Agents/Tools/save-gen/trash-restore-repro.svelte.harness.ts` empirical
- * reproduction, PROMOTED into a real test and INVERTED: that harness drove a
- * hand-inlined copy of the pre-fix GridCatalog.svelte restore logic and
- * pinned `bugReproduced === true` (stale trashTime survives). This file
- * drives the REAL, POST-FIX `restoreCharacterFromTrash` instead, and asserts
- * the restore now survives the save (trashTime is cleared after decode).
+ * end to end (encode -> mutate -> encode -> decode). The restore must survive
+ * the save: trashTime is cleared after decode.
  *
  * S8 (second half): "removeChar still sets requiresFullEncoderReload" --
- * a guard that the pre-existing four-site invariant (plan §1.1) still holds
- * for the real, unmodified `removeChar`.
+ * a guard that the four-site invariant (plan §1.1) still holds for the real,
+ * unmodified `removeChar`.
  *
  * This file drives the REAL `src/ts/characters.ts` (unmodified for this
  * plan's purposes other than the new `restoreCharacterFromTrash` export) and
@@ -231,7 +226,7 @@ function snapshotDb(db: Database): Database {
 
 //#endregion
 
-describe('restoreCharacterFromTrash — Report 17 Stage 1 S1 (promoted + inverted trash-restore-repro)', () => {
+describe('restoreCharacterFromTrash on a non-selected character', () => {
     test('a real restore of a NON-selected character, saved through the real effects + encoder, clears trashTime on decode', async () => {
         installDb()
         selectedCharID.set(0) // char-A selected; char-B (the one we restore) is NOT selected
@@ -276,7 +271,7 @@ describe('restoreCharacterFromTrash — Report 17 Stage 1 S1 (promoted + inverte
         const decodedA = secondDecoded.characters?.find((c: CharacterFixture) => c.chaId === 'char-A')
 
         expect(decodedB).toBeTruthy()
-        expect(decodedB!.trashTime).toBeUndefined() // RED on pre-fix code: this was still 1_700_000_000_000
+        expect(decodedB!.trashTime).toBeUndefined()
         expect(decodedA).toBeTruthy() // char-A (selected, unrelated) survives untouched
 
         cleanup()
@@ -284,7 +279,7 @@ describe('restoreCharacterFromTrash — Report 17 Stage 1 S1 (promoted + inverte
     })
 })
 
-describe('removeChar — Report 17 Stage 1 S8 (guard): still sets requiresFullEncoderReload', () => {
+describe('removeChar (guard): still sets requiresFullEncoderReload', () => {
     test('a permanent removal still flips requiresFullEncoderReload.state to true', async () => {
         installDb()
         selectedCharID.set(0)
@@ -297,14 +292,13 @@ describe('removeChar — Report 17 Stage 1 S8 (guard): still sets requiresFullEn
     })
 
     /**
-     * B2 guard (Gate 2 REJECT, opus-reviewer): "removeChar still actually
-     * removes the character. It sets requiresFullEncoderReload, so the reload
-     * path encodes without it. After save and decode, the character is gone.
-     * This must pass now and after the fix." Distinct from B2 itself (a plugin
-     * setDatabase race, in pluginSetDatabaseSaveMarks.svelte.test.ts) --
-     * removeChar deletes via requiresFullEncoderReload's FULL re-init from the
-     * current db, not via a stale mark/deletion-branch race, so this is
-     * expected to keep passing both before and after that bug is fixed.
+     * removeChar must actually remove the character: it sets
+     * requiresFullEncoderReload, so the reload path encodes without it, and
+     * after save and decode the character is gone. This holds unconditionally
+     * because removeChar deletes via requiresFullEncoderReload's FULL re-init
+     * from the current db, not via a stale mark/deletion-branch race -- that
+     * race is the separate plugin setDatabase case covered in
+     * pluginSetDatabaseSaveMarks.svelte.test.ts.
      */
     test('guard: a permanent removal survives a real full-reload re-encode + save + decode round trip', async () => {
         installDb()

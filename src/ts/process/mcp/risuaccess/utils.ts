@@ -7,7 +7,7 @@ export function getCharacter(id: string): character | groupChat {
 }
 
 /**
- * Fork-specific internal API (Report 17 Stage 1 §3.3): resolves a character
+ * Fork-specific internal API (CHORE-01): resolves a character
  * for a MUTATING risuaccess tool and records its chaId in the per-call
  * context, so `callTool`'s `finally` (client.ts) can mark it for save after
  * the handler settles. Marking here, before the mutation, would not be

@@ -107,7 +107,7 @@ export interface SendChatArg {
 }
 
 /**
- * Fork-specific internal API (Report 17 Stage 1 §3.3): a per-call context
+ * Fork-specific internal API (CHORE-01): a per-call context
  * `sendChatBody` reports its captured index/chaId through, so the thin outer
  * `sendChat` below can mark for save AFTER the body (and any nested
  * auto-continue recursion) has fully settled -- a write made mid-generation to
@@ -123,7 +123,7 @@ interface SendChatCallContext {
 }
 
 /**
- * Thin outer wrapper (Report 17 Stage 1 §3.3): marks both the chaId captured
+ * Thin outer wrapper (CHORE-01): marks both the chaId captured
  * at generation start AND whatever character now sits at that same index by
  * the time this settles. Two marks, not one, because a permanent delete
  * during generation (`removeChar(..., 'permanent')` in `characters.ts`)
@@ -259,7 +259,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
         }
     }
 
-    // CHORE-07 stage 7b: refuse to run against a chat whose first message
+    // CHORE-07: refuse to run against a chat whose first message
     // is still a live cold-storage pointer -- it has not finished loading
     // (or a load attempt failed and left the pointer in place), so nothing
     // in this function has real chat data to work with yet.
@@ -293,7 +293,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
     selectedChar = get(selectedCharID)
     const nowChatroom = DBState.db.characters[selectedChar]
     // Reported to the outer sendChat() so it can mark this character for save
-    // even after a selection change mid-generation (plan §3.3).
+    // even after a selection change mid-generation (CHORE-01).
     sendChatCtx.index = selectedChar
     sendChatCtx.chaId = nowChatroom?.chaId
     nowChatroom.lastInteraction = Date.now()

@@ -1,9 +1,8 @@
 // @vitest-environment happy-dom
 
 /**
- * Regression tests for plan AV-1 (`Agents/Reports/12-charlist-avatar-plan.md`
- * section 2): each listed character's avatar should be resolved (a call to
- * `getFileSrc` through `getCharImage`) ONCE, not re-resolved on every
+ * Regression tests: each listed character's avatar should be resolved (a
+ * call to `getFileSrc` through `getCharImage`) ONCE, not re-resolved on every
  * re-render of an unrelated part of the list.
  *
  * This file mounts the REAL `GridCatalog.svelte` (and therefore the REAL
@@ -11,17 +10,13 @@
  * into happy-dom, drives it exactly like a user would (click the real
  * layout buttons, type into the real search input, mutate `DBState.db`
  * directly the way the rest of the app does), and counts calls to a spy
- * standing in for `getFileSrc` -- the same pattern as
- * `Agents/Tools/save-gen/charlist-avatar-count.svelte.harness.ts`, scaled
- * down to a suite-friendly N and reusing one mount per layout (see the plan's
- * "Gate requirement (MAJOR)" in section 2.3: fresh N=1000 mounts per
- * scenario caused a heap OOM in that harness; N here is 60 non-trashed + 5
- * trashed, one mount per layout, reused across every scenario for that
- * layout).
+ * standing in for `getFileSrc`, scaled down to a suite-friendly N and reusing
+ * one mount per layout (a fresh N=1000 mount per scenario risks a heap OOM;
+ * N here is 60 non-trashed + 5 trashed, one mount per layout, reused across
+ * every scenario for that layout).
  *
- * MOCKED, AND WHY (kept in this ONE file, per the harness's own
- * "harnesses that mock the app's rune modules: keep them in ONE file"
- * convention):
+ * MOCKED, AND WHY (kept in this ONE file: harnesses that mock the app's rune
+ * modules keep them in ONE file):
  *   - `localforage` -- IndexedDB backend; inert stub, never exercised here.
  *   - `src/ts/globalApi.svelte` -- `getFileSrc` is replaced with a COUNTING
  *     SPY (records every `loc` argument, resolves on the same microtask
@@ -54,16 +49,8 @@
  * avatarThumb`'s `isThumbEligible` (real), `src/lang`, `src/ts/util.ts`,
  * `GridCatalog.svelte`, `MobileCharacters.svelte`, `BarIcon.svelte`,
  * `TextInput.svelte`, `Button.svelte`, the lucide icon components, and
- * everything else `characters.ts` drags in transitively (this is the same
- * ~13-17s one-time Vite transform cost the harness documents; only the
- * first test below pays it).
- *
- * RED BEFORE GREEN: every assertion below is written against the AFTER
- * state described in the plan's section 2.5 table. Comments say what
- * currently happens only where it differs from what is asserted; comments
- * never say "will pass once fixed" -- they describe the assertion in the
- * present tense, since that is what a future, already-fixed reader of this
- * file needs it to mean.
+ * everything else `characters.ts` drags in transitively (a one-time ~13-17s
+ * Vite transform cost; only the first test below pays it).
  */
 import { flushSync, mount, unmount } from 'svelte'
 import { writable } from 'svelte/store'
@@ -132,7 +119,7 @@ vi.mock(
             getFetchLogs: vi.fn(() => []),
             getFetchData: vi.fn(() => ({})),
             aiLawApplies: vi.fn(() => false),
-            // AV-3 (Report 15 §2.2, gate L6): getFileSrcCached calls this predicate.
+            // getFileSrcCached calls this predicate.
             isPlainHttpFileSrc: vi.fn(() => false),
         }) as unknown as typeof import('src/ts/globalApi.svelte'),
 )
@@ -228,19 +215,15 @@ vi.mock(import('../../ts/characters'), async (importOriginal) => {
     }
 })
 
-// T12 (AV-4, `Agents/Reports/16-av4-list-avatar-thumbnails-plan.md` §4): the
-// real `avatarThumb` module adds genuine async hops on top of a call
-// `getCharImage` never used to make -- a store lookup, a queue and (once per
-// session) a canvas readback probe -- none of which this file's `settle()`
-// convergence loop was designed to absorb; it predates AV-4 and only ever
-// measured `getFileSrc` call counts through an immediately-resolving
-// 'plain'/'css' path. `getAvatarThumbSrc` is replaced with a spy that
-// resolves `null` by default, i.e. "no thumbnail, fall back to
-// `getFileSrc`" -- exactly today's 'plain'/'css' behaviour -- so every
-// existing `getFileSrcSpy` count assertion in this file keeps measuring what
-// it always measured. `isThumbEligible` is left real: it is a pure,
-// synchronous predicate (`loc.startsWith('assets/')`), adds no async hop of
-// its own, and keeping it real exercises the real eligibility check against
+// The real `avatarThumb` module adds genuine async hops on top of `getCharImage`
+// -- a store lookup, a queue and (once per session) a canvas readback probe --
+// none of which this file's `settle()` convergence loop is designed to absorb.
+// `getAvatarThumbSrc` is replaced with a spy that resolves `null` by default,
+// i.e. "no thumbnail, fall back to `getFileSrc`" -- the plain/css fallback
+// path -- so every `getFileSrcSpy` count assertion in this file keeps
+// measuring only that fallback path. `isThumbEligible` is left real: it is a
+// pure, synchronous predicate (`loc.startsWith('assets/')`), adds no async hop
+// of its own, and keeping it real exercises the real eligibility check against
 // this file's own fixture locs rather than assuming it.
 vi.mock(import('../../ts/media/avatarThumb'), async (importOriginal) => {
     const actual = await importOriginal()
@@ -252,43 +235,34 @@ vi.mock(import('../../ts/media/avatarThumb'), async (importOriginal) => {
 
 //#endregion
 
-//#region AV-2 IntersectionObserver fake (see comment below)
+//#region IntersectionObserver fake (see comment below)
 
 /**
- * AV-2 (`Agents/Reports/14-av2-lazy-avatar-plan.md`, section 3.1) now gates
- * each avatar's resolution on `nearViewport`'s use of `IntersectionObserver`,
+ * Avatar resolution is gated on `nearViewport`'s use of `IntersectionObserver`,
  * and happy-dom's own `IntersectionObserver` never invokes its callback at
  * all (`observe()` is a no-op there), so without a fake every avatar here
  * would stay permanently unresolved and every assertion below would read 0
- * lookups no matter what actually changed. Per the plan's v8 ("AV-1's tests
- * must still pass with the fake reporting all visible"), this fake reports
- * every observed target immediately, permanently visible -- the same
- * "everything resolves" behaviour these tests measured before AV-2 existed
- * -- so this file keeps measuring AV-1's per-change re-lookup behaviour, not
- * AV-2's visibility gating (that is `charlistAvatarLazy.svelte.test.ts`'s
- * job).
+ * lookups no matter what actually changed. This fake reports every observed
+ * target immediately, permanently visible, so this file measures per-change
+ * re-lookup behaviour, not visibility gating (that is
+ * `charlistAvatarLazy.svelte.test.ts`'s job).
  *
  * SYNCHRONOUS, ON PURPOSE: `nearViewport.svelte.ts` (`use:nearViewport`'s
  * setup) reads nothing about *when* its `IntersectionObserver` callback
  * fires -- it only registers a per-target callback and calls `observe()`;
  * there is no code path anywhere in it, or in this file's `settle()` helper,
- * that depends on the callback arriving asynchronously. An EARLIER version
- * of this fake deferred its callback via `queueMicrotask`, matching the real
- * spec's always-async delivery -- but that extra hop raced `settle()`'s own
- * "stop once two consecutive checks agree" convergence loop: `settle()`
- * could observe two stable-looking ticks and return BEFORE the deferred
- * microtask had even run, letting that call land after the NEXT test's own
- * `getFileSrcSpy.mockClear()`, misattributing it (confirmed empirically: the
- * suite was measurably flaky with the deferred version, and merely adding
- * unrelated `console.log` calls -- extra synchronous work shifting
- * microtask timing -- was enough to flip failures to passes on an unchanged
- * assertion). Firing synchronously inside `observe()` removes that hop
- * entirely: `onChange(true)` runs in the same tick as the mount/update that
- * called `observe()`, exactly like AV-1's pre-AV-2 behaviour (avatars
- * started resolving synchronously at render time, no observer indirection
- * at all), which is precisely the behaviour these tests were written to
- * measure. Installed before any component ever mounts (module-level, not
- * inside a hook), per `nearViewport.svelte.ts`'s own test-seam doc comment.
+ * that depends on the callback arriving asynchronously. A version of this
+ * fake that defers its callback via `queueMicrotask`, matching the real
+ * spec's always-async delivery, races `settle()`'s own "stop once two
+ * consecutive checks agree" convergence loop: `settle()` can observe two
+ * stable-looking ticks and return before the deferred microtask has even
+ * run, letting that call land after the next test's own
+ * `getFileSrcSpy.mockClear()`, misattributing it. Firing synchronously inside
+ * `observe()` removes that hop entirely: `onChange(true)` runs in the same
+ * tick as the mount/update that called `observe()`, which is precisely the
+ * behaviour these tests measure. Installed before any component ever mounts
+ * (module-level, not inside a hook), per `nearViewport.svelte.ts`'s own
+ * test-seam doc comment.
  */
 class AllVisibleIntersectionObserver implements IntersectionObserver {
     readonly root: Element | Document | null = null
@@ -589,9 +563,8 @@ describe.sequential('grid layout: avatar lookups (AV-1 regression, GridCatalog.s
     test('a search keystroke that still matches every character resolves no avatar again', async () => {
         setSearchValue(target, 'C')
         await settle(target)
-        // Unfixed: formatChars builds fresh per-item objects on every call,
-        // so every listed character's avatar re-resolves even though the
-        // visible set is unchanged (observed: 60, i.e. NON_TRASHED).
+        // Guards against every listed character's avatar re-resolving when
+        // the visible set is unchanged.
         expect(getFileSrcSpy.mock.calls.length).toBe(0)
     })
 
@@ -601,14 +574,14 @@ describe.sequential('grid layout: avatar lookups (AV-1 regression, GridCatalog.s
         getFileSrcSpy.mockClear()
         setSearchValue(target, '~')
         await settle(target)
-        // Unfixed: narrowing still rebuilds fresh objects for the
-        // now-visible subset (observed: 6, i.e. MARKED_INDICES.length).
+        // Guards against the now-visible subset re-resolving on a narrowing
+        // search.
         expect(getFileSrcSpy.mock.calls.length).toBe(0)
         setSearchValue(target, '') // restore the full list for later tests
         await settle(target)
     })
 
-    test("clicking a row after narrowing search calls changeChar with that row's own db.characters index (preserved behaviour, passes before and after)", async () => {
+    test("clicking a row after narrowing search calls changeChar with that row's own db.characters index (guard: holds regardless of avatar caching)", async () => {
         setSearchValue(target, '~')
         await settle(target)
         const buttons = resolvedAvatarButtons(target)
@@ -628,13 +601,12 @@ describe.sequential('grid layout: avatar lookups (AV-1 regression, GridCatalog.s
         const newPath = 'assets/mutated-grid.png'
         DBState.db.characters[idx].image = newPath
         await settle(target)
-        // Unfixed: every listed character re-resolves (observed: 60), not
-        // just the one that changed.
+        // Only the one character whose avatar changed re-resolves.
         expect(getFileSrcSpy.mock.calls.length).toBe(1)
         expect(getFileSrcSpy.mock.calls[0][0]).toBe(newPath)
     })
 
-    test('toggling hideAllImages hides every avatar behind the placeholder, then re-resolves every avatar on the way back (preserved behaviour, passes before and after -- getCharImage reads hideAllImages as a genuine dependency, independent of the AV-1 equality boundary)', async () => {
+    test('toggling hideAllImages hides every avatar behind the placeholder, then re-resolves every avatar on the way back (guard: getCharImage reads hideAllImages as a genuine dependency, independent of the avatar-caching equality check)', async () => {
         getFileSrcSpy.mockClear()
         DBState.db.hideAllImages = true
         await settle(target)
@@ -653,7 +625,7 @@ describe.sequential('grid layout: avatar lookups (AV-1 regression, GridCatalog.s
         expect(countAvatarEls(target)).toBe(NON_TRASHED)
     })
 
-    test('deleting an earlier character leaves every remaining tile showing its own avatar, not a stale one (preserved behaviour, passes before and after -- Svelte always passes the item at each position the correct, freshly-read image even in an unkeyed each; AV-1 re-keys for click/DOM-identity reasons, not to fix this)', async () => {
+    test('deleting an earlier character leaves every remaining tile showing its own avatar, not a stale one (guard: Svelte always passes the item at each position the correct, freshly-read image even in an unkeyed each; re-keying is for click/DOM-identity reasons, not this)', async () => {
         const deleteAt = 3 // before most other non-trashed characters
         DBState.db.characters.splice(deleteAt, 1)
         await settle(target)
@@ -704,7 +676,7 @@ describe.sequential('list layout: avatar lookups (AV-1 regression, GridCatalog.s
         await settle(target)
     })
 
-    test("clicking a row after narrowing search calls changeChar with that row's own db.characters index (preserved behaviour, passes before and after)", async () => {
+    test("clicking a row after narrowing search calls changeChar with that row's own db.characters index (guard: holds regardless of avatar caching)", async () => {
         setSearchValue(target, '~')
         await settle(target)
         const buttons = resolvedAvatarButtons(target)
@@ -728,7 +700,7 @@ describe.sequential('list layout: avatar lookups (AV-1 regression, GridCatalog.s
         expect(getFileSrcSpy.mock.calls[0][0]).toBe(newPath)
     })
 
-    test('deleting an earlier character leaves every remaining tile showing its own avatar, not a stale one (preserved behaviour, passes before and after)', async () => {
+    test('deleting an earlier character leaves every remaining tile showing its own avatar, not a stale one (guard: holds regardless of avatar caching)', async () => {
         const deleteAt = 4
         DBState.db.characters.splice(deleteAt, 1)
         await settle(target)
@@ -763,9 +735,8 @@ describe.sequential('simple layout: avatar lookups (AV-1 regression, MobileChara
         const idx = 33
         DBState.db.characters[idx].name = 'Renamed Character Unique Name'
         await settle(target)
-        // Unfixed: sortChar builds fresh per-item objects on every call, so
-        // renaming any one character re-resolves every listed character
-        // (observed: 60, i.e. NON_TRASHED).
+        // Guards against every listed character's avatar re-resolving when
+        // an unrelated character is renamed.
         expect(getFileSrcSpy.mock.calls.length).toBe(0)
     })
 
@@ -802,11 +773,8 @@ describe.sequential('Sidebar: avatar lookups (AV-1 regression, Sidebar.svelte)',
         getFileSrcSpy.mockClear()
         DBState.db.characters[10].name = 'Renamed Sidebar Character'
         await settle(target)
-        // Unfixed: Sidebar's own `$effect` rebuilds `newCharImages` with
-        // fresh per-item objects whenever any name changes, and
-        // `isEqual(charImages, newCharImages)` is false (the name differs),
-        // so the whole `charImages` array is reassigned and every listed
-        // character's avatar re-resolves (observed: 25, i.e. SIDEBAR_N).
+        // Guards against every listed character's avatar re-resolving when
+        // an unrelated character is renamed.
         expect(getFileSrcSpy.mock.calls.length).toBe(0)
     })
 
@@ -815,14 +783,14 @@ describe.sequential('Sidebar: avatar lookups (AV-1 regression, Sidebar.svelte)',
         const newPath = 'assets/mutated-sidebar.png'
         DBState.db.characters[12].image = newPath
         await settle(target)
-        // Unfixed: same mechanism as the rename case above (observed: 25).
+        // Only the one character whose avatar changed re-resolves.
         expect(getFileSrcSpy.mock.calls.length).toBe(1)
         expect(getFileSrcSpy.mock.calls[0][0]).toBe(newPath)
     })
 })
 
-describe('AlertComp selectChar dialog: avatar lookups (observation only, per plan 2.2 -- "change it only if it churns")', () => {
-    test('renaming one character while the selectChar dialog is open -- OBSERVATION, not a red/green regression assertion', async () => {
+describe('AlertComp selectChar dialog: avatar lookups (observation only: AlertComp is changed only if it churns)', () => {
+    test('renaming one character while the selectChar dialog is open', async () => {
         DBState.db = buildSidebarDb(SIDEBAR_N)
         alertStore.set({ type: 'selectChar', msg: '' } as never)
         getFileSrcSpy.mockClear()
@@ -833,13 +801,11 @@ describe('AlertComp selectChar dialog: avatar lookups (observation only, per pla
         DBState.db.characters[10].name = 'Renamed Sidebar Character'
         await settle(target)
 
-        // AlertComp's selectChar branch (`AlertComp.svelte:385-388`) iterates
-        // `DBState.db.characters` directly -- the live database proxies,
-        // whose identity is stable across a rename, unlike formatChars/
-        // sortChar/Sidebar's own freshly-built per-item objects. Observed on
-        // this run: 0 lookups on rename, i.e. no churn. Per the plan
-        // (section 2.2), AlertComp is changed only if it churns; this
-        // component does not, so no source change is proposed for it here.
+        // AlertComp's selectChar branch iterates `DBState.db.characters`
+        // directly -- the live database proxies, whose identity is stable
+        // across a rename, unlike formatChars/sortChar/Sidebar's own
+        // freshly-built per-item objects -- so renaming does not churn its
+        // avatars.
         expect(getFileSrcSpy.mock.calls.length).toBe(0)
 
         await teardown(target, app)
@@ -847,18 +813,16 @@ describe('AlertComp selectChar dialog: avatar lookups (observation only, per pla
     })
 })
 
-// Every `getCharImage(loc, 'thumb'|'thumbcss')` call site in the app, as of
-// this writing (confirmed by grep): `GridCatalog.svelte:110` (grid),
-// `:133` (list), `:161` (trash), `MobileCharacters.svelte:85` (simple),
-// `Sidebar.svelte:616` (a normal row), `:629` (a folder's own avatar), `:756`
-// (a folder member once its folder is open), and AlertComp's own selectChar
-// dialog. Every one of these eight is covered below, each
-// against this file's simpler "everything reports visible immediately"
-// `IntersectionObserver` fake -- proving the WIRING at every site, not the
-// AV-2 visibility-gating behaviour itself (that is
+// Every `getCharImage(loc, 'thumb'|'thumbcss')` call site in the app: grid,
+// list and trash layouts, the simple layout, a Sidebar normal row, a
+// Sidebar folder's own avatar, a Sidebar folder member once its folder is
+// open, and AlertComp's own selectChar dialog. Every one of these eight is
+// covered below, each against this file's simpler "everything reports
+// visible immediately" `IntersectionObserver` fake -- proving the WIRING at
+// every site, not the visibility-gating behaviour itself (that is
 // `charlistAvatarLazy.svelte.test.ts`'s job, and its own T12 only covers a
 // subset of these sites for that reason -- see its own comment).
-describe('T12: getAvatarThumbSrc is wired into every list site (AV-4, plan §4)', () => {
+describe('T12: getAvatarThumbSrc is wired into every list site', () => {
     afterEach(() => {
         for (const key of Object.keys(thumbOverride)) {
             delete thumbOverride[key]

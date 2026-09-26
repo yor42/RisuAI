@@ -1,5 +1,5 @@
 /**
- * Report 17 ("CHORE-01 + Phase 2 item 2") Stage 1, §3.1/§3.4 S6.
+ * CHORE-01.
  *
  * Drives the real `src/ts/storage/characterSaveMarks.ts` module directly --
  * no mocks needed, since it only imports a *type* from `risuSave.ts` (erased

@@ -21,10 +21,9 @@ export type PluginColdStorageDb = {
  * `_getPluginStorage` itself is a thin wrapper supplying the real
  * `getDatabase()` and `readColdStorageItem`.
  *
- * - no mapping for `key` -> `null` (unchanged from before 7c-1);
- * - `ok` -> the value, `?? null` (unchanged: a plugin can store `null`
- *   itself, and this keeps collapsing that to `null` on the way out, same
- *   as before);
+ * - no mapping for `key` -> `null`;
+ * - `ok` -> the value, `?? null` (a plugin can store `null` itself, and this
+ *   collapses that to `null` on the way out);
  * - `missing` -> `null`;
  * - `error` -> throws an `Error` naming `key`, but never the (possibly
  *   unreadable, or simply absent) value.
@@ -82,10 +81,9 @@ export async function writePluginStorageValue(
 ): Promise<void> {
     db.pluginCustomStorage ??= {}
     db.pluginCustomStorage._coldplugin ??= {}
-    // Falsy, not nullish: matches the pre-7c-1 `_setPluginStorage`'s
-    // `if(!coldId)` check, so a stray empty-string mapping is treated the
-    // same as no mapping (a fresh id is generated) rather than being reused
-    // as a cold-storage key.
+    // Falsy, not nullish: a stray empty-string mapping is treated the same
+    // as no mapping (a fresh id is generated) rather than being reused as a
+    // cold-storage key.
     const existingColdId = db.pluginCustomStorage._coldplugin[key]
     const coldId = existingColdId || newColdId()
 

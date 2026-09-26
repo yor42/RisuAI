@@ -1,24 +1,14 @@
 /**
- * CHORE-07 stage 7c-1 -- the v3 plugin API's `risuai.sendChat`
+ * CHORE-07 -- the v3 plugin API's `risuai.sendChat`
  * (`src/ts/plugins/apiV3/v3.svelte.ts`) must refuse a chat whose first
  * message is still a live cold-storage pointer (`isColdChat`) BEFORE the
  * permission prompt (`getPluginPermission`) and BEFORE pushing the
- * plugin's message into `chat.message` -- not only after. The 7b guard
- * (`isColdChat` check in `sendChat`, `src/ts/process/index.svelte.ts`
- * ~:221-230) runs inside `processSendChat`, which this handler only calls
+ * plugin's message into `chat.message` -- not only after. The
+ * `isColdChat` check in `sendChat` (`src/ts/process/index.svelte.ts`)
+ * runs inside `processSendChat`, which this handler only calls
  * AFTER the permission prompt and the push have already happened.
- * Agents/Reports/13-chore07-cold-read-failure-plan.md §5.2 item 5, gate
- * finding 1.
  *
- * RED-first: this test is written and run against pre-7c-1 (92b9bba7)
- * `v3.svelte.ts`, whose `sendChat` had no guard of its own at the top of
- * the function at all -- it went straight into `getPluginPermission`
- * (which, on a plugin with no recorded permission decision, prompts via
- * `alertConfirm`) and then pushed `message` into `chat.message` before
- * `processSendChat` ever ran. The failing run against that source is
- * recorded in this round's handoff.
- *
- * IMPORTANT (post-gate fixes, round 2):
+ * IMPORTANT:
  *  - The fixture MUST include a matching `db.plugins` entry. Without it,
  *    `getPluginPermission` throws a TypeError at
  *    `DBState.db.plugins.find(...)` (`v3.svelte.ts` ~:606) BEFORE `hasher`,
@@ -47,8 +37,8 @@
  *
  * This file drives the REAL `makeRisuaiAPIV3` factory (exported from
  * `v3.svelte.ts` for exactly this purpose, so the guard can be exercised
- * without the iframe/SandboxHost bridge -- that bridge itself is the
- * OPTIONAL "bridge" case from the plan's test list, not covered here) and
+ * without the iframe/SandboxHost bridge -- that bridge itself is not
+ * covered here) and
  * the REAL, dependency-free `isColdChat` (`coldstorageData.ts`), through
  * `v3.svelte.ts`'s own import. Every other module `v3.svelte.ts` imports is
  * mocked below purely so the module can be constructed at all.
@@ -138,7 +128,7 @@ vi.mock(import('../../globalApi.svelte'), () => ({
     checkCharOrder: vi.fn(),
     forageStorage: {},
     getFetchLogs: vi.fn(),
-    // AV-3 (Report 15 §2.2, gate L6): getFileSrcCached calls this predicate.
+    // AV-3: getFileSrcCached calls this predicate.
     isPlainHttpFileSrc: vi.fn(() => false),
 }) as unknown as typeof import('../../globalApi.svelte'))
 
@@ -257,14 +247,14 @@ function makeNormalChatDb(pluginName: string): Database {
     } as unknown as Database
 }
 
-describe('CHORE-07 stage 7c-1: risuai.sendChat refuses a cold chat before the permission prompt and before the push', () => {
+describe('CHORE-07: risuai.sendChat refuses a cold chat before the permission prompt and before the push', () => {
     beforeEach(() => {
         alertConfirmMock.mockClear()
         hasherMock.mockClear()
         processSendChatMock.mockClear()
     })
 
-    test('RED: a cold chat rejects, never prompts for permission, and never pushes the message', async () => {
+    test('a cold chat rejects, never prompts for permission, and never pushes the message', async () => {
         const pluginName = 'guard-test-plugin'
         const db = makePointerChatDb(pluginName, 'plugin-guard-cold-key')
         DBState.db = db
@@ -274,11 +264,6 @@ describe('CHORE-07 stage 7c-1: risuai.sendChat refuses a cold chat before the pe
 
         const messageBefore = JSON.parse(JSON.stringify(DBState.db.characters[0].chats[0].message))
 
-        // RED: on pre-7c-1 (92b9bba7), `sendChat` has no guard of its own --
-        // it calls `getPluginPermission` (which prompts via `alertConfirm`
-        // for a plugin with no recorded decision) and pushes `message` into
-        // `chat.message` before `processSendChat` runs, resolving `true`
-        // rather than rejecting.
         await expect(api.sendChat('hello')).rejects.toThrow()
 
         expect(DBState.db.characters[0].chats[0].message).toEqual(messageBefore)

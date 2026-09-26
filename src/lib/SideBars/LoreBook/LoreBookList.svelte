@@ -356,9 +356,7 @@
          bind:this={ele} 
          data-show-folder={showFolder || ''}>
         {#if globalMode}
-            <!--
-                This was a place for global lorebooks, but it was removed :)
-            -->
+            <!-- Intentionally empty: globalMode has no content here. -->
         {:else if externalLoreBooks}
             {@const visibleItems = externalLoreBooks.filter(book => (!showFolder && !book.folder) || (showFolder === book.folder))}
             {@const lastVisibleItem = visibleItems[visibleItems.length - 1]}

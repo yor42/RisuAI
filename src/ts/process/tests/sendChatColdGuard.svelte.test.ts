@@ -1,15 +1,8 @@
 /**
- * CHORE-07 stage 7b step 4/R6 -- `sendChat` must refuse to run on a chat
+ * CHORE-07 -- `sendChat` must refuse to run on a chat
  * whose first message is still a live cold-storage pointer (`isColdChat`),
  * reporting through `alertError` and returning `false` before it ever
  * flips `doingChat` to `true` or touches `chat.message`.
- * Agents/Reports/13-chore07-cold-read-failure-plan.md §3.
- *
- * RED-first: this test is written and run against the unmodified
- * `sendChat` (`src/ts/process/index.svelte.ts`), which has no such guard --
- * it flips `doingChat` to `true` unconditionally (after the pre-existing
- * `isDoing`/`chatProcessIndex` check) and proceeds into request building.
- * The failing run against that source is recorded in this round's handoff.
  *
  * This file drives the REAL `sendChat`/`doingChat` from
  * `src/ts/process/index.svelte.ts` and the REAL, dependency-free
@@ -166,7 +159,7 @@ vi.mock(import('../modules'), () => ({
 
 vi.mock(import('../../globalApi.svelte'), () => ({
     readImage: vi.fn(),
-    // AV-3 (Report 15 §2.2, gate L6): getFileSrcCached calls this predicate.
+    // AV-3: getFileSrcCached calls this predicate.
     isPlainHttpFileSrc: vi.fn(() => false),
 }) as unknown as typeof import('../../globalApi.svelte'))
 
@@ -197,13 +190,13 @@ function makePointerChatDb(coldKey: string): Database {
     } as unknown as Database
 }
 
-describe('CHORE-07 stage 7b: sendChat refuses to run on a still-cold-storage-pointer chat', () => {
+describe('CHORE-07: sendChat refuses to run on a still-cold-storage-pointer chat', () => {
     beforeEach(() => {
         alertErrorMock.mockClear()
         doingChat.set(false)
     })
 
-    test('R6 RED: sendChat returns false, leaves doingChat false, and does not touch messages', async () => {
+    test('sendChat returns false, leaves doingChat false, and does not touch messages', async () => {
         const db = makePointerChatDb('r6-cold-key')
         DBState.db = db
         selectedCharID.set(0)
@@ -212,11 +205,6 @@ describe('CHORE-07 stage 7b: sendChat refuses to run on a still-cold-storage-poi
 
         const result = await sendChat()
 
-        // RED: on pre-7b (65c90d7f) there is no cold-chat guard in
-        // `sendChat` at all -- it flips `doingChat` to `true` and proceeds
-        // into request-building logic (which then fails downstream against
-        // these bare-bones mocks, rather than returning `false` cleanly
-        // here).
         expect(result).toBe(false)
         expect(get(doingChat)).toBe(false)
         expect(DBState.db.characters[0].chats[0].message).toEqual(messageBefore)

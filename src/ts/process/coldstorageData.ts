@@ -11,19 +11,17 @@ const coldStorageLoadErrorSuffix = ']'
 /**
  * Builds the chat-message text that recorded a failed/unusable cold read.
  *
- * HISTORY (CHORE-07): before stage 7b, `preLoadChat`
- * (`coldstorage.svelte.ts`) wrote this text directly into
- * `chat.message[0].data` whenever a cold read failed or returned unusable
- * data, permanently overwriting the pointer. As of stage 7b, `preLoadChat`
- * no longer mutates the chat on a failed read -- it resolves `'error'` and
- * leaves the pointer in `chat.message[0].data` untouched, so the read can
- * simply be retried by reopening the chat.
+ * `preLoadChat` (`coldstorage.svelte.ts`) does not mutate the chat on a
+ * failed read -- it resolves `'error'` and leaves the pointer in
+ * `chat.message[0].data` untouched, so the read can simply be retried by
+ * reopening the chat. An older install (or backup) can still hold a chat
+ * whose `message[0]` was overwritten with this legacy error text instead.
  *
  * This builder has no production caller of its own. It is kept only as the
  * counterpart of `matchColdStorageLoadErrorKey` -- the two share the same
  * prefix/suffix constants so they cannot drift apart -- and is used by
- * tests to build a chat already holding this pre-7b text, standing in for
- * an install that hit a failed read before stage 7b shipped.
+ * tests to build a chat already holding this legacy text, standing in for
+ * an install that hit a failed read under the old behaviour.
  * `listRecoverableErrorKeysFromDb` calls `matchColdStorageLoadErrorKey`
  * directly rather than this builder, and the chat-screen notice for a
  * failed read uses the differently-worded, parameterised
@@ -35,10 +33,10 @@ export function formatColdStorageLoadError(coldDataKey: string): string {
 
 /**
  * True when `chat`'s first message is still a live cold-storage pointer --
- * i.e. `preLoadChat` has not yet restored it (or a read attempt failed and,
- * as of stage 7b, left the pointer in place rather than overwriting it).
+ * i.e. `preLoadChat` has not yet restored it (or a read attempt failed and
+ * left the pointer in place rather than overwriting it).
  * Used to block sending into a chat that has not finished loading
- * (CHORE-07 stage 7b).
+ * (CHORE-07).
  */
 export function isColdChat(chat: Pick<Chat, 'message'> | null | undefined): boolean {
     const data = chat?.message?.[0]?.data
@@ -103,7 +101,7 @@ function mergeHypaV3Categories(
  * alone (semantic, not deep-equal to the cold-storage reset shape): a live
  * chat that never re-accumulated any summary of its own takes the blob's
  * data wholesale, even if some OTHER field (e.g. `modalSettings`) happens to
- * be set on it (CHORE-07 stage 7c-2, plan §5.3 item 2).
+ * be set on it (CHORE-07).
  *
  * **Accepted limit.** This only protects BLOB messages the blob's own
  * summaries already covered. After the merge, the last summary is a live
@@ -168,8 +166,7 @@ function mergeHypaV3SideField(
  * post-error messages then sit after `startIdx`, and the normal
  * summarization loop picks them up again. Otherwise the live value (which
  * may itself be empty, if the chat never accumulated hypaV2 memory either
- * before or after the error) is kept untouched (CHORE-07 stage 7c-2, plan
- * §5.3 item 2).
+ * before or after the error) is kept untouched (CHORE-07).
  */
 function mergeHypaV2SideField(
     live: SerializableHypaV2Data | undefined,
@@ -186,7 +183,7 @@ function mergeHypaV2SideField(
  * applies when restoring a legacy error-text chat's OBJECT-shaped blob --
  * never for a legacy array blob, which carries no side fields at all and
  * whose caller leaves the live side fields untouched instead of calling
- * this (CHORE-07 stage 7c-2, plan §5.3 item 2, gate finding 2).
+ * this (CHORE-07).
  *
  * `droppedErrorMessageChatId` is the `chatId` of the error-text
  * `message[0]` being dropped by the restore, if it has one yet (it only
@@ -213,7 +210,7 @@ export function mergeRetriedColdChatSideFields(
  * -- a user who kept chatting after the error keeps every later message,
  * and this only inspects `message[0]`. These blobs are still referenced by
  * that visible error text and must not be treated as unused
- * (CHORE-07 stage 7a §2.2).
+ * (CHORE-07).
  */
 export function listRecoverableErrorKeysFromDb(db: Pick<Database, 'characters'> | null | undefined): string[] {
     const keys = new Set<string>()

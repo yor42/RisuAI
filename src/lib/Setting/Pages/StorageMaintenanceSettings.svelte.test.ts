@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
 
 /**
- * I15 (Agents/Reports/28-risuaccount-removal-plan.md).
  * `StorageMaintenanceSettings.svelte` hosts the two panels merged into the
  * "Backup & Files" tab (MC-088): the Asset Cache Integrity panel, gated
  * `!isTauri`, and the OPFS "Local Storage Backend" switch, gated

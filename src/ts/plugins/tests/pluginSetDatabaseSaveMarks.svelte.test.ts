@@ -213,7 +213,7 @@ afterEach(() => {
 
 //#endregion
 
-describe('V2 plugin setDatabase / setDatabaseLite — Report 17 Stage 1 S3', () => {
+describe('V2 plugin setDatabase / setDatabaseLite', () => {
     test('(a) V2-style in-place edit of a non-selected character through the live wrapper is persisted', async () => {
         installDb()
         const { tracker, encoder, cleanup } = await wireRealSaveMachinery()
@@ -309,30 +309,28 @@ describe('V2 plugin setDatabase / setDatabaseLite — Report 17 Stage 1 S3', () 
 })
 
 /**
- * B2 (Gate 2 REJECT, opus-reviewer): a stale SECOND plugin setDatabase/
- * setDatabaseLite call, made before any save runs, must not resurrect a
- * character the plugin's own reassignment just removed. Both setters do
- * `(db as any).characters = newDb.characters` (an allowedDbKeys key)
- * unconditionally -- call 2 supplying an older `characters` array that's
- * missing a character call 1 already marked is the plugin genuinely removing
- * it in memory, and that removal must be honoured: `DBState.db.characters`
- * must NOT contain the dropped id afterward.
+ * A stale SECOND plugin setDatabase/setDatabaseLite call, made before any
+ * save runs, must not resurrect a character the plugin's own reassignment
+ * just removed. Both setters do `(db as any).characters = newDb.characters`
+ * (an allowedDbKeys key) unconditionally -- call 2 supplying an older
+ * `characters` array that's missing a character call 1 already marked is the
+ * plugin genuinely removing it in memory, and that removal must be honoured:
+ * `DBState.db.characters` must NOT contain the dropped id afterward.
  *
- * The intended fix (Report 17 Stage 1 Gate 2, B2) lives at the SAVE level,
- * not here: `prepareSaveIteration()` (globalApi.svelte.ts) filters
- * `toSave.character` down to ids present in `opts.getDatabase().characters`
- * whenever no reload happened this iteration, so `RisuSaveEncoder.set()`'s
- * delete branch can only ever run through a reload -- see
- * globalApi.saveSequence.svelte.test.ts's "no reload: drops ids absent from
- * db.characters" test for that guarantee. It stays out of scope here on
- * purpose (this file's mocks deliberately avoid loading globalApi.svelte.ts
- * for real, see the module-mock region above) -- these two tests assert only
- * the plugin-level contract: the id may still linger in the in-memory
- * tracker (harmless; the save-level filter above handles it), but the
- * character object itself must be gone from `db.characters`, not silently
- * re-appended by the plugin setters.
+ * The actual fix lives at the SAVE level, not here: `prepareSaveIteration()`
+ * (globalApi.svelte.ts) filters `toSave.character` down to ids present in
+ * `opts.getDatabase().characters` whenever no reload happened this
+ * iteration, so `RisuSaveEncoder.set()`'s delete branch can only ever run
+ * through a reload -- see globalApi.saveSequence.svelte.test.ts's "no
+ * reload: drops ids absent from db.characters" test for that guarantee. It
+ * stays out of scope here on purpose (this file's mocks deliberately avoid
+ * loading globalApi.svelte.ts for real, see the module-mock region above) --
+ * these two tests assert only the plugin-level contract: the id may still
+ * linger in the in-memory tracker (harmless; the save-level filter above
+ * handles it), but the character object itself must be gone from
+ * `db.characters`, not silently re-appended by the plugin setters.
  */
-describe('B2 (Gate 2 REJECT, opus-reviewer): stale second setDatabase/setDatabaseLite before any save', () => {
+describe('stale second setDatabase/setDatabaseLite before any save', () => {
     test('setDatabase: char-1 marked by call 1, then a stale call 2 omits it -- the plugin\'s removal is honoured, char-1 is gone from db.characters', async () => {
         installDb()
         const { cleanup } = await wireRealSaveMachinery()

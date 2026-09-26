@@ -2,7 +2,7 @@ import { describe, test, expect, vi, afterEach } from 'vitest'
 
 import { createYieldBudget, yieldToEventLoop } from '../saveYield'
 
-// CHORE-17 (plan Report 18 §4, the yield seam): `RisuSaveEncoder` holds one
+// CHORE-17: `RisuSaveEncoder` holds one
 // budget per instance, calls `noteYielded()` after each resolved cache
 // `setItem`, and awaits `maybeYield()` after each skipped cache write. These
 // tests exercise `createYieldBudget` on its own, with a fake clock and a spy
@@ -69,10 +69,10 @@ describe('createYieldBudget', () => {
     })
 })
 
-// CHORE-17 (Gate 2 round 3, item 5): `yieldToEventLoop`'s own fallback chain
+// CHORE-17: `yieldToEventLoop`'s own fallback chain
 // -- scheduler.yield() where available, else a MessageChannel message, else
-// setTimeout(0) as a last resort -- had no direct test; only `createYieldBudget`
-// (above), which takes a `yieldFn` and never calls the real one. Each globalThis
+// setTimeout(0) as a last resort -- is covered directly here; `createYieldBudget`
+// (above) takes a `yieldFn` and never calls the real one. Each globalThis
 // stub here is removed in the matching `afterEach` (or restored inline where a
 // test also stubs a plain function like `setTimeout`), so no test leaks a stub
 // into the next.

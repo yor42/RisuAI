@@ -1,6 +1,5 @@
 /**
- * CHORE-17 (plan Agents/Reports/18-chore17-skip-unchanged-writes-plan.md §2,
- * Gate 1 M1): `RisuSaveEncoder.encodeRawBlock` skips its cache write when a
+ * CHORE-17: `RisuSaveEncoder.encodeRawBlock` skips its cache write when a
  * block's bytes are unchanged. A resolved `risuSaveCacheForage.setItem` is a
  * macrotask boundary; a skipped write is not. Without something taking its
  * place, a `set()` call whose characters are all unchanged would run as a
@@ -47,8 +46,8 @@ export function createYieldBudget(opts: YieldBudgetOptions = {}): YieldBudget {
  * Yields one turn to the event loop. Prefers `scheduler.yield()` (a real,
  * high-priority continuation point) where available, falling back to a
  * `MessageChannel` message, which is not subject to the timer clamping that
- * made `setTimeout(0)` cost about 6 ms per call in the plan's Chromium
- * harness (browsers clamp nested timeouts). `setTimeout(0)` is used only as
+ * makes `setTimeout(0)` cost about 6 ms per call in Chromium (browsers clamp
+ * nested timeouts). `setTimeout(0)` is used only as
  * a last resort, when `MessageChannel` itself is unavailable.
  */
 export async function yieldToEventLoop(): Promise<void> {

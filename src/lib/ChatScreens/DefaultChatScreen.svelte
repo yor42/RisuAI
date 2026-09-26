@@ -112,8 +112,8 @@
     // CHORE-07 stage 7c-2: retry state for a legacy error-text chat (one
     // that hit a failed cold read before stage 7b shipped), keyed by
     // `chaId` + the recovered cold-storage key rather than the optional
-    // `chat.id`, so a result never leaks onto another chat (plan §5.3 item
-    // 3). `'pending'` disables the Retry button; `'missing'`/`'retryFailed'`
+    // `chat.id`, so a result never leaks onto another chat. `'pending'`
+    // disables the Retry button; `'missing'`/`'retryFailed'`
     // hold the last outcome until a fresh retry (or a successful one, which
     // makes the whole notice disappear since message[0] stops matching the
     // error text) replaces it.

@@ -9,8 +9,8 @@ import { describe, test, expect, vi, beforeEach } from 'vitest'
 // factory runs as soon as `risuSave.ts` (imported further down this file) is
 // evaluated -- which, under ESM import hoisting, happens before plain
 // `const`s here would have run. `cacheSetItem`/`cacheGetItem`/`cacheRemoveItem`
-// are declared outside the `createInstance` factory (CHORE-17, plan Report 18
-// §4) so every call to `localforage.createInstance(...)` -- there is exactly
+// are declared outside the `createInstance` factory (CHORE-17) so every call
+// to `localforage.createInstance(...)` -- there is exactly
 // one, at risuSave.ts's module load, held in its module-level
 // `risuSaveCacheForage` -- hands out the SAME countable spies, and tests in
 // this file can assert on them directly instead of only inspecting `store`'s
@@ -48,7 +48,7 @@ vi.mock(
                 getItem: vi.fn(async () => null),
                 setItem: vi.fn(async () => {}),
             },
-            // AV-3 (Report 15 §2.2, gate L6): getFileSrcCached calls this predicate.
+            // AV-3: getFileSrcCached calls this predicate.
             isPlainHttpFileSrc: vi.fn(() => false),
         }) as unknown as typeof import('src/ts/globalApi.svelte'),
 )
@@ -67,8 +67,8 @@ vi.mock(import('src/ts/platform'), () => ({
     isNodeServer: false,
 }))
 
-// CHORE-17 (plan Report 18 §4, A9): replaces the real yield budget
-// (`createYieldBudget`/`yieldToEventLoop`) with spies, so A9 can count
+// CHORE-17: replaces the real yield budget
+// (`createYieldBudget`/`yieldToEventLoop`) with spies, so tests can count
 // `maybeYield` calls directly instead of depending on real timing. Declared
 // with `vi.hoisted` for the same reason as the cache spies above.
 const { maybeYieldSpy, noteYieldedSpy } = vi.hoisted(() => ({
@@ -97,7 +97,7 @@ import { RisuSaveEncoder, RisuSaveDecoder, decodeRisuSave } from '../risuSave'
 import type { toSaveType } from '../risuSave'
 import type { Database } from '../database.svelte'
 
-// CHORE-17 (plan Report 18 §4): the cache `store` and its spies are shared
+// CHORE-17: the cache `store` and its spies are shared
 // module-level state across every test in this file, so each test starts
 // from a clean slate rather than one test's cached blocks leaking into
 // another's assertions (or into the corruption-recovery test's cache lookup).
@@ -158,7 +158,7 @@ async function encodeFixture(): Promise<Uint8Array> {
     return new Uint8Array(encoded!)
 }
 
-describe('RisuSave per-block checksum (Phase 1 item 11)', () => {
+describe('RisuSave per-block checksum', () => {
     test('round-trips cleanly when nothing is corrupted', async () => {
         const encoded = await encodeFixture()
         const decoded = await decodeRisuSave(encoded)
@@ -326,7 +326,7 @@ describe('RisuSave per-block checksum (Phase 1 item 11)', () => {
     })
 })
 
-// Report 17 ("CHORE-01 + Phase 2 item 2") Stage 1 §3.4, S8 (guard): a marked
+// CHORE-01 (guard): a marked
 // id whose character still exists in `data.characters` is RE-ENCODED by
 // set(), never deleted -- deletion (risuSave.ts's "Deleting character data"
 // branch) only drops ids that are in `toSave.character` but NOT found in
@@ -335,7 +335,7 @@ describe('RisuSave per-block checksum (Phase 1 item 11)', () => {
 // leans on: marking a character "extra" (e.g. every character on a plugin
 // setDatabase call, or a duplicate identity-tracker + explicit mark) is
 // always safe.
-describe('RisuSaveEncoder.set() — marked-but-still-present characters are re-encoded, not deleted (Report 17 Stage 1 S8)', () => {
+describe('RisuSaveEncoder.set() — marked-but-still-present characters are re-encoded, not deleted', () => {
     function buildTwoCharacterDb(): Database {
         return {
             formatversion: 5,
@@ -406,13 +406,12 @@ describe('RisuSaveEncoder.set() — marked-but-still-present characters are re-e
     })
 })
 
-// Report 17 Stage 1 Gate 2 should-fix (memory) (proxy release): `takeEncodedCharacterProxies()`
-// replaces `getEncodedCharacterProxies()` -- instead of a read-only peek, it
-// hands the caller the recorded set AND resets the internal one to a fresh,
-// empty `Set`, so each recorded proxy is consumed exactly once. Used once for
-// the identity-tracker seed at boot, and once per reload by
-// `prepareSaveIteration`'s post-reload filter (see globalApi.saveSequence.svelte.test.ts).
-describe('RisuSaveEncoder.takeEncodedCharacterProxies() — Report 17 Stage 1 Gate 2 (B2 fix, proxy release)', () => {
+// `takeEncodedCharacterProxies()` hands the caller the recorded set AND
+// resets the internal one to a fresh, empty `Set`, so each recorded proxy is
+// consumed exactly once. Used once for the identity-tracker seed at boot,
+// and once per reload by `prepareSaveIteration`'s post-reload filter (see
+// globalApi.saveSequence.svelte.test.ts).
+describe('RisuSaveEncoder.takeEncodedCharacterProxies() — consume-once proxy release', () => {
     function buildTwoCharacterDbForProxyTest(): Database {
         return {
             formatversion: 5,
@@ -444,8 +443,7 @@ describe('RisuSaveEncoder.takeEncodedCharacterProxies() — Report 17 Stage 1 Ga
     })
 })
 
-// CHORE-17 (plan Report 18 §2, §4 —
-// Agents/Reports/18-chore17-skip-unchanged-writes-plan.md). A block's local
+// CHORE-17. A block's local
 // cache write is skipped when its freshly-encoded bytes are already equal to
 // the encoder's own last-written bytes for that key (`this.blocks[name]`).
 // A1 pins the skip itself. A2c additionally pins that an equal-length
@@ -460,7 +458,7 @@ describe('RisuSaveEncoder.takeEncodedCharacterProxies() — Report 17 Stage 1 Ga
 // every block. A9 pins that a run of skips still yields to the event loop,
 // awaiting each yield before encoding the next block; A10 pins that a real
 // (non-skipped) write still resets the yield budget via `noteYielded`.
-describe('RisuSaveEncoder — CHORE-17 Stage A, the local cache skip', () => {
+describe('RisuSaveEncoder — CHORE-17, the local cache skip', () => {
     function buildOneCharacterDb(name = 'Test Character'): Database {
         return {
             formatversion: 5,
@@ -544,14 +542,13 @@ describe('RisuSaveEncoder — CHORE-17 Stage A, the local cache skip', () => {
     }
 
     test('A2c (guard, word-aligned): an equal-length change is still written when the block length is a multiple of 4', async () => {
-        // Gate 2 round 3 (MAJOR): deleting the `aWords[i] !== bWords[i]` word
-        // check left the whole suite passing, because A2b's 91-byte block
-        // left 3 trailing bytes for the tail loop to compare on the word
-        // loop's behalf -- coincidentally, those bytes happened to include a
-        // byte of the (CRC32) checksum that differs whenever the content
-        // does. A block length that is an exact multiple of 4 leaves zero
-        // trailing bytes, so nothing but the word loop is left to catch a
-        // difference.
+        // Guards specifically against the `aWords[i] !== bWords[i]` word
+        // check: a block with trailing bytes could still catch a content
+        // difference via the tail-byte comparison instead (coincidentally
+        // including a byte of the CRC32 checksum, which differs whenever the
+        // content does), so only a block length that is an exact multiple of
+        // 4, leaving zero trailing bytes, forces the word loop itself to
+        // catch the difference.
         const before = buildOneCharacterDb('Multiple4Length')
         const after = buildOneCharacterDb('Multiple4LengtH') // same length as 'Multiple4Length'
         expect(characterBlockLength('char1', before.characters[0])).toBe(

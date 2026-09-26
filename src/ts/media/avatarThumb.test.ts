@@ -1,16 +1,11 @@
 // @vitest-environment happy-dom
 
 /**
- * Tests for AV-4 (`Agents/Reports/16-av4-list-avatar-thumbnails-plan.md`,
- * §4, T1-T8, T11, T13), plus additions T3b, T5d, T5e, T7b and T14 covering
- * the store-read/write race and cancellation behaviour added to
- * `avatarThumb.ts` after that plan's own T1-T13. Most of this file is red
- * by absence against the pre-AV-4 tree, since `avatarThumb.ts` did not
- * exist before AV-4. Of the later additions, only T3b, T5d and T7b are red
- * against the AV-4-without-hardening tree (the store-read/write timeout and
- * the post-read cancellation check); T5e and T14 are regression guards for
- * behaviour that already existed before that hardening (timer-driven
- * cleanup, and the `isThumbEligible` body).
+ * Tests for AV-4 (`avatarThumb.ts`), covering T1-T8, T11, T13, plus T3b,
+ * T5d, T5e, T7b and T14 for the store-read/write race and cancellation
+ * behaviour. T5e and T14 are regression guards: they hold regardless of that
+ * race/cancellation hardening (timer-driven cleanup, and the
+ * `isThumbEligible` body, respectively).
  *
  * The canvas is unavailable under vitest (confirmed directly:
  * `document.createElement('canvas').getContext('2d')` returns `null` under
@@ -730,13 +725,11 @@ describe('T13: the canvas readback guard', () => {
 
 //#region store-read/write race and cancellation (T3b, T5d, T5e, T7b, T14)
 // Everything below targets the store-read/write race and cancellation
-// plumbing (`isCancelled`/`setCleanup`/`withStoreTimeout`) added to
-// `avatarThumb.ts` after the AV-4 plan's own T1-T13 above. T3b, T5d and T7b
-// are red against an AV-4 tree that lacks that specific hardening (a store
-// read/write with no timeout, or a `realGenerate` with no post-read
-// cancellation check); T5e and T14 are regression guards instead, since the
-// timer-driven cleanup they exercise and the `isThumbEligible` body both
-// already existed before that hardening.
+// plumbing (`isCancelled`/`setCleanup`/`withStoreTimeout`) in
+// `avatarThumb.ts`: a store read/write with a timeout, and a `realGenerate`
+// with a post-read cancellation check. T5e and T14 are regression guards
+// instead: the timer-driven cleanup they exercise and the `isThumbEligible`
+// body are unrelated to that hardening.
 
 describe('T3b: a store read that never settles is treated as a miss once storeTimeoutMs elapses (fake timers)', () => {
     test('generation still runs and resolves, instead of hanging on a dead getItem', async () => {

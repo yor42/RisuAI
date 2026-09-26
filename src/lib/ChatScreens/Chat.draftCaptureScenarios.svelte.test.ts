@@ -1,13 +1,12 @@
 // @vitest-environment happy-dom
 
 /**
- * Cross-cutting scenario tests for Report 20 ("durable drafts") §4, §5.3,
- * §5.4 (MC-068) and §6: revert/restore/type-back sequences ending in an
- * involuntary unmount, cross-instance staleness of a restored record's
- * `updatedAt`, and overlapping translation saves. Every assertion is on an
- * observable outcome only -- the content store (`draftContentOrphanGate.get`,
- * `updatedAt`), `hasLocalDrafts()`, the restore marker, and the edit
- * buffer's own value.
+ * Cross-cutting scenario tests for the durable-draft (MC-068) revert/restore/
+ * type-back sequences ending in an involuntary unmount, cross-instance
+ * staleness of a restored record's `updatedAt`, and overlapping translation
+ * saves. Every assertion is on an observable outcome only -- the content
+ * store (`draftContentOrphanGate.get`, `updatedAt`), `hasLocalDrafts()`, the
+ * restore marker, and the edit buffer's own value.
  *
  * Kept as a SIBLING file to `Chat.draftRestoreMarker.svelte.test.ts` and
  * `Chat.messageEditor.svelte.test.ts` rather than an extension of either:
@@ -26,32 +25,33 @@
  * under test is mocked, following the same precedent as the sibling files
  * above.
  *
- * Most of these tests fail without the durable-drafts change: it is what
- * adds the capture these scenarios exercise. Five already pass beforehand
- * and are guards, not durable-drafts pins -- kept so a future change can't
- * regress the behaviour each one checks:
- * - "restore, no edit, involuntary unmount": beforehand opening never reads
- *   or writes the content store at all, so a record set directly by the
- *   test is left untouched.
+ * Most of these tests exercise the capture these scenarios interleave. Five
+ * are guards rather than feature pins -- each holds whether or not capture
+ * wiring exists, so a future change can't regress the behaviour each one
+ * checks:
+ * - "restore, no edit, involuntary unmount": holds regardless, since with no
+ *   edit made, the record set directly by the test is left untouched either
+ *   way.
  * - both "overlapping saves where the first fails and the second succeeds
- *   leave no stale draft" variants: their no-stale-draft assertion holds
- *   beforehand because nothing is ever captured into the content store
- *   regardless of a save's outcome, so there is never anything to leave
- *   behind as a stale draft. Their other assertions -- both saves are
- *   attempted in order, and the editor closes once the second succeeds --
- *   are ordinary pre-change save behaviour, pinned here so it doesn't
- *   regress either.
- * - "an involuntary unmount while a save is in flight ...: success":
- *   beforehand nothing is ever captured into the store, so the record is
- *   trivially absent regardless of how the save settles (the "failure"
- *   variant of this same test fails beforehand, since it expects a record
- *   that nothing ever wrote).
+ *   leave no stale draft" variants: the no-stale-draft assertion holds
+ *   whether or not capture wiring exists -- without it, typed text never
+ *   reaches the content store, so there is nothing to leave behind; with it,
+ *   the second (successful) save's own delete clears the captured draft
+ *   instead. Their other assertions -- both saves are attempted in order,
+ *   and the editor closes once the second succeeds -- are ordinary save
+ *   behaviour, pinned here so it doesn't regress either.
+ * - "an involuntary unmount while a save is in flight ...: success": holds
+ *   whether or not capture wiring exists, for the same reason -- without it
+ *   nothing was ever written; with it, the successful save's own delete
+ *   clears the record (the "failure" variant of this same test does depend
+ *   on capture wiring, since it expects the record left over from the failed
+ *   save).
  * - "retrying a save after an earlier failure succeeds and clears the
- *   record": beforehand nothing is ever captured into the content store, so
- *   the record is trivially absent; the translation editor's own liveness
- *   registration, which the pre-change component already makes on open (an
- *   `$effect` registers it while `editTranslationMode` is on), is released
- *   when the successful retry closes the editor.
+ *   record": the record-absent assertion holds whether or not capture wiring
+ *   exists, for the same reason as above; the translation editor's own
+ *   liveness registration (an `$effect` registers it while
+ *   `editTranslationMode` is on) is independent of content capture and is
+ *   released when the successful retry closes the editor.
  */
 
 import { flushSync, mount, tick, unmount } from 'svelte'
@@ -372,7 +372,7 @@ function pencil(target: HTMLElement) {
 }
 const sleepMs = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-describe('main editor: revert / type-back / unmount sequences (§4, §5.3, §5.4)', () => {
+describe('main editor: revert / type-back / unmount sequences', () => {
     test('restore, revert, type away, type back to the reverted text, unmount: no record, no orphan', async () => {
         const id = setupMsg()
         draftContentOrphanGate.set(id, 'draft1', 'original text')
@@ -447,7 +447,7 @@ describe('main editor: revert / type-back / unmount sequences (§4, §5.3, §5.4
     })
 })
 
-describe('translation editor: revert / type-back / unmount sequences (§4.2, §5.3, §5.4)', () => {
+describe('translation editor: revert / type-back / unmount sequences', () => {
     test('tr open, type, type back to the cached seed, unmount: the record is deleted and the orphan released', async () => {
         const tr = setupTr()
         vi.mocked(getLLMCache).mockResolvedValueOnce('cached')

@@ -428,12 +428,12 @@ function getEmoSrc(emoArr: string[][], emoPaths: AssetPaths) {
     }
 }
 
-// Unbounded on plain HTTP before AV-3 (Report 15 §2.2/F3): every getFileSrc
-// result ever requested by chat rendering was kept here forever. On plain
-// HTTP, getFileSrc now has its own budgeted cache (globalApi.svelte.ts), so
-// getFileSrcCached skips this Map entirely for that branch (see below) and
-// only Tauri/service-worker results (short URLs, not full `data:`
-// strings) still accumulate here.
+// AV-3 (Report 15 §2.2): only Tauri/service-worker results (short URLs, not
+// full `data:` strings) accumulate here. Plain-HTTP getFileSrc results are
+// deliberately never added -- they already go through getFileSrc's own
+// budgeted cache in globalApi.svelte.ts, so pinning a second permanent copy
+// here would make this Map unbounded. getFileSrcCached below skips this Map
+// entirely for that branch.
 const fileSrcCache = new Map<string, string>()
 
 async function getFileSrcCached(path:string){

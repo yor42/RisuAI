@@ -895,7 +895,7 @@ export async function removeChar(identifier:string|number|character|groupChat,na
  * (Report 17 Stage 1 §3.3): restoring a non-selected character is an in-place
  * field write (`trashTime = undefined`), invisible to both the
  * selected-character tracker and the identity tracker (element/whole-array
- * replacement only), so it never persisted without an explicit mark.
+ * replacement only), so it does not persist without the explicit mark below.
  */
 export function restoreCharacterFromTrash(identifier: string | character | groupChat): void {
     const chars = DBState.db.characters

@@ -1,12 +1,11 @@
 import type { toSaveType } from "./risuSave"
 
 /**
- * Fork-specific internal API (Report 17 "CHORE-01 + Phase 2 item 2" plan,
- * Stage 1 §3.1). The maintainer's chosen design (option B, plan §2) only
+ * Fork-specific internal API (CHORE-01). The maintainer's chosen design only
  * auto-tracks the selected character plus whole-array/element replacement
  * (the identity tracker in dbChangeEffects.svelte.ts) -- every other writer
  * that mutates a non-selected character in place must call
- * `markCharacterForSave(chaId)` explicitly (plan §5's area-trap rule) so the
+ * `markCharacterForSave(chaId)` explicitly so the
  * next save actually re-encodes it.
  */
 
@@ -23,7 +22,7 @@ let installed: CharacterSaveMarksTarget | null = null
 // Marks requested before saveDb() has installed anything are queued here
 // instead of being silently dropped. In production this window should never
 // be reached (saveDb() installs before its first `await`, and it has exactly
-// one, un-awaited caller -- plan §3.1), but the queue exists so a mark can
+// one, un-awaited caller), but the queue exists so a mark can
 // never race the install and vanish, and so tests that call
 // `markCharacterForSave` before installing anything don't lose it either.
 const pendingQueue = new Set<string>()

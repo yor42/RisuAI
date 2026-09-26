@@ -1,5 +1,5 @@
 /**
- * Report 17 ("CHORE-01 + Phase 2 item 2") Stage 1 §3.3/§3.4, S5:
+ * CHORE-01:
  *
  * Table-driven over every MUTATING risuaccess character tool, driven through
  * the REAL `RisuAccessClient.callTool` (`client.ts`), the REAL
@@ -199,7 +199,7 @@ const mutatingToolCases: {
     },
 ]
 
-describe('risuaccess mutating character tools — Report 17 Stage 1 S5', () => {
+describe('risuaccess mutating character tools', () => {
     for (const toolCase of mutatingToolCases) {
         test(`${toolCase.name}: a mark made AFTER a pending promptAccess resolves survives a save that raced it, and is persisted`, async () => {
             const db = installDb()
@@ -290,17 +290,13 @@ describe('risuaccess mutating character tools — Report 17 Stage 1 S5', () => {
     })
 
     /**
-     * Gate 2 (opus-reviewer, REJECT) should-fix: the previous version of this
-     * test was titled "fails if a new writing tool is added" but only
-     * detected tools that happen to call `getCharacterForWrite` -- a NEW
-     * mutating tool that wrote to a character through some other path (e.g.
-     * a bug that skipped calling it, or a future helper that doesn't) would
-     * silently pass this test while still being an unmarked, undetected
-     * write. Rewritten to classify "mutating" by actually DIFFING char-1's
-     * data before/after each registered tool call (independent of which
-     * internal helper the tool happens to use), and to assert every tool
-     * that DOES mutate also leaves a save mark -- an unmarked mutation is
-     * exactly the F4-shaped data-loss bug this whole file exists to catch.
+     * Classifies "mutating" by actually DIFFING char-1's data before/after
+     * each registered tool call, independent of which internal helper the
+     * tool happens to use -- a tool that writes to a character through some
+     * other path than `getCharacterForWrite` (a bug, or a future helper)
+     * must still be caught here. Every tool that DOES mutate must also leave
+     * a save mark; an unmarked mutation is exactly the data-loss bug this
+     * whole file exists to catch.
      */
     test('every registered tool that actually mutates a non-selected character\'s data (detected by diffing state, not by which internal helper it calls) is in the table above and marks the character it wrote', async () => {
         alertConfirmMock.mockImplementation(async () => true)

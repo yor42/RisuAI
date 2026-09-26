@@ -8,25 +8,20 @@ import type { RisuModule } from '../../process/modules'
 import type { toSaveType } from '../risuSave'
 import { coldStorageHeader } from '../../process/coldstorageData'
 
-// Regression tests for a bug that WAS present in registerDbChangeEffects()
-// (src/ts/storage/dbChangeEffects.svelte.ts): the first $effect tracked
-// `botPresets` SHALLOWLY (only `botPresetsId` and `botPresets.length`), while
-// its five siblings deep-read via `$state.snapshot(...)`. Any in-place
-// mutation of a preset object that changed neither the id nor the array
-// length was never flagged dirty, so `saveDb()` skipped re-encoding the
-// preset block; the change was never written to disk rather than merely
-// written late, so it was absent after a reload.
+// Guards for registerDbChangeEffects()'s preset effect
+// (src/ts/storage/dbChangeEffects.svelte.ts): it must deep-read via
+// `$state.snapshot(DBState.db.botPresets)`, not shallowly via
+// `botPresetsId`/`.length` -- an in-place mutation of a preset object that
+// changes neither the id nor the array length must still be flagged dirty,
+// or `saveDb()` skips re-encoding the preset block and the change is
+// silently absent after a reload.
 //
-// The fix is the `$state.snapshot(DBState.db.botPresets)` deep-read in that
-// first effect. Of the eight tests below, the five that exercise in-place
-// preset mutations (rename, element-write self-reassign, same-id reselect,
-// image, nested promptTemplate) were written and verified to FAIL against
-// the pre-fix source (shallow `DBState.db.botPresetsId` / `.length` reads
-// only); they now pass against the fixed source and guard against the bug
-// resurfacing. The other three tests -- whole-array reorder, the first-run
-// markChanged(false) check, and the effect-6 character/chat coverage -- are
-// coverage for behaviour that already passed before the fix, as noted in
-// their own comments below.
+// Of the eight tests below, the five that exercise in-place preset mutations
+// (rename, element-write self-reassign, same-id reselect, image, nested
+// promptTemplate) are the guards for that invariant. The other three --
+// whole-array reorder, the first-run markChanged(false) check, and the
+// effect-6 character/chat coverage -- are plain coverage unrelated to it, as
+// noted in their own comments below.
 
 //#region module mocks
 
@@ -110,7 +105,7 @@ afterEach(() => {
     selectedCharID.set(-1)
 })
 
-describe('registerDbChangeEffects — botPreset shallow-tracking bug (fixed)', () => {
+describe('registerDbChangeEffects — botPreset deep-read guards', () => {
 
     test('renaming a preset in place dirties botPreset', () => {
         installDb()
@@ -219,7 +214,7 @@ describe('registerDbChangeEffects — botPreset shallow-tracking bug (fixed)', (
         expect(tracker.botPreset).toBe(true)
     })
 
-    // Guards that the fix snapshots deeply, not just one level down (i.e.
+    // Guards that the effect snapshots deeply, not just one level down (i.e.
     // not e.g. only `$state.snapshot(DBState.db.botPresets[i])` for each
     // preset without recursing further).
     test('editing a nested promptTemplate entry dirties botPreset', () => {
@@ -239,15 +234,14 @@ describe('registerDbChangeEffects — botPreset shallow-tracking bug (fixed)', (
         expect(tracker.botPreset).toBe(true)
     })
 
-    // Coverage only — NOT a regression test for the bug. movePreset()
-    // (movePreset() in src/lib/Setting/botpreset.svelte) builds a brand-new plain
-    // array and assigns it wholesale, which changes db.botPresets' identity.
-    // That IS observed by the shallow effect (it re-reads `.length` off a
-    // new array reference), so this test passes today. Do not mistake this
-    // passing as evidence the shallow-tracking bug is fixed — it only shows
-    // that the one call site which happens to reassign the whole array is
-    // unaffected by it.
-    test('reordering via whole-array reassignment already dirties botPreset (passes today)', () => {
+    // Coverage only — not a guard for the deep-read invariant above.
+    // movePreset() (movePreset() in src/lib/Setting/botpreset.svelte) builds
+    // a brand-new plain array and assigns it wholesale, which changes
+    // db.botPresets' identity. Even a shallow `.length`/id read observes a
+    // new array reference, so this passes regardless of whether the effect
+    // deep-reads -- it does not exercise the in-place-mutation invariant
+    // tested above.
+    test('reordering via whole-array reassignment dirties botPreset via the new array reference', () => {
         installDb()
         const tracker = makeTracker()
         const markChanged = vi.fn()
@@ -266,13 +260,9 @@ describe('registerDbChangeEffects — botPreset shallow-tracking bug (fixed)', (
         expect(tracker.botPreset).toBe(true)
     })
 
-    // Passes today and must keep passing: on the very first flush, every
-    // effect's markChanged call must report `false` (not dirty), since
-    // there is nothing to save yet.
+    // Invariant: on the very first flush, every effect's markChanged call
+    // must report `false` (not dirty), since there is nothing to save yet.
     //
-    // Report 17 Stage 2 (§4.3): the pre-Stage-2 merged effect 6 was split
-    // into 6a (the generic top-level loop) and 6b's pieces (front, char
-    // outer, one field child per key, chats-shape, per-chat, per-message).
     // With installDb()'s default fixture (`characters: []`, selectedCharID
     // defaults to -1), 8 effects call markChanged on the first flush --
     // confirmed by reading the whole of `registerDbChangeEffects`:
@@ -312,12 +302,11 @@ describe('registerDbChangeEffects — botPreset shallow-tracking bug (fixed)', (
         }
     })
 
-    // 6b-front (the generic per-key loop plus character/chat tracking) was
-    // moved by the refactor in registerDbChangeEffects() and had no
-    // behavioural coverage: installDb() sets `characters: []` and
-    // selectedCharID defaults to -1, so `DBState?.db?.characters?.[selIdState]`
-    // is never truthy in the tests above. Cover the populated-character path
-    // directly.
+    // 6b-front (the generic per-key loop plus character/chat tracking) is
+    // not exercised by the tests above: installDb() sets `characters: []`
+    // and selectedCharID defaults to -1, so
+    // `DBState?.db?.characters?.[selIdState]` is never truthy there. Cover
+    // the populated-character path directly.
     test('6b-front populates tracker.character and tracker.chat for the active character', () => {
         installDb()
         DBState.db.characters = [
@@ -342,17 +331,12 @@ describe('registerDbChangeEffects — botPreset shallow-tracking bug (fixed)', (
     })
 })
 
-// Tests below are for Agents/Reports/11-stage-b-module-effect-partition-plan.md
-// section 5: the equivalence suite (step 1) for the partition of the
-// modules effect (originally a single effect, in commit afcb4e09) into an
-// outer shape-effect plus one child effect per element, and the single
-// red-before-green proof test (step 2). Written against that pre-change
-// source; the partition has since landed as the modules partition (the
-// outer shape-effect plus one child effect per element).
-// The step 1 tests below pass both before and after the partition by
-// design, since they pin the mutation closure the refactor had to preserve
-// exactly. The step 2 test failed against the pre-change source; see its
-// own comment for the recorded failure.
+// Equivalence suite for the modules partition (an outer shape-effect plus
+// one child effect per element): pins that it tracks every mutation class a
+// single deep-read effect over the whole `modules` array would, so nothing
+// is under-tracked. The red-before-green proof test below additionally pins
+// that a leaf write to module k does not deep-read every other module; see
+// its own comment for that test's failing-source evidence.
 
 //#region modules fixtures (Stage B, section 5)
 
@@ -402,10 +386,9 @@ function makeModule(seed: string): RisuModule {
     }
 }
 
-// installDb() (above) sets `modules: []`, which is required for the
-// existing count-based first-run test to keep passing (see the CRITICAL
-// CONSTRAINT note in plan section 5 / gate finding F-3). Populate modules
-// separately, after installDb(), rather than changing its default.
+// installDb() (above) sets `modules: []`, which the count-based first-run
+// test above requires (see the CRITICAL CONSTRAINT note below). Populate
+// modules separately, after installDb(), rather than changing its default.
 function installDbWithModules(modules: RisuModule[]) {
     installDb()
     DBState.db.modules = modules
@@ -419,13 +402,13 @@ function freshTrackerAndMarker() {
 
 //#endregion
 
-describe('registerDbChangeEffects — modules partition equivalence suite (Stage B plan section 5, step 1)', () => {
+describe('registerDbChangeEffects — modules partition equivalence suite', () => {
 
-    // CRITICAL CONSTRAINT (plan section 5 / gate finding F-3): none of the
-    // tests below assert a markChanged call COUNT, because with N modules
-    // populated, the first flush calls markChanged 6+N times: the outer
-    // modules effect plus its N children replace the single former modules
-    // effect, so the 6 top-level effects become (6-1)+1+N = 6+N. (Separately,
+    // CRITICAL CONSTRAINT: none of the tests below assert a markChanged call
+    // COUNT, because with N modules populated, the first flush calls
+    // markChanged 6+N times: the outer modules effect plus its N children
+    // take the place of a single deep-read modules effect, so the 6
+    // top-level effects become (6-1)+1+N = 6+N. (Separately,
     // a modules *shape-change* flush -- push/splice/whole-array replacement
     // -- calls markChanged N+1 times just for the modules effects: the outer
     // plus every recreated child.) Only tracker.modules and, where first-run
@@ -599,9 +582,9 @@ describe('registerDbChangeEffects — modules partition equivalence suite (Stage
     // in src/lib/Setting/Pages/Module/ModuleSettings.svelte:
     //   DBState.db.modules.splice(index, 1)
     //   DBState.db.modules = DBState.db.modules
-    // Assert that this pair marks dirty. Per plan gate finding F-5, do NOT
-    // invert this into "self-assign alone does not mark" -- a negative
-    // assertion there would enshrine under-marking as a spec.
+    // Assert that this pair marks dirty. Do NOT invert this into
+    // "self-assign alone does not mark" -- a negative assertion there would
+    // enshrine under-marking as a spec.
     test('ModuleSettings.svelte splice + self-assign pair marks dirty', () => {
         installDbWithModules([makeModule('a'), makeModule('b'), makeModule('c')])
         const { tracker, markChanged } = freshTrackerAndMarker()
@@ -635,22 +618,19 @@ describe('registerDbChangeEffects — modules partition equivalence suite (Stage
         expect(tracker.modules).toBe(true)
     })
 
-    // F8: first run must not mark dirty. Verified against the running
-    // source that this is NOT the same claim as "tracker.modules stays
-    // false on the first run" -- it does not: `opts.tracker.modules = true`
-    // is set unconditionally on every run, including the first, per plan
-    // section 4.1 ("independent of any ranOnce flag"). The actual first-run
-    // guard is that every markChanged() call's argument is false on this
-    // first flush; markChanged(false) never means "mark clean" (plan 4.1
-    // point 2), so tracker.modules legitimately starting `true` after mount
-    // is not a contradiction of F8. The existing
-    // 'first run reports markChanged(false) for every effect' test above
-    // covers the same argument contract with installDb()'s empty modules
-    // array (and asserts a call COUNT, which only survives because there
-    // are zero modules -- see the CRITICAL CONSTRAINT note); this is the
-    // same contract with modules actually populated, asserted without a
-    // call count.
-    test('first run sets tracker.modules unconditionally, but every markChanged call still receives false (F8, plan 4.1)', () => {
+    // The first-run guard is NOT "tracker.modules stays false on the first
+    // run" -- it does not: `opts.tracker.modules = true` is set
+    // unconditionally on every run, including the first, independent of any
+    // ranOnce flag. The actual guard is that every markChanged() call's
+    // argument is false on this first flush; markChanged(false) never means
+    // "mark clean", so tracker.modules legitimately starting `true` after
+    // mount is not a contradiction. The existing 'first run reports
+    // markChanged(false) for every effect' test above covers the same
+    // argument contract with installDb()'s empty modules array (and asserts
+    // a call COUNT, which only survives because there are zero modules --
+    // see the CRITICAL CONSTRAINT note); this is the same contract with
+    // modules actually populated, asserted without a call count.
+    test('first run sets tracker.modules unconditionally, but every markChanged call still receives false', () => {
         installDbWithModules([makeModule('a'), makeModule('b'), makeModule('c')])
         const { tracker, markChanged } = freshTrackerAndMarker()
 
@@ -696,7 +676,7 @@ describe('registerDbChangeEffects — modules partition equivalence suite (Stage
         }).not.toThrow()
 
         // tracker.modules is set unconditionally on every run, including
-        // the first (plan section 4.1), so it is already true here; reset
+        // the first, so it is already true here; reset
         // it before the push so the assertion below is meaningful.
         tracker.modules = false
 
@@ -748,16 +728,14 @@ describe('registerDbChangeEffects — modules partition equivalence suite (Stage
         expect(tracker.modules).toBe(true)
     })
 
-    // LOAD-BEARING (plan gate finding F-4). Under the modules partition, a
-    // shape change tears down and recreates every child effect. A leaf
-    // mutation to a PRE-EXISTING module (present before the shape change)
-    // must still mark dirty afterwards --
-    // this is the exact mechanic the whole design depends on, and no
-    // existing test or benchmark in this repo exercises a $effect created
-    // inside a re-running $effect. This is now the real assertion of that
-    // mechanic; against the pre-change single effect (afcb4e09), it would
-    // have trivially passed instead, since that effect deep-read everything
-    // regardless of prior shape changes.
+    // LOAD-BEARING. Under the modules partition, a shape change tears down
+    // and recreates every child effect. A leaf mutation to a PRE-EXISTING
+    // module (present before the shape change) must still mark dirty
+    // afterwards -- this is the exact mechanic the whole design depends on,
+    // and no existing test or benchmark in this repo exercises a $effect
+    // created inside a re-running $effect. A single effect that deep-read
+    // the whole array regardless of prior shape changes would pass this test
+    // trivially, so it only has teeth against the partitioned design.
     test('post-shape-change leaf mutation on a pre-existing module still marks dirty', () => {
         installDbWithModules([makeModule('a'), makeModule('b')])
         const { tracker, markChanged } = freshTrackerAndMarker()
@@ -783,24 +761,18 @@ describe('registerDbChangeEffects — modules partition equivalence suite (Stage
     })
 })
 
-describe('registerDbChangeEffects — modules partition red-before-green proof (Stage B plan section 5, step 2)', () => {
+describe('registerDbChangeEffects — modules partition narrow-read proof', () => {
 
-    // RED-BEFORE-GREEN PROOF TEST -- this FAILED against the pre-change
-    // src/ts/storage/dbChangeEffects.svelte.ts (afcb4e09). The single
-    // `$effect(() => { $state.snapshot(DBState.db.modules) ... })` (the
-    // single top-level modules effect, in afcb4e09) deep-read the WHOLE
-    // modules array on every flush, so a leaf write in module k re-read
-    // every other module too. It passes now that effect is partitioned
-    // into the modules partition (an outer shape-effect plus one child
-    // effect per element), because a leaf write to module k only re-runs
-    // module k's own child effect.
+    // Proves a leaf write to module k does not deep-read module j: the
+    // modules partition (an outer shape-effect plus one child effect per
+    // element) means a leaf write to module k only re-runs module k's own
+    // child effect.
     //
     // Observability: DbChangeEffectOptions exposes only `tracker` and
     // `markChanged` -- counting child-effect runs is not observable through
-    // it, and adding a production hook for this would itself be the kind of
-    // scaffolding the plan forbids (section 5, gate finding F-7). Instead
-    // this defines an ACCESSOR property (a getter, not a data property) on
-    // a fixture module. Verified against Svelte source:
+    // it, and adding a production hook for this would itself be scaffolding.
+    // Instead this defines an ACCESSOR property (a getter, not a data
+    // property) on a fixture module. Verified against Svelte source:
     // svelte 5.55.1, node_modules/svelte/src/internal/client/proxy.js:178
     // skips creating a reactive source for a property when it exists but
     // its descriptor has no `writable` (true for a getter-only accessor),
@@ -831,9 +803,9 @@ describe('registerDbChangeEffects — modules partition red-before-green proof (
         })
         flushSync()
         // The first run legitimately deep-reads everything (there is
-        // nothing to narrow against yet, and F8 requires it not mark dirty
-        // either way); only hits AFTER this point are evidence of
-        // unnecessary re-reading of module j.
+        // nothing to narrow against yet, and the first-run guard requires it
+        // not mark dirty either way); only hits AFTER this point are
+        // evidence of unnecessary re-reading of module j.
         jHits = 0
 
         DBState.db.modules[0].name = 'k-renamed'
@@ -843,16 +815,15 @@ describe('registerDbChangeEffects — modules partition red-before-green proof (
     })
 })
 
-// Tests below are for Agents/Reports/17-chore01-item2-plan.md Stage 1 §3.2
-// (S7): the identity tracker -- a SEPARATE $effect inside
+// Tests below cover the identity tracker -- a SEPARATE $effect inside
 // registerDbChangeEffects that only reacts to a character being REPLACED
 // (element or whole-array), never to an in-place field edit, and marks the
 // replaced element's chaId into opts.tracker via the shared appendIfAbsent
 // rule. These tests drive the REAL registerDbChangeEffects() (unmodified
 // from the suites above) with a populated `characters` array and, where
-// relevant, the new `seed` option.
+// relevant, the `seed` option.
 
-describe('registerDbChangeEffects — identity tracker (Report 17 Stage 1 §3.2, S7)', () => {
+describe('registerDbChangeEffects — identity tracker', () => {
 
     function makeChar(chaId: string, name: string): Record<string, unknown> {
         return { chaId, name, type: 'character', chatPage: 0, chats: [] }
@@ -878,7 +849,7 @@ describe('registerDbChangeEffects — identity tracker (Report 17 Stage 1 §3.2,
         expect(tracker.character).toEqual([])
     })
 
-    test('an element replaced after seeding but before the first run IS marked (boot-window race, plan gate finding 3)', () => {
+    test('an element replaced after seeding but before the first run IS marked (boot-window race)', () => {
         installDbWithCharacters([makeChar('char-A', 'A'), makeChar('char-B', 'B')])
         // Seed captures the ORIGINAL proxies (as if RisuSaveEncoder.init had
         // already encoded them)...
@@ -1001,7 +972,7 @@ describe('registerDbChangeEffects — identity tracker (Report 17 Stage 1 §3.2,
         expect(tracker.character).toEqual([])
     })
 
-    // Svelte-facts premise (gate 1, verified against 5.55.1): reading
+    // Svelte-facts premise (verified against 5.55.1): reading
     // chars[i] returns the SAME child proxy on every read (stable per
     // underlying object), and a self-assignment of the same array reference
     // notifies nothing -- so it must not mark anything either.
@@ -1023,7 +994,7 @@ describe('registerDbChangeEffects — identity tracker (Report 17 Stage 1 §3.2,
         expect(tracker.character).toEqual([])
     })
 
-    test('does not go through the module-global installed characterSaveMarks tracker (F7): marks land only in opts.tracker', async () => {
+    test('does not go through the module-global installed characterSaveMarks tracker: marks land only in opts.tracker', async () => {
         const { installCharacterSaveMarks, resetCharacterSaveMarksForTest } = await import('../characterSaveMarks')
         const globalTracker = makeTracker()
         const globalSchedule = vi.fn()
@@ -1048,15 +1019,15 @@ describe('registerDbChangeEffects — identity tracker (Report 17 Stage 1 §3.2,
         resetCharacterSaveMarksForTest()
     })
 
-    // Report 17 Stage 1, second Gate 2 REJECT, item C: `opts.seed` is a
-    // strong Iterable (in production, a Set of every boot-time character)
-    // used only to seed the identity tracker's WeakSet below. The effect
-    // closures above all capture `opts` itself (they read opts.tracker and
-    // call opts.markChanged), so as long as `opts.seed` stays populated on
-    // that same object, every character it references stays strongly
-    // reachable for as long as the effects live -- i.e. forever, in
-    // production. The fix is for registerDbChangeEffects to release it
-    // (`opts.seed = undefined`) once the WeakSet has been built from it.
+    // `opts.seed` is a strong Iterable (in production, a Set of every
+    // boot-time character) used only to seed the identity tracker's WeakSet
+    // below. The effect closures above all capture `opts` itself (they read
+    // opts.tracker and call opts.markChanged), so as long as `opts.seed`
+    // stays populated on that same object, every character it references
+    // stays strongly reachable for as long as the effects live -- i.e.
+    // forever, in production. registerDbChangeEffects must release it
+    // (`opts.seed = undefined`) once the WeakSet has been built from it, or
+    // that leak follows.
     //
     // A real reachability proof (WeakRef + global.gc()) is not included here:
     // it requires vitest to run with `--expose-gc`, which this project's
@@ -1065,7 +1036,7 @@ describe('registerDbChangeEffects — identity tracker (Report 17 Stage 1 §3.2,
     // comments call out that same NODE_OPTIONS=--expose-gc requirement for
     // their retained-heap measurements). Asserting `opts.seed === undefined`
     // directly is the reachability proof available in the normal suite.
-    test('registering releases the seed: opts.seed is undefined afterward, while the seeded behaviour still holds (Report 17 Stage 1 second Gate 2 REJECT, item C)', () => {
+    test('registering releases the seed: opts.seed is undefined afterward, while the seeded behaviour still holds', () => {
         installDbWithCharacters([makeChar('char-A', 'A'), makeChar('char-B', 'B')])
         const seed = [DBState.db.characters[0], DBState.db.characters[1]]
         const opts: DbChangeEffectOptions = { tracker: makeTracker(), markChanged: vi.fn(), seed }
@@ -1084,13 +1055,12 @@ describe('registerDbChangeEffects — identity tracker (Report 17 Stage 1 §3.2,
     })
 })
 
-// Tests below are for Agents/Reports/17-chore01-item2-plan.md Stage 2 §4.3:
-// the equivalence suite for the selected-character half of effect 6, written
-// and made GREEN BEFORE that effect was partitioned (plan §4.1: 6a generic
+// Equivalence suite for the selected-character partition (6a generic
 // top-level loop, 6b-front, 6b-char, chats-shape, per-chat, per-message --
-// now the whole of `registerDbChangeEffects`). It is the safety evidence
-// that the partition's union of dependencies equals the pre-Stage-2 merged
-// effect's closure, never a subset of it.
+// the whole of `registerDbChangeEffects`'s handling of the selected
+// character). It is the safety evidence that the partition's union of
+// dependencies equals reading the selected character as a whole, never a
+// subset of it.
 //
 // Every mutation-class test below arms a SENTINEL front value
 // (`tracker.character = ['__sentinel__']`, never `[]`) before mutating, then
@@ -1106,8 +1076,8 @@ describe('registerDbChangeEffects — identity tracker (Report 17 Stage 1 §3.2,
 // Fixture: three characters. The selected one (index 1, chaId 'char-1') has
 // six chats -- four ordinary ones, a chat with MALFORMED data whose
 // `message` is not an array (this is NOT a real cold-storage stub -- it
-// exercises the per-chat child's non-array "otherwise" branch, plan §4.1,
-// which only guards against corrupt data, the same way throwError()'s
+// exercises the per-chat child's non-array "otherwise" branch, which only
+// guards against corrupt data, the same way throwError()'s
 // `!Array.isArray(chatRoom.message)` guard in process/index.svelte.ts
 // does), and a REAL cold-storage stub (see makeColdDataForChat() in
 // coldstorage.svelte.ts, the `chat.message = [{ ... }]` cold-storage
@@ -1118,7 +1088,7 @@ describe('registerDbChangeEffects — identity tracker (Report 17 Stage 1 §3.2,
 // `emotionImages` list, and `chatPage: 2`, so the active chat is never
 // index 0 and "non-active chat" and "active chat" are always distinguishable
 // in these tests.
-describe('registerDbChangeEffects — selected-character partition equivalence suite (Report 17 §4.3)', () => {
+describe('registerDbChangeEffects — selected-character partition equivalence suite', () => {
 
     const SENTINEL = '__sentinel__'
 
@@ -1420,8 +1390,7 @@ describe('registerDbChangeEffects — selected-character partition equivalence s
         expectFronted(tracker, markChanged)
     })
 
-    // Coverage gaps flagged by Gate 3 (item 4): a key added to a
-    // non-active chat object.
+    // A key added to a non-active chat object.
     test('a key added to a chat object fronts the chaId and marks dirty', () => {
         const { tracker, markChanged } = setupArmed()
 
@@ -1508,8 +1477,7 @@ describe('registerDbChangeEffects — selected-character partition equivalence s
     })
 
     // 6b-front re-runs on a chatPage change because it reads
-    // `chats[chatPage].id` to compute `tracker.chat` (this was also true of
-    // the pre-Stage-2 merged effect this piece was split from). Assert both
+    // `chats[chatPage].id` to compute `tracker.chat`. Assert both
     // halves: the selected chaId is fronted, and tracker.chat reflects the
     // NEW active chat.
     test('chatPage changed fronts the chaId and updates tracker.chat to the new active chat', () => {
@@ -1532,7 +1500,7 @@ describe('registerDbChangeEffects — selected-character partition equivalence s
     })
 
     // The identity tracker (a separate effect) also fires here, which is
-    // fine and expected (plan §4.3) -- it is the front position, not the
+    // fine and expected -- it is the front position, not the
     // mere presence of 'char-1' somewhere in tracker.character, that proves
     // the 6b pieces themselves (not only the identity tracker) reacted.
     test('the selected character replaced by a new object at the same index fronts its chaId', () => {
@@ -1544,7 +1512,7 @@ describe('registerDbChangeEffects — selected-character partition equivalence s
         expectFronted(tracker, markChanged)
     })
 
-    // Gate 3 finding 2: 6b-char's outer effect never reads `chaId` at all
+    // 6b-char's outer effect never reads `chaId` at all
     // (tracked or untracked) -- its own dependency list is exactly the
     // character's key SET, via `Reflect.ownKeys`. Field/chat/message
     // children under it front the selected id by calling
@@ -1563,7 +1531,7 @@ describe('registerDbChangeEffects — selected-character partition equivalence s
     // selected character reads `chaId` fresh via `frontUnshiftSelected`'s
     // untracked read, so it fronts the CURRENT (new) id -- there is no stale
     // captured value that could displace it.
-    test('a chaId renamed in place is fronted by field/message children after a save-loop trim (Gate 3 finding 2)', () => {
+    test('a chaId renamed in place is fronted by field/message children after a save-loop trim', () => {
         installSelectedCharacterFixture()
         const { tracker, markChanged } = freshTrackerAndMarker()
 
@@ -1606,12 +1574,11 @@ describe('registerDbChangeEffects — selected-character partition equivalence s
     // character/chat half of its body -- none subscribes to any other
     // character's sources. So a write to a NON-selected character re-runs NO
     // effect in this module at all: markChanged is not called, and the
-    // sentinel is left completely undisturbed at the front. This is the
-    // exact absence CHORE-01 stage 1 fixed at the SAVE side (marking), not
-    // here in the tracker -- the pre-Stage-2 merged effect 6 never watched
-    // non-selected characters before Stage 1 either, and Stage 2's partition
-    // does not change that; it only splits the selected-character watch into
-    // smaller pieces.
+    // sentinel is left completely undisturbed at the front. Coverage for a
+    // non-selected character's writes lives on the SAVE side (marking, via
+    // characterSaveMarks.ts), not here -- this file's partition only splits
+    // the selected-character watch into smaller pieces; it does not watch
+    // other characters at all.
     test('negative control: an in-place write to a NON-selected character does not front its chaId', () => {
         const { tracker, markChanged } = setupArmed()
 
@@ -1630,13 +1597,9 @@ describe('registerDbChangeEffects — selected-character partition equivalence s
     })
 
     // A generic top-level key read by 6a (the generic top-level loop), NOT
-    // the character-specific half.
-    // Per plan §4.3 this class only needs markChanged(true); it need not
-    // move the front. (On the pre-Stage-2 single MERGED effect 6, the same
-    // effect body happened to do both jobs, so this mutation would have
-    // incidentally fronted 'char-1' too -- that is intentionally not
-    // asserted here, since Stage 2 split this into a separate 6a effect
-    // that never touches tracker.character at all.)
+    // the character-specific half. This class only needs markChanged(true);
+    // it need not move the front -- 6a never touches tracker.character at
+    // all.
     test('a generic top-level key (characterOrder) marks dirty', () => {
         const { markChanged } = setupArmed()
 
@@ -1647,8 +1610,7 @@ describe('registerDbChangeEffects — selected-character partition equivalence s
     })
 })
 
-// Tests below are for Agents/Reports/17-chore01-item2-plan.md §4.3's rebuild-
-// count requirement ("a chatPage change creates no message children;
+// Rebuild-count requirement ("a chatPage change creates no message children;
 // replacing chat i re-runs only chat i's child"). The equivalence suite
 // above proves CORRECTNESS (nothing is under-tracked); this suite proves
 // COST (the partition does not over-rebuild). It drives the test-only
@@ -1664,7 +1626,7 @@ describe('registerDbChangeEffects — selected-character partition equivalence s
 // `chatPage: 2` so the active chat is never
 // index 0), reproduced locally rather than shared, since the equivalence
 // suite's helpers are scoped to its own `describe` block.
-describe('registerDbChangeEffects — selected-character partition rebuild counts (Report 17 §4.3)', () => {
+describe('registerDbChangeEffects — selected-character partition rebuild counts', () => {
 
     function makeMessage(seed: string): Record<string, unknown> {
         return { role: 'char', data: `data-${seed}`, time: Date.now() }
@@ -1767,8 +1729,8 @@ describe('registerDbChangeEffects — selected-character partition rebuild count
     // Regression guard for the for...in descriptor-trap entanglement that
     // `Reflect.ownKeys` -- used by 6b-char outer, deliberately INSTEAD OF an
     // earlier `for...in char` (see that effect's own design comment) --
-    // exists to avoid (Report 17 §4.3 plan §4.1: "a chatPage change does not
-    // rebuild any message children"). 6b-front reads
+    // exists to avoid: a chatPage change must not rebuild any message
+    // children. 6b-front reads
     // `char.chatPage`/`char.chats` on every run, which (on a proxy)
     // creates/refreshes those properties' reactive sources; a `for...in`
     // (or `Object.keys`) walk of `char`'s keys would additionally call
@@ -1799,7 +1761,7 @@ describe('registerDbChangeEffects — selected-character partition rebuild count
     // (no entanglement to leave behind). Confirm that holds up for a
     // SUBSEQUENT field write too -- a `desc` write after a chatPage switch
     // stays narrowed to its own field child, exactly as it would with no
-    // prior chatPage switch (plan §4.1).
+    // prior chatPage switch.
     test("a field write (desc) after a chatPage switch: exactly one field run and nothing else in 6b", () => {
         const { log } = setupWithLog()
 
@@ -1944,17 +1906,17 @@ describe('registerDbChangeEffects — selected-character partition rebuild count
         expect(tracker.character[0]).toBe('char-1')
     })
 
-    // ACCEPTED COST (plan §4.1): the per-chat child reads `message.length`
+    // ACCEPTED COST: the per-chat child reads `message.length`
     // as part of its own body, so a PUSH onto the active chat's message
     // array re-runs that one chat child once, and (being torn down and
     // recreated) it recreates EVERY message grandchild of that chat -- not
     // just the newly appended one. This is the "once per appended message,
-    // not per token" cost the plan accepts: a push (new message arriving)
+    // not per token" cost this design accepts: a push (new message arriving)
     // pays for the whole chat's message children; a token append in place
     // (the 'a streamed token (appending to the last message of the active
     // chat in place)' test above, not the immediately preceding 'desc' test)
     // does not.
-    test('a message pushed onto the active chat: the chat child re-runs once and recreates every message child of that chat (accepted cost, plan §4.1)', () => {
+    test('a message pushed onto the active chat: the chat child re-runs once and recreates every message child of that chat (accepted cost)', () => {
         const { tracker, log } = setupWithLog()
 
         const activeChat = selectedChar().chats[2]
@@ -1984,7 +1946,7 @@ describe('registerDbChangeEffects — selected-character partition rebuild count
         expect(tracker.character[0]).toBe('char-2')
     })
 
-    // Gate 3 finding 2 (rebuild-count half): renaming chaId IN PLACE changes
+    // Renaming chaId IN PLACE changes
     // only a VALUE, not the selected character's key set, so 6b-char outer
     // and its chats-shape/chat/message children must NOT rebuild or re-run.
     // Only 6b-front (which reads chaId directly and tracked) and the

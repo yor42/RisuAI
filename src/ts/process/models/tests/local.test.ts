@@ -884,11 +884,9 @@ describe('tokenizeGGUFModel — bundled Python sidecar install flow', () => {
     })
 
     test('regression guard: when install_pip fails, post_py_install (which writes completed.txt) must never be invoked', async () => {
-        // This is the exact bug that motivated this test suite: install_pip
-        // used to always resolve falsy on success due to a copy-paste
-        // stdout check, so post_py_install (and its completed.txt write)
-        // could run even though pip was never actually installed —
-        // permanently bricking local inference on every future launch.
+        // post_py_install (and its completed.txt write) must never run when
+        // install_pip did not actually succeed, or local inference is
+        // permanently bricked on every future launch.
         invokeMock.mockImplementation(async (cmd: string) => {
             if (cmd === 'local_inference_unsupported_reason') {
                 return null

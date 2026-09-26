@@ -1,5 +1,5 @@
 /**
- * Report 17 ("CHORE-01 + Phase 2 item 2") Stage 1 §3.3/§3.4, S10:
+ * CHORE-01:
  *
  * Generation continuing after a selection change: the outer `sendChat`
  * (`src/ts/process/index.svelte.ts`) captures the generating character's
@@ -316,7 +316,7 @@ function snapshotDb(db: Database): Database {
 
 //#endregion
 
-describe('sendChat — Report 17 Stage 1 S10: generation after a selection change', () => {
+describe('sendChat — generation after a selection change', () => {
     test('a selection change mid-stream does not lose the reply: the full reply lands in the original character and is persisted', async () => {
         installDb()
         selectedCharID.set(0)

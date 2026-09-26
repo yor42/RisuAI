@@ -30,7 +30,7 @@ const disableRemoteSaving = () => {
         return true
     }
 }
-// CHORE-17 Stage B (plan Report 18 §3): remote file names this page load has
+// CHORE-17: remote file names this page load has
 // written successfully or confirmed to exist. `encodeRemoteBlock` skips a
 // rewrite whenever a name is already in here. Module-level (not per-encoder), so
 // this also applies after `reinitEncoder()` reloads. Upstream commit
@@ -38,14 +38,12 @@ const disableRemoteSaving = () => {
 // which on its own rewrites every character's remote file unconditionally;
 // this set skips a file already written this page load regardless. Safe
 // because remote file names are content-addressed and nothing in this build
-// deletes them (plan fact 7); a `cleanChunks` bug in older clients sharing
-// the same Node server can still delete a hash-named file after 7 days (plan
-// fact 7, Gate 1 M3).
+// deletes them; a `cleanChunks` bug in older clients sharing
+// the same Node server can still delete a hash-named file after 7 days.
 const checkedRemoteExistence = new Set<string>();
 
 /**
- * Content-addressing hash for remote character blocks (Phase 1.5 Tier B
- * Stage 3a — see Agents/Reports/07-remote-block-versioning-design.md).
+ * Content-addressing hash for remote character blocks.
  * Truncated to 16 hex chars (64 bits) — ample collision resistance for a
  * per-character, per-user keyspace, keeps filenames short. Deliberately a
  * small local helper rather than reusing `hasher()` from
@@ -107,7 +105,7 @@ function readUint32LE(data: Uint8Array, offset: number): number {
 }
 
 /**
- * CHORE-17 (plan Report 18 §2): compares two block buffers for the
+ * CHORE-17: compares two block buffers for the
  * encodeRawBlock skip. Both sides are always fresh `ArrayBuffer`s allocated
  * at `byteOffset` 0 (see encodeRawBlock's `arrayBuf`/`buf`), so the common
  * case can compare 4 bytes at a time via `Uint32Array` instead of one byte at
@@ -255,24 +253,22 @@ export class RisuSaveEncoder {
 
     private blocks: { [key: string]: Uint8Array } = {};
     private compression: boolean = false;
-    // Fork-specific internal API (Report 17 Stage 1 §3.1/§3.2): the set of
-    // character objects THIS init() call actually encoded (by identity, not a
-    // copy). Consumed by saveDb() to seed the identity tracker's WeakSet
-    // (dbChangeEffects.svelte.ts) so a replacement that happens WHILE init()
-    // is still running isn't treated as "already seen" once that effect
-    // starts, and by prepareSaveIteration()'s post-reload filter, so a full
-    // reload doesn't double-encode an already-marked character the same save
-    // iteration (plan §3.2, gate finding F1). Purely additional bookkeeping;
-    // does not change what init() encodes or how. Released via
-    // `takeEncodedCharacterProxies()` (Report 17 Stage 1, Gate 2 should-fix
-    // (memory)) once each consumer above has read it -- and each consumer in
-    // turn drops its own copy afterward (saveDb() releases its `seed`
-    // argument, and registerDbChangeEffects releases `opts.seed`) -- so
-    // together, nothing here keeps a boot-time character object reachable
-    // for this encoder's whole lifetime.
+    // Fork-specific internal API: the set of character objects THIS init()
+    // call actually encoded (by identity, not a copy). Consumed by saveDb()
+    // to seed the identity tracker's WeakSet (dbChangeEffects.svelte.ts) so a
+    // replacement that happens WHILE init() is still running isn't treated as
+    // "already seen" once that effect starts, and by prepareSaveIteration()'s
+    // post-reload filter, so a full reload doesn't double-encode an
+    // already-marked character the same save iteration. Purely additional
+    // bookkeeping; does not change what init() encodes or how. Released via
+    // `takeEncodedCharacterProxies()` once each consumer above has read it --
+    // and each consumer in turn drops its own copy afterward (saveDb()
+    // releases its `seed` argument, and registerDbChangeEffects releases
+    // `opts.seed`) -- so together, nothing here keeps a boot-time character
+    // object reachable for this encoder's whole lifetime.
     private encodedCharacterProxies = new Set<Database['characters'][number]>();
-    // CHORE-17 (plan Report 18 §2, Gate 1 M1): one budget per encoder
-    // instance, since each instance has its own `setItem` yield history.
+    // CHORE-17: one budget per encoder instance, since each instance has its
+    // own `setItem` yield history.
     // `encodeRawBlock` calls `noteYielded()` after a real write resolves and
     // awaits `maybeYield()` after a skipped one. A skipped write crosses no
     // macrotask boundary, so this is what keeps a run of skips yielding
@@ -448,8 +444,7 @@ export class RisuSaveEncoder {
      * reading, so each consumer's call releases this encoder's references to
      * the character objects it just encoded once it's done with them --
      * otherwise the encoder would keep every boot-time character object
-     * reachable for as long as it lives (Report 17 Stage 1, Gate 2
-     * should-fix (memory), replacing the earlier, rejected WeakSet approach).
+     * reachable for as long as it lives.
      * This only releases the encoder's own copy -- each consumer (saveDb()'s
      * `seed` argument, registerDbChangeEffects' `opts.seed`) must separately
      * drop its own reference once it has built whatever it needed from the
@@ -713,9 +708,9 @@ export class RisuSaveEncoder {
         //    decoding the rest of the file, same as any other per-block
         //    parse failure.
         // A single checksum covering everything couldn't distinguish these
-        // two cases from the mismatch alone, which is exactly the gap Codex
-        // review found: framing-field corruption (type/name/length) was
-        // going undetected because only the payload was checksummed.
+        // two cases from the mismatch alone: framing-field corruption
+        // (type/name/length) would go undetected because only the payload
+        // was checksummed.
         const headerBytes = new Uint8Array(2 + 1 + nameBuf.length + 4);
         headerBytes.set([arg.type, arg.compression ? 1 : 0], 0);
         headerBytes.set([nameBuf.length], 2);
@@ -734,7 +729,7 @@ export class RisuSaveEncoder {
         buf.set(databuf, headerBytes.length + 4);
         buf.set(new Uint8Array(dataChecksumBuf), headerBytes.length + 4 + databuf.length);
 
-        // CHORE-17 Stage A (plan Report 18 §2): skip the cache write when
+        // CHORE-17: skip the cache write when
         // these bytes are already what `this.blocks[arg.name]` holds. Safe
         // because every assignment to `this.blocks[k]` comes from a
         // previously *committed* `encodeRawBlock` call under that same key --
@@ -751,7 +746,7 @@ export class RisuSaveEncoder {
         if (existing && rawBlockBytesEqual(buf, existing)) {
             // No `setItem` this time, which was the save loop's only
             // macrotask boundary on this path -- yield instead so a run of
-            // skips doesn't turn into one long task (plan §2, Gate 1 M1).
+            // skips doesn't turn into one long task.
             await this.yieldBudget.maybeYield();
             return buf;
         }
@@ -768,17 +763,15 @@ export class RisuSaveEncoder {
     async encodeRemoteBlock(arg:EncodeBlockArg){
         console.log(`Encoding remote block: ${arg.name}`);
         const encoded = new TextEncoder().encode(arg.data);
-        // Content-addressed naming (Phase 1.5 Tier B Stage 3a — see
-        // Agents/Reports/07-remote-block-versioning-design.md): the filename
-        // is a function of content, not a stable per-character name, so a
-        // write is always a fresh, never-again-mutated object (or a true
-        // no-op if identical content was already written under this exact
-        // hash). This is what makes a rejected root write's earlier remote
-        // writes harmless garbage instead of silently-visible corruption —
-        // the bug that got the original (unversioned) eligibility-extension
-        // attempt reverted. `v:1`/bare-name pointers (pre-this-change saves)
-        // are still fully supported for reading — see RisuSaveDecoder's
-        // REMOTE case below — this only changes what NEW writes produce.
+        // Content-addressed naming: the filename is a function of content,
+        // not a stable per-character name, so a write is always a fresh,
+        // never-again-mutated object (or a true no-op if identical content
+        // was already written under this exact hash). This is what makes a
+        // rejected root write's earlier remote writes harmless garbage
+        // instead of silently-visible corruption. Older `v:1`/bare-name
+        // pointers are still fully supported for reading — see
+        // RisuSaveDecoder's REMOTE case below — this only changes what NEW
+        // writes produce.
         const hash = await hashRemoteBlockContent(encoded);
         const fileName = `remotes/${arg.name}.${hash}.bin`
 
@@ -794,14 +787,14 @@ export class RisuSaveEncoder {
             }
         };
 
-        // CHORE-17 Stage B (plan §3): `checkedRemoteExistence` holds
+        // CHORE-17: `checkedRemoteExistence` holds
         // "this page load wrote or confirmed this exact file exists", so
         // a hit skips the write outright, whether or not the caller
         // passed `skipRemoteSaving`. Safe because the name contains a
         // 64-bit SHA-256 prefix of the content (hashRemoteBlockContent
         // above) -- a collision is negligible, but on a hit the existing
         // file is kept rather than overwritten -- and nothing in this
-        // build deletes a hash-named file within a page load (plan fact 7).
+        // build deletes a hash-named file within a page load.
         let shouldWrite = true;
         if(checkedRemoteExistence.has(fileName)){
             shouldWrite = false;

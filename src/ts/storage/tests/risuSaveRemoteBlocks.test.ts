@@ -21,7 +21,7 @@ const remoteStore = new Map<string, Uint8Array>()
 // as `risuSave.ts` (imported further down this file) is evaluated -- under
 // ESM import hoisting, before a plain `const` here would have run.
 // `localCacheSetItem` is declared outside the `createInstance` factory
-// (CHORE-17, plan Report 18 §4, A8) so tests can assert on the local cache
+// (CHORE-17) so tests can assert on the local cache
 // writes made for a remote-pointer block directly.
 const { localCacheSetItem } = vi.hoisted(() => ({
     localCacheSetItem: vi.fn(async (_key: string, _value: unknown) => {}),
@@ -51,7 +51,7 @@ vi.mock(
                     remoteStore.delete(key)
                 }),
             },
-            // AV-3 (Report 15 §2.2, gate L6): getFileSrcCached calls this predicate.
+            // AV-3: getFileSrcCached calls this predicate.
             isPlainHttpFileSrc: vi.fn(() => false),
         }) as unknown as typeof import('src/ts/globalApi.svelte'),
 )
@@ -83,7 +83,7 @@ import type { toSaveType } from '../risuSave'
 import type { Database } from '../database.svelte'
 import { forageStorage } from 'src/ts/globalApi.svelte'
 
-// CHORE-17 (plan Report 18 §4): reset the shared mocks before every test so a
+// CHORE-17: reset the shared mocks before every test so a
 // call count asserted in one test never includes a call made by another.
 // `remoteStore.clear()` is also done per-test by the suite below; also done
 // here so newly added tests get it too without repeating it.
@@ -136,17 +136,12 @@ async function encodeFixture(chaData: string): Promise<Uint8Array> {
     return new Uint8Array(encoded!)
 }
 
-// Note: this covers only the content-addressed naming/encode/decode change
-// (Phase 1.5 Tier B Stage 3a, naming-only — see Agents/Roadmap.md and
-// Agents/Reports/08-remote-block-gc-transactional-safety.md). The GC
-// concurrency machinery this suite previously also covered
-// (decodeRemotePointers, withRemoteBlockGcLock) was removed after Report 08
-// found the GC protocol needed to make automatic reclamation safe is a much
-// larger undertaking than initially scoped; the naming change ships without
-// automatic reclamation, and superseded remote blocks are left unmanaged by
-// the existing (unmodified, pre-existing) cleanChunks() GC path, which only
-// ever recognizes the legacy bare-name (`.local.bin`) shape.
-describe('Remote block content-addressed naming (Phase 1.5 Tier B Stage 3a, naming-only)', () => {
+// Note: this covers only the content-addressed naming/encode/decode
+// mechanism. Automatic reclamation of superseded remote blocks is out of
+// scope: superseded remote blocks are left unmanaged by the existing
+// (unmodified, pre-existing) cleanChunks() GC path, which only ever
+// recognizes the legacy bare-name (`.local.bin`) shape.
+describe('Remote block content-addressed naming', () => {
     test('publishes a v2 pointer whose hash resolves to a real remotes/ key', async () => {
         remoteStore.clear()
         await encodeFixture('hello world')
@@ -186,12 +181,11 @@ describe('Remote block content-addressed naming (Phase 1.5 Tier B Stage 3a, nami
     })
 })
 
-// CHORE-17 (plan Report 18 §3-§4 —
-// Agents/Reports/18-chore17-skip-unchanged-writes-plan.md). A remote file is
+// CHORE-17. A remote file is
 // not rewritten once this page load has written it or confirmed it exists,
 // tracked by the module-level `checkedRemoteExistence`, which records a name
-// only once its write resolves or its existence check confirms the file
-// (fact 8's fix) -- never before. A8 and B1 pin the skip itself. B4c
+// only once its write resolves or its existence check confirms the file --
+// never before. A8 and B1 pin the skip itself. B4c
 // additionally pins that the local pointer block's own comparison runs
 // through the word loop and not just the tail, by choosing a chaId whose
 // pointer block length lands on a multiple of 4 (see B4c's own comment for
@@ -202,7 +196,7 @@ describe('Remote block content-addressed naming (Phase 1.5 Tier B Stage 3a, nami
 // `vi.resetModules()`, since they manipulate `skipRemoteSavingOnCharacters:
 // true` and the existence-check recording path the other tests below don't
 // otherwise touch.)
-describe('RisuSaveEncoder — CHORE-17 Stage B, the remote file skip and the fact-8 fix', () => {
+describe('RisuSaveEncoder — CHORE-17, the remote file skip and existence-check recording', () => {
     function forageSetItemCallsForKey(key: string): number {
         return (forageStorage.setItem as ReturnType<typeof vi.fn>).mock.calls.filter(
             (args) => args[0] === key,
@@ -353,11 +347,10 @@ describe('RisuSaveEncoder — CHORE-17 Stage B, the remote file skip and the fac
     }
 
     test('B4c (guard, word-aligned): a changed character still rewrites the local pointer when the pointer block length is a multiple of 4', async () => {
-        // Gate 2 round 3 (MAJOR): B4b's pointer is 93 bytes -- 1 byte past a
-        // word boundary -- so deleting the word check still passed, because
-        // the single trailing byte the tail loop checks on its own happened
-        // to be a (CRC32) checksum byte that differs whenever the content
-        // does. A v2 pointer's JSON (`{"v":2,"type":<digit>,"name":"...",
+        // Guards specifically against the word check: without a multiple-of-4
+        // block length, a trailing byte the tail loop checks on its own could
+        // happen to be a CRC32 checksum byte that differs whenever the
+        // content does. A v2 pointer's JSON (`{"v":2,"type":<digit>,"name":"...",
         // "hash":"<16 hex chars>"}`) is otherwise always an odd number of
         // bytes for any *unescaped* chaId -- growing the name by one byte
         // grows the JSON by exactly two (once in "name", once implicitly

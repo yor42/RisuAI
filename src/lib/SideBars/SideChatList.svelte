@@ -67,7 +67,7 @@
                     })
 
                     // Order matters here; see reorderChatsKeepingCurrent in
-                    // globalApi.svelte.ts (Report 19 §9.2(b)).
+                    // globalApi.svelte.ts.
                     reorderChatsKeepingCurrent(chara, newChats, currentChatPage)
 
                     try {
@@ -108,7 +108,7 @@
                 
                 chara.chatFolders = newFolders
                 // Order matters here; see reorderChatsKeepingCurrent in
-                // globalApi.svelte.ts (Report 19 §9.2(b)).
+                // globalApi.svelte.ts.
                 reorderChatsKeepingCurrent(chara, newChats, currentChatPage)
                 try {
                     folderStb.destroy()

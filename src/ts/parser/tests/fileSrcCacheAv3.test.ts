@@ -97,7 +97,7 @@ beforeEach(() => {
   vi.mocked(isPlainHttpFileSrc).mockReturnValue(false)
 })
 
-describe('AV-3 getFileSrcCached (Report 15 §4)', () => {
+describe('AV-3 getFileSrcCached', () => {
   test('T9: on plain HTTP, rendering the same asset twice calls getFileSrc twice (no permanent copy)', async () => {
     const name = 't9asset'
     const path = 'some/t9-asset.png'

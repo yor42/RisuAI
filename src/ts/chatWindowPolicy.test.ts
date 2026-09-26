@@ -259,15 +259,15 @@ describe('runWithFullWindow', () => {
     })
 })
 
-// Gate 2 finding: the policy keeps only one screenshot's worth of state
+// The policy keeps only one screenshot's worth of state
 // (`screenshotActive`, `screenshotPreValue`, `keyChangedDuringScreenshot`),
-// not a stack or a counter. Two overlapping `runWithFullWindow` calls (e.g. a
+// not a stack or a counter, so overlapping `runWithFullWindow` calls (e.g. a
 // double click on the screenshot button, where the second click fires before
-// the first capture's `fn` has resolved) corrupt that shared state: the
-// second `beginScreenshot` overwrites the saved pre-screenshot value with
-// Infinity, and the first `endScreenshot` marks the screenshot inactive while
-// the second capture is still running.
-describe('overlapping screenshots (Gate 2 finding)', () => {
+// the first capture's `fn` has resolved) must not corrupt that shared state:
+// the second `beginScreenshot` must not overwrite the saved pre-screenshot
+// value with Infinity, and `endScreenshot` must not mark the screenshot
+// inactive while another capture is still running.
+describe('overlapping screenshots', () => {
     test('after both captures finish, the window is back at the value from before the first screenshot, not Infinity', async () => {
         const { policy } = makePolicy({ initial: 30 })
         policy.onKey('char1:c1', 30)
@@ -379,12 +379,11 @@ describe('overlapping screenshots (Gate 2 finding)', () => {
     })
 })
 
-// Gate 2 finding: onKey's editor-open skip branch returns early without
-// touching `pendingRestore`. So a key change while editors are open, after a
-// screenshot already left a restore pending, leaves that stale value (which
-// belongs to the chat just left) to be applied to the new chat once editors
-// close, instead of falling back to the new chat's initial value.
-describe('pending restore across a key change (Gate 2 finding)', () => {
+// A key change while editors are open must not let a stale pending restore
+// (left by a screenshot on the chat just left) survive to be applied to the
+// new chat once editors close -- it must fall back to the new chat's initial
+// value instead.
+describe('pending restore across a key change', () => {
     test('a key change while a restore is pending applies the initial value once editors close, not the stale pre-screenshot value', () => {
         const { policy, state } = makePolicy({ initial: 30 })
         policy.onKey('char1:c1', 30)
@@ -400,13 +399,13 @@ describe('pending restore across a key change (Gate 2 finding)', () => {
 
         state.editorsOpen = false
         // 45 belonged to the chat we've since left. Applying it to c2 would
-        // give c2 the wrong window size; the plan's rule is to fall back to
-        // the initial value instead.
+        // give c2 the wrong window size, so it must fall back to the initial
+        // value instead.
         expect(policy.onDraftsChanged()).toBe(30)
     })
 })
 
-describe('mutant-style checks', () => {
+describe('screenshot restore and key-change edge cases', () => {
     test('restores the pre-screenshot value, not the initial value', async () => {
         const { policy } = makePolicy({ initial: 30 })
         policy.onKey('char1:c1', 30)
@@ -419,8 +418,8 @@ describe('mutant-style checks', () => {
 
         await runWithFullWindow(policy, get, set, async () => {})
 
-        // A mutant that restores initial() (30) unconditionally, instead of
-        // the saved pre-screenshot value (45), would fail this assertion.
+        // The restore must use the saved pre-screenshot value (45), not
+        // initial() (30).
         expect(current).toBe(45)
     })
 
@@ -440,8 +439,8 @@ describe('mutant-style checks', () => {
             })
         ).rejects.toThrow('boom')
 
-        // A mutant that runs the restore only after a successful fn() call
-        // (i.e. outside `finally`) would leave `current` at Infinity here.
+        // The restore must run even when fn() throws (i.e. from a `finally`),
+        // not only after a successful fn() call.
         expect(current).toBe(45)
     })
 
@@ -458,9 +457,9 @@ describe('mutant-style checks', () => {
         state.editorsOpen = true
         await runWithFullWindow(policy, get, set, async () => {})
 
-        // A mutant that ignores editorsOpen() on the restore would call
-        // set(45) here in addition to the earlier set(Infinity), leaving
-        // current at 45 instead of Infinity.
+        // The restore must respect editorsOpen(): set(45) must not be called
+        // here in addition to the earlier set(Infinity), so current stays at
+        // Infinity.
         expect(current).toBe(Infinity)
     })
 
@@ -468,10 +467,10 @@ describe('mutant-style checks', () => {
         const chatA = { id: 'c1' }
         const chatB = { id: 'c1' } // a different object, same id (e.g. after a cold-storage reload)
 
-        // A correct implementation derives the key from the string id, so two
-        // distinct objects sharing an id collapse to the same key. A mutant
-        // that keys on object identity instead (e.g. a WeakMap keyed on the
-        // chat object regardless of `id`) would return two different keys.
+        // The key must derive from the string id, not object identity, so two
+        // distinct objects sharing an id collapse to the same key (keying on
+        // the chat object itself, e.g. a WeakMap, would return two different
+        // keys here).
         expect(chatWindowKey('char1', chatA)).toBe(chatWindowKey('char1', chatB))
     })
 
@@ -481,8 +480,8 @@ describe('mutant-style checks', () => {
 
         const result = policy.onKey('char1:c2', 600)
 
-        // A mutant that drops the editorsOpen() check on the reset branch
-        // would instead return { next: 30, lowered: true } here.
+        // The editorsOpen() check on the reset branch must hold, or this
+        // would instead return { next: 30, lowered: true }.
         expect(result).toEqual({ next: 600, lowered: false })
     })
 })

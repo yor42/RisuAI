@@ -9,16 +9,16 @@ export interface DbChangeEffectOptions {
     markChanged: (markDirty: boolean) => void
     /**
      * Character proxies to seed the identity tracker's "already seen" set
-     * with (Report 17 Stage 1 §3.2) -- normally the set `RisuSaveEncoder.init`
-     * just encoded, so a replacement that happened WHILE that init was still
-     * running isn't treated as new the first time the identity tracker below
-     * runs. Without a seed (tests, or any other caller), the first run only
-     * fills the set and marks nothing.
+     * with -- normally the set `RisuSaveEncoder.init` just encoded, so a
+     * replacement that happened WHILE that init was still running isn't
+     * treated as new the first time the identity tracker below runs. Without
+     * a seed (tests, or any other caller), the first run only fills the set
+     * and marks nothing.
      */
     seed?: Iterable<object>
     /**
-     * TEST INSTRUMENTATION ONLY (Report 17 Stage 2 §4.3) -- production never
-     * passes this. Called at the top of every selected-character (6b) effect
+     * TEST INSTRUMENTATION ONLY -- production never passes this. Called at
+     * the top of every selected-character (6b) effect
      * body, so a test can count how many times each partition piece re-runs
      * without that count being observable through `tracker`/`markChanged`
      * (e.g. "a chatPage change creates no message children", "replacing chat
@@ -112,8 +112,7 @@ export function registerDbChangeEffects(opts: DbChangeEffectOptions): void {
         opts.markChanged(ranOnce5)
         ranOnce5 = true
     })
-    // 6a -- the generic top-level loop, moved unchanged out of the former
-    // merged effect 6 (Report 17 Stage 2 §4.1). Deep-reads every top-level
+    // 6a -- the generic top-level loop. Deep-reads every top-level
     // DB key except the six handled by their own effects above/below.
     let ranOnce6a = false
     $effect(() => {
@@ -129,14 +128,13 @@ export function registerDbChangeEffects(opts: DbChangeEffectOptions): void {
         ranOnce6a = true
     })
 
-    // 6b -- the selected character, partitioned (Report 17 Stage 2 §4.1,
-    // gate finding 7). Not narrowed: the union of every piece below's
-    // dependencies equals the former merged effect's closure over
-    // `characters[selIdState]` -- reading less than this loses writes (see
-    // the preset effect's comment above for a real data-loss bug caused by
-    // exactly that class of mistake).
+    // 6b -- the selected character, partitioned. Not narrowed: the union of
+    // every piece below's dependencies equals reading `characters[selIdState]`
+    // as a whole -- reading less than this loses writes (see the preset
+    // effect's comment above for a real data-loss bug caused by exactly that
+    // class of mistake).
     //
-    // Closure-equivalence argument (§4.2, verified against Svelte 5.55.1):
+    // Closure-equivalence argument (verified against Svelte 5.55.1):
     // `$state.snapshot()`'s plain-object branch clones via
     // `Object.keys(value)` then reads `value[key]` for each key
     // (svelte/src/internal/shared/clone.js:92-102). `Object.keys` goes
@@ -156,11 +154,10 @@ export function registerDbChangeEffects(opts: DbChangeEffectOptions): void {
     // children reproduce the chats array's length/index dependency;
     // `message.length` + `message[j]` (array case) or
     // `$state.snapshot(message)` (malformed non-array case) reproduce the
-    // message-level dependency the same way. Partition, never narrow (Report
-    // 11 §4, §8 method).
+    // message-level dependency the same way. Partition, never narrow.
     //
-    // Duplicate ids: like the former merged effect, none of the pieces below
-    // de-duplicate their front-unshift against ids the identity tracker (or
+    // Duplicate ids: none of the pieces below de-duplicate their
+    // front-unshift against ids the identity tracker (or
     // a `markCharacterForSave` mark) appends at the END of
     // `opts.tracker.character`. This is safe -- `savedId` in `risuSave.ts`'s
     // `set()` records which ids were saved this pass, and a character's block
@@ -177,18 +174,17 @@ export function registerDbChangeEffects(opts: DbChangeEffectOptions): void {
     // itself replaced) is covered by the parent's own `markChanged(true)`,
     // never by a recreated child's first run.
     //
-    // Decision on `chats[chatPage].id` (Report 17 Stage 2 instructions):
-    // the pre-Stage-2 merged effect reads `characters[selIdState]?.chats[...chatPage].id`
-    // WITHOUT `?.` on the `chats` element itself -- if `chats[chatPage]` is
-    // undefined (an out-of-range or empty `chats`), `.id` throws. The
-    // semantics are preserved below, even though the read was rewritten into
-    // local variables: still no `?.` on that element, so it throws in the
-    // same cases. This is a partition, not a bugfix, and adding `?.` would
+    // Decision on `chats[chatPage].id`: reading
+    // `characters[selIdState]?.chats[...chatPage].id` WITHOUT `?.` on the
+    // `chats` element itself means -- if `chats[chatPage]` is undefined (an
+    // out-of-range or empty `chats`), `.id` throws. That is preserved below,
+    // even though the read is split into local variables: still no `?.` on
+    // that element, so it throws in the same cases. Adding `?.` would
     // silently change behaviour from "throws today" to "never throws" for a
-    // case this plan does not analyze.
+    // case this file does not otherwise handle.
     //
-    // chaId re-read at fronting time, not captured (Gate 3 REJECT item 2): only
-    // 6b-front lists `chaId` itself as a tracked read (it needs the CURRENT
+    // chaId re-read at fronting time, not captured: only 6b-front lists
+    // `chaId` itself as a tracked read (it needs the CURRENT
     // value to decide whether to front it and to build the `tracker.chat`
     // pair). Every other 6b piece (char outer, field/chats-shape/per-chat/
     // per-message children) must NOT add `chaId` to its own dependency list,
@@ -207,7 +203,7 @@ export function registerDbChangeEffects(opts: DbChangeEffectOptions): void {
     // captured value on every fronting call, a rename would leave every
     // field/chats-shape/per-chat/per-message fronting call pointing at the
     // OLD id, even though the field child that snapshots `chaId` itself
-    // re-runs and (with this fix) fronts the NEW id. Since `char` is the
+    // re-runs and fronts the NEW id. Since `char` is the
     // same object reference for the outer effect's whole lifetime, reading
     // `char.chaId` fresh at each call, still through `untrack` so it adds no
     // dependency, always fronts the CURRENT id instead.
@@ -362,9 +358,8 @@ export function registerDbChangeEffects(opts: DbChangeEffectOptions): void {
                                 // array at all -- the same case guarded against by
                                 // `throwError`'s (inside `sendChatBody` in
                                 // `index.svelte.ts`) `!Array.isArray(chatRoom.message)`
-                                // guard -- and is kept here for equivalence with the pre-Stage-2
-                                // merged effect, which snapshotted whatever `message`
-                                // was without checking its shape.
+                                // guard -- and is kept here only for that malformed case,
+                                // snapshotting `message` as-is without checking its shape.
                                 $state.snapshot(message)
                             }
                         }
@@ -383,26 +378,25 @@ export function registerDbChangeEffects(opts: DbChangeEffectOptions): void {
         charRanOnce = true
     })
 
-    // Identity tracker (Report 17 Stage 1 §3.2): a SEPARATE effect that only
-    // watches for a character being REPLACED (element or whole-array), not for
-    // in-place field edits -- it reads DBState.db.characters, its length and
-    // each chars[i], and no property of any element (chaId is read through
-    // `untrack` below specifically so it never becomes a dependency; letting it
-    // would make this effect re-run on a chaId edit, which never happens in
-    // practice, but reading it untracked keeps the closure exactly "identity
-    // only" as designed and verified against Svelte 5.55.1, plan §3.2).
+    // Identity tracker: a SEPARATE effect that only watches for a character
+    // being REPLACED (element or whole-array), not for in-place field edits
+    // -- it reads DBState.db.characters, its length and each chars[i], and no
+    // property of any element (chaId is read through `untrack` below
+    // specifically so it never becomes a dependency; letting it would make
+    // this effect re-run on a chaId edit, which never happens in practice,
+    // but reading it untracked keeps the closure exactly "identity only").
     // Covers: V3 setCharacterToIndex, V3 setDatabase(Lite) with characters,
-    // backup loads, and any future element/whole-db replacement -- writers this
-    // plan's "option B" design (§2) does not otherwise see, because they never
-    // touch the selected-character effect above. V2 in-place edits are NOT
-    // seen by this identity tracker (they replace no element, so nothing here
-    // fires) -- those are covered instead by the explicit marks the V2 plugin
-    // setters make directly.
+    // backup loads, and any future element/whole-db replacement -- writers
+    // the selected-character effect above does not otherwise see, because
+    // they never touch it. V2 in-place edits are NOT seen by this identity
+    // tracker (they replace no element, so nothing here fires) -- those are
+    // covered instead by the explicit marks the V2 plugin setters make
+    // directly.
     //
     // Deliberately does NOT go through the module-global installed tracker
     // (characterSaveMarks.ts) -- it writes straight into opts.tracker with the
     // same `appendIfAbsent` rule `markCharacterForSave` uses, so tests stay
-    // isolated from production installation state (re-review F7).
+    // isolated from production installation state.
     let identityRanOnce = false
     const identitySeen = new WeakSet<object>(opts.seed ?? [])
     const identityHasSeed = !!opts.seed
@@ -411,8 +405,7 @@ export function registerDbChangeEffects(opts: DbChangeEffectOptions): void {
     // stayed populated on that same object, every character it references
     // would stay strongly reachable for as long as the effects live -- i.e.
     // forever, in production. `identitySeen` already copied everything it
-    // needs out of `opts.seed` above, so release it here (Report 17 Stage 1,
-    // second Gate 2 REJECT, item C).
+    // needs out of `opts.seed` above, so release it here.
     opts.seed = undefined
     $effect(() => {
         const chars = DBState.db.characters
@@ -422,11 +415,8 @@ export function registerDbChangeEffects(opts: DbChangeEffectOptions): void {
             if (!c) continue
             if (!identitySeen.has(c)) {
                 // First run: only elements missing from the seed are "new" (a
-                // replacement that raced encoder.init, plan §3.2 gate finding
-                // 3). Without a seed, the first run only fills the set -- this
-                // is what keeps the 'first run reports markChanged(false) for
-                // every effect' test's call count valid in Stage 1 (§4.3
-                // updates it in Stage 2).
+                // replacement that raced encoder.init). Without a seed, the
+                // first run only fills the set and marks nothing.
                 if (identityRanOnce || identityHasSeed) {
                     const chaId = untrack(() => (c as { chaId?: string }).chaId)
                     if (chaId) {

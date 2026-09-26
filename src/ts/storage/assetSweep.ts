@@ -1,11 +1,10 @@
 /**
  * Asset-deletion wiring extracted from bootstrap.ts's `cleanChunks` (Tauri
  * branch :577-589, web/Node branch's `assets/` case :650-656, before the
- * step-1 extraction). CHORE-07 stage 7a step 3 adds the "skip when the
- * keep-set view is incomplete" gate (`Agents/Reports/13-chore07-cold-read-failure-plan.md`
- * §2.1): both sweeps below now accept an optional `complete` flag, and skip
- * deleting anything when it is explicitly `false`. `undefined` (the
- * pre-step-3 shape) behaves exactly as before -- no skip.
+ * step-1 extraction). CHORE-07 adds a "skip when the
+ * keep-set view is incomplete" gate: both sweeps below accept an optional
+ * `complete` flag, and skip deleting anything when it is explicitly `false`.
+ * `undefined` means no skip.
  *
  * Kept free of any import that reaches `stores.svelte` / `parser.svelte`
  * (in fact, free of any first-party import at all) so it can be unit

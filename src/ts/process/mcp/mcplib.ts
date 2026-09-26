@@ -73,7 +73,7 @@ export type RPCToolCallContentResource = {
 export type RPCToolCallContent = RPCToolCallTextContent | RPCToolCallImageAudioContent | RPCToolCallContentResource
 
 /**
- * Fork-specific internal API (Report 17 Stage 1 §3.3): an optional per-call
+ * Fork-specific internal API (CHORE-01): an optional per-call
  * context threaded through `MCPToolHandler.handle()` so a handler that
  * mutates something can report exactly what it touched back to its caller
  * (today, risuaccess's character-write tracking -- see

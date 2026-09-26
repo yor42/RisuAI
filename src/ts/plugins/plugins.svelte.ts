@@ -780,18 +780,17 @@ export const getV2PluginAPIs = () => {
                 }
             }
             DBState.db = db;
-            // CHORE-01 / Report 17 Stage 1 §3.3 (maintainer decision, re-review
-            // F3): mark every character, don't reload. V2's getDatabase() is a
-            // live wrapper over DBState.db (see getDatabase above), so a plugin
-            // edits live elements in place and this loop's self-assignment
-            // notifies nothing -- invisible to both the selected-character
-            // effect and the identity tracker. Never deletes: a character this
-            // call's own `characters` array omits still keeps its block and
-            // comes back on reload (§8) -- the guarantee that a save iteration
-            // without a reload can never delete a block now lives in
+            // CHORE-01 (Report 17 Stage 1 §3.3): mark every character, don't
+            // reload. V2's getDatabase() is a live wrapper over DBState.db
+            // (see getDatabase above), so a plugin edits live elements in
+            // place and this loop's self-assignment notifies nothing --
+            // invisible to both the selected-character effect and the
+            // identity tracker. Never deletes: a character this call's own
+            // `characters` array omits still keeps its block and comes back
+            // on reload (§8) -- the guarantee that a save iteration without a
+            // reload can never delete a block lives in
             // `prepareSaveIteration`'s no-reload filter (globalApi.svelte.ts),
-            // not here (Report 17 Stage 1 gate 2 finding B2, re-review: the
-            // earlier fix here only covered these two plugin setters).
+            // not here. The same reasoning applies to setDatabase below.
             if (Array.isArray(newDb.characters)) {
                 for (const char of db.characters ?? []) {
                     markCharacterForSave(char?.chaId);

@@ -119,32 +119,31 @@
         }
     })
 
-    // Report 20 (durable drafts), §5.1/§5.2: the original-text editor's edit
-    // target. `editBuffer` -- not the `$bindable` `message` prop -- is what
-    // both edit surfaces (`textBox()`'s AutoresizeArea and the cardboard
-    // theme's raw textarea) bind to, so a parent-driven prop reset (§2.2's
-    // BookmarkList mechanism) can never clobber in-progress text. The
-    // identity is snapshotted at open time into `frozenMessageIdentity` and
-    // never re-derived from live props for the buffer's lifetime (§5.1) --
-    // unlike `selId`/`chatPage`, which `edit()` below deliberately keeps
-    // reading live (§5.5).
+    // The original-text editor's edit target. `editBuffer` -- not the
+    // `$bindable` `message` prop -- is what both edit surfaces (`textBox()`'s
+    // AutoresizeArea and the cardboard theme's raw textarea) bind to, so a
+    // parent-driven prop reset (BookmarkList's own mechanism) can never
+    // clobber in-progress text. The identity is snapshotted at open time into
+    // `frozenMessageIdentity` and never re-derived from live props for the
+    // buffer's lifetime -- unlike `selId`/`chatPage`, which `edit()` below
+    // deliberately keeps reading live.
     let editBuffer = $state('')
     let frozenMessageIdentity: MessageIdentity | null = null
     let frozenBaseData = ''
 
-    // §5.4 / MC-068: set only when the editor now open (or being typed in)
-    // was seeded from a stored draft rather than from `message`/the cached
+    // MC-068: set only when the editor now open (or being typed in) was
+    // seeded from a stored draft rather than from `message`/the cached
     // translation -- drives the restore marker's visibility on each surface.
     // `null` means "no marker", regardless of `editMode`/`editTranslationMode`.
     let restoredMessageRecord: DraftRecord | null = $state(null)
     let restoredTranslationRecord: DraftRecord | null = $state(null)
 
     // The translation editor's own identity/seed, frozen the same way as
-    // `frozenMessageIdentity`/`frozenBaseData` above (§5.1) -- never
-    // re-derived from live props for the buffer's lifetime. `frozenTranslationSeed`
-    // is the cached translation `loadTranslationForEdit` seeded at open, which
-    // §5.4's revert restores to (not `baseData`/the key, which for a `tr:`
-    // record is the source text -- §4.2).
+    // `frozenMessageIdentity`/`frozenBaseData` above -- never re-derived from
+    // live props for the buffer's lifetime. `frozenTranslationSeed` is the
+    // cached translation `loadTranslationForEdit` seeded at open, which a
+    // revert restores to (not `baseData`/the key, which for a `tr:` record is
+    // the source text).
     let frozenTranslationIdentity: TranslationIdentity | null = null
     let frozenTranslationSeed = ''
 
@@ -194,7 +193,7 @@
         }
     }
 
-    // Capture (§5). Called from the original-text editor's `oninput` (never
+    // Capture. Called from the original-text editor's `oninput` (never
     // from an `$effect` mirroring the buffer, and never on a programmatic
     // assignment such as open or revert -- only a real `input` event on the
     // textarea reaches this), with the value read directly off the DOM
@@ -216,11 +215,10 @@
         draftContentOrphanGate.set(identity, text, frozenBaseData)
     }
 
-    // Same capture, for the translation editor (§4.2/§4.3/§4.4/§5.3). The
-    // ground-truth comparison is `frozenTranslationSeed` (the cached
-    // translation seeded at open), NOT
-    // `baseData`/the key, matching §4.2's rule that a `tr:` record's
-    // `baseData` is categorically a different string from any translation.
+    // Same capture, for the translation editor. The ground-truth comparison
+    // is `frozenTranslationSeed` (the cached translation seeded at open), NOT
+    // `baseData`/the key: a `tr:` record's `baseData` is categorically a
+    // different string from any translation.
     // `updateTranslationCache`'s own `editTranslationText = data` write (the
     // save echo) is a programmatic assignment, not an `input` event, so it
     // never reaches this function.
@@ -277,7 +275,7 @@
     }
 
     async function edit(){
-        // §5.5: `selId`/`chatPage` are read live here, not frozen -- copy and
+        // `selId`/`chatPage` are read live here, not frozen -- copy and
         // branch both `unshift` a new chat and `changeChatTo(0)` while
         // reusing this mounted instance, so a frozen `chatPage` would write
         // into whatever chat now sits at the old index instead of the one
@@ -285,7 +283,7 @@
         const newText = editBuffer
         message = newText
         DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].data = newText
-        // The draft is committed -- §1's "cleared only on a deliberate exit".
+        // The draft is committed -- cleared only on a deliberate exit.
         if (frozenMessageIdentity) {
             draftContentOrphanGate.delete(frozenMessageIdentity)
         }
@@ -295,17 +293,15 @@
 
     function startOriginalEdit() {
         if (originalEditControlDisabled) return
-        // §5.1: snapshot the identity now and freeze it for the buffer's
-        // lifetime.
+        // Snapshot the identity now and freeze it for the buffer's lifetime.
         const identity = currentMessageIdentity()
         frozenMessageIdentity = identity
         frozenBaseData = message
-        // §5.3: seed from the draft only when its stored base text still
-        // matches; `draftContentOrphanGate.get` deletes a mismatched record
-        // itself.
+        // Seed from the draft only when its stored base text still matches;
+        // `draftContentOrphanGate.get` deletes a mismatched record itself.
         const record = draftContentOrphanGate.get(identity, message)
-        // §5.4 / MC-068's surfaced rule: a matching-base record only counts
-        // as a restore when its text also differs from `message`. Capture
+        // MC-068's surfaced rule: a matching-base record only counts as a
+        // restore when its text also differs from `message`. Capture
         // never writes such a record for a `msg:` identity in the first
         // place (its own equals-base branch deletes instead), so the
         // `delete` here is a defensive check against a state the running app
@@ -326,7 +322,7 @@
     }
 
     function revertOriginalEdit() {
-        // §5.4: replaces the buffer with the saved message text, deletes the
+        // Replaces the buffer with the saved message text, deletes the
         // stored record, and hides the marker -- the editor stays open. This
         // is a programmatic assignment to `editBuffer`, not an `input`
         // event, so it does not itself go through `captureMessageEdit`.
@@ -431,19 +427,19 @@
             const cached = await getLLMCache(key)
             const seed = cached ?? ''
             editTranslationKey = key
-            // §5.1: freeze the translation identity/seed now, for the
-            // buffer's lifetime -- never re-derived from live props. §4.2:
-            // `baseData` is the same key string (the parsed source text the
-            // translation was made from), not the cached translation.
+            // Freeze the translation identity/seed now, for the buffer's
+            // lifetime -- never re-derived from live props. `baseData` is the
+            // same key string (the parsed source text the translation was
+            // made from), not the cached translation.
             const identity: TranslationIdentity = { kind: 'tr', key }
             frozenTranslationIdentity = identity
             frozenTranslationSeed = seed
             const record = draftContentOrphanGate.get(identity, key)
-            // §5.4 / MC-068 applied to the translation editor: the seed to
-            // compare against is the cached translation, NOT `baseData`
-            // (which is the source text/key and can never equal a
-            // translation -- §4.2). Unlike the `msg:` case above, this
-            // delete IS reachable from the running app: it fires whenever
+            // MC-068 applied to the translation editor: the seed to compare
+            // against is the cached translation, NOT `baseData` (which is the
+            // source text/key and can never equal a translation). Unlike the
+            // `msg:` case above, this delete IS reachable from the running
+            // app: it fires whenever
             // the cached translation happens to equal the stored draft's
             // text -- for example a retranslate that produces that exact
             // text, or a partial-edit save on another message that shares
@@ -471,8 +467,8 @@
     async function saveTranslationEdit() {
         if (editTranslationKey === null) return
 
-        // §4.4: long-press SAVES on this editor, and shares this same
-        // function with the Save button -- both are a deliberate exit, once
+        // Long-press SAVES on this editor, and shares this same function
+        // with the Save button -- both are a deliberate exit, once
         // the save actually succeeds. The frozen identity stays in place
         // until the cache write actually succeeds: `updateTranslationCache`'s
         // own `editTranslationText = data` write (the save echo) is a
@@ -494,8 +490,8 @@
     }
 
     function revertTranslationEdit() {
-        // §5.4: replaces the buffer with the cached translation seeded at
-        // open (not `baseData`/the key), deletes the stored record, and
+        // Replaces the buffer with the cached translation seeded at open
+        // (not `baseData`/the key), deletes the stored record, and
         // hides the marker -- the editor stays open. A programmatic
         // assignment to `editTranslationText`, not an `input` event, so it
         // does not itself go through `captureTranslationEdit`.
@@ -715,14 +711,14 @@
 
 {#snippet draftRestoreMarker(record: DraftRecord, onRevert: () => void, lightSurface: boolean)}
     <!--
-      §5.4 / MC-068: shared by all three restore-marker surfaces (`textBox()`'s
+      MC-068: shared by all three restore-marker surfaces (`textBox()`'s
       translation AutoresizeArea, its original-text AutoresizeArea, and the
       `cardboard` theme's raw textarea) -- one snippet, not three copies.
       `role="status"` makes it a live region; the Revert control is a native
       `<button>`. `lightSurface` (see `markerOnLightSurface` above) picks a
       fixed light palette (always light regardless of the app's own
-      dark/light setting, per MC-068) instead of the default surfaces' theme
-      tokens. The fade-in collapses to 0ms under
+      dark/light setting) instead of the default surfaces' theme tokens.
+      The fade-in collapses to 0ms under
       `prefers-reduced-motion` or a missing `Element.prototype.animate` via
       `markerTransitionDuration` above (copied from `SourceDisclosure.svelte`'s
       guard).
@@ -769,9 +765,9 @@
             {@render draftRestoreMarker(restoredMessageRecord, revertOriginalEdit, markerOnLightSurface)}
         {/if}
         <AutoresizeArea bind:value={editBuffer} onUserEdit={captureMessageEdit} handleLongPress={() => {
-            // §4.4: long-press on the original-text editor discards --
-            // deliberate exit, so the draft is cleared rather than left to
-            // resurface later.
+            // Long-press on the original-text editor discards -- deliberate
+            // exit, so the draft is cleared rather than left to resurface
+            // later.
             editMode = false
             if (frozenMessageIdentity) {
                 draftContentOrphanGate.delete(frozenMessageIdentity)

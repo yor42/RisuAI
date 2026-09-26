@@ -259,7 +259,7 @@ afterEach(() => {
 
 //#endregion
 
-describe('V3 setCharacterToIndex — Report 17 Stage 1 S2 (persisted via the identity tracker, no explicit mark)', () => {
+describe('V3 setCharacterToIndex (persisted via the identity tracker, no explicit mark)', () => {
     test('replacing a NON-selected character element is persisted after encode -> decode', async () => {
         installDb()
         selectedCharID.set(0)
@@ -300,7 +300,7 @@ describe('V3 setCharacterToIndex — Report 17 Stage 1 S2 (persisted via the ide
     })
 })
 
-describe('V3 setChatToIndexImpl — Report 17 Stage 1 S4 (persisted via an explicit mark)', () => {
+describe('V3 setChatToIndexImpl (persisted via an explicit mark)', () => {
     test('writing a chat into a NON-selected character is persisted after encode -> decode', async () => {
         installDb()
         selectedCharID.set(0)

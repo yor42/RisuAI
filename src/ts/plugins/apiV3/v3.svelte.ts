@@ -660,10 +660,11 @@ const authorizationHeaders = [
 
 /**
  * Extracted from the V3 plugin API object below for testability (Report 17
- * Stage 1 §3.3): `setChatToIndex` on a non-selected character was an in-place
+ * Stage 1 §3.3): a write to a non-selected character's chat is an in-place
  * write invisible to both the selected-character tracker and the identity
- * tracker (element/whole-array replacement only), so it never persisted.
- * Marks the target character for save after the write.
+ * tracker (element/whole-array replacement only), so it does not persist
+ * unless marked explicitly. Marks the target character for save after the
+ * write.
  */
 export function setChatToIndexImpl(characterIndex: number, chatIndex: number, chat: any, pluginName?: string): void {
     const db = DBState.db
@@ -1402,12 +1403,11 @@ export const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             }, options.mode)
         },
         sendChat: async (message: string) => {
-            // CHORE-07 stage 7c-1 (plan §5.2 item 5, gate finding 1):
-            // refuse before the permission prompt and before `message` is
-            // ever pushed into the chat, so a plugin can never be told
-            // `true` for a send that a cold chat's own guard would refuse
-            // anyway -- the 7b guard (`isColdChat` check in `sendChat`,
-            // `src/ts/process/index.svelte.ts` ~:221-230) only runs inside
+            // CHORE-07 stage 7c-1: refuse before the permission prompt and
+            // before `message` is ever pushed into the chat, so a plugin can
+            // never be told `true` for a send that a cold chat's own guard
+            // would refuse anyway -- the 7b guard (`isColdChat` check in
+            // `sendChat`, `src/ts/process/index.svelte.ts`) only runs inside
             // `processSendChat` below, which this handler calls AFTER the
             // permission prompt and the push have already happened.
             const guardCharId = get(selectedCharID);

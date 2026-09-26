@@ -88,8 +88,7 @@ export async function getColdStorageItem(key:string) {
 }
 
 /**
- * A three-way outcome for a cold-storage read (CHORE-07 stage 7c-1, plan
- * `Agents/Reports/13-chore07-cold-read-failure-plan.md` §5.2 item 1):
+ * A three-way outcome for a cold-storage read (CHORE-07):
  *   - `'ok'`      -- the bytes were read and decoded. `value` may itself be
  *                    `null` (a plugin can legitimately store `null`) --
  *                    that is still `'ok'`, not `'missing'`.
@@ -128,13 +127,13 @@ export async function decodeColdStorageBytes(bytes: Uint8Array): Promise<any> {
  * `@tauri-apps/plugin-fs` at the module level.
  *
  * `missing` only when `readFileFn` rejects with an error matching
- * `/\(os error 2\)/` **and** a follow-up `existsFn` call resolves `false`
- * (gates M4/R7, plan §5.2 item 1). `exists()` is only ever consulted after a
+ * `/\(os error 2\)/` **and** a follow-up `existsFn` call resolves `false`.
+ * `exists()` is only ever consulted after a
  * matching read failure, never on a healthy read. An `exists()` throw --
  * e.g. a Tauri fs scope violation -- is `error`, not `missing`: it tells us
  * nothing about whether the file exists. Any other `readFileFn` error
  * (including `os error 3`, and Android's differently formatted errors) is
- * also `error` -- the safe direction, per plan.
+ * also `error` -- the safe direction.
  */
 export async function classifyTauriColdRead(
     path: string,
@@ -245,7 +244,7 @@ async function readLocalColdStorageValue(key: string): Promise<ColdStorageReadRe
 }
 
 /**
- * Three-way cold-storage reader (CHORE-07 stage 7c-1, plan §5.2 item 1).
+ * Three-way cold-storage reader (CHORE-07).
  * Classifies I/O and decoding only -- see `ColdStorageReadResult` above for
  * why there is no shape check here.
  *
@@ -354,8 +353,8 @@ export async function listColdStorageItems():Promise<{items:string[]}> {
 /**
  * Reads every cold-stored character's own blob and collects both its
  * pointer keys (chats already sent to cold storage) and its error-text
- * keys, so `cleanColdStorage` doesn't wrongly treat those blobs as unused
- * (F1, ledger 26). The stub's own `coldStoragedChats` only captures chats
+ * keys, so `cleanColdStorage` doesn't wrongly treat those blobs as unused.
+ * The stub's own `coldStoragedChats` only captures chats
  * whose `message[0]` still started with `coldStorageHeader` at the moment
  * the character itself went cold (the `coldStoragedChats` scan in
  * `makeColdDataForCharacter`), so it misses both a chat later corrupted
@@ -690,12 +689,12 @@ export async function makeColdDataForChat(i:number, j:number, coldTime:number): 
     }
 
     if(matchColdStorageLoadErrorKey(chat.message?.[0]?.data)){
-        // This chat's message[0] is the pre-7b "could not be loaded" error
+        // This chat's message[0] is the legacy "could not be loaded" error
         // text, not ordinary content -- it is still the key
         // `retryLegacyColdChatLoad` needs and `listRecoverableErrorKeysFromDb`
         // keeps track of. Making it cold again would bury the original key
-        // inside a brand-new blob, unreachable by either (F4, CHORE-07 stage
-        // 7c-2, plan §5.3 "scope" item 1). Once Retry succeeds, message[0]
+        // inside a brand-new blob, unreachable by either (CHORE-07). Once
+        // Retry succeeds, message[0]
         // is ordinary text again and this chat can be made cold normally.
         return false
     }
@@ -869,22 +868,21 @@ export async function makeColdData(){
  *                    when the pointer was replaced by something else while
  *                    the read was in flight (see the R4 case below), or
  *                    when the user switched to a different character while
- *                    the read was in flight (CHORE-07 stage 7c-1, plan §5.2
- *                    item 4) -- in either case, by the time the read
- *                    finishes, restoring into this chat would be wrong.
+ *                    the read was in flight (CHORE-07) -- in either case, by
+ *                    the time the read finishes, restoring into this chat
+ *                    would be wrong.
  *   - `'ok'`      -- the read succeeded and the chat's messages/side fields
  *                    were restored.
  *   - `'missing'` -- the reader positively confirmed the data doesn't exist
- *                    (CHORE-07 stage 7c-1). Never mutates the chat, exactly
+ *                    (CHORE-07). Never mutates the chat, exactly
  *                    like `'error'` -- the pointer is left in place, since a
  *                    `.bin` restore from another device might still hold
  *                    the blob.
  *   - `'error'`   -- the read failed ambiguously, or returned data in a
- *                    shape we don't recognize (CHORE-07 stage 7b: unlike
- *                    the pre-7b behaviour, this never mutates `chat.message`
- *                    and never rejects the returned promise -- the pointer
- *                    is left in place so the read can simply be retried by
- *                    reopening the chat).
+ *                    shape we don't recognize (CHORE-07): this never mutates
+ *                    `chat.message` and never rejects the returned promise --
+ *                    the pointer is left in place so the read can simply be
+ *                    retried by reopening the chat.
  */
 export type PreLoadChatResult = 'none' | 'ok' | 'missing' | 'error'
 
@@ -947,7 +945,7 @@ export async function preLoadChat(characterIndex:number, chatIndex:number): Prom
     // while we were awaiting the read. A restore that lands on a
     // non-selected character is never tracked for saving, so a later
     // cleanup could delete this blob while the saved database still holds
-    // the pointer (CHORE-07 stage 7c-1, plan §5.2 item 4, gate finding 2).
+    // the pointer (CHORE-07).
     // Compared by chaId, not by index alone, since the character array can
     // reorder between the capture above and this point.
     const selectedIndex = get(selectedCharID)
@@ -982,9 +980,9 @@ export async function preLoadChat(characterIndex:number, chatIndex:number): Prom
 
 /**
  * `retryLegacyColdChatLoad`'s outcome, mirroring `PreLoadChatResult` but for
- * a chat whose `message[0]` already holds the pre-7b "could not be loaded"
+ * a chat whose `message[0]` already holds the legacy "could not be loaded"
  * error text (`matchColdStorageLoadErrorKey`), rather than a live
- * `coldStorageHeader` pointer (CHORE-07 stage 7c-2, plan §5.3 item 2):
+ * `coldStorageHeader` pointer (CHORE-07):
  *   - `'none'`    -- the chat's first message isn't (or is no longer) that
  *                    exact error text, the selected character changed while
  *                    the read was in flight, or the chat identity/order at
@@ -1039,7 +1037,7 @@ export async function retryLegacyColdChatLoad(characterIndex:number, chatIndex:n
     // The user may have switched to a DIFFERENT CHARACTER entirely while we
     // were awaiting the read. Compared by chaId, not index alone, since the
     // character array can reorder in between (mirrors preLoadChat's race
-    // check, CHORE-07 stage 7c-1, plan §5.2 item 4).
+    // check, CHORE-07).
     const selectedIndex = get(selectedCharID)
     if(DBState.db?.characters?.[selectedIndex]?.chaId !== chaId){
         return 'none'
@@ -1047,7 +1045,7 @@ export async function retryLegacyColdChatLoad(characterIndex:number, chatIndex:n
 
     // Require the exact same chat object still sitting at chatIndex -- a
     // plugin could have replaced the character or reordered its chats
-    // underneath us while we awaited the read (gate finding 4a/4b).
+    // underneath us while we awaited the read.
     if(DBState.db?.characters?.[selectedIndex]?.chats?.[chatIndex] !== chat){
         return 'none'
     }
@@ -1082,15 +1080,14 @@ export async function retryLegacyColdChatLoad(characterIndex:number, chatIndex:n
     }
 
     // Computed only now, from the same identity-checked chat object, after
-    // the await (gate finding 4a/4b) -- drops the error-text message[0] and
+    // the await -- drops the error-text message[0] and
     // keeps every message sent after it, by identity.
     const droppedErrorMessage = chat.message[0]
     const tail = chat.message.slice(1)
 
     if(isLegacyArray){
         // A legacy array blob never carried side fields in the first place
-        // -- leave every live side field untouched (CHORE-07 stage 7c-2,
-        // plan §5.3 item 2).
+        // -- leave every live side field untouched (CHORE-07).
         chat.message = [...(coldData as typeof chat.message), ...tail]
     }
     else{
@@ -1107,8 +1104,7 @@ export async function retryLegacyColdChatLoad(characterIndex:number, chatIndex:n
         // be malformed (e.g. a truthy, non-iterable `localLore` or
         // `hypaV3Data.summaries`), which throws inside the merge. Catching
         // it here, before `chat.message` (or anything else) is touched,
-        // keeps the mutate-nothing contract for a bad blob (post-gate
-        // finding 1).
+        // keeps the mutate-nothing contract for a bad blob.
         let merged: ReturnType<typeof mergeRetriedColdChatSideFields>
         try {
             merged = mergeRetriedColdChatSideFields(

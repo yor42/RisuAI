@@ -1,5 +1,5 @@
 /**
- * AV-2 (`Agents/Reports/14-av2-lazy-avatar-plan.md`, section 3.1): a shared
+ * AV-2: a shared
  * Svelte action that reports whether an element is near enough to its
  * scrolling ancestor to resolve its avatar, and far enough away to release
  * it again.
@@ -38,7 +38,7 @@ export const FAR_MARGIN = '300% 0px'
  * `node` is the element THIS action instance is attached to. Callers that
  * key visibility by something other than the element itself (an index, an
  * id shared across several DOM nodes over a session -- see the module doc
- * below on "ownership") need it to resolve the MAJOR-2 unmount hazard: it
+ * below on "ownership") need it to resolve the on-unmount ownership hazard: it
  * lets a caller record which element currently "owns" a given key, and
  * only clear that key when the element clearing it still owns it.
  */
@@ -54,7 +54,7 @@ interface Entry {
 }
 
 /**
- * Registry lifecycle (plan section 3.1, gate BLOCKER 1): roots come and go
+ * Registry lifecycle: roots come and go
  * (a dialog's own `overflow-y-auto` box is a fresh element every time it
  * opens), so nothing here may pin a detached root alive. Keying live roots
  * in a `WeakMap` lets a detached root, and everything hung off it in this
@@ -142,7 +142,7 @@ function getOrCreateEntry(root: Element | null, margin: string, IO: typeof Inter
  * an absent key is a no-op, so the size check below still correctly decides
  * whether to disconnect an entry that in fact never held anything.
  *
- * Deliberately defensive (gate BLOCKER, ledger post-implementation review):
+ * Deliberately defensive:
  * a broken/throwing `unobserve`/`disconnect` on the underlying observer must
  * never stop the registry bookkeeping itself from completing, since this is
  * also the cleanup path used to recover from a construction-time failure.
@@ -174,7 +174,7 @@ function removeTarget(root: Element | null, margin: string, node: Element): void
 }
 
 /**
- * Accepted-gap mitigation (plan section 5.1): happy-dom has no layout, so
+ * Accepted-gap mitigation: happy-dom has no layout, so
  * there is no automated guard that the chosen root actually clips its
  * items. As a cheap, dev-only signal, log once per root when more than
  * three root-heights' worth of targets are simultaneously intersecting at
@@ -213,11 +213,11 @@ function checkOversubscription(root: Element | null, entry: Entry, records: Inte
 /**
  * Shared shape for every "this element is just permanently visible" case:
  * no `IntersectionObserver` global at all, and (below) a global that exists
- * but throws while this action tries to use it. Both fail open exactly like
- * pre-AV-2 behaviour -- the avatar resolves and stays resolved -- and both
+ * but throws while this action tries to use it. Both fail open the same way
+ * -- the avatar resolves and stays resolved -- and both
  * still call `onChange(false, node)` on unmount so a caller's ownership map
- * (MAJOR-2) doesn't accumulate a stale entry for an element that never
- * actually got observed.
+ * (the on-unmount ownership hazard) doesn't accumulate a stale entry for an
+ * element that never actually got observed.
  */
 function alwaysVisibleAction(node: Element, initialOnChange: NearViewportOptions['onChange']) {
     let onChange = initialOnChange
@@ -235,14 +235,14 @@ function alwaysVisibleAction(node: Element, initialOnChange: NearViewportOptions
 export function nearViewport(node: Element, options: NearViewportOptions) {
     const IO = (globalThis as { IntersectionObserver?: typeof IntersectionObserver }).IntersectionObserver
     if (!IO) {
-        // Fail open: no observer support means every avatar resolves, exactly
-        // like the pre-AV-2 behaviour.
+        // Fail open: no observer support means every avatar resolves and
+        // stays resolved.
         return alwaysVisibleAction(node, options.onChange)
     }
 
     let onChange = options.onChange
 
-    // Fail open (gate BLOCKER, post-implementation review): a real but
+    // Fail open: a real but
     // broken/throwing IntersectionObserver -- the constructor, `.observe()`,
     // or (via `findScrollRoot`) even `getComputedStyle` -- must not abort
     // this action's setup uncaught. An uncaught throw here happens inside a
@@ -289,7 +289,7 @@ export function nearViewport(node: Element, options: NearViewportOptions) {
         destroy() {
             removeTarget(root, NEAR_MARGIN, node)
             removeTarget(root, FAR_MARGIN, node)
-            // MAJOR-2 (post-implementation review): an item must leave its
+            // An item must leave its
             // caller's visible-set on unmount, not only via the far band --
             // otherwise a tab switch, a folder closing, or a search that
             // narrows the list leaks that item's key forever, since nothing

@@ -2,11 +2,10 @@
 
 /**
  * Regression coverage for `Communities.svelte`'s Discord button (`MC-054`):
- * this file's own invite was found stale (`JzP8tB9ZK8`, a different invite
- * than the one `MainMenu.svelte`'s Discord card already opens) and was
- * corrected to match. Two invites to the same server in source is exactly
- * what `MC-054` exists to prevent, so this test pins the corrected invite
- * against regressing back to the stale one.
+ * `MC-054` standardises the app on a single Discord invite
+ * (`Exy3NrqkGm`, the same one `MainMenu.svelte`'s Discord card opens), so
+ * this test pins `Communities.svelte`'s own invite against drifting to a
+ * different one.
  *
  * `src/ts/globalApi.svelte` is mocked so `openURL` can be asserted on
  * without ever calling `window.open` or the Tauri `open` plugin.

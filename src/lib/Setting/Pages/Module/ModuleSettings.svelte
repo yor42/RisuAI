@@ -181,7 +181,7 @@
     <Button className="mt-6" onclick={() => {
         // tempModule was already pushed onto DBState.db.modules when create mode was
         // entered (the "+" button above), so it doesn't need to be pushed again here —
-        // doing so previously inserted every newly-created module twice.
+        // doing so would insert every newly-created module twice.
         mode = 0
     }}>{language.createModule}</Button>
 {:else if mode === 2}

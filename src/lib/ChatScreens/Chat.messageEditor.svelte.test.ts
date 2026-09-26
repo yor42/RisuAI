@@ -1,16 +1,14 @@
 // @vitest-environment happy-dom
 
 /**
- * Tests for Report 20 ("durable drafts"), the MAIN (original-text) message
- * editor half of the stage -- `Agents/Reports/20-durable-drafts-plan.md`
- * §2.2, §3.1, §4, §5.1, §5.2, §5.3, §5.5, §8. Scope is `Chat.svelte`'s main
- * editor only -- not the translation editor, not the §5.4 restore
- * affordance, not the §6 cap.
+ * Tests for the durable-draft buffer/identity/capture behaviour of the MAIN
+ * (original-text) message editor. Scope is `Chat.svelte`'s main editor only
+ * -- not the translation editor, not the restore marker, not the multi-tab
+ * capture cap.
  *
- * Most of these tests fail without the durable-drafts change: they pin the
- * buffer/identity/capture behaviour that change introduces. Four are guards
- * instead -- they already pass beforehand and are kept here to pin behaviour
- * that must not regress, not to prove anything new:
+ * Most of these tests pin buffer/identity/capture behaviour. Four are guards
+ * instead -- kept here to pin behaviour that must not regress, independent
+ * of whether draft capture exists:
  * - "opening the editor with no matching draft seeds the buffer from the
  *   message prop"
  * - "a draft record whose stored base text no longer matches is not
@@ -20,7 +18,7 @@
  * - "a surviving instance that saves after a branch writes into the NEW
  *   chat, not the old one"
  *
- * This mounts the REAL `Chat.svelte` (and, for the §2.2 repro, the REAL
+ * This mounts the REAL `Chat.svelte` (and, for the BookmarkList repro, the REAL
  * `BookmarkList.svelte`, which mounts `Chat.svelte` itself) against the REAL
  * `src/ts/draftContentOrphanGate.ts` (and the `src/ts/draftContents.ts`
  * store it wraps), `src/ts/localDrafts.ts` and `src/ts/chatWindowPolicy.ts`
@@ -67,7 +65,7 @@ vi.mock(import('src/ts/globalApi.svelte'), async () => {
     const stores = await import('src/ts/stores.svelte')
     return {
         aiLawApplies: vi.fn(() => false),
-        // Mirrors the one thing this file's §5.5 pin needs from the real
+        // Mirrors the one thing this file's chatPage-stays-live pin needs from the real
         // `changeChatTo`: writing `chatPage` for the currently selected
         // character. `SideChatList.svelte`'s copy and `Chat.svelte`'s own
         // branch button both call this with a numeric index (`0`) after
@@ -280,7 +278,7 @@ beforeEach(() => {
 
 //#endregion
 
-describe('Chat.svelte main editor: identity and seeding (§5.1, §5.3)', () => {
+describe('Chat.svelte main editor: identity and seeding', () => {
     // A guard, not a durable-drafts pin: this already holds with no stored
     // draft in play, and must keep holding.
     test('opening the editor with no matching draft seeds the buffer from the message prop', () => {
@@ -323,11 +321,8 @@ describe('Chat.svelte main editor: identity and seeding (§5.1, §5.3)', () => {
         expect(textarea!.value).toBe('draft text typed earlier')
     })
 
-    // A guard: this already holds before the durable-drafts change because
-    // the editor there never restores from the store at all -- nothing is
-    // ever seeded from a stored draft, matching or not. Pinned here so the
-    // restore path added by that change can never seed from a record whose
-    // stored base text no longer matches.
+    // A guard: the restore path must never seed from a record whose stored
+    // base text no longer matches the current message.
     test('a draft record whose stored base text no longer matches is not restored: seeds from message instead', () => {
         DBState.db = baseDb() as never
         const chat = makeChat([makeMessage('new text after reroll', 'chat-id-1')])
@@ -350,7 +345,7 @@ describe('Chat.svelte main editor: identity and seeding (§5.1, §5.3)', () => {
         expect(textarea!.value).toBe('new text after reroll')
     })
 
-    test('the identity is frozen at open and never re-derived when the message backfills a chatId mid-edit (§4.1, §5.1)', async () => {
+    test('the identity is frozen at open and never re-derived when the message backfills a chatId mid-edit', async () => {
         DBState.db = baseDb() as never
         const msg = makeMessage('typed but never sent', undefined)
         const chat = makeChat([msg])
@@ -402,7 +397,7 @@ describe('Chat.svelte main editor: identity and seeding (§5.1, §5.3)', () => {
     })
 })
 
-describe('Chat.svelte main editor: both edit surfaces move to the buffer (§5.2)', () => {
+describe('Chat.svelte main editor: both edit surfaces move to the buffer', () => {
     test('the cardboard theme textarea also decouples from the message prop', async () => {
         DBState.db = baseDb({ theme: 'cardboard' }) as never
         const chat = makeChat([makeMessage('cardboard original', 'chat-id-1')])
@@ -462,7 +457,7 @@ describe('Chat.svelte main editor: capture and save (baseline)', () => {
         // plain object `chat` was constructed from -- Svelte's `$state`
         // proxy does not write mutations onto the original raw object.
         expect(DBState.db.characters[0].chats[0].message[0].data).toBe('edited text')
-        // Deliberate exit (save) clears the draft (§1). Read with the OLD
+        // Deliberate exit (save) clears the draft. Read with the OLD
         // base ('original', what the record was actually stored under) --
         // not the new post-save base ('edited text'). Reading with the new
         // base would be a mismatched read, which `get()` itself self-deletes
@@ -513,7 +508,7 @@ describe('Chat.svelte main editor: capture and save (baseline)', () => {
     })
 })
 
-describe('Chat.svelte main editor: capture holds the multi-tab gate after the editor instance goes away (§6)', () => {
+describe('Chat.svelte main editor: capture holds the multi-tab gate after the editor instance goes away', () => {
     test('an involuntary loss of the editor instance unregisters the message-kind liveness but leaves the orphan registration (and the record) in place', async () => {
         DBState.db = baseDb() as never
         const chat = makeChat([makeMessage('original', 'chat-id-1')])
@@ -563,7 +558,7 @@ describe('Chat.svelte main editor: capture holds the multi-tab gate after the ed
     })
 })
 
-describe('Chat.svelte main editor: rehydration never sets editMode (§3.1)', () => {
+describe('Chat.svelte main editor: rehydration never sets editMode', () => {
     // A guard: a mount with no capture wiring at all also never opens the
     // editor, so this already holds; it stays pinned so a future change
     // cannot make a restore-eligible record auto-open the editor.
@@ -582,7 +577,7 @@ describe('Chat.svelte main editor: rehydration never sets editMode (§3.1)', () 
 
         // No editor open: no edit textarea in the DOM.
         expect(target.querySelector('.message-edit-area')).toBeNull()
-        // No liveness registered either -- the window-policy immunity (§3.1)
+        // No liveness registered either -- the window-policy immunity
         // depends on this.
         expect(hasMessageEditorDrafts()).toBe(false)
         // The record itself must still be there (nothing silently cleared
@@ -592,7 +587,7 @@ describe('Chat.svelte main editor: rehydration never sets editMode (§3.1)', () 
     })
 })
 
-describe('Chat.svelte main editor: §2.2 BookmarkList repro -- typing on one row survives a sibling row being removed', () => {
+describe('Chat.svelte main editor: BookmarkList repro -- typing on one row survives a sibling row being removed', () => {
     test('typing into one expanded bookmark survives a different bookmark being removed, both in the DOM and in the draft record', async () => {
         DBState.db = baseDb() as never
         const msgA = makeMessage('bookmark A original', 'chatid-a')
@@ -636,8 +631,8 @@ describe('Chat.svelte main editor: §2.2 BookmarkList repro -- typing on one row
 
         // Remove bookmark B -- a DIFFERENT bookmark's trash icon. This
         // causes `bookmarkedMessages` to recompute and mints a fresh item
-        // object for A's surviving keyed block (same `chatId` key), per
-        // §2.2. This is a survive-and-reuse event, not a destroy/remount.
+        // object for A's surviving keyed block (same `chatId` key). This is a
+        // survive-and-reuse event, not a destroy/remount.
         const trashB = rows[1].querySelector<HTMLButtonElement>('.hover\\:text-red-500')!
         trashB.click()
         flushSync()
@@ -664,11 +659,10 @@ describe('Chat.svelte main editor: §2.2 BookmarkList repro -- typing on one row
     })
 })
 
-describe('Chat.svelte main editor: §5.5 pin -- edit() reads chatPage live, not frozen', () => {
-    // A guard: `edit()`'s live chatPage read predates the durable-drafts
-    // change and already holds; pinned here so a future change to `edit()`
-    // cannot introduce the frozen-chatPage cross-chat data loss §5.5
-    // rejected.
+describe('Chat.svelte main editor: pin -- edit() reads chatPage live, not frozen', () => {
+    // A guard: `edit()` must keep reading chatPage live, not frozen, so a
+    // future change cannot introduce cross-chat data loss by writing into
+    // the wrong chat page.
     test('a surviving instance that saves after a branch writes into the NEW chat, not the old one', async () => {
         DBState.db = baseDb({ useChatCopy: false }) as never
         // The chat being edited starts at page 1 (NOT 0) -- deliberately, so
@@ -688,7 +682,7 @@ describe('Chat.svelte main editor: §5.5 pin -- edit() reads chatPage live, not 
         // below (production reuses it because branch/copy build the new chat
         // via `$state.snapshot`, preserving message hashes; this test
         // exercises `edit()`'s own save-path behaviour directly, which is
-        // what the §5.5 pin is about).
+        // what this pin is about).
         target.querySelector<HTMLButtonElement>('.button-icon-edit')!.click()
         flushSync()
         const textarea = target.querySelector<HTMLTextAreaElement>('.message-edit-area')!
@@ -723,8 +717,8 @@ describe('Chat.svelte main editor: §5.5 pin -- edit() reads chatPage live, not 
         expect(chara.chats[0].message[0].data).toBe('saved after branch')
         // The decoy chat, now at index 1 (the FROZEN-at-open page number),
         // must be untouched -- a frozen `chatPage` would have written here
-        // instead, and being an unrelated "background" chat now, this is
-        // exactly the silent cross-chat data loss §5.5 rejected.
+        // instead, and being an unrelated "background" chat now, that would
+        // be exactly the silent cross-chat data loss this pin guards against.
         expect(chara.chats[1].message[0].data).toBe('unrelated decoy')
         // The original chat itself, now at index 2, is untouched either way.
         expect(chara.chats[2].message[0].data).toBe('shared base')
