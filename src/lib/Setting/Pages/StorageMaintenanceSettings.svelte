@@ -5,6 +5,9 @@
     import Check from "src/lib/UI/GUI/CheckInput.svelte";
     import { verifyAssetIntegrity, isOpfsEnabled, enableOpfs, disableOpfs } from "src/ts/storage/storageMaintenance";
 
+    // Reflects the backend this tab is actually running on
+    // (isOpfsEnabled() reads forageStorage.realStorage), not just the
+    // opfs_flag! localStorage flag -- see storageMaintenance.ts.
     const opfsSupported = !!(
         typeof window !== 'undefined' &&
         window.navigator?.storage?.getDirectory &&

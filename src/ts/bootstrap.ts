@@ -14,9 +14,9 @@ import { get } from "svelte/store";
 import { setDatabase, defaultSdDataFunc, getDatabase } from "./storage/database.svelte";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { checkRisuUpdate } from "./update";
-import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState } from "./stores.svelte";
+import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, alertStore } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
-import { alertError, alertMd, alertStaleAccountNotice, waitAlert, alertConfirm, alertInput, alertToast } from "./alert";
+import { alertError, alertMd, alertStaleAccountNotice, alertNormal, waitAlert, alertConfirm, alertInput, alertToast } from "./alert";
 import { checkDriverInit } from "./drive/drive";
 import { characterURLImport, handlePendingRealmLink } from "./characterCards";
 import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from "./storage/defaultPrompts";
@@ -51,6 +51,23 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { appDataDir, join } from "@tauri-apps/api/path";
 
 const appWindow = isTauri ? getCurrentWebviewWindow() : null
+
+/**
+ * Resolves the next time the alert store returns to `type: 'none'`, the way
+ * a blocking notice below is acknowledged -- reacts to the store write
+ * directly instead of polling on a timer, so it settles on the very write
+ * that clears the alert regardless of how that write is scheduled.
+ */
+function waitForAlertCleared(): Promise<void> {
+    return new Promise<void>((resolve) => {
+        const unsubscribe = alertStore.subscribe((v) => {
+            if (v.type === 'none') {
+                resolve()
+                unsubscribe()
+            }
+        })
+    })
+}
 
 /**
  * Loads the application data.
@@ -156,6 +173,23 @@ export async function loadData() {
                     if (!backupLoaded) {
                         throw "Forage: Your save file is corrupted"
                     }
+                }
+
+                // CHORE-39: the OPFS boot copy in AutoStorage.Init() records a
+                // reason here instead of posting UI itself, since Init() runs
+                // before setDatabase() above has picked the boot language.
+                // Shown once, after decode, so the notice is translated. Both
+                // this notice and the stale-account notice below are posted
+                // before loadedStore is set; they never collide because this
+                // one is awaited to clear before the stale-account check runs.
+                if (forageStorage.opfsSwitchNotice) {
+                    const notice = forageStorage.opfsSwitchNotice
+                    const message = notice.reason === 'quota' ? language.opfsSwitchNoticeQuota
+                        : notice.reason === 'unsupported' ? language.opfsSwitchNoticeUnsupported
+                        : notice.reason === 'interrupted' ? language.opfsSwitchNoticeInterrupted
+                        : language.opfsSwitchNoticeError(notice.detail ?? '')
+                    alertNormal(message)
+                    await waitForAlertCleared()
                 }
 
                 // I6: a returning RisuAccount-sync profile (AutoStorage.Init()

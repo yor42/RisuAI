@@ -4,7 +4,7 @@
 // component hosts them.
 import { alertConfirm, alertError, alertMd, alertNormal, alertStore } from "../alert"
 import { OpfsStorage } from "./opfsStorage"
-import { acquireExclusiveStorageMigrationLock, getUncleanablesSync } from "../globalApi.svelte"
+import { acquireExclusiveStorageMigrationLock, getUncleanablesSync, forageStorage } from "../globalApi.svelte"
 import { scanAssetCacheIntegrity, evictAssetCacheEntries } from "./assetIntegrity"
 import { markAppInitiatedReload } from "../reloadGuard"
 import { DBState } from "../stores.svelte"
@@ -85,23 +85,53 @@ export async function verifyAssetIntegrity(): Promise<void> {
 }
 
 /**
- * Whether the OPFS storage backend is the currently selected one, per the
- * same `localStorage` flag `AutoStorage.Init()` reads.
+ * Whether this tab's storage is actually running on OPFS right now --
+ * reads the backend `AutoStorage.Init()` selected, not the `opfs_flag!`
+ * localStorage flag, which a hand edit or an interrupted switch can leave
+ * out of step with the backend in use.
  */
 export function isOpfsEnabled(): boolean {
-    return localStorage.getItem('opfs_flag!') === 'able'
+    return forageStorage.realStorage instanceof OpfsStorage
+}
+
+/**
+ * Checks free space against `navigator.storage.estimate()` before the
+ * switch is even confirmed further, and warns if the copy (which needs
+ * roughly as much free space again as the data it copies, since the
+ * source is never removed) looks unlikely to fit. Skips silently, never
+ * refusing, when `estimate()` is unavailable or throws -- the threshold
+ * overestimates anyway (usage includes cold storage and caches), so a
+ * false positive only costs an extra prompt.
+ */
+async function confirmEnoughSpaceForSwitch(): Promise<boolean> {
+    try {
+        const estimate = await navigator.storage?.estimate?.()
+        if (!estimate || typeof estimate.usage !== 'number' || typeof estimate.quota !== 'number') {
+            return true
+        }
+        const free = estimate.quota - estimate.usage
+        if (free >= estimate.usage) {
+            return true
+        }
+        return await alertConfirm(language.opfsEnableSpaceWarningConfirm(estimate.usage, free))
+    } catch {
+        return true
+    }
 }
 
 export async function enableOpfs(): Promise<void> {
     if (!await alertConfirm(language.opfsEnableConfirm)) {
         return
     }
+    if (!await confirmEnoughSpaceForSwitch()) {
+        return
+    }
     // A live second tab writing through the OLD backend during migration
     // could have its write silently lost once the migration switches which
     // backend future boots use. This is real cross-tab mutual exclusion
-    // (Web Locks), not a heartbeat/timeout check — see the lock's own doc
-    // comment in globalApi.svelte.ts for why a ping-based liveness check
-    // isn't sufficient here.
+    // (Web Locks), not a heartbeat/timeout check — see storageTabLocks.ts's
+    // module header for why a ping-based liveness check isn't sufficient
+    // here.
     const releaseMigrationLock = await acquireExclusiveStorageMigrationLock()
     if (!releaseMigrationLock) {
         alertError(language.storageMigrationLockError)
@@ -118,6 +148,17 @@ export async function enableOpfs(): Promise<void> {
 }
 
 export async function disableOpfs(): Promise<void> {
+    // A backend Init() has positively identified as something other than
+    // OPFS can never be switched back from here. The check reads the backend
+    // in use, not opfs_flag!: a hand-set flag, or any other divergence
+    // between the flag and the backend, must not copy OPFS data back over a
+    // newer LocalForage copy. A not-yet-initialized
+    // realStorage isn't treated as a refusal: Init() always fills it in
+    // before Settings can reach this, so this only ever matters as a guard.
+    if (forageStorage.realStorage && !(forageStorage.realStorage instanceof OpfsStorage)) {
+        alertError(language.opfsDisableRefused)
+        return
+    }
     if (!await alertConfirm(language.opfsDisableConfirm)) {
         return
     }

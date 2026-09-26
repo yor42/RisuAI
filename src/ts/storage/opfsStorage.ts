@@ -10,7 +10,22 @@ export class OpfsStorage{
             create: true
         })
         const stream = await handle.createWritable()
-        await stream.write(asBuffer(value))
+        try {
+            await stream.write(asBuffer(value))
+        } catch (error) {
+            // Under the File System spec's entry lock, a still-open writable
+            // can block removeEntry() on this same file -- best-effort abort()
+            // it before rethrowing, which may let a caller cleaning up this key
+            // (see AutoStorage.copyLocalForageIntoOpfs's failure path) remove
+            // it. A write that already errored the stream is not helped. Any error from abort() itself is not the original
+            // failure and is dropped.
+            try {
+                await stream.abort()
+            } catch {
+                // ignored: the original write error is what matters
+            }
+            throw error
+        }
         await stream.close()
     }
     async getItem(key:string):Promise<Buffer> {
@@ -35,7 +50,16 @@ export class OpfsStorage{
         await this.Init()
         let entries:string[] = []
         for await (const entry of this.opfs.values()) {
-            entries.push(Buffer.from(entry.name, 'hex').toString('utf-8'))
+            // Cold storage writes its own `coldstorage_<key>.json` files into
+            // this same OPFS root (`getDirectory()` returns the origin root
+            // to every caller), never hex-encoded -- a name only this class
+            // itself ever wrote round-trips back to the same hex string on
+            // re-encode, so a foreign name is excluded here rather than
+            // surfacing as a garbage "key".
+            const decoded = Buffer.from(entry.name, 'hex').toString('utf-8')
+            if(Buffer.from(decoded, 'utf-8').toString('hex') === entry.name){
+                entries.push(decoded)
+            }
         }
         return entries
     }

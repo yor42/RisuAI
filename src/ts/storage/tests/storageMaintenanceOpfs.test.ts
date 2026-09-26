@@ -41,10 +41,15 @@ vi.mock(import('src/ts/storage/opfsStorage'), () => ({
 }) as unknown as typeof import('src/ts/storage/opfsStorage'))
 
 const acquireLockMock = vi.hoisted(() => vi.fn(async () => vi.fn(async () => {})))
+// A mutable slot standing in for the shared production `forageStorage`
+// singleton's `realStorage` field -- O7 needs `disableOpfs()` to read which
+// backend this tab is actually on, not just the `opfs_flag!` flag.
+const forageStorageMock = vi.hoisted(() => ({ realStorage: null as unknown }))
 
 vi.mock(import('src/ts/globalApi.svelte'), () => ({
     acquireExclusiveStorageMigrationLock: acquireLockMock,
     getUncleanablesSync: vi.fn(() => []),
+    forageStorage: forageStorageMock,
 }) as unknown as typeof import('src/ts/globalApi.svelte'))
 
 vi.mock(import('src/ts/storage/assetIntegrity'), () => ({
@@ -75,8 +80,16 @@ vi.mock('localforage', () => ({
 }))
 
 import { enableOpfs, disableOpfs } from 'src/ts/storage/storageMaintenance'
+import { OpfsStorage } from 'src/ts/storage/opfsStorage'
 
 let reloadSpy: ReturnType<typeof vi.fn>
+
+function stubStorageEstimate(usage: number, quota: number) {
+    Object.defineProperty(window.navigator, 'storage', {
+        value: { estimate: async () => ({ usage, quota }) },
+        configurable: true,
+    })
+}
 
 beforeEach(() => {
     alertConfirmMock.mockReset()
@@ -93,6 +106,7 @@ beforeEach(() => {
     targetRemoveItemMock.mockReset()
     targetRemoveItemMock.mockResolvedValue(undefined)
     markAppInitiatedReloadMock.mockClear()
+    forageStorageMock.realStorage = null
     localStorage.clear()
     reloadSpy = vi.fn()
     // happy-dom's location.reload is not implemented; stub it directly.
@@ -100,6 +114,8 @@ beforeEach(() => {
         value: { ...window.location, reload: reloadSpy },
         writable: true,
     })
+    // Ample space by default; O6's tests override this per scenario.
+    stubStorageEstimate(0, 1_000_000_000)
 })
 
 describe('enableOpfs()', () => {
@@ -193,5 +209,57 @@ describe('disableOpfs()', () => {
         expect(releaseLockMock).toHaveBeenCalledTimes(1)
         expect(alertErrorMock).toHaveBeenCalled()
         expect(reloadSpy).not.toHaveBeenCalled()
+    })
+})
+
+describe('enableOpfs() -- O6: space is checked before the lock', () => {
+    test('guard: ample free space shows no extra prompt beyond the main confirm', async () => {
+        stubStorageEstimate(10, 1_000_000_000) // usage=10, quota huge: free far exceeds usage
+        alertConfirmMock.mockReset()
+        alertConfirmMock.mockResolvedValue(true)
+
+        await enableOpfs()
+
+        expect(alertConfirmMock).toHaveBeenCalledTimes(1)
+        expect(localStorage.getItem('opfs_flag!')).toBe('able')
+    })
+
+    test('regression reproducer: tight free space shows a second confirm before the lock, and declining it leaves the flag unset and takes no lock', async () => {
+        stubStorageEstimate(600, 700) // free (100) well below usage (600) -- the copy may need about as much again
+        alertConfirmMock.mockReset()
+        alertConfirmMock.mockResolvedValueOnce(true) // the main "enable OPFS?" confirm
+        alertConfirmMock.mockResolvedValueOnce(false) // the space-warning confirm
+
+        await enableOpfs()
+
+        expect(alertConfirmMock).toHaveBeenCalledTimes(2)
+        expect(acquireLockMock).not.toHaveBeenCalled()
+        expect(localStorage.getItem('opfs_flag!')).toBeNull()
+        expect(reloadSpy).not.toHaveBeenCalled()
+    })
+})
+
+describe('disableOpfs() -- O7: refuses unless this tab is actually on OPFS', () => {
+    test('regression reproducer: a tab on LocalForage with the flag set by hand never runs the disable action, and never takes the lock', async () => {
+        localStorage.setItem('opfs_flag!', 'able')
+        // A LocalForage-shaped backend, not an OpfsStorage instance -- the flag
+        // being 'able' here models the divergent state O7's refusal must catch.
+        forageStorageMock.realStorage = { getItem: vi.fn(), setItem: vi.fn(), keys: vi.fn(), removeItem: vi.fn() }
+
+        await disableOpfs()
+
+        expect(acquireLockMock).not.toHaveBeenCalled()
+        expect(targetSetItemMock).not.toHaveBeenCalled()
+        expect(localStorage.getItem('opfs_flag!')).toBe('able')
+        expect(reloadSpy).not.toHaveBeenCalled()
+    })
+
+    test('compatibility guard: a tab actually on OPFS still runs the disable action', async () => {
+        localStorage.setItem('opfs_flag!', 'able')
+        forageStorageMock.realStorage = new OpfsStorage()
+
+        await disableOpfs()
+
+        expect(acquireLockMock).toHaveBeenCalled()
     })
 })

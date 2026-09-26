@@ -32,6 +32,7 @@ import { decodeRisuSave, encodeRisuSaveLegacy, RisuSaveEncoder, type toSaveType 
 import { registerDbChangeEffects } from "./storage/dbChangeEffects.svelte";
 import { installCharacterSaveMarks } from "./storage/characterSaveMarks";
 import { AutoStorage } from "./storage/autoStorage";
+import { createStorageTabLocks } from "./storage/storageTabLocks";
 import { updateAnimationSpeed } from "./gui/animation";
 import { updateColorScheme, updateTextThemeAndCSS } from "./gui/colorscheme";
 import { save } from "@tauri-apps/plugin-dialog";
@@ -568,133 +569,27 @@ class AsyncMutex {
 export const dbWriteLock = new AsyncMutex()
 
 /**
- * Real cross-tab mutual exclusion for the storage-backend migration below,
- * built on the browser's Web Locks API (navigator.locks) rather than a
- * ping-and-wait heartbeat — a timeout-based liveness check can never be a
- * genuine guarantee (a backgrounded/suspended tab may simply not get to run
- * its event loop in time, and nothing stops a brand new tab from opening in
- * the gap between "checked, looked clear" and "migration actually finished").
- *
- * Every tab acquires this lock in SHARED mode for its entire lifetime — the
- * request's callback holds it open via a promise that only resolves on tab
- * unload/release, so the lock's continued existence itself is what
- * "announces this tab is alive" (no heartbeat, no timeout to miss). A
- * migration acquires the SAME lock in EXCLUSIVE mode; the browser guarantees
- * that request cannot be granted while any shared holder exists, and holding
- * it through the whole migration (not just a point-in-time check) also
- * blocks any NEW tab's shared acquisition from succeeding until the
- * migration finishes and releases — closing both the "suspended peer missed
- * the ping" and "new tab opened mid-copy" gaps a heartbeat approach cannot.
+ * Production's single storage tab locks instance (see
+ * `storageTabLocks.ts`'s single-instance rule) — built against
+ * `navigator.locks` and `dbWriteLock` above, the same write mutex `saveDb()`
+ * and `loadDrive()` take. `AutoStorage` defaults to this instance too.
  */
-const STORAGE_TAB_LOCK_NAME = 'risu-storage-tab-presence'
-
-// Release function for THIS tab's own shared presence hold, or null while
-// none is currently held (e.g. mid-migration-attempt — see
-// acquireExclusiveStorageMigrationLock below).
-let releaseOwnSharedPresenceLock: (() => void) | null = null
-
-function acquireOwnSharedPresenceLock(): Promise<void> {
-    if (typeof navigator === 'undefined' || !navigator.locks) {
-        return Promise.resolve()
-    }
-    return new Promise<void>((resolveAcquired) => {
-        navigator.locks.request(STORAGE_TAB_LOCK_NAME, { mode: 'shared' }, () => {
-            return new Promise<void>((resolveHeld) => {
-                // Deliberately not resolved here — this callback (and therefore the
-                // shared lock) stays held until releaseOwnSharedPresenceLock() is
-                // called, which normally only happens right before requesting the
-                // exclusive lock below (never on ordinary tab lifetime — the lock is
-                // released implicitly when the tab/document goes away).
-                releaseOwnSharedPresenceLock = () => {
-                    releaseOwnSharedPresenceLock = null
-                    resolveHeld()
-                }
-                resolveAcquired()
-            })
-        }).catch(() => resolveAcquired())
-    })
-}
+const storageTabLocks = createStorageTabLocks(
+    typeof navigator === 'undefined' ? undefined : navigator.locks,
+    dbWriteLock
+)
 
 /** Resolves once this tab's own shared presence lock has actually been granted. */
-export const tabPresenceLockAcquired: Promise<void> = acquireOwnSharedPresenceLock()
+export const tabPresenceLockAcquired: Promise<void> = storageTabLocks.tabPresenceLockAcquired
 
 /**
- * Attempts to acquire the same lock in EXCLUSIVE mode, for a storage-backend
- * migration. Resolves to a release function once granted (call it when the
- * migration — including the reload that should immediately follow — is
- * fully done), or `null` if it couldn't be granted within `timeoutMs`
- * (meaning at least one other tab is currently alive) or Web Locks isn't
- * supported in this browser at all. Internally also acquires `dbWriteLock` —
- * callers must NOT separately acquire it themselves.
- *
- * Ordering here is load-bearing:
- *
- * 1. `dbWriteLock` is acquired FIRST, before this tab even attempts the
- *    cross-tab exclusive lock. A tab that has only QUEUED for the exclusive
- *    lock (not yet been granted it) is otherwise still a fully active writer
- *    for however long it waits — if a DIFFERENT tab wins that race and starts
- *    migrating, the still-queued tab's autosave loop could write the old
- *    backend concurrently with that migration, silently losing data. Every
- *    tab that even attempts a migration must stop writing immediately, win or
- *    lose the race for the exclusive lock.
- * 2. The exclusive request is queued (the `navigator.locks.request()` call
- *    made) BEFORE releasing this tab's own shared presence hold, not after —
- *    releasing first would leave a window where this tab holds no shared lock
- *    AND has no exclusive request queued yet (invisible to the lock
- *    entirely), during which a concurrent attempt from another tab could slip
- *    in unaccounted-for. Queuing first means this request's position
- *    correctly reflects every other tab's shared hold that exists at the
- *    moment it's queued.
- * 3. Web Locks aren't reentrant and have no shared→exclusive upgrade, so this
- *    tab's own permanent shared hold must be released at all — otherwise step
- *    2's request would deadlock against itself even with zero other tabs
- *    open.
+ * Attempts to acquire the storage tab lock in EXCLUSIVE mode, for a
+ * storage-backend migration. See `storageTabLocks.ts`'s
+ * `acquireExclusiveStorageMigrationLock` for the full contract and its
+ * load-bearing ordering; internally also acquires `dbWriteLock` — callers
+ * must NOT separately acquire it themselves.
  */
-export async function acquireExclusiveStorageMigrationLock(timeoutMs = 5000): Promise<(() => Promise<void>) | null> {
-    if (typeof navigator === 'undefined' || !navigator.locks) {
-        return null
-    }
-
-    const releaseWriteLock = await dbWriteLock.acquire()
-
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), timeoutMs)
-    const exclusiveRequest = new Promise<() => void>((resolveOuter, rejectOuter) => {
-        navigator.locks.request(STORAGE_TAB_LOCK_NAME, { mode: 'exclusive', signal: controller.signal }, () => {
-            return new Promise<void>((resolveHeld) => {
-                resolveOuter(() => resolveHeld())
-            })
-        }).catch(rejectOuter)
-    })
-    // Queued above; only now release our own shared hold — see doc comment.
-    releaseOwnSharedPresenceLock?.()
-
-    let granted: (() => void) | null = null
-    try {
-        granted = await exclusiveRequest
-    } catch (error) {
-        granted = null
-    } finally {
-        clearTimeout(timer)
-    }
-
-    if (!granted) {
-        // Didn't get it (another tab is alive, or the wait timed out) — resume
-        // correctly announcing this tab as present, THEN let it write again.
-        await acquireOwnSharedPresenceLock()
-        releaseWriteLock()
-        return null
-    }
-    return async () => {
-        granted()
-        // Only meaningful if the caller is recovering from a failed migration
-        // without reloading (see disableOpfs()'s catch path) — on the success
-        // path the tab reloads immediately after, making this moot (dbWriteLock
-        // stays held until then, same as loadDrive()'s restore write).
-        await acquireOwnSharedPresenceLock()
-        releaseWriteLock()
-    }
-}
+export const acquireExclusiveStorageMigrationLock = storageTabLocks.acquireExclusiveStorageMigrationLock
 
 export interface BootSaveSequenceOptions {
     tracker: toSaveType
