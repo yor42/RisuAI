@@ -1,7 +1,13 @@
 # CHORE-33 — RisuAccount removal
 
-**STATUS:** plan rev 3.2, 2026-09-25. **Gate 1 approved rev 3**: round 3, all four lenses
-APPROVE-WITH-FINDINGS, no BLOCKER or MAJOR (ledger row 195).
+**STATUS:** plan rev 3.6, 2026-09-26. **28C implemented and gated** on the `senior-advisor`'s
+Invariant A/B redesign (section 11.7): the store follows storage via `publishUpstreamAccepted()`
+on the Realm list/info consent branches, Accept and Decline; each view loads in response to
+acceptance only from its store-driven effect; the placeholder's control only asks. **Gate 2 on the
+new design is [EDITORIAL]** (ledger row 220): behaviour accepted, corrections in progress. **Commit
+pending the maintainer-approved sequence (comment sweep, then 28C, then docs). Not committed.**
+**Gate 1 approved rev 3**: round 3, all four lenses APPROVE-WITH-FINDINGS, no BLOCKER or MAJOR
+(ledger row 195).
 - **Rev 3.1** folded in every round 3 finding, with **section 11 binding**.
 - **Its fix-up review** (ledger row 196) rejected it for wording only:
   - two fold-ins were wrong: the `compression` option, and section 5's translation rule;
@@ -11,7 +17,43 @@ APPROVE-WITH-FINDINGS, no BLOCKER or MAJOR (ledger row 195).
 - **The re-check approved rev 3.2 with findings** (ledger row 197): all 15 items correct, one
   MINOR (`close()` in I11's grep line), fixed in place. **The plan is final; 28A waits on the
   maintainer's go.**
-- **No code or tests are written yet.**
+- **28A is committed** as `e1dd839c` (2026-09-25). Gate 2 is ledger rows 198 and 199, and the
+  live check row 200.
+- **28B is implemented and gated** (2026-09-26), uncommitted. Gate 2 is ledger rows 203 and 204,
+  and the live check row 205.
+  - **Correction to I4:** both local `.bin` writers already stripped `account` before this
+    change, so "local exports" was never a leak.
+  - **An addition to I17:** the sample runs only when `checkCorruption` is on.
+- **28B is committed** as `87b974e5` (2026-09-26).
+- **Rev 3.3** adds section 11.6, 28C's readiness items from ledger row 207, and binds them for
+  28C. Its review (row 208) approved with findings; R8 and the `bootstrap.ts` row were added.
+- **28C is implemented, uncommitted.** Red tests first (ledger rows 209-210), then implementation
+  in two batches plus the Orchestrator's own stale-answer finding (row 211). **Gate 2 round 1**
+  (row 213) and **round 2** (row 214) both rejected substantively and were both fixed; round 2 is
+  the second consecutive substantive rejection under AGENTS.md section 4's three-round rule.
+  **Gate 2 round 3 is TODO(evidence)** as of this revision. Section 11.7 records rounds 1-2's
+  accepted limitations and load-bearing findings.
+- **Rev 3.4** adds section 11.7 and the section 3.3/3.5/5/6/10 updates 28C's implementation and
+  Gate 2 rounds 1-2 required.
+- **Rev 3.5** corrects section 3.3's `MainMenu.svelte`/`RealmMain.svelte` rows, which rev 3.4 had
+  drifted into describing round 1-2's `'consent'` `hubStatus` and control-reload mechanism; they
+  now state only the original ownership rule. Section 11.7 gains the round 1-3 history, the
+  `senior-advisor`'s diagnosis (dossier `scratchpad/28c-escalation/dossier.md`; ledger row 216),
+  and the adopted Invariant A/B fix. That fix's implementation and Gate 2 outcome are
+  TODO(evidence).
+- **Rev 3.6** records Invariant A/B's implementation and its Gate 2 outcome (ledger rows 218-220).
+  The first `test-warrior`/`sonnet-coder` pass built to a flawed red test (the `getRisuHub`
+  stand-in did not publish on a fresh `'consent'` read, unlike the real function under Invariant
+  A), producing a "pulse" store and a per-view flag; once the stand-in was fixed to publish, a
+  second `sonnet-coder` pass removed that bookkeeping, leaving the plain design in section 11.7.
+  The check owner's final snapshot: 124 files, 1493 passed, 4 skipped; `pnpm check` 0; build ok. A
+  fresh `opus-reviewer` Gate 2 returned **[EDITORIAL]** (ledger row 220): both invariants hold as
+  scoped, every scenario holds, and every request/load mutant is killed; the required corrections
+  are to the commit message and to several test/code comments, not to behaviour. Corrections are
+  in progress; a targeted re-check by the same reviewer follows. Section 11.3 and 11.7 are
+  corrected below for two stale/overbroad claims found while writing up this revision.
+- **The comment sweep** (row 212) is done and approved, uncommitted, and lands in a separate
+  commit from CHORE-33.
 
 **Rev 1** was rejected by Gate 1 round 1 (ledger row 193).
 
@@ -355,14 +397,14 @@ dependency does the single load. A missed UI path can therefore only do nothing.
 | `src/ts/upstreamAgreement.ts` (new; name non-normative) | **What it holds:** the acceptance store and the prompting helper. **Its imports** are only `svelte/store` and `stores.svelte`'s `alertStore`. It has its own wait loop and never imports `alert.ts` or `database.svelte`. **Acceptance:** a writable store whose start function reads the new `localStorage` key lazily. `isUpstreamAccepted()` re-reads the key, so a tab that accepted elsewhere is seen without asking. A `storage` listener is optional. It exposes a reset for tests. **The helper:** posts the `'tos'` prompt, and resolves `true` only for the prompt-specific Accept value. Accept stores the key and sets the store; decline stores nothing. With `VITE_RISU_LEGAL_CONFIGURED` unset it returns `false` without posting. The old `tos4`/`tos2` keys are left in place, unread. |
 | `src/ts/alert.ts` | `alertTOS` goes. |
 | `src/lib/Others/AlertComp.svelte` | The `'tos'` block renders the new text from lang keys. Accept writes the prompt-specific value. Delete the expired `tos2` notice. The buttons keep their flag gate. |
-| `src/ts/bootstrap.ts` | Delete the boot `alertTOS()` call and its reload. |
+| `src/ts/bootstrap.ts` | Delete the boot `alertTOS()` call and its reload. After `loadedStore.set(true)`, drain a pending `?realm=` path with one prompt (section 11.6 R4; `handlePendingRealmLink()` in the seam contract). |
 | `src/ts/characterCards.ts` | **Chokepoints:** `getRisuHub` returns `{ok:false, reason:'consent'}` without fetching. `getRealmInfo` strips `?realm=` (with `replaceState`), then returns `'consent'` without fetching; a `?realm=` link found during boot is kept as a pending path and handled after `loadedStore.set(true)` by one prompt (a followed link, I14). Declining fetches nothing, and a reload does not ask again. `downloadRisuHub` asks first, from its user action, whatever `forceRedirect` says. `openRealmUpload` asks first, then shows its notice, then writes the store. |
 | `src/lib/UI/Realm/RealmPopUp.svelte` | Report asks first, from its click. |
-| `src/lib/UI/MainMenu.svelte` | **Placeholder:** while the acceptance store is false, the preview renders an "agree and show" control in the non-populated `role=status` branch and calls nothing. A stray `'consent'` result maps to the same state. The control stops propagation and only asks. **Loading:** a single load driven by the store, so acceptance given anywhere loads it once, without a remount. `hideRealm` still hides everything. |
-| `src/lib/UI/Realm/RealmMain.svelte` | **Placeholder:** the same, on desktop and on the mobile landing view. **Controls:** search, sort, NSFW/SFW, paging and Retry are hidden or inert until acceptance. Any stray `getHub()` gets `'consent'` from `getRisuHub` and fetches nothing. **The load after acceptance** runs once through `untrack` or a store subscription, so typing in the search box never refetches. |
+| `src/lib/UI/MainMenu.svelte` | **Placeholder:** while the acceptance store is false, the preview renders an "agree and show" control in the non-populated `role=status` branch and calls nothing. The control stops propagation and only calls `askUpstreamAgreement()`; it never loads Realm itself (section 11.7's Invariant B). **Loading:** the store-driven effect is the only load trigger, so acceptance given anywhere loads it once, without a remount. `hideRealm` still hides everything. |
+| `src/lib/UI/Realm/RealmMain.svelte` | **Placeholder:** the same, on desktop and on the mobile landing view. **Controls:** search, sort, NSFW/SFW, paging and Retry are hidden or inert until acceptance. **Loading:** the store-driven effect is the only load trigger (same invariant as `MainMenu`); the placeholder's control only asks. |
 | `src/lib/UI/Realm/RealmFrame.svelte` | It reads acceptance synchronously. The `<iframe>` renders only inside `{#if accepted}`. Without acceptance, `onMount` returns early (no card export) and the store is reset. |
 | `src/lib/SideBars/CharConfig.svelte` | Its own `alertTOS()` call goes. |
-| `src/ts/drive/drive.ts` | `checkDriver` asks first. Every Drive button passes through it. `checkDriverInit`, without acceptance, returns `false`, strips `code`/`state` with `history.replaceState`, and makes no hub request. |
+| `src/ts/drive/drive.ts` | `checkDriver` asks first. Every Drive button passes through it. `checkDriverInit` strips whichever of `code` or `state` is present, with `history.replaceState`, and makes no hub request, whenever the exchange must not run: without acceptance (either parameter present), or with acceptance and a `state` the app does not recognize (Gate 2 round 1 C3; a `?state=` present with no `?code=` is stripped the same way). |
 | `src/lang/*.ts` | The 28C strings. |
 
 `Legal.svelte` and the `VITE_RISU_LEGAL_CONFIGURED` gate are unchanged (MC-087 3d).
@@ -381,7 +423,11 @@ dependency does the single load. A missed UI path can therefore only do nothing.
 
 1. **Upstream infrastructure outside Realm and Drive** (MC-087 3b): `/proxy2` (the default on
    static web; `usePlainFetch` bypasses it), the transformers CDN, the Patreon list, the Lua docs
-   link and the MCP OAuth helper.
+   link, the MCP OAuth helper, `#import=<url>` in `characterURLImport` (fetches any URL with no
+   acceptance check; it is not a Realm feature), and `getProxyStreamJobBaseUrl` (the same proxy
+   infrastructure as `/proxy2`). **Observation (pre-existing, not Realm/Drive):** the Lua fetch
+   ban-list checks `startsWith('https://risuai.xyz')`, so it does not catch `sv.risuai.xyz` or
+   `nightly.sv.risuai.xyz`.
 2. **Drive's web flow** redirects Google's OAuth to `https://risuai.xyz/`, where upstream's page
    exchanges the code and backs up or **restores against that origin's own data**. A Load
    started from a fork could therefore restore over the user's data on risuai.xyz (INFERRED).
@@ -391,6 +437,9 @@ dependency does the single load. A missed UI path can therefore only do nothing.
 4. **Recovery from `risuaiAccountCached`,** which the maintainer judges.
 5. **OPFS quota lockout** (F9): if the migration fails, fall back to LocalForage for that boot and
    say so, or check quota before migrating.
+6. **`Chat.svelte`'s copy button** fetches every http(s) URL in a rendered message, character icon
+   or user icon, including `sv.risuai.xyz`, from a click; it is not a Realm or Drive feature
+   (11.6's closing paragraph). The maintainer did not bring it into 28C.
 
 ---
 
@@ -634,6 +683,17 @@ Each wording below is a draft; its content is binding.
 | agreement prompt | 28C | This feature uses a service operated by upstream RisuAI, not by this app. To continue, accept its Terms of Service and Privacy Policy, with links to both. |
 | placeholder and button | 28C | Realm content comes from a service operated by upstream RisuAI. Agree to its terms to show it. |
 
+**28C's final `en.ts` keys (rev 3.4; verified in source):** `upstreamAgreementPromptBefore`,
+`upstreamAgreementTermsOfService`, `upstreamAgreementPromptBetween`, `upstreamAgreementPrivacyPolicy`,
+`upstreamAgreementPromptAfter`, `upstreamAgreementAccept`, `upstreamAgreementDecline`,
+`upstreamConsentPlaceholder`, `upstreamConsentShow`.
+
+**The pieces carry their own spaces (Gate 2 round 1, C5).** `AlertComp.svelte`'s `'tos'` block puts
+no whitespace in its template between the five prompt pieces
+(`{Before}<a>…</a>{Between}<a>…</a>{After}`); each locale's strings supply their own spacing. In
+`en.ts`, `upstreamAgreementPromptBefore` ends with a space and `upstreamAgreementPromptBetween` is
+`" and "`. Chinese and Traditional Chinese carry no spaces at all around the two links.
+
 ---
 
 ## 6. Tests
@@ -732,6 +792,44 @@ yield odd-sized chunks. The walk's window is set through its parameter.
   | T-C9 | RED |
   | T-C10 | RED |
   | T-C11 | RED |
+  | T-C1b | RED (R8: a live subscription to `upstreamAccepted` does not shadow a key accepted behind the store's back) |
+  | T-C12 | RED (E-13, NIT-7: with the report popup open, a declined `askUpstreamAgreement()` sends no fetch) |
+  | T-C13 | RED against the first version of the change (R6: a stale profile opened with `?realm=` stops at the notice and never posts the agreement prompt) |
+  | T-C14 | RED (R5: a prompt displaced by a toast, another alert, a generic `'yes'`, or an empty `none` is re-posted; only its own Accept/Decline resolves it; a second call while one is pending joins it instead of posting again) |
+  | T-C15 | RED (R1: without acceptance, neither view ever shows its failed state, including after an `online` event; renamed from its Gate 2 round 1 title to name what it holds) |
+  | T-C16 | RED (the `'tos'` block's own buttons write `UPSTREAM_AGREEMENT_ACCEPT`/`UPSTREAM_AGREEMENT_DECLINE` into `alertStore`; with the legal flag unset the block renders no buttons) |
+
+**Also added, folded into the suites above rather than given their own T-C id:**
+- **The stale-answer tests** (the Orchestrator's own finding, ledger row 211): an answer left on
+  `alertStore` by an earlier, already-resolved prompt must not resolve a later one; the module
+  subscribes only after posting, not before.
+- **`resetUpstreamAgreementForTests` with a pending prompt:** the reset clears the in-memory state
+  and any pending prompt, so the next read re-reads `localStorage`.
+- **The storage-write failure tests (Gate 2 round 1 T1):** `localStorage.setItem` throwing on
+  Accept still resolves `true`, and in-memory acceptance holds for the rest of the page's life.
+  The spy is on the `localStorage` instance, not the prototype, so it fails the write in file
+  order under happy-dom.
+- **The late-consent tests (Gate 2 round 1 T3; Gate 2 round 2 F8's S-b and S-c):** both views
+  recover from a `'consent'` result that arrives after acceptance was already shown.
+- **The cleared-storage test (Gate 2 round 1 T4):** a `storage` event with `key: null` flips a
+  subscribed `upstreamAccepted` to `false`.
+- **The Drive state-only test (Gate 2 round 1 T5):** `checkDriverInit` with `?state=save` and no
+  `?code=` strips `state` and returns `false`, with no request.
+- **The placeholder-control scenarios S-a to S-d (Gate 2 round 2 F8),** for both `MainMenu` and
+  `RealmMain`: S-a normal; S-b late consent with the key gone; S-c late consent, then the store
+  catches up through a `storage` event; S-d (`MainMenu` only) `hideRealm` turned on while the
+  prompt is up. Accepting results in exactly one `getRisuHub` call in every scenario, and
+  Declining in none.
+
+**Red counts.** 55 of 126 tests failed at HEAD across 12 of the first 16 files (ledger row 209,
+`scratchpad/28c/red-run-all.txt`). Two more (the stale-answer tests) and nine more from review
+(the late-`'consent'` result in both views, the cleared-storage event, and a Drive `?state=` with
+no `?code=`; then agreeing from the placeholder after another tab's clear — two loads, in both
+views — and while the Realm preview was hidden — one load) ran red against the first version of
+the change, before its fix.
+
+**28C's suite baseline (post Gate 2 round 1-2 fixes):** 124 files, 1474 passed, 4 skipped
+(`scratchpad/28c/commit-28c.txt`).
 
 Each commit message records which tests failed before its fix.
 
@@ -828,12 +926,18 @@ These run on a production build with the Node server, per Live-State:
 
 - `Agents/Roadmap.md`:
   - CHORE-33's status and commits;
-  - the five tickets from 3.5;
+  - the six tickets from 3.5;
   - CHORE-14 UI-1's Files part is resolved.
 - `Agents/Reports/25-risuaccount-removal-strategy.md`: STATUS, and the section 2 corrections in
   its "Superseded" note.
 - `Agents/Investigation-Ledger.md`: a row per gate.
 - `Agents/Live-State.md`.
+- **Wiki pages edited directly for 28C** (fork-owned, not the parallel wiki session's files):
+  - `wiki/Migrating-from-upstream.md`: the first-use agreement prompt for Realm and Drive, and
+    that an acceptance given in upstream RisuAI does not carry over;
+  - `wiki/RisuAI-Basics.md`: the Realm preview and browser placeholder before agreement;
+  - `wiki/Creating-a-Basic-Bot.md`: "Share to RisuRealm" asks for the agreement first if not
+    given.
 - **For the parallel wiki session, a hand-off list only:**
   - `Settings-Account-and-Files.md`: the account section, the backup row, the three gates, and
     the merged "Files" section;
@@ -842,7 +946,10 @@ These run on a production build with the Node server, per Live-State:
   - `Settings.md`'s tab name, and its line listing Files under "Pages that are not in the menu";
   - `Settings-Account-and-Files.md`'s "Warn on startup" description (I17 changes when it fires);
   - `Home.md` and `_Sidebar.md`'s links;
-  - linking the new migration page.
+  - linking the new migration page;
+  - **28C additions:** `Settings-Chat-Bot.md` (the preset "upload to Realm" now asks for the
+    agreement first) and `Settings-Display.md` ("Hide RisuRealm": the placeholder shown before
+    agreement).
 - This report's STATUS.
 
 ---
@@ -951,9 +1058,11 @@ the refusal (28A).
 ### 11.3 28C
 
 **The agreement module:**
-- **`isUpstreamAccepted()` (MINOR-2)** is a pure re-read. The store is written only by the
-  helper and by the optional `storage` listener. Templates read `$upstreamAccepted`.
-  `RealmMain`'s subscription wraps `getHub()` in `untrack`.
+- **`isUpstreamAccepted()` (MINOR-2)** is a pure re-read. **(Stale as of rev 3.6.)** The claim
+  that the store is written only by the helper and the optional `storage` listener no longer
+  holds: under the Invariant A/B redesign (section 11.7), `publishUpstreamAccepted()` also writes
+  it, on the Realm list/info consent branches, and on Accept and Decline. Templates read
+  `$upstreamAccepted`. `RealmMain`'s subscription wraps `getHub()` in `untrack`.
 - **Order of checks (NIT-1).** Consent comes before offline, so an offline user who has not
   accepted sees the placeholder. The `online` listeners count as chokepoint-covered callers.
 - **Storage failures (NIT-6).** The helper wraps its `localStorage.setItem` in try/catch. The
@@ -1001,3 +1110,181 @@ the refusal (28A).
 
 MC-089 is part of this plan's evidence. It keeps the OPFS switch visible, and the quota-lockout
 ticket must clear before the fork ships.
+
+## 11.6 28C readiness at `87b974e5` (rev 3.3; binding for 28C; wins over earlier sections)
+
+**Source:** ledger row 207, the readiness workflow run after 28B landed. The design in section
+3.3 holds: with 28C built as specified, no path lets a Realm or Drive feature reach an upstream
+host before acceptance. The items below are what the implementer must also do. The Orchestrator
+verified R1 to R4 against source.
+
+**R1. Consent is a state of its own in the Realm views.**
+- **Today,** `RealmMain` and `MainMenu` map every non-offline failure to `hubStatus = 'failed'`.
+  A `'consent'` result would therefore show "Load failed" with an inert Retry.
+- **Both views get a distinct consent state** that renders the placeholder (MC-087 #3a). While
+  `$upstreamAccepted` is false they render it directly and call nothing.
+- **`RealmMain`'s top-level `getHub()` call,** which runs at script init, is replaced by the
+  store-driven single load. It is not left in place behind a check.
+
+**R2. `checkDriverInit` needs new stripping code.** Today its only
+`history.replaceState(… search = '')` is inside its `catch`. Without acceptance, when `code` or
+`state` is present, it strips both with `replaceState`, makes no request, and returns `false`.
+An unknown `state` with acceptance does the same (NIT-h).
+
+**R3. `getRealmInfo` switches from `pushState` to `replaceState`,** and strips the parameter
+before any `await`. Section 3.3 already says this; the code still uses `pushState`.
+
+**R4. `?realm=` links are queued, then drained after load.**
+- **The problem.** `characterURLImport`, and therefore `getRealmInfo`, runs inside `loadData`'s
+  non-Tauri branch, before `loadedStore.set(true)`.
+- **Without acceptance,** `getRealmInfo` strips the parameter, records the path as pending,
+  fetches nothing, and returns `'consent'`.
+- **After `loadedStore.set(true)`,** `loadData` drains the pending path through one prompt:
+  - accept: the info request runs;
+  - decline: nothing is fetched, and the pending path is cleared.
+- **After a reload,** there is no second prompt, because the parameter was already stripped.
+- **`characterURLImport`'s call site does not move.**
+
+**R5. Every agreement prompt re-posts until it gets an explicit answer.**
+- **Scope.** This covers the click prompts too, not only the `?realm=` prompt (NIT-3).
+- **What counts as an answer.** Only the prompt's own Accept or Decline value answers it.
+  Another alert, a toast (the integrity sample's, for example), Escape's toast, or a generic
+  `'yes'` re-posts it.
+- **One prompt at a time.** A second `askUpstreamAgreement()` call while one is pending joins
+  that pending promise instead of posting a second prompt.
+
+**R6. Invariant: at most one self-re-posting alert is live in a page life.**
+- **The stale-profile notice** (I6) ends its page life before `loadedStore.set(true)`.
+- **Agreement prompts** are posted only from a user action on the loaded app, or from R4's drain
+  after `loadedStore.set(true)`. So they can never be live together.
+- **This is a stated invariant, not an accident of position.** A new test holds it: a stale
+  profile opened with `?realm=` stops at the notice and never posts the agreement prompt.
+
+**R7. Tests the plan did not name.**
+- **Two boot test files** set `tos4` and describe the boot `alertTOS`:
+  `bootstrap.staleAccountProfile.svelte.test.ts` and `bootstrap.tauriStaleAccountPin.test.ts`.
+  Once the boot call is gone, their setup and comments change.
+- **Six suites** need a real `alertStore` in their `stores.svelte` mock, not only in their
+  `alert.ts` mock: `MainMenu.hubStates`, `MainMenu.hubHtmlSink`, `RealmMain.hubStates`,
+  `RealmMain.hubHtmlSink`, `MainMenu.disclosureCard` and `characterCards.hub`.
+
+**R8. Acceptance given in another tab is found by re-reading the key, never from the cached
+store.**
+- **The check.** `askUpstreamAgreement()` decides "already accepted" with `isUpstreamAccepted()`.
+- **Why not the store.** Once any view subscribes to `upstreamAccepted`, a read of it returns the
+  cached value, so another tab's acceptance would be missed and the user asked again (I11).
+- **The store follows.** On that path the helper also sets the store, so the view loads.
+- **Found by** the addendum's review (ledger row 208).
+
+**New tests:**
+- **T-C1b (R8):** hold a live subscription to `upstreamAccepted` (for example, a mounted
+  `MainMenu` placeholder). Set the key behind the store's back. `askUpstreamAgreement()` must
+  resolve `true` without posting, and the store must become `true`.
+- **T-C13 (R6):** the stale-profile case above.
+- **T-C14 (R5):** a click prompt displaced by a toast, by another alert and by `'yes'` is
+  re-posted each time. Only its own Decline resolves it to `false`.
+- **T-C15 (R1):** without acceptance, neither view ever shows its failed state.
+
+**Out of the plan's scope, awaiting the maintainer.** `Chat.svelte`'s copy button fetches every
+http(s) URL in the rendered message, character icon and user icon, including `sv.risuai.xyz`.
+- **What it is.** It runs from a click and is not a Realm or Drive feature. It re-fetches images
+  the browser has already loaded to display the message.
+- **Default:** list it in section 3.5 as a sixth out-of-scope item, unless the maintainer brings
+  it into 28C.
+
+The maintainer did not bring it into 28C; it stays as item 6 in section 3.5.
+
+## 11.7 28C Gate 2 (rev 3.5; binding for 28C; wins over earlier sections)
+
+**Source:** ledger rows 213, 214 and 215 (Gate 2 rounds 1 to 3 on the 28C implementation; round 3
+was interrupted before a verdict) and the `senior-advisor` escalation (dossier
+`scratchpad/28c-escalation/dossier.md`; ledger row 216).
+
+**O1 (accepted limitation, recorded, not fixed here).** R5's re-post can hide a blocking dialog
+posted while the agreement prompt is pending — for example `saveDb`'s multi-tab conflict prompt
+— and that dialog's wait then takes the agreement prompt's answer instead of its own. The conflict
+prompt falls back to its safe choice, `'stay'`, so this is not a data-loss path. The old boot
+`alertTOS` prompt had the same hazard, and it was worse: any answer but Accept reloaded the app. A
+real fix needs an alert queue; that is a later ticket, not part of 28C.
+
+**R6 is load-bearing, not incidental.** Two self-re-posting alerts live at once would ping-pong
+without bound. R6 (section 11.6) holds this by ordering — the stale-profile notice's page life
+ends before `loadedStore.set(true)`, and no agreement prompt posts before then — and T-C13 pins
+the scenario: a stale profile opened with `?realm=` stops at the notice and never posts the
+agreement prompt.
+
+**N2 (recorded, not fixed).** A `?realm=` link followed without acceptance (for example while a
+stale "Forked" profile is still up) records a pending path that nothing later drains, if the
+pending-path key is never removed by an explicit accept or decline. This is unreachable in the
+shipped design except by another tab removing the acceptance key mid-flow; recorded, not treated
+as a defect.
+
+**The report asks after its own confirm and input.** `RealmPopUp`'s report flow calls
+`askUpstreamAgreement()` after its confirm dialog and its text input, immediately before its
+`fetch`. S3 ("before its fetch") is met, and the popup is reachable only after acceptance in the
+first place.
+
+**Inert `RealmMain` controls still keep their state changes.** Search, sort, NSFW/SFW and paging
+apply to the load that runs once acceptance arrives, even though clicking them before acceptance
+sends no request. This is intended: the first post-acceptance load reflects whatever the controls
+were set to while inert.
+
+**The placeholder's control-ownership rule drifted across rounds 1-2, and round 2's "mechanism
+sound" judgement was wrong.** Section 3.3's original design gives the store-driven effect the only
+load: "The placeholder's control only asks, and the store dependency does the single load. A
+missed UI path can therefore only do nothing." Round 1's fix brief, chasing C1 (a stray `'consent'`
+result left with no placeholder), introduced a `'consent'` `hubStatus` and gave the placeholder's
+control its own reload — a non-normative mechanism the Orchestrator wrote into that brief, not
+something section 3.3 asked for. That reload put two load triggers in each view (the effect and
+the control) for one acceptance. Round 2 found the round-1 mechanism doubled the call in scenario
+S-c and fixed its discriminator, and the reviewer and the Orchestrator then judged "the
+consent-`hubStatus`-plus-placeholder design is sound" — **this judgement was wrong.** Round 3's
+interrupted scenarios (`scratchpad/28c/gate2-r3/scen/`) found two more double loads in the same
+control: **E2** (a `key:null` storage event arriving while the prompt is up, after the control
+captured the store as `true` at click time, flips the store, so the effect and the control's
+captured reload both fire) and **E4** (the control activated twice before the answer joins one
+pending prompt, but both continuations reload). Three leaks in the same piece of logic (round 1's
+C1, round 2's F1/S-c, round 3's E2/E4) triggered the escalation to `senior-advisor` (AGENTS.md
+1.2's repeat-rejection rule and 1.3's escalation triggers).
+
+**`senior-advisor`'s diagnosis.** The store could stay `true` while storage held no acceptance,
+because nothing published a fresh `false` back to it: `getRisuHub`/`getRealmInfo` read storage
+directly and returned `'consent'`, but never corrected the store. Every fix after round 1 was
+therefore trying to make the control **predict** whether the (silently stale) store would still
+cause the effect to fire — a prediction with a hole wherever the store changes between the click
+and the answer, or the control fires twice. Recommended redirection: remove the second load
+trigger rather than keep guarding it.
+
+**Adopted fix.**
+- **Invariant A (narrowed, rev 3.6 — the round-3.5 wording above was broader than what got
+  built):** a request that reads storage and finds no acceptance publishes that read (`getRisuHub`
+  and `getRealmInfo`), Accept and Decline publish, and the `storage` listener follows other tabs.
+  Other fresh reads — the helper's own read while its prompt is up, `checkDriverInit`,
+  `RealmFrame`'s init read — do not publish, and none of them causes a request, a stuck view or a
+  double load.
+- **Invariant B:** in each view, only the store-driven effect loads Realm in response to
+  acceptance. The placeholder's control only calls `askUpstreamAgreement()`; it never loads Realm
+  and never reloads on its own account. This restores section 3.3's original ownership statement
+  exactly, and section 3.3's `MainMenu.svelte`/`RealmMain.svelte` rows are corrected to it (rev
+  3.5).
+- The `'consent'` `hubStatus` that round 1 introduced is removed; there is no separate consent
+  state for a view to track, only the store's own boolean (kept accurate by Invariant A).
+- **A fresh Gate 2 review runs on the new design,** since it replaces rather than patches the
+  round 1-2 mechanism; the three-round rejection counter restarts for it (AGENTS.md 1.2).
+
+**Invariant A/B's implementation and Gate 2 outcome are in (ledger rows 218-220; rev 3.6 above).**
+Gate 2 on the new design returned **[EDITORIAL]**: both invariants hold as scoped, every scenario
+holds, and every request/load mutant is killed. The required corrections are to the commit message
+and to test/code comments, not to behaviour; a targeted re-check by the same reviewer follows.
+**TODO(evidence): that re-check's outcome, and the live check on a production Node build (section
+8's 28C bullet), are not yet in.**
+
+**Process lesson (AGENTS.md section 4).** A non-normative mechanism suggestion in a fix brief
+(round 1's "reloads only if the view is in the consent state") can itself be the load-bearing
+accident a later round has to undo; writing "non-normative" next to it did not stop the coder and
+the round-1 tests from building to it instead of the invariant above it. A judgement that a
+mechanism is "sound" after only one round of scenario-checking is not settled — round 2 made that
+call and a fresh set of scenarios in round 3 broke it. Later briefs in this campaign should state
+the invariant and scenarios first, mark any suggested mechanism explicitly non-normative, and
+treat a second occurrence of the same class of leak (not just a second rejection) as a signal to
+ask whether the mechanism, not the guard, is wrong.

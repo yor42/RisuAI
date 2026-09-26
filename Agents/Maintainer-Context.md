@@ -2367,6 +2367,106 @@ request that leaves the app with no user action cannot be gated at the point of 
 
 ---
 
+### MC-090 — Bug report: the edit button on earlier messages sometimes opens no editor
+
+- **Tag:** stated
+- **Date:** 2026-09-25
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, during the CHORE-33 28A stage. The report does not say which build
+  (dev server, production Node, Tauri) or which UI theme it was seen on.
+- **Related:** Report 20 (durable drafts), commit `e250089a` (message edits kept across
+  involuntary unmounts); upstream `ed1babcb` ("prevent concurrent message edit modes").
+
+> I think I found another bug, but with more vague details this time - edit button on previous
+> messages sometimes does not work. it does not create text editor at all.
+> to fix, user has to either pick different character or different chat with significantly
+> different content, and come back to try again.
+> sometimes it fixes the issue, sometimes it does not - then user has to go through all over that
+> again to see if it worked this time.
+
+**What this records:**
+- **The symptom.** On some earlier messages, clicking Edit opens no text editor.
+- **The workaround.** Switching to another character, or to a chat with markedly different
+  content, and coming back sometimes restores it, and sometimes does not.
+
+**Details the maintainer gave the same day, answering the Orchestrator's questions:**
+
+> 1. upstream. risuai.xyz to be specific.
+> 2. it happens totally randomly. I do not use translations.
+> 3. it can happen everywhere in the chat.
+> 4. buttons look normal.
+> 5. might helpful context is that my save file is extremely heavy, 36gb in .bin format.
+
+- **The build.** Upstream's hosted site, risuai.xyz, not this fork. It is an upstream bug. The
+  question for this fork is whether it has the same mechanism (MC-011).
+- **No translation is involved.**
+- **Where and how.** It happens on any message, at random, and the button looks normal, not
+  disabled.
+- **The save is about 36 GB as a `.bin`,** which is relevant to timing and load.
+
+**Further answers the same day:**
+
+> 1. all data are stored locally
+> 2. yes; can provide all of them as there are multiple enabled.
+
+- **Local storage only.** All data is in that browser. There is no account sync, so
+  `AccountStorage` is not involved.
+- **Plugins.** Several plugins are enabled. The maintainer offered to provide them; their code is
+  to be read as data, never run or installed.
+
+**The plugin files, 2026-09-26.** The maintainer supplied the plugins they still have, in
+`C:\Projects\Plugin backups`. Some that they use were taken down by their authors and could not be
+included. Ledger row 202 read them as data.
+
+**Answers to the stuck-state questions, 2026-09-26** (asked after ledger rows 201 and 202):
+
+> 1. doesn't look like it from my experience
+> 2. no.
+> 3. yes.
+
+- **It stays stuck.** Clicking the same message's edit button again, after waiting, does not
+  bring the editor back. Only switching away and back sometimes does.
+- **No per-reply scripts.** The characters and modules involved do not run scripts on every
+  reply: no stat or affection trackers, no "Update Chat At", no Lua `reloadChat`, no buttons
+  embedded in messages.
+- **The newest message is affected too,** not only older ones.
+
+---
+
+### MC-091 — Adopt the advisor's workflow improvements as a bounded pilot
+
+- **Tag:** decision
+- **Date:** 2026-09-26
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, supplying a third-party advisor's review of the workflow
+- **Related:** MC-011, MC-047, MC-053, MC-069, MC-080, MC-081, MC-089
+
+> I got the third party advisor to overlook our workflow, and they gave us the following
+> improvements. … I'd like to update our workflow to reflect these improvements.
+
+**What was decided:**
+1. The workflow changes in Report 29 are adopted as a **pilot over the next 5–10 comparable
+   items**, with model assignments and substantive safety gates unchanged; results are logged in
+   the ledger (its "Pilot (MC-091)" note, under "## Log") and the pilot is reviewed with the maintainer at its end.
+2. **Clarifications recorded with it** (maintainer-supplied through the feedback):
+   - The home-screen change (MC-053) addresses mobile access to essential navigation, and the
+     RisuAccount removal (MC-080) addresses dependence on an external asset backend and its backup
+     and maintenance constraints. Neither is incidental scope creep.
+   - Backend licensing uncertainty is a maintainer-reported concern, not an established legal
+     conclusion. Removing RisuAccount does not mean removing every upstream service (Realm, Drive
+     backup and `/hub-proxy` stay, MC-080).
+   - Scope may be amended for required behaviour in the agreed mobile experience, technical
+     prerequisites, shared-cause corrections and explicit maintainer decisions to reduce supported
+     complexity (AGENTS.md, "Scope amendments"). New product trade-offs remain the maintainer's.
+3. **Not changed by this decision:** MC-089's release policy (no ticket is deferred; any change
+   must be explicit), MC-047's Android sequencing, and every settled MC decision.
+4. Supersedes, for the rules named in Report 29's mapping only: the universal Orchestrator
+   re-verification wording, the blanket "a test that passes before and after proves nothing", the
+   automatic `/clear`, the fresh-reviewer-every-round rule, and the full-suite-on-every-invocation
+   rule. The earlier gate records stay as they are.
+
+---
+
 ## Open questions
 
 The three entries below are questions addressed to the maintainer that were still unresolved as of

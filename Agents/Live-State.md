@@ -10,7 +10,7 @@ treat it as a log or history.
 
 ## Session date
 
-2026-09-25.
+2026-09-25 to 2026-09-26.
 
 ## Branch and commit state
 
@@ -81,18 +81,251 @@ BLOCKER or MAJOR. **Gate 1 has passed.**
 - **MC-089 (maintainer):** keep the OPFS switch visible. Nothing ships until every open ticket
   is cleared.
 
-**Next, after the fix-up review:** report to the maintainer and ask to start 28A. 28A begins
-with `test-warrior`'s red test (T-A1 to T-A13), built from row 192's prototype.
-- **A substantive rejection** means escalating to `senior-advisor` with a dossier before rev 4.
-- **A mis-launch happened.** An accidental relaunch of the round 2 script
-  (`wiw5yfble`) was stopped within seconds. The round 2 review files were untouched: their
-  timestamps predate it.
+**The records are committed** as `4aa29913`, at the maintainer's word. It is unpushed, like
+`911376cb` and `c225643b`.
 
-**MC-088 is in rev 2:** the unreachable `FilesSettings.svelte` page (CHORE-14 UI-1) merges into
-the renamed "Backup & Files" tab.
+**28A is in progress, uncommitted.**
+- **The red tests failed at HEAD for the right reason:** 14 behavioural failures (writes
+  happened), plus 3 pins.
+- **The implementation:**
+  - `src/ts/drive/backupContainer.ts` (new): a shared header parser, the walk, and
+    `decodeEntryName`;
+  - `backuplocal.ts`: the walk runs first; the loop guard; the encrypt and decrypt paths are
+    removed;
+  - three new keys in all 7 lang files.
+- **The Orchestrator's review found one gap:** a complete marker name followed by a cut-off
+  data-length field, in both the walk and the loop, and the loop checked the name only after the
+  body fit. `test-warrior`'s parser-level tests went red on it, and `sonnet-coder` fixed it.
+- **Where it stands:** the suite is 107 files, 1364 passed, 4 skipped; `pnpm check` is clean.
+- **Gate 2 is running**: workflow `chore33-28a-gate2`, two `opus-reviewer` lenses. The commit
+  message draft is at `scratchpad/commit-28a.txt`.
+- **Process note.** `sonnet-coder` briefly wrote, then deleted, a scratch test under `src/`. No
+  trace remains. Future briefs must say "never under `src/`, not even temporarily".
+- **Gate 2** (row 198) rejected for wording only. The remediation and its fix-up review (row
+  199) approved. The live check (row 200) passed: the refusal is shown, `save/` is
+  byte-identical, and a 10k-entry walk takes about 2.5 s.
+- **Cleanup is done.** The maintainer closed the tab and the server was stopped. `save/` was
+  restored and matches the pre-check manifest; the boot's extra dbbackup was moved to
+  `scratchpad/live28a/created-by-check/`.
+- **28A is committed as `e1dd839c`**, at the maintainer's word: 13 files. It is unpushed, like
+  `911376cb`, `c225643b` and `4aa29913`.
+**28B (the removal) is committed as `87b974e5`** (2026-09-26, at the maintainer's word): 101
+files, unpushed. The `Agents/` records and the wiki session's files were left out.
 
-**Next:** arbitrate round 2's findings against source, log ledger row 194, and report to the
-maintainer. No code before Gate 1 approves.
+**How it was built:**
+- **Red tests first.** Two `test-warrior`s, against the seam names in `scratchpad/28b/seams.md`.
+  The red run is `scratchpad/28b/red-run-before-b1.txt`: 24 tests failed in 6 files, and 3 more
+  files failed to load.
+- **Three implementation batches:**
+  - batch 1: the logic layer;
+  - batch 2: the UI, the lang keys and the prose sweep;
+  - batch 3: `server.cjs`'s Sionyw routes and the `openid-client` package.
+
+  Each batch's report is in `scratchpad/28b/b1-report.md`, `b2-report.md` and `b3-report.md`.
+- **Then the rest:**
+  - a test pass;
+  - `translator` for the six locales, with the upstream labels resolved by the Orchestrator;
+  - `doc-writer`: AGENTS.md, plugins.md, migrationGuide.md, two wiki pages, and the new
+    `wiki/Migrating-from-upstream.md`.
+
+**Gate 2:**
+- **Round 1** (row 203): three `opus-reviewer` lenses plus `doc-verifier`. It rejected on test
+  gaps and wording, and counts as round 1 of the three-round rule.
+- **The fix-up review** (row 204) approved with findings.
+- **The live check** (row 205) passed, apart from the Echo message (see row 205).
+
+**Current state:**
+- **Tests and checks:** the suite is 115 files, 1389 passed and 4 skipped. `pnpm check` is 0
+  errors. `pnpm run build` and `node --check server/node/server.cjs` pass.
+- **The commit message draft** is `scratchpad/28b/commit-28b.txt`.
+- **`save/`** is restored and verified by hash.
+- **The server** is stopped, including its node child.
+- **Three Chrome tabs are still open** on `localhost:6001`. The maintainer closes them, because
+  of the leave-site guard, and must do so before the server is started again.
+
+**What to stage for 28B:**
+- everything under `src/`, `server/`, `package.json` and `pnpm-lock.yaml`;
+- `AGENTS.md` and `plugins.md`;
+- `wiki/Plugin-API-Reference.md`, `wiki/RisuAI-Basics.md` and `wiki/Migrating-from-upstream.md`.
+
+Never stage the wiki session's files: `wiki/Settings*.md`, `wiki/Home.md` and `wiki/_Sidebar.md`.
+
+**Known items from 28B, closed by 28C:**
+- **DS S1** is closed. 28C's `askUpstreamAgreement()` replaces the boot `alertTOS` prompt
+  entirely; there is no boot prompt left for a mismatch toast to displace.
+- **Self-re-posting alerts can ping-pong** is closed by design, not by luck: Report 28's R6 keeps
+  the stale-profile notice's page life ending before `loadedStore.set(true)`, so it can never be
+  live at the same time as an agreement prompt; T-C13 pins the scenario.
+- **Still open, unrelated to 28C:** the "Backup & Files" tab still uses the old account tab's
+  person icon (cosmetic).
+
+**28C (agreement at first use of Realm or Drive): the request/boot/module layer stands as rounds
+1-2 left it; the placeholder's load logic is being redesigned per a `senior-advisor` escalation
+(see below); not committed.**
+- **Red tests first** (ledger rows 209-210). Workflow `chore33-28c-red-tests` (3 `test-warrior`s +
+  3 `adversarial-reviewer` checks, ~1.61M tokens, 467 tool uses) wrote 126 tests across 16 files
+  against the seam contract (`scratchpad/28c/seams.md`); 55 failed at HEAD. Reviews: module-boot
+  APPROVE-WITH-FINDINGS; requests REJECT (a decline test would hang against a correct
+  implementation; the drive suite loaded the real `stores.svelte`); views REJECT (`RealmPopUp`
+  missing the legal-flag stub; `RealmFrame` could not catch a transient iframe; a five-state test
+  coupled to store caching). Workflow `chore33-28c-red-fixes` (3 `test-warrior`s + 3 re-checks,
+  ~1.10M tokens, 327 tool uses) fixed all of it, plus two more defects found in the same pass
+  (~121k more).
+- **Implementation:** batch 1 (module, request functions, boot, prompt; `sonnet-coder` ~378k),
+  batch 2 (views; ~238k). A boot-test leak (cleanup answering 'no', which is not one of the
+  prompt's own answers) was fixed by `test-warrior` (~112k).
+- **The Orchestrator found a real bug by reading the new module,** not by running it: it
+  subscribed to `alertStore` before posting, so an answer left over from an earlier prompt
+  resolved the next one — after one Decline, every later Realm/Drive click was silently declined
+  with no prompt shown. Red tests first (~112k), then the fix, post before subscribing (~50k).
+- **Then:** a placeholder button label fix, translations for the six other locales, and a
+  translatable final punctuation for Chinese; a post-implementation test pass. Pre-gate: the
+  suite was 124 files, 1459 passed, 4 skipped; `pnpm check` clean; build ok.
+- **Gate 2 round 1** (ledger row 213): three `opus-reviewer` lenses, all REJECT (substantive;
+  round 1 of the three-round count). No consent leak, no data loss, no crash, no build defect;
+  every mutant that sends a request or skips a prompt was killed. Findings: a stray `'consent'`
+  result didn't show the placeholder (C1); the `storage` listener didn't re-read on a cleared key
+  (C2); Drive's `checkDriverInit` didn't strip `code`/`state` on every path that must not run
+  (C3); several false or history production comments (C4); prompt layout and string fixes (C5).
+  Fix-up: `test-warrior` ~294k, `translator` ~58k, `sonnet-coder` ~193k.
+- **Gate 2 round 2** (ledger row 214): one `opus-reviewer`, REJECT (substantive — **the second
+  consecutive substantive rejection** under AGENTS.md section 4's three-round rule). F1: the
+  round-1 fix's placeholder-control logic failed the reviewer's own S-a to S-d scenario matrix
+  (S-c doubled the `getRisuHub` call). F8: no test covered those scenarios. **Is the mechanism the
+  problem? No** — reviewer and Orchestrator judged the design (a consent `hubStatus` plus the
+  placeholder) sound, and the round-1 fix brief's non-normative mechanism ("reloads only if the
+  view is in the consent state"), which the coder and tests had followed instead of the invariant
+  above it, the cause. The round-2 fix brief stated only the invariant and the scenarios, leaving
+  the mechanism to the implementer. **Round 3 and the `senior-advisor` escalation below found this
+  "mechanism sound" judgement wrong.** Fix-up: `test-warrior` ~127k, `sonnet-coder` ~113k.
+- **Gate 2 round 3 was interrupted by a process exit before its verdict** (ledger row 215). Its
+  scratch scenarios survive (`scratchpad/28c/gate2-r3/scen/mm-r3.svelte.test.ts`,
+  `rm-r3.svelte.test.ts`, `scen-run2.txt`) and found two more double `getRisuHub` loads in the
+  placeholder control's load logic, in both views: **E2**, a `key:null` storage event arriving
+  while the prompt is up (after the control captured the store as `true` at click time) flips the
+  store, so the store-driven effect and the control's own reload both fire; **E4**, the control
+  activated twice before the answer joins the one pending prompt, but both continuations reload.
+  This was the third leak found in this same load logic (round 1's C1, round 2's F1/S-c, now
+  E2/E4), so the Orchestrator escalated to `senior-advisor` before a fourth revision. Dossier:
+  `scratchpad/28c-escalation/dossier.md` (a different scratchpad session from the rest of 28C's
+  evidence, since the interruption reset it).
+- **The `senior-advisor` escalation has returned** (ledger row 216; Report 28 section 11.7 rev
+  3.5). **Diagnosis:** the store could stay `true` while storage held no acceptance, because
+  nothing published a fresh `false` back to it — every fix after round 1 was trying to make the
+  control *predict* whether the (silently stale) store would still fire the effect, and every
+  prediction had a hole. **Redirected:** remove the second load trigger rather than guard it.
+  **Adopted fix:** Invariant A (the `upstreamAccepted` store never disagrees with the latest fresh
+  read of storage, in either direction; once `getRisuHub`/`getRealmInfo` returns `'consent'`, the
+  store reads `false`) and Invariant B (in each view, only the store-driven effect loads in
+  response to acceptance; the placeholder's control only asks — section 3.3's original ownership
+  statement, restored). The `'consent'` `hubStatus` round 1 introduced is removed. A fresh Gate 2
+  review runs on the new design once built; the three-round rejection counter restarts for it.
+- **Invariant A/B is built** (ledger rows 218-220; Report 28 section 11.7 rev 3.6). A first
+  `test-warrior`/`sonnet-coder` pass (~200k/75 tools; ~359k/96 tools) wrote red tests and built a
+  "pulse" store plus a per-view flag on top of them, because the tests' `getRisuHub` stand-in did
+  not publish on a fresh `'consent'` read — it modelled a state the real request no longer leaves
+  once Invariant A holds. The Orchestrator traced the failure to the stand-in, not the design. A
+  second pair (`test-warrior` ~150k/60 tools fixed the mocks to honour the publish rule and
+  removed a test pinning the pulse; `sonnet-coder` ~188k/65 tools removed the pulse, the flag and
+  the extra bookkeeping) left the plain design: the store follows storage via
+  `publishUpstreamAccepted()` on the Realm list/info consent branches, Accept and Decline; each
+  view loads in response to acceptance only from its store-driven effect; the control only asks.
+  **Lesson:** a test stand-in must honour the same rule as the real function it stands in for, or
+  the tests re-create the defect the design removes.
+- **Gate 2 on the new design** (ledger row 220): one fresh `opus-reviewer`, ~245k, 79 tool uses.
+  **[EDITORIAL].** Behaviour accepted: both invariants hold as scoped, every scenario holds (137
+  repo tests, 34 scratch scenarios), Svelte hazards safe; 14 mutants, every request/load mutant
+  killed. Survivors: the Decline republish path (untested, minor), one equivalent mutant, and a
+  proposed guard on `MainMenu`'s online listener that plan section 11.3 accepts leaving out.
+  Required editorial corrections: the commit message's red-evidence claim (the view scenarios
+  cannot fail against the pre-rework views, because their stand-in now publishes — the real red
+  evidence for the rework is the two tests pinning the publish) plus two further overstatements;
+  several test and code comments (a nonexistent "last-handled tracking", test titles claiming the
+  control reloads, an unmount comment describing the removed pulse/flag design, an undefined
+  "Invariant A" label and an unscoped statement of it, a false "search input's value still
+  changes", a misleading example in the Decline branch). **Corrections are in progress; a targeted
+  re-check by the same reviewer follows.** Optional, not taken now: a test for the Decline
+  republish; a store guard on `MainMenu`'s online listener; tidy the T-C15 mocks.
+- **Check owner's final snapshot** (Orchestrator): 124 files, 1493 passed, 4 skipped; `pnpm check`
+  0; build ok. The commit message draft is `scratchpad/28c/commit-28c.txt` and needs the
+  red-evidence correction above before use.
+
+**The comment sweep (history-narrating comments, AGENTS.md's "Comments state invariants, never
+history") is done and approved, uncommitted, and lands in a separate commit from CHORE-33.**
+- Ledger row 212: `code-searcher` survey (~86k; 557 hits across 124 files), three `sonnet-coder`s
+  (A ~404k, B ~365k, C ~194k) editing 55 files (`scratchpad/comment-sweep/files.txt`),
+  `adversarial-reviewer` APPROVE-WITH-FINDINGS (~183k): token-level proof that no code changed in
+  28 `.ts` files, a hand check of 5 `.svelte` files; 33 touched test files, 575 passed.
+- Findings: about 20 pre-existing in-repo `file:line` citations survive in six files (a later
+  pass); one circular comment in `LoreBookList.svelte`.
+- **Held back until after 28C, because 28C was still editing them:** `globalApi.svelte.ts`; every
+  file 28C touches; the test files that still held `alertTOS` mocks.
+
+**What to stage for 28C:**
+- everything under `src/` that 28C's seam contract and implementation touch:
+  `src/ts/upstreamAgreement.ts` (new), `src/ts/alert.ts`, `src/ts/bootstrap.ts`,
+  `src/ts/characterCards.ts`, `src/ts/drive/drive.ts`, `src/lib/Others/AlertComp.svelte`,
+  `src/lib/UI/MainMenu.svelte`, `src/lib/UI/Realm/RealmMain.svelte`,
+  `src/lib/UI/Realm/RealmFrame.svelte`, `src/lib/UI/Realm/RealmPopUp.svelte`,
+  `src/lib/SideBars/CharConfig.svelte`, `src/ts/globalApi.svelte.ts`'s dropped `alertTOS` import,
+  and every new or changed test file for them;
+- the seven `src/lang/*.ts` files;
+- `wiki/Migrating-from-upstream.md`, `wiki/RisuAI-Basics.md` and `wiki/Creating-a-Basic-Bot.md`.
+
+**What to stage for the comment sweep (a separate commit):** the 55 files in
+`scratchpad/comment-sweep/files.txt`.
+
+**What to stage for the docs commit (a separate commit, after 28C and the sweep):** `AGENTS.md`,
+`.claude/agents/*.md`, and everything under `Agents/**` — the MC-091 workflow pilot (Report 29 and
+the `AGENTS.md`/`.claude/agents` edits it made), and this session's own records (the ledger, this
+file, Report 28). None of these three commits' file lists overlap.
+
+**Never stage the wiki session's files:** `wiki/Settings*.md`, `wiki/Home.md` and
+`wiki/_Sidebar.md`.
+
+**Next for CHORE-33:**
+1. **The editorial re-check.** Fold in Gate 2's required corrections (ledger row 220; Report 28
+   section 11.7 rev 3.6) — the commit message's red-evidence claim and two overstatements, plus
+   the named test/code comments — and give the same `opus-reviewer` a targeted re-check. No
+   behaviour change is expected; this is wording only.
+2. **The live check** for 28C on a production Node build (Report 28 section 8's 28C bullet), still
+   outstanding: watch `/hub-proxy/`, `sv.risuai.xyz`, `nightly.sv.risuai.xyz` and
+   `realm.risuai.net` on a profile past first setup that has not accepted; confirm the placeholders
+   on desktop and `betaMobileGUI`; confirm declining and a declined `?realm=` link fetch nothing.
+3. **Update the records** listed in Report 28 section 10:
+   - the Roadmap, including the six tickets from section 3.5;
+   - Report 25's "Superseded" note;
+   - Report 28's STATUS;
+   - hand the wiki session its list, including the 28C additions (`Settings-Chat-Bot.md`,
+     `Settings-Display.md`).
+4. **Commit on the maintainer's word, as three separate commits:** the comment sweep, then 28C,
+   then docs (`AGENTS.md`, `.claude/agents/*.md`, `Agents/**`).
+
+**The edit-button bug (MC-090): the mechanism is found, and it is upstream's and this fork's**
+(ledger rows 201 and 202).
+- **The mechanism (reproduced).** `Chats.svelte` mounts one `Chat` per visible message, keyed by
+  a hash of the message's data, id, index and flags, plus `ReloadChatPointer[index]`. `editMode`
+  is local state, so any change to that hash remounts the message and silently drops the
+  editor.
+- **What changes the hash:**
+  - `ReloadChatPointer` bumps, from TriggerV2 `v2UpdateChatAt`, Lua `reloadChat` and embedded
+    buttons;
+  - every `ReloadGUIPointer` tick, which resets the whole pointer map. `runTrigger` ticks it
+    whenever a chat variable changed;
+  - rewrites of the message text: `modifychat`, `cutchat`, regex `@@inject`, and inlays that
+    finish loading late.
+- **Not the maintainer's supplied plugins** (row 202).
+- **Still open: why it stays stuck across clicks.** The maintainer's answers (MC-090,
+  2026-09-26) rule out row 201's race as the whole story:
+  - the button stays dead after waiting;
+  - no per-reply scripts are involved;
+  - the newest message is affected too.
+
+  Workflow `edit-button-stuck-state-investigation` is running. It has four `investigator`
+  lenses (persistent gating state, orphaned instances, newest-message streaming, a persistent
+  repro) and a critic. Packets go to `scratchpad/editbug3-*/`.
+- **The fix is a new ticket,** not yet filed on the Roadmap. It keeps each message's component
+  identity, and its edit mode, across these rebuilds.
 
 The original stage brief follows.
 
@@ -292,6 +525,19 @@ save/persistence, backend selection and the `.bin` importer):
     refresh or close the tab.
   - Close the tab before the server restarts, or it can write stale state back.
 - **Network:** do not probe upstream services (`MC-081`).
+- **Stopping the server.** `TaskStop` on `pnpm run runserver` kills only the pnpm wrapper. The
+  `node server/node/server.cjs` child keeps listening on port 6001. Stop it by PID, and confirm
+  the port is closed before restoring `save/`.
+- **A hidden Chrome window.** When `document.visibilityState` is `hidden`:
+  - screenshots time out;
+  - chained timers are throttled, so `waitAlert` loops can take up to about a minute.
+
+  Page scripts still work. Clicks via `element.click()` and page reads were enough for 28B's
+  check.
+- **Seeding test data.** Use `globalThis.__pluginApis__.getChar()` / `setChar()` on the main page
+  to set a field on the selected character; the `save/` restore undoes it. **Never switch the
+  model this way.** `setDatabaseLite` did not reach the send path, and a test message went to the
+  profile's default provider (row 205). Use the model picker.
 
 ## Method lessons from this session
 

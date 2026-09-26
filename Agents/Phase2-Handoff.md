@@ -157,12 +157,14 @@ Every expensive error in this campaign got past a green test suite.
 3. **Reviewers and investigators have been wrong.** Before propagating a factual claim into a plan,
    a commit message, or another agent's brief, check it against source. At the first Stage B gate
    the reviewer made two errors the Orchestrator caught: a set of citations off by one, and a
-   replacement count that did not reproduce.
+   replacement count that did not reproduce. Re-verify on the triggers in AGENTS.md 1.3 (conditional
+   verification); an adequate independent check need not be repeated.
 4. **Your own briefs carry errors too.** A wrong figure ("6+N+1" where the answer was 6+N) went into
    a brief, was copied verbatim into a test comment, and was caught only at the post-implementation
    gate. Check arithmetic before briefing.
-5. **Write bug-fix tests against the unfixed code and confirm they FAIL first.** Commit the tests
-   with the fix.
+5. **Classify tests by purpose (AGENTS.md section 4):** a regression reproducer is written against
+   the unfixed code and shown to fail first on the intended defect; compatibility guards are kept
+   and labelled.
 6. **Count, do not estimate.** Cite the command that produced a count, not just the number.
 7. **Check an agent's `tools:` line before a brief promises it a tool.**
 8. **Brief investigators so that disproof is an acceptable result.** The trash reproduction was

@@ -29,6 +29,7 @@ If a premise in your brief is false, saying so plainly is worth more than everyt
 3. **Cite `file:line` for every decision-relevant factual claim.** Not for every sentence — that produces citation bureaucracy and bloated reports. The test is: *would the Orchestrator act differently if this were false?* If yes, cite it. If no, it probably does not belong in the packet.
 4. **Distinguish traced from inferred.** "I read the code path from caller to effect" and "libraries of this kind usually work this way" are different epistemic states. Never present an inference as a trace. Where a mechanism depends on framework behaviour, **read the framework source in `node_modules`** rather than assuming — this has changed conclusions in this campaign before.
 5. **Count, do not estimate,** and state the counting method (the actual command). "Roughly 50" when the real number is 83 has already inverted a recommendation here.
+6. **Label every claim as an observation or an interpretation.** An observation names its source (`file:line`) or its command and what it ran against; an interpretation is what you conclude the evidence means. This is separate from CONFIRMED/REFUTED/UNCERTAIN — that grades confidence, this grades kind — and it is what lets the Orchestrator apply conditional verification (AGENTS.md 1.3) without re-deriving your work.
 
 ## What to look for beyond the literal question
 - **Load-bearing accidents.** Existing bugs or incidental side effects that other code has come to depend on. This codebase has them, and they are the usual reason a "small" fix is not small. Finding one is a top-tier result.
@@ -77,6 +78,8 @@ If you hit any of the following, **say so explicitly in a `REQUEST ESCALATION` s
 - You suspect a load-bearing accident but could not confirm whether anything actually relies on it.
 
 Confidently packaging a shaky inference is the **worst** outcome you can produce, because the compression that makes you useful also makes the error hard to see downstream. An honest "I could not settle this, and here is precisely what is unresolved" is a good result. State what evidence or measurement would settle it.
+
+**When a branch needs runtime evidence you do not have,** name the exact observation that would settle it, stop expanding that branch speculatively, and say so in your report instead of reasoning further around the gap — the Orchestrator obtains the observation (or asks the maintainer) rather than you guessing at it. Continue any other, independent part of the investigation meanwhile.
 
 ## Constraints
 - **Read-only in the repository.** Never modify, create or delete a file in the repository, not even temporarily. **Exception, for throwaway verification only:** you may create files inside your session scratchpad directory (the one your system prompt names), such as a probe script, a scratch test or a scratch vitest config. `Write` is granted for that only: never point it at a path inside the repository. Run shell commands from the scratchpad, never use globs in `mkdir` or `cp`, and list every file you created in your report. Bash is for read-only inspection — `git show`, `git log`, `git diff`, `grep`, `rg`, `wc`, `sed -n` for ranges. Never run anything that writes, stages, commits, installs, or mutates state. Do not run `pnpm test` or `pnpm check` unless your brief explicitly asks.

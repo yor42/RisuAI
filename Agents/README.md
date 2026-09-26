@@ -67,7 +67,8 @@ a given piece of work by matching its topic/phase name, not by guessing a filena
 1. **[`Maintainer-Context.md`](Maintainer-Context.md)** — what the maintainer has actually decided. Read this
    before trusting any other document's paraphrase of a maintainer decision.
 2. **[`Live-State.md`](Live-State.md)** — what is in flight right now. Read this first after a
-   context compaction.
+   context compaction. It is the current-state entry point: current work, accepted evidence and
+   open questions, so you need not read the archives to start.
 3. **[`Phase2-Handoff.md`](Phase2-Handoff.md)** — durable doctrine: the lessons and traps to know
    before touching an effect, a measurement, or a review.
 4. **[`Roadmap.md`](Roadmap.md)** — full phase/item scope, sequencing, and status. This is the map of
@@ -122,6 +123,9 @@ directory.
 
 ## Conventions
 
+- **Workflow rules live in `AGENTS.md` and `.claude/agents/`; MC-091 adopted the current pilot
+  rules (Report 29).** A rule is changed at its source, with a supersession note, never by
+  appending a competing exception.
 - **Reports are never renumbered and never deleted.** A retired design stays readable as
   evidence of what was tried and rejected, and why. The worked example is
   `Reports/10-stage-b-module-draft-copy-plan.md`: its draft-copy design was rejected at
