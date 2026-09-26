@@ -205,16 +205,19 @@
 
     // Recover automatically: leave the offline state and reload as soon as
     // the browser reports connectivity again, instead of stranding the
-    // user until they find the (inert, in that state) retry control. Also
-    // checked against `realmHidden`: without it, a whole-`DBState.db` swap
-    // (plugin setDatabase, backup restore, the command.ts paths named in
-    // the comment above) that turns hideRealm on while this
-    // component stays mounted would still let a later `online` event fetch
-    // the hub for a user who opted out, since `hubStatus` is never reset by
-    // that swap on its own.
+    // user until they find the (inert, in that state) retry control. All
+    // three checks stay required: `hubStatus === 'offline'` so a fetch that's
+    // already pending, failed or resolved isn't redundantly restarted;
+    // `realmHidden` so a whole-`DBState.db` swap (plugin setDatabase, backup
+    // restore, the command.ts paths named in the comment above) that turns
+    // hideRealm on while this component stays mounted doesn't fetch the hub
+    // for a user who opted out, since `hubStatus` is never reset by that
+    // swap on its own; and `$upstreamAccepted` so withdrawing consent while
+    // offline doesn't let a later `online` event load the preview for a user
+    // who has not agreed to upstream's terms.
     $effect(() => {
       function handleOnline() {
-        if (hubStatus === 'offline' && !realmHidden) {
+        if (hubStatus === 'offline' && !realmHidden && $upstreamAccepted) {
           loadHubPreview();
         }
       }

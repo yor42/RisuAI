@@ -429,12 +429,10 @@ describe('RealmMain.svelte mobile: the placeholder before acceptance', () => {
 })
 
 describe('RealmMain.svelte: no failed state before acceptance (T-C15)', () => {
+    // Relies on the default mock installed in beforeEach: nothing here ever accepts, so
+    // `installConsentDerivedMock()`'s own `isUpstreamAccepted()` branch never diverges from a
+    // fixed `'consent'` answer for the duration of this test.
     test('without acceptance, the view never shows "load failed", including after an online event', async () => {
-        hubMock.getRisuHub.mockImplementation(async () => {
-            publishUpstreamAccepted()
-            return { ok: false, reason: 'consent' } as never
-        })
-
         const target = mountRealmMain()
         await settle()
         expect(target.querySelector('[role="status"]')?.textContent).not.toContain(language.hubLoadFailed)

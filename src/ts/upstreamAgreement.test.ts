@@ -232,6 +232,35 @@ describe('publishUpstreamAccepted(): the store takes the fresh read the caller j
     })
 })
 
+describe('askUpstreamAgreement(): Decline leaves the store agreeing with storage (compatibility guard)', () => {
+    // Guard: a live subscription kept alive across a same-tab `removeItem` (no `storage` event
+    // fires for that) leaves `upstreamAccepted` cached at a stale `true`; answering Decline must
+    // still leave the store agreeing with the fresh read, and nothing stored.
+    test('Decline corrects a stale cached true to false when storage does not hold acceptance', async () => {
+        localStorage.setItem(UPSTREAM_AGREEMENT_KEY, 'accepted')
+        resetUpstreamAgreementForTests()
+        const seen: boolean[] = []
+        const unsubscribe = upstreamAccepted.subscribe((v) => seen.push(v))
+        try {
+            expect(seen[seen.length - 1]).toBe(true)
+            localStorage.removeItem(UPSTREAM_AGREEMENT_KEY)
+            // No storage event for this same-tab removal: the cached value is still stale true.
+            expect(seen[seen.length - 1]).toBe(true)
+
+            const p = askUpstreamAgreement()
+            expect(get(alertStore).type).toBe('tos')
+            alertStore.set({ type: 'none', msg: UPSTREAM_AGREEMENT_DECLINE })
+            expect(await p).toBe(false)
+
+            expect(seen[seen.length - 1]).toBe(false)
+            expect(get(upstreamAccepted)).toBe(false)
+            expect(localStorage.getItem(UPSTREAM_AGREEMENT_KEY)).toBeNull()
+        } finally {
+            unsubscribe()
+        }
+    })
+})
+
 describe('askUpstreamAgreement(): every prompt re-posts until its own answer (T-C14)', () => {
     test('a pending prompt displaced by a toast is re-posted, and only its own Decline resolves it', async () => {
         const p = askUpstreamAgreement()

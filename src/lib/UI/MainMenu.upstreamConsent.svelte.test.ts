@@ -257,12 +257,10 @@ describe('MainMenu.svelte: the realm preview placeholder before acceptance', () 
 })
 
 describe('MainMenu.svelte: no failed state before acceptance (T-C15)', () => {
+    // Relies on the default mock installed in beforeEach: nothing here ever accepts, so
+    // `installConsentDerivedMock()`'s own `isUpstreamAccepted()` branch never diverges from a
+    // fixed `'consent'` answer for the duration of this test.
     test('without acceptance, the card never shows "load failed", including after an online event', async () => {
-        hubMock.getRisuHub.mockImplementation(async () => {
-            publishUpstreamAccepted()
-            return { ok: false, reason: 'consent' } as never
-        })
-
         const target = mountMainMenu()
         await settle()
         expect(target.querySelector('[role="status"]')?.textContent).not.toContain(language.hubLoadFailed)
@@ -270,6 +268,35 @@ describe('MainMenu.svelte: no failed state before acceptance (T-C15)', () => {
         window.dispatchEvent(new Event('online'))
         await settle()
         expect(target.querySelector('[role="status"]')?.textContent).not.toContain(language.hubLoadFailed)
+    })
+})
+
+describe('MainMenu.svelte: the online listener must respect withdrawn acceptance', () => {
+    // The online listener must require `$upstreamAccepted` as well as `hubStatus === 'offline'` and
+    // `!realmHidden`: `hubStatus` stays 'offline' from an earlier accepted load after acceptance is
+    // withdrawn, so without it an `online` event would reach `getRisuHub` for a user who has not agreed.
+    test('acceptance withdrawn while offline, then an online event: getRisuHub is not called again', async () => {
+        localStorage.setItem(UPSTREAM_AGREEMENT_KEY, 'accepted')
+        resetUpstreamAgreementForTests()
+        hubMock.getRisuHub.mockImplementation(async () => ({ ok: false, reason: 'offline' }) as never)
+
+        const target = mountMainMenu()
+        await settle()
+        expect(hubMock.getRisuHub).toHaveBeenCalledTimes(1)
+        expect(placeholder(target)).toBeNull()
+
+        hubMock.getRisuHub.mockClear()
+        localStorage.removeItem(UPSTREAM_AGREEMENT_KEY)
+        window.dispatchEvent(new StorageEvent('storage', { key: UPSTREAM_AGREEMENT_KEY }))
+        await settle()
+        expect(get(upstreamAccepted)).toBe(false)
+        expect(placeholder(target)).toBeTruthy()
+        expect(hubMock.getRisuHub).not.toHaveBeenCalled()
+
+        window.dispatchEvent(new Event('online'))
+        await settle()
+
+        expect(hubMock.getRisuHub).not.toHaveBeenCalled()
     })
 })
 
