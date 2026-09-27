@@ -154,7 +154,7 @@ export const languageChinese = {
         "groupInnerFormat": "用于定义群组聊天中非发言者角色的格式。此字段不为空时，将使用此格式替代默认格式。若 `Group Other Bot Role` 设置为 `assistant`，该格式也将应用于发言者。",
         "groupOtherBotRole": "用于定义群组聊天中非发言者的角色。",
         "chatHTML": "每个聊天插入的 HTML。\n\n可以使用CBS和特殊标签。\n- `<risutextbox>`：用于呈现文字的文本框\n- `<risuicon>`：用于显示用户或助理的头像\n- `<risubuttons>`：用于聊天编辑、翻译等图标按钮\n- `<risugeninfo>`：生成消息按钮。",
-        "systemContentReplacement": "若模型不支持系统提示词，将使用此格式替换系统提示词。",
+        "systemContentReplacement": "若模型不支持系统提示词，将使用此格式替换系统提示词。其中的 `{{slot}}` 会被替换为原始系统提示词（仅替换第一次出现的位置）。",
         "systemRoleReplacement": "若模型不支持系统角色，将使用此角色替换系统角色。",
         "summarizationPrompt": "用于摘要的提示词。留空将使用默认提示。你还可以使用带有 {{slot}} 的 ChatML 格式来处理聊天数据。",
         "translatorPrompt": "用于翻译的提示词。留空将使用默认提示。你还可以使用带有 {{slot}} 的 ChatML 格式表示目标语言：用 {{slot::content}} 表示内容，用 {{slot::tnote}} 表示翻译注释。",

@@ -246,7 +246,7 @@ export const languageEnglish = {
         groupOtherBotRole: "This defines a role that is used in group chat for characters that isn't speaker.",
         chatHTML:
             "A HTML that would be inserted as each chat.\n\nYou can use CBS and special tags.\n- `<risutextbox>`: a textbox that would be used to render text\n- `<risuicon>`: an icon for user or assistant\n- `<risubuttons>`: icon buttons for chat edit, translations and etc.\n- `<risugeninfo>`: generation information button.",
-        systemContentReplacement: "The prompt format that replaces system prompt if the model doesn't support system prompt.",
+        systemContentReplacement: "The prompt format that replaces system prompt if the model doesn't support system prompt. `{{slot}}` in it is replaced with the original system prompt (only its first occurrence).",
         systemRoleReplacement: "The role that replaces system role if the model doesn't support system role.",
         summarizationPrompt:
             "The prompt that is used for summarization. If it is blank, it will use the default prompt. You can also use ChatML formating with {{slot}} for the chat data.",

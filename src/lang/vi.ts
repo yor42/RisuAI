@@ -154,7 +154,7 @@ export const languageVietnamese = {
         "groupInnerFormat": "Điều này xác định định dạng được sử dụng trong trò chuyện nhóm cho các nhân vật không phải là người nói. Nếu không trống, nó sẽ sử dụng định dạng này thay vì định dạng mặc định. Nếu `Vai trò Bot Khác trong Nhóm` là `assistant`, nó cũng sẽ được áp dụng cho người nói.",
         "groupOtherBotRole": "Điều này xác định vai trò được sử dụng trong trò chuyện nhóm cho các nhân vật không phải là người nói.",
         "chatHTML": "HTML sẽ được chèn vào mỗi cuộc trò chuyện.\n\nBạn có thể sử dụng CBS và các thẻ đặc biệt.\n- `<risutextbox>`: hộp văn bản sẽ được sử dụng để hiển thị văn bản\n- `<risuicon>`: biểu tượng cho người dùng hoặc trợ lý\n- `<risubuttons>`: các nút biểu tượng để chỉnh sửa trò chuyện, dịch thuật, v.v.\n- `<risugeninfo>`: nút thông tin tạo.",
-        "systemContentReplacement": "Định dạng lời nhắc thay thế lời nhắc hệ thống nếu mô hình không hỗ trợ lời nhắc hệ thống.",
+        "systemContentReplacement": "Định dạng lời nhắc thay thế lời nhắc hệ thống nếu mô hình không hỗ trợ lời nhắc hệ thống. `{{slot}}` trong đó sẽ được thay thế bằng lời nhắc hệ thống gốc (chỉ lần xuất hiện đầu tiên).",
         "systemRoleReplacement": "Vai trò thay thế vai trò hệ thống nếu mô hình không hỗ trợ vai trò hệ thống.",
         "summarizationPrompt": "Lời nhắc được sử dụng để tóm tắt. Nếu để trống, nó sẽ sử dụng lời nhắc mặc định. Bạn cũng có thể sử dụng định dạng ChatML với {{slot}} cho dữ liệu trò chuyện.",
         "translatorPrompt": "Lời nhắc được sử dụng để dịch. Nếu để trống, nó sẽ sử dụng lời nhắc mặc định. Bạn cũng có thể sử dụng định dạng ChatML với {{slot}} cho ngôn ngữ đích, {{slot::content}} cho nội dung, và {{slot::tnote}} cho ghi chú của người dịch.",
