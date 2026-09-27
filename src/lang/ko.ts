@@ -155,7 +155,7 @@ export const languageKorean = {
         "groupInnerFormat": "화자가 아닌 캐릭터를 위해 그룹 채팅에서 사용되는 포맷을 정의합니다. 비워두지 않으면 기본 포맷 대신 이 포맷을 사용합니다. `그룹 내 기타 봇 역할`이 `assistant`인 경우 화자에게도 적용됩니다.",
         "groupOtherBotRole": "그룹 채팅에서 화자가 아닌 캐릭터에 사용되는 역할을 정의합니다.",
         "chatHTML": "각 채팅으로 삽입될 HTML입니다.\n\nCBS와 특수 태그를 사용할 수 있습니다.\n- `<risutextbox>`: 텍스트를 렌더링하는 데 사용될 텍스트 상자\n- `<risuicon>`: 사용자 또는 어시스턴트용 아이콘\n- `<risubuttons>`: 채팅 편집, 번역 등을 위한 아이콘 버튼\n- `<risugeninfo>`: 생성 정보 버튼.",
-        "systemContentReplacement": "모델이 시스템 프롬프트를 지원하지 않는 경우 시스템 프롬프트를 대체하는 프롬프트 포맷입니다. 여기서 `{{slot}}`은 원래 시스템 프롬프트로 대체됩니다(처음 등장하는 것만 해당).",
+        "systemContentReplacement": "모델이 시스템 프롬프트를 지원하지 않는 경우 시스템 프롬프트를 대체하는 프롬프트 포맷입니다. 여기서 `{{slot}}`은 원래 시스템 프롬프트로 대체됩니다(맨 처음의 슬롯만 대체).",
         "systemRoleReplacement": "모델이 시스템 역할을 지원하지 않는 경우 시스템 역할을 대체하는 역할입니다.",
         "summarizationPrompt": "요약에 사용되는 프롬프트입니다. 비어있으면 기본 프롬프트를 사용합니다. 채팅 데이터에 대해 {{slot}}을 사용하여 ChatML 형식을 사용할 수도 있습니다.",
         "translatorPrompt": "번역에 사용되는 프롬프트입니다. 비어있으면 기본 프롬프트를 사용합니다. 목적 언어에 대해 {{slot}}, 콘텐츠에 대해 {{slot::content}}, 번역자 노트에 대해 {{slot::tnote}}를 사용하여 ChatML 형식을 사용할 수도 있습니다.",
