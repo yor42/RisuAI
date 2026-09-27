@@ -10,35 +10,47 @@ treat it as a log or history.
 
 ## Session date
 
-2026-09-25 to 2026-09-26.
+2026-09-25 to 2026-09-27.
 
 ## Branch and commit state
 
-The branch is `fix/persistence-conflict-platform-hardening`. **It is pushed and in sync with
-`origin/fix/persistence-conflict-platform-hardening` at `877d233b`.**
-- `911376cb`: CHORE-34, the multiuser removal.
-- `c225643b`: the CHORE-34 records and the RisuAccount stage setup.
-- `4aa29913`: the CHORE-33 plan (Report 28) and its decisions.
-- `e1dd839c`: CHORE-33 28A, the importer refusal.
-- `87b974e5`: CHORE-33 28B, the RisuAccount removal.
-- `57d1596a`: the comment sweep (first pass), separate from CHORE-33.
-- `d2653123`: CHORE-33 28C, the upstream-service agreement at first use.
-- `fd13d930`: the MC-091 workflow-pilot adoption, and the 28C/MC-090 records.
-- `877d233b`: 28C's live check (ledger row 221) and editorial re-check (row 222) records.
+The branch is `fix/persistence-conflict-platform-hardening`. **It is pushed through `2cdfb2b5`;
+`4cdb5ef1` is committed on top and not pushed.**
+- Earlier stages: CHORE-34 `911376cb`; CHORE-33 `e1dd839c`, `87b974e5`, `d2653123`; CHORE-39
+  `37898465`. Their records run to `b7b1fd00`.
+- The removal stage (Report 31):
+  - `2af8d4fe`: dead code, including the Communities page;
+  - `a9c29ba7`: the Patreon page;
+  - `237ebba1`: Drive removed, leftovers cleared at boot, and the local restore lock;
+  - `e8500372`: the records, and `MC-093`.
+- The upstream sync:
+  - `425080e6`: Svelte 5.56.8;
+  - `f190d950`: zh-Hant, from upstream;
+  - `0efc3d22`: the `{{slot}}` help text in every language;
+  - `4cdb5ef1`: the maintainer's own rewording of the Korean `{{slot}}` note.
+- CHORE-42 (Report 32): `80c9128a` (plan records), `ce6bc594` (the fix) and `2cdfb2b5` (its records).
 
-**Uncommitted, by the maintainer's instruction, never staged:** the parallel wiki session's
-`wiki/Settings-*.md` (untracked), `wiki/Home.md` and `wiki/_Sidebar.md` (modified).
+## Parallel sessions (from 2026-09-27)
 
-**Committed 2026-09-26, after `877d233b`, at the maintainer's go:** the 28C optional follow-ups
-(ledger row 225), the second comment-sweep pass (row 228), and these records (CHORE-33 closed in
-the Roadmap and Reports 25/28, CHORE-35 to CHORE-41 filed, MC-092, Report 30, ledger rows
-223-228).
-
-**Committed 2026-09-26/27:** CHORE-39 (`37898465`) and its records (ledger rows 229-231, Report
-30, the Roadmap, this file). Pushed (`b7b1fd00`).
-
-**Committed 2026-09-27, not pushed:** the removal stage (`2af8d4fe`, `a9c29ba7`, `237ebba1`) and its
-records (Report 31, ledger rows 232-241, `MC-093`, the Roadmap, this file).
+Two sessions work **in this same checkout at once**, started from the maintainer's hand-off prompts:
+- **The W1 session** owns everything outside `wiki/`, including all `Agents/` records.
+  - The next ledger row is 253 and the next report is 33.
+  - It lists the wiki pages W1 makes stale, and does not edit them.
+- **The wiki session** owns `wiki/**` only, including the earlier wiki session's uncommitted
+  `wiki/Settings*.md`, `wiki/Home.md` and `wiki/_Sidebar.md`.
+  - It writes nothing to `Agents/`. Its findings, suspected bugs and questions go to the
+    maintainer in its final report.
+  - Its hand-off covers:
+    - Report 28 §10's list and the 28C additions;
+    - Report 31 §7;
+    - CHORE-42's refusal and warning;
+    - CHORE-39's switch notices;
+    - the `{{slot}}` help text.
+- **Rules for both:**
+  - stage by explicit path only;
+  - never `git add -A`, `stash`, `reset`, `checkout -- <path>` or `restore` on another
+    session's files;
+  - commit and push only at the maintainer's request.
 
 ## CHORE-33 (RisuAccount removal): done
 
@@ -59,10 +71,7 @@ STATUS block and section 11, and ledger rows 198 to 222:
 
 ## Open follow-ups, waiting on the maintainer
 
-1. **Hand the wiki session its list**: Report 28 section 10's hand-off list, plus the 28C
-   additions — `Settings-Chat-Bot.md` (the preset "upload to Realm" now asks for the agreement
-   first) and `Settings-Display.md` (the placeholder under "Hide RisuRealm"). Do not edit
-   `wiki/Settings-Account-and-Files.md`; it belongs to the parallel wiki session.
+1. **The wiki hand-off** was given on 2026-09-27 to the parallel wiki session (see "Parallel sessions" above).
 2. **The three optional Gate 2 follow-ups** (row 220) are done and committed (row 225).
 3. **The second comment-sweep pass** is done and committed (row 228). Left for a later pass:
    `globalApi.svelte.ts` cites "ledger row 61" for a timing claim that rows 63 and 79 carry; fix it
@@ -73,6 +82,9 @@ STATUS block and section 11, and ledger rows 198 to 222:
    CHORE-35's scope (removed); the rest of CHORE-35 (the remaining upstream-infrastructure
    features) becomes opt-in, its own stage after W1. MC-089 says nothing ships until every open
    ticket clears.
+   - **Status (2026-09-27):** CHORE-36, CHORE-37, CHORE-38 and the Patreon removal are done
+     (Report 31). CHORE-42, which came out of that stage, is done too (Report 32). CHORE-40 is
+     still open, and CHORE-35's opt-in stage follows W1.
 5. **CHORE-41, the edit-button bug** (was MC-090, now filed as a ticket). The mechanism is found
    (ledger rows 201-202): `Chats.svelte` mounts one `Chat` per visible message, keyed by a hash of
    the message's data, id, index and flags, plus `ReloadChatPointer[index]`; `editMode` is local
@@ -83,7 +95,11 @@ STATUS block and section 11, and ledger rows 198 to 222:
    synchronous error during the edit-mode branch's mount, caught by no `<svelte:boundary>` — but
    the throw site itself is not found; the maintainer's console output is needed). Blocked on
    that console output.
-6. **The MC-091 workflow pilot continues** over the next 5-10 items. 28C's Gate 2 was its first
+6. **A native-speaker check on the new translations.** The maintainer reviewed the Korean
+   (`4cdb5ef1`). The translator suggested that the German and Vietnamese
+   `restoreNoLockWarningConfirm`, a data-loss warning, and the German `{{slot}}` phrasing get a
+   native check.
+7. **The MC-091 workflow pilot continues** over the next 5-10 items. 28C's Gate 2 was its first
    use of the `[EDITORIAL]` outcome and of reviewer continuity for a re-check.
 
 ## Work order
@@ -225,8 +241,8 @@ bug) is blocked on the maintainer's console output, not scheduled by position.
 
 ## Test suite
 
-**127 files: 1535 passed, 4 skipped, 0 failed** — the check on the removal stage's final tree
-(`237ebba1`). `pnpm check` is clean; `pnpm run build` and `cargo check` pass.
+**130 files: 1557 passed, 4 skipped, 0 failed** — the check on CHORE-42's final tree (`ce6bc594`).
+`pnpm check` is clean, and `pnpm run build` passes. `cargo check` last ran on the removal stage.
 - Run the suite with `npx vitest run --exclude "**/.claude/**" --exclude "**/node_modules/**"`.
   Plain `pnpm test` also picks up `.claude/worktrees/**`.
 
