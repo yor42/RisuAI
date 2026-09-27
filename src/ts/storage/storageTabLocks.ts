@@ -80,7 +80,7 @@ export interface StorageTabLocks {
  * `undefined` when Web Locks isn't supported in this browser at all) and
  * write mutex. Production (`globalApi.svelte.ts`) builds exactly one instance
  * per page, passing `navigator.locks` and the same `dbWriteLock` object that
- * `saveDb()` and `loadDrive()` take — a second production instance would let
+ * `saveDb()` and `LoadLocalBackup()`'s restore write take — a second production instance would let
  * an autosave land in the new backend after `disableOpfs()`/`enableOpfs()`
  * already read it, and would give the tab a second shared hold that blocks
  * its own exclusive request. Tests build one instance per simulated tab

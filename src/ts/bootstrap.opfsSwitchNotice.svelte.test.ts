@@ -25,7 +25,7 @@
  * Everything else `bootstrap.ts` imports is mocked, mirroring the sibling
  * bootstrap test files: `globalApi.svelte`, `storage/database.svelte`,
  * `platform`, `util`, `reloadGuard`, `update`, `stores.svelte`,
- * `plugins/plugins.svelte`, `drive/drive`, `characterCards`, `gui/*`,
+ * `plugins/plugins.svelte`, `characterCards`, `gui/*`,
  * `observer.svelte`, `characters`, `hotkey`, `process/modules`,
  * `process/coldstorage.svelte`, `storage/assetIntegrity`,
  * `storage/remoteSaveCleanup`, `storage/assetSweep`, `media/avatarThumb`,
@@ -56,12 +56,12 @@ const getDbBackupsMock = vi.hoisted(() => vi.fn(async (): Promise<number[]> => [
 const buildAssetKeepSetMock = vi.hoisted(() => vi.fn(async () => ({ uncleanable: new Set<string>(), complete: true })))
 const getUncleanablesSyncMock = vi.hoisted(() => vi.fn((): string[] => []))
 const verifyAssetCacheEntryMock = vi.hoisted(() => vi.fn(async () => ({ status: 'ok' as const })))
-const checkDriverInitMock = vi.hoisted(() => vi.fn(async () => false))
 const loadPluginsMock = vi.hoisted(() => vi.fn(async () => { }))
 const makeColdDataMock = vi.hoisted(() => vi.fn(async () => { }))
 const saveDbMock = vi.hoisted(() => vi.fn(async () => { }))
 const moduleUpdateMock = vi.hoisted(() => vi.fn(async () => { }))
 const markAppInitiatedReloadMock = vi.hoisted(() => vi.fn())
+const setUsingSwMock = vi.hoisted(() => vi.fn())
 const setDatabaseMock = vi.hoisted(() => vi.fn((_data: Record<string, unknown>): void => { }))
 const getDatabaseMock = vi.hoisted(() => vi.fn(() => ({}) as Record<string, unknown>))
 
@@ -129,10 +129,6 @@ vi.mock(import('src/ts/stores.svelte'), () => ({
 vi.mock(import('src/ts/plugins/plugins.svelte'), () => ({
     loadPlugins: loadPluginsMock,
 }) as unknown as typeof import('src/ts/plugins/plugins.svelte'))
-
-vi.mock(import('src/ts/drive/drive'), () => ({
-    checkDriverInit: checkDriverInitMock,
-}) as unknown as typeof import('src/ts/drive/drive'))
 
 vi.mock(import('src/ts/characterCards'), () => ({
     characterURLImport: vi.fn(),
@@ -249,9 +245,8 @@ vi.mock(import('src/ts/globalApi.svelte'), () => ({
     getDbBackups: getDbBackupsMock,
     buildAssetKeepSet: buildAssetKeepSetMock,
     getBasename: (p: string) => p.split('/').pop(),
-    setUsingSw: vi.fn(),
+    setUsingSw: setUsingSwMock,
     checkCharOrder: vi.fn(),
-    getUncleanables: vi.fn(async () => []),
     getUncleanablesSync: getUncleanablesSyncMock,
     AppendableBuffer: class {
         chunks: Uint8Array[] = []
@@ -323,12 +318,12 @@ beforeEach(() => {
     buildAssetKeepSetMock.mockReset().mockResolvedValue({ uncleanable: new Set(), complete: true })
     getUncleanablesSyncMock.mockReset().mockReturnValue([])
     verifyAssetCacheEntryMock.mockReset().mockResolvedValue({ status: 'ok' })
-    checkDriverInitMock.mockReset().mockResolvedValue(false)
     loadPluginsMock.mockReset().mockResolvedValue(undefined)
     makeColdDataMock.mockReset().mockResolvedValue(undefined)
     saveDbMock.mockReset().mockResolvedValue(undefined)
     moduleUpdateMock.mockReset().mockResolvedValue(undefined)
     markAppInitiatedReloadMock.mockReset()
+    setUsingSwMock.mockReset()
     setDatabaseMock.mockClear()
     setDatabaseMock.mockImplementation((data: Record<string, unknown>) => { dbState.current = { ...dbState.baseline(), ...data } })
     getDatabaseMock.mockClear()
@@ -355,7 +350,7 @@ describe('loadData(): no opfs switch notice recorded (guard)', () => {
         unsubscribe()
 
         expect(get(loadedStore)).toBe(true)
-        expect(checkDriverInitMock).toHaveBeenCalled()
+        expect(setUsingSwMock).toHaveBeenCalled()
         expect(seenTypes.filter((t) => t !== 'none')).toEqual([])
     })
 })
@@ -380,7 +375,7 @@ describe('loadData(): an opfs switch notice pauses boot until acknowledged (O1)'
                 // Boot must not have reached the steps that follow the
                 // notice's place in loadData() while it is still pending.
                 expect(get(loadedStore)).toBe(false)
-                expect(checkDriverInitMock).not.toHaveBeenCalled()
+                expect(setUsingSwMock).not.toHaveBeenCalled()
 
                 // Acknowledges the notice the way AlertComp's OK button does:
                 // it writes `{ type: 'none', msg: '' }` to the alert store.
@@ -388,7 +383,7 @@ describe('loadData(): an opfs switch notice pauses boot until acknowledged (O1)'
 
                 await loadPromise
                 expect(get(loadedStore)).toBe(true)
-                expect(checkDriverInitMock).toHaveBeenCalled()
+                expect(setUsingSwMock).toHaveBeenCalled()
             } finally {
                 alertStore.set({ type: 'none', msg: '' })
                 await loadPromise.catch(() => { })

@@ -18,7 +18,7 @@
  * stand-in, not `AutoStorage` -- `storage/autoStorage.staleAccount.test.ts`
  * covers `Init()`'s real detection logic), `storage/database.svelte`,
  * `platform`, `util`, `reloadGuard`, `update`, `stores.svelte`,
- * `plugins/plugins.svelte`, `drive/drive`, `characterCards`, `gui/*`,
+ * `plugins/plugins.svelte`, `characterCards`, `gui/*`,
  * `observer.svelte`, `characters`, `hotkey`, `process/modules`,
  * `process/coldstorage.svelte`, `storage/assetIntegrity`,
  * `storage/remoteSaveCleanup`, `storage/assetSweep`, `media/avatarThumb`,
@@ -52,7 +52,7 @@
  * such leftover subscription with the real acknowledgement value so it
  * unsubscribes before the next test runs.
  */
-import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, test, expect, vi, beforeEach, afterEach, onTestFinished } from 'vitest'
 import { writable, get } from 'svelte/store'
 import { STALE_ACCOUNT_NOTICE_ACK } from './alert'
 import type { AssetVerifyResult } from './storage/assetIntegrity'
@@ -79,7 +79,6 @@ const getDbBackupsMock = vi.hoisted(() => vi.fn(async (): Promise<number[]> => [
 const buildAssetKeepSetMock = vi.hoisted(() => vi.fn(async () => ({ uncleanable: new Set<string>(), complete: true })))
 const getUncleanablesSyncMock = vi.hoisted(() => vi.fn((): string[] => []))
 const verifyAssetCacheEntryMock = vi.hoisted(() => vi.fn(async (_path: string): Promise<AssetVerifyResult> => ({ status: 'ok' })))
-const checkDriverInitMock = vi.hoisted(() => vi.fn(async () => false))
 const characterURLImportMock = vi.hoisted(() => vi.fn())
 const handlePendingRealmLinkMock = vi.hoisted(() => vi.fn(async () => { }))
 const loadPluginsMock = vi.hoisted(() => vi.fn(async () => { }))
@@ -87,6 +86,7 @@ const makeColdDataMock = vi.hoisted(() => vi.fn(async () => { }))
 const saveDbMock = vi.hoisted(() => vi.fn(async () => { }))
 const moduleUpdateMock = vi.hoisted(() => vi.fn(async () => { }))
 const markAppInitiatedReloadMock = vi.hoisted(() => vi.fn())
+const setUsingSwMock = vi.hoisted(() => vi.fn())
 const setDatabaseMock = vi.hoisted(() => vi.fn((_data: Record<string, unknown>): void => { }))
 const getDatabaseMock = vi.hoisted(() => vi.fn(() => ({}) as Record<string, unknown>))
 
@@ -94,9 +94,9 @@ const getDatabaseMock = vi.hoisted(() => vi.fn(() => ({}) as Record<string, unkn
 
 //#region module mocks
 
-/** Every instance `localforage.createInstance()` has ever handed back, by the name it was created with -- so a test can assert none of them was ever cleared or dropped, and none was ever named `risuaiAccountCached`. */
+/** Every instance `localforage.createInstance()` has ever handed back, by the name it was created with -- so a test can inspect which instances were cleared or dropped, and by what name. */
 const localforageInstances = vi.hoisted(() => [] as Array<{ name: string, clear: () => Promise<void>, dropInstance: () => Promise<void> }>)
-const localforageDropInstanceMock = vi.hoisted(() => vi.fn(async () => { }))
+const localforageDropInstanceMock = vi.hoisted(() => vi.fn(async (_opts?: { name?: string }) => { }))
 
 vi.mock('localforage', () => ({
     default: {
@@ -170,10 +170,6 @@ vi.mock(import('src/ts/stores.svelte'), () => ({
 vi.mock(import('src/ts/plugins/plugins.svelte'), () => ({
     loadPlugins: loadPluginsMock,
 }) as unknown as typeof import('src/ts/plugins/plugins.svelte'))
-
-vi.mock(import('src/ts/drive/drive'), () => ({
-    checkDriverInit: checkDriverInitMock,
-}) as unknown as typeof import('src/ts/drive/drive'))
 
 vi.mock(import('src/ts/characterCards'), () => ({
     characterURLImport: characterURLImportMock,
@@ -288,9 +284,8 @@ vi.mock(import('src/ts/globalApi.svelte'), () => ({
     getDbBackups: getDbBackupsMock,
     buildAssetKeepSet: buildAssetKeepSetMock,
     getBasename: (p: string) => p.split('/').pop(),
-    setUsingSw: vi.fn(),
+    setUsingSw: setUsingSwMock,
     checkCharOrder: vi.fn(),
-    getUncleanables: vi.fn(async () => []),
     getUncleanablesSync: getUncleanablesSyncMock,
     AppendableBuffer: class {
         chunks: Uint8Array[] = []
@@ -322,14 +317,43 @@ const { alertStore: sharedAlertStore } = await import('src/ts/stores.svelte') as
     alertStore: ReturnType<typeof writable<{ type: string, msg: string }>>
 }
 
-/** No localforage instance is ever cleared or dropped, and none is ever named `risuaiAccountCached`. */
+/** No localforage instance is ever cleared or dropped. */
 function assertLocalforageUntouched() {
     expect(localforageDropInstanceMock).not.toHaveBeenCalled()
-    for (const { name, clear, dropInstance } of localforageInstances) {
-        expect(name).not.toBe('risuaiAccountCached')
+    for (const { clear, dropInstance } of localforageInstances) {
         expect(clear).not.toHaveBeenCalled()
         expect(dropInstance).not.toHaveBeenCalled()
     }
+}
+
+/**
+ * Total drop calls targeting `name`, whichever mechanism performed them: a
+ * module-level `localforage.dropInstance({ name })` call, or
+ * `createInstance({ name }).dropInstance()` on the per-instance handle it
+ * returned.
+ */
+function dropsNamed(name: string): number {
+    const moduleLevel = localforageDropInstanceMock.mock.calls.filter(
+        ([opts]) => opts?.name === name
+    ).length
+    const perInstance = localforageInstances
+        .filter((inst) => inst.name === name)
+        .reduce((sum, inst) => sum + (inst.dropInstance as ReturnType<typeof vi.fn>).mock.calls.length, 0)
+    return moduleLevel + perInstance
+}
+
+/**
+ * Per-instance drop calls targeting `name` only -- unlike `dropsNamed()`
+ * above, the module-level `localforage.dropInstance({ name })` form does not
+ * count here. I5 forbids that module-level form outright for this cleanup: a
+ * real LocalForage initialises its default database as a side effect of that
+ * call, before it ever touches the named store, so counting it here would
+ * hide exactly the defect this invariant exists to catch.
+ */
+function dropsNamedPerInstanceOnly(name: string): number {
+    return localforageInstances
+        .filter((inst) => inst.name === name)
+        .reduce((sum, inst) => sum + (inst.dropInstance as ReturnType<typeof vi.fn>).mock.calls.length, 0)
 }
 
 /** Base database fixture: enough fields for `checkNewFormat()` to run without throwing, and no format-migration branch to trigger. */
@@ -417,13 +441,13 @@ beforeEach(() => {
     buildAssetKeepSetMock.mockReset().mockResolvedValue({ uncleanable: new Set(), complete: true })
     getUncleanablesSyncMock.mockReset().mockReturnValue([])
     verifyAssetCacheEntryMock.mockReset().mockResolvedValue({ status: 'ok' })
-    checkDriverInitMock.mockReset().mockResolvedValue(false)
     characterURLImportMock.mockReset()
     loadPluginsMock.mockReset().mockResolvedValue(undefined)
     makeColdDataMock.mockReset().mockResolvedValue(undefined)
     saveDbMock.mockReset().mockResolvedValue(undefined)
     moduleUpdateMock.mockReset().mockResolvedValue(undefined)
     markAppInitiatedReloadMock.mockReset()
+    setUsingSwMock.mockReset()
     setDatabaseMock.mockClear()
     setDatabaseMock.mockImplementation((data: Record<string, unknown>) => { dbState.current = { ...dbState.baseline(), ...data } })
     getDatabaseMock.mockClear()
@@ -472,12 +496,12 @@ describe('loadData(): a stale account-sync profile does not boot silently (I6)',
             await loadData()
             unsubscribe()
 
-            // I6 requires boot to post this type and stop before
-            // checkDriverInit, leaving loadedStore false, until the notice is
-            // acknowledged.
+            // I6 requires boot to post this type and stop before the
+            // service-worker step, leaving loadedStore false, until the
+            // notice is acknowledged.
             expect(seenAlertTypes).toContain('staleAccountNotice')
             expect(get(loadedStore)).toBe(false)
-            expect(checkDriverInitMock).not.toHaveBeenCalled()
+            expect(setUsingSwMock).not.toHaveBeenCalled()
 
             // The keys must survive while the notice is up: removing them
             // early would lose the notice's own record of a stale profile if
@@ -563,7 +587,7 @@ describe('loadData(): a stale account-sync profile does not boot silently (I6)',
             expect(localStorage.getItem('fallbackRisuToken')).toBeNull()
             expect(markAppInitiatedReloadMock).toHaveBeenCalled()
             expect(window.location.reload).toHaveBeenCalled()
-            expect(checkDriverInitMock).not.toHaveBeenCalled()
+            expect(setUsingSwMock).not.toHaveBeenCalled()
             expect(characterURLImportMock).not.toHaveBeenCalled()
             expect(loadPluginsMock).not.toHaveBeenCalled()
             expect(makeColdDataMock).not.toHaveBeenCalled()
@@ -619,6 +643,219 @@ describe('loadData(): pin', () => {
         unsubscribe()
 
         expect(seenAlertTypes).not.toContain('staleAccountNotice')
+        expect(get(loadedStore)).toBe(true)
+    })
+})
+
+describe('loadData(): an ordinary boot drops the orphaned risuaiAccountCached LocalForage instance exactly once (I5)', () => {
+    test('a boot with no stale profile drops risuaiAccountCached exactly once, and touches no other instance', async () => {
+        await armInstallBranch('decode', baseDb())
+
+        const { loadData, loadedStore } = await freshLoadData()
+
+        await loadData()
+
+        expect(dropsNamed('risuaiAccountCached')).toBe(1)
+        // No module-level drop call ever names anything else, and no other
+        // per-instance handle is ever cleared or dropped.
+        expect(
+            localforageDropInstanceMock.mock.calls.every(
+                ([opts]) => opts?.name === 'risuaiAccountCached'
+            )
+        ).toBe(true)
+        for (const inst of localforageInstances) {
+            if (inst.name !== 'risuaiAccountCached') {
+                expect(inst.clear).not.toHaveBeenCalled()
+                expect(inst.dropInstance).not.toHaveBeenCalled()
+            }
+        }
+        expect(get(loadedStore)).toBe(true)
+    })
+})
+
+describe("loadData(): an ordinary boot never initialises LocalForage's default instance (I5)", () => {
+    test('the risuaiAccountCached drop goes only through its own named instance, never the module-level localforage.dropInstance', async () => {
+        await armInstallBranch('decode', baseDb())
+
+        const { loadData, loadedStore } = await freshLoadData()
+
+        await loadData()
+
+        // The default `localforage` database must not be created: the
+        // module-level `localforage.dropInstance(...)` form initialises it as
+        // a side effect, so the drop is only ever valid through the
+        // per-instance handle a named `createInstance({ name })` call
+        // returns.
+        expect(localforageDropInstanceMock).not.toHaveBeenCalled()
+        expect(dropsNamedPerInstanceOnly('risuaiAccountCached')).toBe(1)
+        expect(get(loadedStore)).toBe(true)
+    })
+})
+
+describe("loadData(): the risuaiAccountCached drop deletes the whole database, not just its store (guard)", () => {
+    test('the per-instance dropInstance() call names risuaiAccountCached and carries no storeName', async () => {
+        await armInstallBranch('decode', baseDb())
+
+        const { loadData, loadedStore } = await freshLoadData()
+
+        await loadData()
+
+        // localforage 1.10.0's IndexedDB driver deletes the whole named
+        // database only when dropInstance() is given a name with no
+        // storeName. Called with no options, it fills in storeName from the
+        // instance's config, and any storeName makes it delete just that
+        // object store, leaving an empty database behind (localforage
+        // 1.10.0, dist/localforage.js, the IndexedDB dropInstance()).
+        const instance = localforageInstances.find((inst) => inst.name === 'risuaiAccountCached')
+        expect(instance).toBeDefined()
+        const dropCalls = (instance!.dropInstance as ReturnType<typeof vi.fn>).mock.calls
+        expect(dropCalls.length).toBe(1)
+        expect(dropCalls[0][0]).toEqual({ name: 'risuaiAccountCached' })
+        expect(get(loadedStore)).toBe(true)
+    })
+})
+
+describe('loadData(): an ordinary boot removes the orphaned risu_lastsaved key (I5)', () => {
+    test('a boot with no stale profile removes only risu_lastsaved, leaving unrelated keys and settings alone', async () => {
+        localStorage.setItem('risu_lastsaved', '123456')
+        localStorage.setItem('opfs_flag!', 'able')
+        localStorage.setItem('unrelated-key', 'unrelated-value')
+        await armInstallBranch('decode', baseDb())
+
+        const { loadData, loadedStore } = await freshLoadData()
+
+        await loadData()
+
+        expect(localStorage.getItem('risu_lastsaved')).toBeNull()
+        expect(localStorage.getItem('opfs_flag!')).toBe('able')
+        expect(localStorage.getItem('unrelated-key')).toBe('unrelated-value')
+        expect(get(loadedStore)).toBe(true)
+    })
+})
+
+describe("loadData(): an ordinary boot clears Drive's orphaned \"backup\" flag values, and only those (I5)", () => {
+    for (const value of ['save', 'load'] as const) {
+        test(`localStorage.backup="${value}" (a Drive save/load flag) is removed`, async () => {
+            localStorage.setItem('backup', value)
+            await armInstallBranch('decode', baseDb())
+
+            const { loadData, loadedStore } = await freshLoadData()
+
+            await loadData()
+
+            expect(localStorage.getItem('backup')).toBeNull()
+            expect(get(loadedStore)).toBe(true)
+        })
+    }
+
+    // Guard: the key name is generic, so a value neither Drive button ever
+    // wrote must survive the cleanup untouched.
+    test('an unrelated localStorage.backup value is left alone', async () => {
+        localStorage.setItem('backup', 'keep-me')
+        await armInstallBranch('decode', baseDb())
+
+        const { loadData, loadedStore } = await freshLoadData()
+
+        await loadData()
+
+        expect(localStorage.getItem('backup')).toBe('keep-me')
+        expect(get(loadedStore)).toBe(true)
+    })
+})
+
+describe('loadData(): a failed risuaiAccountCached cleanup never blocks boot (guard)', () => {
+    test('a drop that rejects still lets boot reach loadedStore true, and its rejection never goes unhandled', async () => {
+        await armInstallBranch('decode', baseDb())
+
+        const { loadData, loadedStore } = await freshLoadData()
+
+        // A `vi.fn()`-produced promise always looks "handled" to Node's
+        // detector, regardless of whether the code under test ever attaches
+        // its own handler -- vi.fn's own bookkeeping already attached one.
+        // Node's real unhandledRejection signal only means anything here for
+        // a plain, un-spied promise, so the rejection below is a raw function
+        // rather than a further `mockRejectedValueOnce()`. Both the
+        // module-level `localforage.dropInstance(...)` form and the
+        // per-instance `createInstance({ name }).dropInstance()` form are
+        // covered, since which one production code calls is not this test's
+        // concern.
+        const lf = await import('localforage') as unknown as {
+            default: {
+                dropInstance: (opts?: { name?: string }) => Promise<void>
+                createInstance: (opts: { name: string }) => { dropInstance: () => Promise<void>, [k: string]: unknown }
+            }
+        }
+        const rejectDrop = () => Promise.reject(new Error('drop failed'))
+        const originalDropInstance = lf.default.dropInstance
+        const originalCreateInstance = lf.default.createInstance
+        // The mocked module outlives this test; later tests must see the
+        // unpatched drop.
+        onTestFinished(() => {
+            lf.default.dropInstance = originalDropInstance
+            lf.default.createInstance = originalCreateInstance
+        })
+        lf.default.dropInstance = rejectDrop
+        lf.default.createInstance = (opts: { name: string }) => {
+            const instance = originalCreateInstance(opts)
+            if (opts?.name === 'risuaiAccountCached') {
+                instance.dropInstance = rejectDrop
+            }
+            return instance
+        }
+
+        // The cleanup's own `.catch(() => {})` must be this rejection's only
+        // handler: nothing about a rejected drop may ever surface as a
+        // process-level unhandled rejection.
+        const unhandled: unknown[] = []
+        const onUnhandledRejection = (reason: unknown) => { unhandled.push(reason) }
+        process.on('unhandledRejection', onUnhandledRejection)
+        try {
+            await loadData()
+            // An unhandled rejection is reported asynchronously, not
+            // synchronously with the rejection itself -- give that a turn.
+            await new Promise((resolve) => setTimeout(resolve, 50))
+        } finally {
+            process.off('unhandledRejection', onUnhandledRejection)
+        }
+
+        expect(get(loadedStore)).toBe(true)
+        expect(unhandled).toEqual([])
+    })
+
+    test('a drop that never settles still lets boot reach loadedStore true', async () => {
+        // An IndexedDB delete blocked by another open connection stays pending
+        // for good, so boot must never wait on the drop. Both the module-level
+        // and the per-instance drop are made to hang, since which one
+        // production code calls is not this test's concern.
+        const lf = await import('localforage') as unknown as {
+            default: {
+                dropInstance: (opts?: { name?: string }) => Promise<void>
+                createInstance: (opts: { name: string }) => { dropInstance: () => Promise<void>, [k: string]: unknown }
+            }
+        }
+        const hangDrop = () => new Promise<void>(() => { })
+        const originalDropInstance = lf.default.dropInstance
+        const originalCreateInstance = lf.default.createInstance
+        // The mocked module outlives this test; later tests must see the
+        // unpatched drop.
+        onTestFinished(() => {
+            lf.default.dropInstance = originalDropInstance
+            lf.default.createInstance = originalCreateInstance
+        })
+        lf.default.dropInstance = hangDrop
+        lf.default.createInstance = (opts: { name: string }) => {
+            const instance = originalCreateInstance(opts)
+            if (opts?.name === 'risuaiAccountCached') {
+                instance.dropInstance = hangDrop
+            }
+            return instance
+        }
+        await armInstallBranch('decode', baseDb())
+
+        const { loadData, loadedStore } = await freshLoadData()
+
+        await loadData()
+
         expect(get(loadedStore)).toBe(true)
     })
 })

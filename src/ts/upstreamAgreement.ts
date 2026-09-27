@@ -80,9 +80,9 @@ export function isUpstreamAccepted(): boolean {
  *
  * The rule this gives is scoped: a caller that finds no acceptance on its own fresh read and then
  * calls this function turns the store false (the Realm list and info requests do this on their
- * no-acceptance branch). Plenty of other fresh reads never call it and so
+ * no-acceptance branch). Two other fresh reads never call it and so
  * never publish: `askUpstreamAgreement()`'s own `isUpstreamAccepted()` check while its prompt is
- * still up, `checkDriverInit()` (`src/ts/drive/drive.ts`), and `RealmFrame.svelte`'s read on init.
+ * still up, and `RealmFrame.svelte`'s read on init.
  *
  * This function writes to a Svelte store and must never be called from inside a `$derived` or a
  * template expression -- either would raise Svelte's `state_unsafe_mutation`, since both forbid

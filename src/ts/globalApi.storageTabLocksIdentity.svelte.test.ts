@@ -2,9 +2,9 @@
  * N2 (Agents/Reports/30-chore39-opfs-migration-plan.md, section 3's
  * single-instance rule): production must build exactly one
  * `StorageTabLocks` instance per page, and its write mutex must be the same
- * `dbWriteLock` object `saveDb()` and `loadDrive()` take -- a second,
- * differently-wired instance would let an autosave land in OPFS after
- * `disableOpfs()` already read it. Compatibility guard: the lock seam
+ * `dbWriteLock` object `saveDb()` and `LoadLocalBackup()`'s restore write
+ * take -- a second, differently-wired instance would let an autosave land in
+ * OPFS after `disableOpfs()` already read it. Compatibility guard: the lock seam
  * extraction wires this correctly on its own, independent of `AutoStorage`'s
  * own O1-O9 boot-copy behaviour, which this test is not evidence of.
  *
@@ -144,11 +144,6 @@ vi.mock(import('src/ts/update'), () => ({
 vi.mock(import('src/ts/plugins/plugins.svelte'), () => ({
     loadPlugins: vi.fn(async () => { }),
 }) as unknown as typeof import('src/ts/plugins/plugins.svelte'))
-
-vi.mock(import('src/ts/drive/drive'), () => ({
-    checkDriverInit: vi.fn(async () => { }),
-    syncDrive: vi.fn(async () => { }),
-}) as unknown as typeof import('src/ts/drive/drive'))
 
 vi.mock(import('src/ts/parser/parser.svelte'), () => ({
     hasher: vi.fn((s: string) => s),

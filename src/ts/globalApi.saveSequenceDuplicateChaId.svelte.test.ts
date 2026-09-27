@@ -155,11 +155,6 @@ vi.mock(import('src/ts/update'), () => ({
     checkRisuUpdate: vi.fn(async () => {}),
 }))
 
-vi.mock(import('src/ts/drive/drive'), () => ({
-    checkDriverInit: vi.fn(async () => {}),
-    syncDrive: vi.fn(async () => {}),
-}) as unknown as typeof import('src/ts/drive/drive'))
-
 vi.mock(import('src/ts/parser/parser.svelte'), () => ({
     hasher: vi.fn((s: string) => s),
 }) as unknown as typeof import('src/ts/parser/parser.svelte'))

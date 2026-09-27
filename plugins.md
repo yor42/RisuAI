@@ -645,7 +645,7 @@ await Risuai.setArgument('max_retries', 5);
 
 ### Plugin Storage (Recommended)
 
-`pluginStorage` is **save-file specific**: it travels with the save file itself, for example through a `.bin` backup and restore, or a Google Drive backup, not with the device:
+`pluginStorage` is **save-file specific**: it travels with the save file itself, for example through a `.bin` backup and restore, not with the device:
 
 ```javascript
 // All operations are synchronous (wrapper around sync storage)

@@ -73,7 +73,7 @@ export interface AssetIntegrityScanSummary {
 
 /**
  * Runs verifyAssetCacheEntry() across every given asset basename (e.g. the
- * output of getUncleanablesSync()/getUncleanables() — every asset currently
+ * output of getUncleanablesSync() — every asset currently
  * referenced somewhere in the database) and summarizes the results. This is
  * the full, on-demand counterpart to bootstrap.ts's small boot-time sample —
  * checking everything is the whole point of an explicit "verify" action, so

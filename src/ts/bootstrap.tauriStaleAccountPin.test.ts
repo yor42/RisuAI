@@ -1,18 +1,22 @@
 /**
- * I6 (Agents/Reports/28-risuaccount-removal-plan.md): a Tauri boot never
- * reads or removes `accountst`, `dosync` or `fallbackRisuToken` -- a pin,
- * expected to PASS already, since the code that reads and removes those keys
- * (`AutoStorage.Init()`'s detection, and `loadData()`'s own non-Tauri-branch
- * cleanup in `src/ts/bootstrap.ts`) is never reached from the Tauri branch of
- * `loadData()` at all.
+ * I6 (Agents/Reports/28-risuaccount-removal-plan.md) and I5 (Agents/Reports/
+ * 31-removal-stage-plan.md): a Tauri boot never reads or removes `accountst`,
+ * `dosync` or `fallbackRisuToken` -- the code that reads and removes those
+ * keys (`AutoStorage.Init()`'s detection, and `loadData()`'s own
+ * non-Tauri-branch cleanup in `src/ts/bootstrap.ts`) never runs from the
+ * Tauri branch. The orphaned-LocalForage-instance and `risu_lastsaved`
+ * cleanup (I5) is different: it runs on the Tauri boot branch too, since
+ * nothing in this app reads or writes either on any platform.
  *
  * Split out from `bootstrap.staleAccountProfile.svelte.test.ts` (which covers
  * every non-Tauri scenario) because `bootstrap.ts` reads `isTauri` once, at
  * its own module top level, to build `appWindow` (`isTauri ?
  * getCurrentWebviewWindow() : null`). Exercising the Tauri branch needs a
  * module instance imported with `isTauri` already `true` at that moment.
- * This file keeps a single, fixed `isTauri: true` from the start, with no
- * `vi.resetModules()`, and exactly one test.
+ * This file keeps a single, fixed `isTauri: true` throughout, and (like the
+ * sibling file) gives every test its own module graph via `vi.resetModules()`
+ * and a fresh dynamic `import('src/ts/bootstrap')` in `beforeEach`, so no
+ * test depends on another's held state.
  *
  * Mocked/real split mirrors the sibling file's: `risuSave.ts` and
  * `process/chatIds.ts` are real; everything else `bootstrap.ts` imports is
@@ -23,19 +27,40 @@
  * the database through (`convertFileSrc` is a pass-through mock here, so the
  * "asset URL" IS the joined file path).
  */
-import { test, expect, vi } from 'vitest'
+import { describe, test, expect, vi, beforeEach } from 'vitest'
 import { writable, get } from 'svelte/store'
+
+/** Every instance `localforage.createInstance()` has ever handed back, by the name it was created with -- so a test can inspect which instances were cleared or dropped, and by what name. */
+const localforageInstances = vi.hoisted(() => [] as Array<{ name: string, dropInstance: () => Promise<void> }>)
+const localforageDropInstanceMock = vi.hoisted(() => vi.fn(async (_opts?: { name?: string }) => { }))
 
 vi.mock('localforage', () => ({
     default: {
-        createInstance: () => ({
-            getItem: vi.fn(async () => null),
-            setItem: vi.fn(async () => { }),
-            removeItem: vi.fn(async () => { }),
-            keys: vi.fn(async () => []),
+        createInstance: vi.fn((opts: { name: string }) => {
+            const dropInstance = vi.fn(async () => { })
+            localforageInstances.push({ name: opts?.name, dropInstance })
+            return {
+                getItem: vi.fn(async () => null),
+                setItem: vi.fn(async () => { }),
+                removeItem: vi.fn(async () => { }),
+                keys: vi.fn(async () => []),
+                dropInstance,
+            }
         }),
+        dropInstance: localforageDropInstanceMock,
     },
 }))
+
+/** Total drop calls targeting `name`, whichever mechanism performed them: a module-level `localforage.dropInstance({ name })` call, or `createInstance({ name }).dropInstance()` on the per-instance handle it returned. */
+function dropsNamed(name: string): number {
+    const moduleLevel = localforageDropInstanceMock.mock.calls.filter(
+        ([opts]) => opts?.name === name
+    ).length
+    const perInstance = localforageInstances
+        .filter((inst) => inst.name === name)
+        .reduce((sum, inst) => sum + (inst.dropInstance as ReturnType<typeof vi.fn>).mock.calls.length, 0)
+    return moduleLevel + perInstance
+}
 
 vi.mock(import('src/ts/platform'), () => ({
     isTauri: true,
@@ -85,10 +110,6 @@ vi.mock(import('src/ts/stores.svelte'), () => ({
 vi.mock(import('src/ts/plugins/plugins.svelte'), () => ({
     loadPlugins: vi.fn(async () => { }),
 }) as unknown as typeof import('src/ts/plugins/plugins.svelte'))
-
-vi.mock(import('src/ts/drive/drive'), () => ({
-    checkDriverInit: vi.fn(async () => false),
-}) as unknown as typeof import('src/ts/drive/drive'))
 
 vi.mock(import('src/ts/characterCards'), () => ({
     characterURLImport: vi.fn(),
@@ -198,7 +219,6 @@ vi.mock(import('src/ts/globalApi.svelte'), () => ({
     getBasename: (p: string) => p.split('/').pop(),
     setUsingSw: vi.fn(),
     checkCharOrder: vi.fn(),
-    getUncleanables: vi.fn(async () => []),
     getUncleanablesSync: vi.fn((): string[] => []),
     AppendableBuffer: class {
         chunks: Uint8Array[] = []
@@ -210,55 +230,145 @@ vi.mock(import('src/ts/globalApi.svelte'), () => ({
 }) as unknown as typeof import('src/ts/globalApi.svelte'))
 
 const { encodeRisuSaveLegacy } = await import('src/ts/storage/risuSave')
-const { loadData } = await import('src/ts/bootstrap')
-const { loadedStore } = await import('src/ts/stores.svelte') as unknown as {
-    loadedStore: ReturnType<typeof writable<boolean>>
-}
 
-test('a Tauri boot never reads or removes accountst, dosync or fallbackRisuToken', async () => {
-    localStorage.clear()
-    localStorage.setItem('accountst', 'able')
-    localStorage.setItem('dosync', 'sync')
-    localStorage.setItem('fallbackRisuToken', JSON.stringify({ token: 'x' }))
-    fsStore.set('', new Uint8Array()) // exists('', ...) -> true, skips the mkdir branches
-    fsStore.set('database', new Uint8Array())
-    fsStore.set('assets', new Uint8Array())
-    const dbBytes = encodeRisuSaveLegacy({
+/** A database fixture with enough fields for `checkNewFormat()` to run without throwing. */
+function baseDbBytes(mainPrompt: string) {
+    return encodeRisuSaveLegacy({
         formatversion: 999,
         characters: [],
         modules: [],
         personas: [],
         characterOrder: [],
-        mainPrompt: 'tauri-fixture',
+        mainPrompt,
         loreBookToken: 8000,
     })
-    fsStore.set('database/database.bin', dbBytes)
-    // loadData()'s Tauri branch fetches the db through convertFileSrc's
-    // (pass-through, mocked) URL rather than through readFile.
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-        if (url === '/appdata/database/database.bin') {
-            return new Response(dbBytes)
-        }
-        return new Response(null, { status: 404 })
-    }))
-    vi.stubGlobal('open', vi.fn())
+}
 
+/** Imports a fresh `loadData` and the matching `stores.svelte` pair, after `vi.resetModules()`. */
+async function freshLoadData() {
+    const { loadData } = await import('src/ts/bootstrap')
+    const { loadedStore } = await import('src/ts/stores.svelte') as unknown as {
+        loadedStore: ReturnType<typeof writable<boolean>>
+    }
     loadedStore.set(false)
+    return { loadData, loadedStore }
+}
 
-    const getItemSpy = vi.spyOn(Storage.prototype, 'getItem')
+beforeEach(() => {
+    localStorage.clear()
+    fsStore.clear()
+    localforageInstances.length = 0
+    localforageDropInstanceMock.mockClear()
+    dbState.current = {}
+    vi.stubGlobal('open', vi.fn())
+    vi.resetModules()
+})
 
-    await loadData()
+describe('loadData(): Tauri boot pins (I6, I5)', () => {
+    test('a Tauri boot never reads or removes accountst, dosync or fallbackRisuToken', async () => {
+        localStorage.setItem('accountst', 'able')
+        localStorage.setItem('dosync', 'sync')
+        localStorage.setItem('fallbackRisuToken', JSON.stringify({ token: 'x' }))
+        fsStore.set('', new Uint8Array()) // exists('', ...) -> true, skips the mkdir branches
+        fsStore.set('database', new Uint8Array())
+        fsStore.set('assets', new Uint8Array())
+        const dbBytes = baseDbBytes('tauri-fixture')
+        fsStore.set('database/database.bin', dbBytes)
+        // loadData()'s Tauri branch fetches the db through convertFileSrc's
+        // (pass-through, mocked) URL rather than through readFile.
+        vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+            if (url === '/appdata/database/database.bin') {
+                return new Response(dbBytes)
+            }
+            return new Response(null, { status: 404 })
+        }))
 
-    // The title's "never reads" half: none of the three keys is ever read,
-    // not just left unremoved.
-    const readKeys = getItemSpy.mock.calls.map((call) => call[0])
-    expect(readKeys).not.toContain('accountst')
-    expect(readKeys).not.toContain('dosync')
-    expect(readKeys).not.toContain('fallbackRisuToken')
-    getItemSpy.mockRestore()
+        const { loadData, loadedStore } = await freshLoadData()
 
-    expect(localStorage.getItem('accountst')).toBe('able')
-    expect(localStorage.getItem('dosync')).toBe('sync')
-    expect(localStorage.getItem('fallbackRisuToken')).not.toBeNull()
-    expect(get(loadedStore)).toBe(true)
+        const getItemSpy = vi.spyOn(Storage.prototype, 'getItem')
+
+        await loadData()
+
+        // The title's "never reads" half: none of the three keys is ever read,
+        // not just left unremoved.
+        const readKeys = getItemSpy.mock.calls.map((call) => call[0])
+        expect(readKeys).not.toContain('accountst')
+        expect(readKeys).not.toContain('dosync')
+        expect(readKeys).not.toContain('fallbackRisuToken')
+        getItemSpy.mockRestore()
+
+        expect(localStorage.getItem('accountst')).toBe('able')
+        expect(localStorage.getItem('dosync')).toBe('sync')
+        expect(localStorage.getItem('fallbackRisuToken')).not.toBeNull()
+        expect(get(loadedStore)).toBe(true)
+    })
+
+    test('an ordinary Tauri boot drops risuaiAccountCached exactly once, removes risu_lastsaved and the Drive backup flag, and leaves accountst, dosync and fallbackRisuToken untouched', async () => {
+        localStorage.setItem('risu_lastsaved', '123456')
+        localStorage.setItem('backup', 'save')
+        // Present but irrelevant to a Tauri boot (I6): these three keys are
+        // only ever read or removed by the non-Tauri stale-profile machinery,
+        // so this shared cleanup must leave them exactly as it found them.
+        localStorage.setItem('accountst', 'able')
+        localStorage.setItem('dosync', 'sync')
+        localStorage.setItem('fallbackRisuToken', JSON.stringify({ token: 'unrelated' }))
+        fsStore.set('', new Uint8Array())
+        fsStore.set('database', new Uint8Array())
+        fsStore.set('assets', new Uint8Array())
+        const dbBytes = baseDbBytes('tauri-ordinary-boot')
+        fsStore.set('database/database.bin', dbBytes)
+        vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+            if (url === '/appdata/database/database.bin') {
+                return new Response(dbBytes)
+            }
+            return new Response(null, { status: 404 })
+        }))
+
+        const { loadData, loadedStore } = await freshLoadData()
+
+        await loadData()
+
+        expect(dropsNamed('risuaiAccountCached')).toBe(1)
+        // The default `localforage` database must not be created: the drop
+        // is only ever valid through the named per-instance handle, never
+        // the module-level `localforage.dropInstance(...)` form.
+        expect(localforageDropInstanceMock).not.toHaveBeenCalled()
+        expect(localStorage.getItem('risu_lastsaved')).toBeNull()
+        expect(localStorage.getItem('backup')).toBeNull()
+        expect(localStorage.getItem('accountst')).toBe('able')
+        expect(localStorage.getItem('dosync')).toBe('sync')
+        expect(localStorage.getItem('fallbackRisuToken')).not.toBeNull()
+        expect(get(loadedStore)).toBe(true)
+    })
+
+    test('the per-instance dropInstance() call names risuaiAccountCached and carries no storeName (guard)', async () => {
+        fsStore.set('', new Uint8Array())
+        fsStore.set('database', new Uint8Array())
+        fsStore.set('assets', new Uint8Array())
+        const dbBytes = baseDbBytes('tauri-dropinstance-args')
+        fsStore.set('database/database.bin', dbBytes)
+        vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+            if (url === '/appdata/database/database.bin') {
+                return new Response(dbBytes)
+            }
+            return new Response(null, { status: 404 })
+        }))
+
+        const { loadData, loadedStore } = await freshLoadData()
+
+        await loadData()
+
+        // localforage 1.10.0's IndexedDB driver deletes the whole named
+        // database only when dropInstance() is given a name with no
+        // storeName. Called with no options, it fills in storeName from the
+        // instance's config, and any storeName makes it delete just that
+        // object store, leaving an empty database behind (localforage
+        // 1.10.0, dist/localforage.js, the IndexedDB dropInstance()).
+        const instance = localforageInstances.find((inst) => inst.name === 'risuaiAccountCached')
+        expect(instance).toBeDefined()
+        const dropCalls = (instance!.dropInstance as ReturnType<typeof vi.fn>).mock.calls
+        expect(dropCalls.length).toBe(1)
+        expect(dropCalls[0][0]).toEqual({ name: 'risuaiAccountCached' })
+        expect(get(loadedStore)).toBe(true)
+    })
 })

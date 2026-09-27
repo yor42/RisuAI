@@ -37,7 +37,7 @@ RisuAI/
 | `process/` | Core processing logic (chat, requests, memory, models) |
 | `plugins/` | Plugin system (API v3.0, sandboxing, security) |
 | `gui/` | GUI utilities (colorscheme, highlight, animation) |
-| `drive/` | Google Drive and local backup |
+| `drive/` | Local `.bin` backup and restore (the folder name is historical) |
 | `translator/` | Translation system |
 | `model/` | Model definitions and integrations |
 | `cbs.ts` | Callback system |

@@ -140,8 +140,8 @@ export async function enableOpfs(): Promise<void> {
     // acquireExclusiveStorageMigrationLock() already stopped this tab's own
     // writes internally; never releasing the returned function here is
     // intentional — nothing should write database.bin again before the
-    // reload below actually happens, same reasoning as loadDrive()'s
-    // restore write in src/ts/drive/drive.ts.
+    // reload below actually happens, same reasoning as LoadLocalBackup()'s
+    // restore write in src/ts/drive/backuplocal.ts.
     localStorage.setItem('opfs_flag!', 'able')
     markAppInitiatedReload()
     location.reload()

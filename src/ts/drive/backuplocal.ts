@@ -1,6 +1,6 @@
 import { BaseDirectory, readFile, readDir, writeFile } from "@tauri-apps/plugin-fs";
 import { alertError, alertNormal, alertStore, alertWait, alertMd, alertConfirm } from "../alert";
-import { LocalWriter, forageStorage, requiresFullEncoderReload } from "../globalApi.svelte";
+import { LocalWriter, forageStorage, requiresFullEncoderReload, dbWriteLock } from "../globalApi.svelte";
 import { isTauri } from "src/ts/platform"
 import { decodeRisuSave, encodeRisuSaveLegacy } from "../storage/risuSave";
 import { getDatabase, setDatabase } from "../storage/database.svelte";
@@ -543,20 +543,41 @@ export function LoadLocalBackup(){
             repairDatabaseIds(dbData)
             setDatabase(dbData);
             requiresFullEncoderReload.state = true;
-            if (isTauri) {
-                await writeFile('database/database.bin', db, { baseDir: BaseDirectory.AppData });
-                await relaunch();
-                alertStore.set({
-                    type: "wait",
-                    msg: "Success, Refreshing your app."
-                });
-            } else {
-                await forageStorage.setItem('database/database.bin', db);
-                location.search = '';
-                alertStore.set({
-                    type: "wait",
-                    msg: "Success, Refreshing your app."
-                });
+
+            // Acquired before the write and held through it -- the same write mutex
+            // saveDb()'s autosave loop takes around this key (see globalApi.svelte.ts's
+            // AsyncMutex/dbWriteLock) -- so a save cycle that already encoded the
+            // pre-restore database can never land after this write. Deliberately NOT
+            // released once the write succeeds: the reload below follows immediately,
+            // and no in-flight save cycle's bytes, encoded from the pre-restore
+            // database before `setDatabase(dbData)` installed the restored one, must
+            // ever write this key again. It IS released if the write fails, since then
+            // no reload happens and permanently blocking the autosave loop would be
+            // worse.
+            const releaseWriteLock = await dbWriteLock.acquire();
+            let restoreWriteSucceeded = false;
+            try {
+                if (isTauri) {
+                    await writeFile('database/database.bin', db, { baseDir: BaseDirectory.AppData });
+                    restoreWriteSucceeded = true;
+                    await relaunch();
+                    alertStore.set({
+                        type: "wait",
+                        msg: "Success, Refreshing your app."
+                    });
+                } else {
+                    await forageStorage.setItem('database/database.bin', db);
+                    restoreWriteSucceeded = true;
+                    location.search = '';
+                    alertStore.set({
+                        type: "wait",
+                        msg: "Success, Refreshing your app."
+                    });
+                }
+            } finally {
+                if (!restoreWriteSucceeded) {
+                    releaseWriteLock();
+                }
             }
 
             alertNormal('Success');

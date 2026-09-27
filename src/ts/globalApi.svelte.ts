@@ -24,7 +24,6 @@ import { checkRisuUpdate } from "./update";
 import { MobileGUI, botMakerMode, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, bodyIntercepterStore, savingStoppedReason, frozenSaveKeysStore, type FrozenSaveKeyInfo } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
 import { alertConfirm, alertError, alertMd, alertNormal, alertSelect, alertToast, waitAlert } from "./alert";
-import { checkDriverInit, syncDrive } from "./drive/drive";
 import { hasher } from "./parser/parser.svelte";
 import { characterURLImport, hubURL } from "./characterCards";
 import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from "./storage/defaultPrompts";
@@ -544,16 +543,17 @@ export let requiresFullEncoderReload = $state({
 /**
  * A minimal async mutex serializing writes to the shared `database/database.bin`
  * key between saveDb()'s autosave loop and any other direct writer (currently
- * loadDrive()'s backup/sync restore). A boolean "is someone else writing"
- * flag checked once before encoding is NOT sufficient — the flag can flip
- * true after the check but before the write actually lands, letting a stale
- * autosave clobber a just-completed restore. Acquiring this lock actually
+ * LoadLocalBackup()'s restore write, and the exclusive storage-migration lock's
+ * `enableOpfs()`/`disableOpfs()`/boot-copy holders below). A boolean "is someone
+ * else writing" flag checked once before encoding is NOT sufficient — the flag
+ * can flip true after the check but before the write actually lands, letting a
+ * stale autosave clobber a just-completed restore. Acquiring this lock actually
  * blocks a second acquirer until the first releases, so ordering is always
  * correct regardless of the exact interleaving. Not releasing after a
- * successful acquire (as loadDrive() deliberately does not, for its restore
- * write) permanently blocks every later acquirer — the desired behavior once
- * a restore has committed and a reload/relaunch is imminent: nothing from
- * this now-stale JS context should ever write this key again.
+ * successful acquire (as LoadLocalBackup()'s restore write deliberately does
+ * not) permanently blocks every later acquirer — the desired behavior once a
+ * restore has committed and a reload is imminent: nothing from this now-stale
+ * JS context should ever write this key again.
  */
 class AsyncMutex {
     private queue: Promise<void> = Promise.resolve()
@@ -572,7 +572,8 @@ export const dbWriteLock = new AsyncMutex()
  * Production's single storage tab locks instance (see
  * `storageTabLocks.ts`'s single-instance rule) — built against
  * `navigator.locks` and `dbWriteLock` above, the same write mutex `saveDb()`
- * and `loadDrive()` take. `AutoStorage` defaults to this instance too.
+ * and `LoadLocalBackup()`'s restore write take. `AutoStorage` defaults to
+ * this instance too.
  */
 const storageTabLocks = createStorageTabLocks(
     typeof navigator === 'undefined' ? undefined : navigator.locks,
@@ -1007,7 +1008,6 @@ export function sweepDraftRegistrations(now: number = Date.now()): void {
 
 export async function saveDb() {
     let changed = false
-    syncDrive()
     let otherTabSaved = false
     let dirtySinceLastSave = false
     let lastPromptAt: number | null = null
@@ -1330,8 +1330,8 @@ export async function saveDb() {
             }
             const shouldWriteBackup = (Date.now() - lastBackupWriteTime) > DB_BACKUP_MIN_INTERVAL_MS
             // Acquired before the write and held through it (not just checked-then-acted
-            // on) so a concurrent direct writer to this same key (loadDrive()'s restore)
-            // can never interleave with this write — see AsyncMutex/dbWriteLock above.
+            // on) so a concurrent direct writer to this same key (LoadLocalBackup()'s
+            // restore write) can never interleave with this write — see AsyncMutex/dbWriteLock above.
             const releaseWriteLock = await dbWriteLock.acquire()
             try {
                 if (isTauri) {
@@ -1953,17 +1953,18 @@ export function getBasename(data: string) {
 /**
  * Resolves each character to the full data `getUncleanablesSync` should
  * scan for asset references, swapping in a cold-stored character's own
- * blob when it is readable and matches. Shared by `getUncleanables` and
- * `buildAssetKeepSet` so the two cannot drift (CHORE-07 stage 7a).
+ * blob when it is readable and matches. Used by `buildAssetKeepSet`
+ * (CHORE-07 stage 7a).
  *
  * `opts.swallowErrors` controls what happens when a `cha.coldstorage` read
  * throws:
- * - `false` (`getUncleanables`'s own behaviour): the read is awaited with no
- *   try/catch around it, so a throw rejects this function immediately,
- *   before any later character is scanned. No current `getColdStorageItem`
- *   (`coldstorage.svelte.ts`) backend actually does this -- Node, Tauri and
- *   OPFS each swallow their own read errors into a `null` return -- so this
- *   stays a defensive guard rather than a reachable path today.
+ * - `false`: the read is awaited with no try/catch around it, so a throw
+ *   rejects this function immediately, before any later character is
+ *   scanned. No current `getColdStorageItem` (`coldstorage.svelte.ts`)
+ *   backend actually does this -- Node, Tauri and OPFS each swallow their
+ *   own read errors into a `null` return -- so this stays a defensive
+ *   guard rather than a reachable path today. Nothing in this module
+ *   currently calls this function with `false`.
  * - `true` (`buildAssetKeepSet`'s own behaviour): the read is wrapped in a
  *   try/catch, and a throw is recorded by setting `complete = false`
  *   instead of rejecting, so the boot-time asset sweep can still finish
@@ -2017,36 +2018,16 @@ async function resolveUncleanableChars(db: Database, opts: { swallowErrors: bool
 }
 
 /**
- * A throw from a `cha.coldstorage` read -- not produced by any current
- * `getColdStorageItem` backend, but this function passes one through if a
- * future backend ever does -- propagates out of this function: nothing here
- * catches it, so `getUncleanables`'s own promise rejects with that same
- * error, before any later character is scanned. `drive.ts`'s `loadDrive`
- * relies on that rejection to abort a restore instead of silently treating a
- * broken read as "nothing to protect" -- `buildAssetKeepSet` below is the
- * function that swallows a read failure, not this one.
- */
-export async function getUncleanables(db: Database) {
-    const { chars } = await resolveUncleanableChars(db, { swallowErrors: false })
-    return getUncleanablesSync(db, { chars });
-}
-
-/**
  * Builds the keep-set the boot-time asset sweep (`cleanChunks`'s
  * `sweepTauriAssets` / `sweepForageAssetKey`, `src/ts/storage/assetSweep.ts`)
- * uses to decide what NOT to delete. Shares `resolveUncleanableChars` with
- * `getUncleanables` so the two cannot drift (CHORE-07 stage 7a).
+ * uses to decide what NOT to delete (CHORE-07 stage 7a).
  *
- * Unlike `getUncleanables`, a `cha.coldstorage` read that throws here does
- * NOT reject this function: it is swallowed and reported as
- * `complete: false`, the same as a falsy read or a chaId mismatch (see
- * `resolveUncleanableChars`), so the boot-time sweep can finish scanning
- * every character. The sweeps (`sweepTauriAssets` / `sweepForageAssetKey`)
- * skip deleting anything when `complete` is explicitly `false`.
- *
- * `getUncleanables` itself is unaffected by this function -- `loadDrive`'s
- * restore write (`drive.ts`) keeps calling it directly and keeps seeing a
- * throw reject, as documented on `getUncleanables` above.
+ * A `cha.coldstorage` read that throws here does NOT reject this function:
+ * it is swallowed and reported as `complete: false`, the same as a falsy
+ * read or a chaId mismatch (see `resolveUncleanableChars`), so the
+ * boot-time sweep can finish scanning every character. The sweeps
+ * (`sweepTauriAssets` / `sweepForageAssetKey`) skip deleting anything when
+ * `complete` is explicitly `false`.
  */
 export async function buildAssetKeepSet(db: Database): Promise<{ uncleanable: Set<string>, complete: boolean }> {
     const { chars, complete } = await resolveUncleanableChars(db, { swallowErrors: true })

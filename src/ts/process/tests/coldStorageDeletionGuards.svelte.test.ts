@@ -17,7 +17,7 @@
  * a12/a13 are the describe-level instance.
  *
  * This file drives the REAL seams, not a replica:
- *   - `buildAssetKeepSet(db)` and `getUncleanables(db)`, `getBasename` from
+ *   - `buildAssetKeepSet(db)`, `getBasename` from
  *     `src/ts/globalApi.svelte.ts` (real, unmocked).
  *   - `sweepTauriAssets` / `sweepForageAssetKey` from
  *     `src/ts/storage/assetSweep.ts` (real, unmocked, dependency-free).
@@ -34,14 +34,14 @@
  *
  * Mock sets are reused, one-for-one, from the two harnesses this plan
  * cites: `Agents/Tools/save-gen/asset-gc-cold-read-repro.svelte.harness.ts`
- * (the asset-sweep group, a1/a3/a4/a5/a10) and
+ * (the asset-sweep group, a1/a3/a4/a5) and
  * `Agents/Tools/save-gen/cold-storage-orphan-repro.svelte.harness.ts` (the
  * cold-storage-cleanup group, a7/a8/a9/a11/a11b/a12/a13). Per
  * Agents/Tools/README.md's "keep every rune-touching mock in ONE file",
  * both harnesses' mocks live together here.
  *
  * PLATFORM TOGGLE: unlike either harness (each fixes `isTauri` for its
- * whole file), this file needs BOTH the Tauri backend (a1/a3/a4/a5/a10)
+ * whole file), this file needs BOTH the Tauri backend (a1/a3/a4/a5)
  * and the OPFS backend (a7/a8/a9/a11/a11b/a12/a13) in the same run.
  * `src/ts/platform` is mocked with a GETTER backed by a `vi.hoisted` mutable
  * flag (`platformState.isTauri`), so `getColdStorageItem`'s live `isTauri`
@@ -194,11 +194,6 @@ vi.mock(import('src/ts/update'), () => ({
 vi.mock(import('src/ts/plugins/plugins.svelte'), () => ({
     loadPlugins: vi.fn(async () => {}),
 }) as unknown as typeof import('src/ts/plugins/plugins.svelte'))
-
-vi.mock(import('src/ts/drive/drive'), () => ({
-    checkDriverInit: vi.fn(async () => {}),
-    syncDrive: vi.fn(async () => {}),
-}) as unknown as typeof import('src/ts/drive/drive'))
 
 vi.mock(import('src/ts/parser/parser.svelte'), () => ({
     hasher: vi.fn((s: string) => s),
@@ -435,7 +430,7 @@ function resetOpfs(): void {
 
 //#endregion
 
-import { getUncleanables, buildAssetKeepSet, getBasename } from '../../globalApi.svelte'
+import { buildAssetKeepSet, getBasename } from '../../globalApi.svelte'
 import {
     getColdStorageItem,
     setColdStorageItem,
@@ -699,33 +694,11 @@ describe('CHORE-07 stage 7a: boot-time asset sweep must skip on an incomplete co
     // no extracted seam (unlike the two asset-deletion loops, which
     // src/ts/storage/assetSweep.ts already isolates). Reaching it for a test
     // would mean importing bootstrap.ts itself, which pulls in its own large,
-    // separately-mocked import graph (loadPlugins, checkDriverInit,
+    // separately-mocked import graph (loadPlugins,
     // characterURLImport, model/modellist,
     // registerModelDynamic, etc.) well beyond this file's scope. Per the
     // task's instruction, this is reported rather than faked.
     test.skip('a6 SKIPPED: remotes/ cleanup coverage requires bootstrap.ts, out of scope for this seam-only file', () => {})
-
-    test("a10 CHAR: plain getUncleanables(db) keeps its output for drive.ts unchanged", async () => {
-        platformState.isTauri = true
-        resetTauriFs()
-        const coldKey = 'a10-cold-key'
-        const chaId = 'a10-char'
-        await setColdStorageItem(coldKey, { character: makeFullCharacter(chaId) })
-        const db = makeDb([makeColdStub(chaId, coldKey)])
-
-        // drive.ts's loadDrive calls getUncleanables(db) directly (the
-        // UNCHECKED form) and expects a flat basename array -- stage 7a's new
-        // buildAssetKeepSet() must not change this existing function's
-        // healthy-path output.
-        const uncleanableList = await getUncleanables(db)
-
-        expect(new Set(uncleanableList)).toEqual(new Set([
-            'main-image.png',
-            'emotion-happy.png',
-            'emotion-sad.png',
-            'additional-bg.png',
-        ]))
-    })
 
 })
 

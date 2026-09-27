@@ -9,6 +9,7 @@ import {
 } from "@tauri-apps/plugin-fs"
 import { changeFullscreen, checkNullish, sleep } from "./util"
 import { markAppInitiatedReload } from "./reloadGuard"
+import localforage from "localforage"
 import { v4 as uuidv4 } from 'uuid';
 import { get } from "svelte/store";
 import { setDatabase, defaultSdDataFunc, getDatabase } from "./storage/database.svelte";
@@ -17,7 +18,6 @@ import { checkRisuUpdate } from "./update";
 import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, alertStore } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
 import { alertError, alertMd, alertStaleAccountNotice, alertNormal, waitAlert, alertConfirm, alertInput, alertToast } from "./alert";
-import { checkDriverInit } from "./drive/drive";
 import { characterURLImport, handlePendingRealmLink } from "./characterCards";
 import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from "./storage/defaultPrompts";
 import { decodeRisuSave, encodeRisuSaveLegacy } from "./storage/risuSave";
@@ -197,9 +197,9 @@ export async function loadData() {
                 // silently. The notice is blocking and re-posts itself against
                 // any other alertStore write; only its own OK acknowledges it.
                 // Acknowledging removes the three account-sync keys and reloads
-                // -- this page life never reaches checkDriverInit, the service
-                // worker, characterURLImport, plugins, makeColdData, loadedStore
-                // or saveDb below.
+                // -- this page life never reaches the service worker,
+                // characterURLImport, plugins, makeColdData, loadedStore or
+                // saveDb below.
                 if (forageStorage.staleAccountProfile) {
                     void alertStaleAccountNotice().then(() => {
                         localStorage.removeItem('accountst')
@@ -212,15 +212,12 @@ export async function loadData() {
                 }
                 // No stale profile was detected: any leftover sync flags from an
                 // earlier, already-resolved migration attempt are stale too, and
-                // are dropped without a notice.
+                // are dropped without a notice. `dosync` and `fallbackRisuToken`
+                // are read and removed only on this branch -- a Tauri boot never
+                // touches either.
                 localStorage.removeItem('dosync')
                 localStorage.removeItem('fallbackRisuToken')
 
-                LoadingStatusState.text = "Checking Drive Sync..."
-                const isDriverMode = await checkDriverInit()
-                if (isDriverMode) {
-                    return
-                }
                 LoadingStatusState.text = "Checking Service Worker..."
                 if (navigator.serviceWorker) {
                     setUsingSw(true)
@@ -233,6 +230,35 @@ export async function loadData() {
                     characterURLImport()
                 }
             }
+            // Both boot branches reach here on the non-stale path (the
+            // stale-profile notice above returns before this point, and the
+            // next boot's ordinary path runs it instead). Drops the leftovers
+            // of two upstream services this app does not offer: the
+            // account-sync LocalForage instance named "risuaiAccountCached",
+            // and the Google Drive backup's last-saved timestamp
+            // (`risu_lastsaved`) and save/load flag (`localStorage['backup']`,
+            // removed only when it still holds the value one of Drive's own
+            // buttons wrote -- the key name is otherwise generic). Nothing in
+            // this app reads or writes any of them, so this cleanup is
+            // best-effort and never awaited -- a boot must never fail or
+            // stall on it. The drop goes through a named `createInstance`
+            // handle rather than the module-level `localforage.dropInstance`,
+            // which would initialize LocalForage's own default database as a
+            // side effect before ever touching this one. `dropInstance()`
+            // itself is given an explicit `{ name }` with no `storeName`:
+            // localforage 1.10.0's IndexedDB driver deletes the whole named
+            // database only for that shape. Called with no options, it fills
+            // in `storeName` from this instance's config, and any
+            // `storeName` makes it delete just that object store, leaving an
+            // empty "risuaiAccountCached" database behind.
+            localStorage.removeItem('risu_lastsaved')
+            if (localStorage.getItem('backup') === 'save' || localStorage.getItem('backup') === 'load') {
+                localStorage.removeItem('backup')
+            }
+            try {
+                void localforage.createInstance({ name: 'risuaiAccountCached' }).dropInstance({ name: 'risuaiAccountCached' }).catch(() => { })
+            } catch (error) { }
+
             LoadingStatusState.text = "Loading Plugins..."
             try {
                 await loadPlugins()

@@ -147,11 +147,6 @@ vi.mock(import('src/ts/plugins/plugins.svelte'), () => ({
     loadPlugins: vi.fn(async () => {}),
 }) as unknown as typeof import('src/ts/plugins/plugins.svelte'))
 
-vi.mock(import('src/ts/drive/drive'), () => ({
-    checkDriverInit: vi.fn(async () => {}),
-    syncDrive: vi.fn(async () => {}),
-}) as unknown as typeof import('src/ts/drive/drive'))
-
 vi.mock(import('src/ts/parser/parser.svelte'), () => ({
     hasher: vi.fn((s: string) => s),
 }) as unknown as typeof import('src/ts/parser/parser.svelte'))

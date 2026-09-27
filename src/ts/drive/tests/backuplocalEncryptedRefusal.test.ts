@@ -85,6 +85,7 @@ vi.mock(import('../../globalApi.svelte'), () => ({
         setItem: forageSetItemMock,
     },
     requiresFullEncoderReload: requiresFullEncoderReloadMock,
+    dbWriteLock: { acquire: vi.fn(async () => vi.fn()) },
 }) as unknown as typeof import('../../globalApi.svelte'))
 
 const alertMocks = vi.hoisted(() => ({

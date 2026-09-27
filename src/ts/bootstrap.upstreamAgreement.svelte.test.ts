@@ -3,13 +3,14 @@
  *
  * Drives the REAL `loadData()` from `src/ts/bootstrap.ts`, non-Tauri branch, the same way
  * `bootstrap.staleAccountProfile.svelte.test.ts` does. Unlike that file, `src/ts/characterCards`
- * and `src/ts/drive/drive` are left REAL here too: the `?realm=` and `?code=`/`?state=` chokepoints
- * this file covers live inside `characterURLImport`/`getRealmInfo` and `checkDriverInit`
- * themselves, so mocking either module away would only prove something about a stand-in, not
- * about whether a request actually reaches an upstream host before consent. Everything those two
- * modules import, beyond what `bootstrap.ts` already needs mocked, is mocked purely for import
- * satisfaction: none of it runs in any scenario below (no character/preset/module import, no
- * successful Drive token exchange).
+ * is left REAL here too: the `?realm=` chokepoint this file covers lives inside
+ * `characterURLImport`/`getRealmInfo` itself, so mocking that module away would only prove
+ * something about a stand-in, not about whether a request actually reaches an upstream host
+ * before consent. A `?code=`/`?state=` URL is not a callback for anything `bootstrap.ts`
+ * reaches (I3): the scenario below just confirms boot ignores the pair and proceeds normally.
+ * Everything `characterCards` imports, beyond what `bootstrap.ts` already needs mocked, is
+ * mocked purely for import satisfaction: none of it runs in any scenario below (no
+ * character/preset/module import).
  *
  * `alert.ts` is real (a thin wrapper), exactly as in the sibling suite, so this file can observe
  * `alertStore` as the effect of any prompt boot posts, whichever module ends up posting it.
@@ -163,17 +164,8 @@ vi.mock(import('src/ts/process/modules'), () => ({
     readModule: vi.fn(),
 }) as unknown as typeof import('src/ts/process/modules'))
 
-// `drive/drive.ts` needs six more cold-storage helpers beyond `bootstrap.ts`'s own
-// `makeColdData`; none of the six runs in any scenario below (the Drive success path they
-// belong to is never reached: every stubbed token exchange here is a non-2xx response).
 vi.mock(import('src/ts/process/coldstorage.svelte'), () => ({
     makeColdData: makeColdDataMock,
-    collectColdStorageBackupPayloads: vi.fn(async () => ({ payloads: [], missingKeys: [], invalidKeys: [] })),
-    confirmIncompleteColdStorageOperation: vi.fn(async () => true),
-    getColdStorageBackupName: vi.fn((k: string) => k),
-    isColdStorageBackupData: vi.fn(() => false),
-    listColdDataKeys: vi.fn(async () => []),
-    setColdStorageItem: vi.fn(async () => true),
 }) as unknown as typeof import('src/ts/process/coldstorage.svelte'))
 
 vi.mock(import('src/ts/storage/assetIntegrity'), () => ({
@@ -240,10 +232,6 @@ vi.mock('@tauri-apps/plugin-deep-link', () => ({
     onOpenUrl: vi.fn(async () => vi.fn()),
 }))
 
-vi.mock('@tauri-apps/plugin-process', () => ({
-    relaunch: vi.fn(async () => { }),
-}))
-
 const fsStore = new Map<string, Uint8Array>()
 
 vi.mock('@tauri-apps/plugin-fs', () => ({
@@ -261,9 +249,6 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
     remove: vi.fn(async (path: string) => { fsStore.delete(path) }),
 }))
 
-// `drive/drive.ts` needs `dbWriteLock`/`getUncleanables`/`openURL` beyond what `bootstrap.ts`
-// and `characterCards.ts` already need from this module; none of the three runs in any scenario
-// below (the Drive success path they belong to is never reached).
 vi.mock(import('src/ts/globalApi.svelte'), () => ({
     forageStorage: {
         get staleAccountProfile() { return forageState.staleAccountProfile },
@@ -286,7 +271,6 @@ vi.mock(import('src/ts/globalApi.svelte'), () => ({
     getBasename: (p: string) => p.split('/').pop(),
     setUsingSw: vi.fn(),
     checkCharOrder: vi.fn(),
-    getUncleanables: vi.fn(async () => []),
     getUncleanablesSync: getUncleanablesSyncMock,
     AppendableBuffer: class { },
     BlankWriter: class { },
@@ -296,8 +280,6 @@ vi.mock(import('src/ts/globalApi.svelte'), () => ({
     loadAsset: vi.fn(async () => new Uint8Array()),
     readImage: vi.fn(async (d: unknown) => d),
     saveAsset: vi.fn(async () => ''),
-    openURL: vi.fn(),
-    dbWriteLock: { acquire: vi.fn(async () => vi.fn()) },
     requiresFullEncoderReload: { state: false },
     fetchNative: vi.fn(async () => new Response(null, { status: 404 })),
 }) as unknown as typeof import('src/ts/globalApi.svelte'))
@@ -572,17 +554,18 @@ describe('T-C8: a ?realm= link with no acceptance', () => {
     })
 })
 
-describe('T-C10 (boot half): a ?code=&state= link with no acceptance', () => {
-    test('loadData reaches loadedStore true, no request goes to the hub, and code/state are stripped', async () => {
-        window.history.replaceState(null, '', '/?code=x&state=y')
+describe('T-C10 (boot half): a ?code=&state= link', () => {
+    // I3: with the agreement already accepted and a recognized state value ('load'), a
+    // request must still never reach an upstream host, and boot must still reach loadedStore
+    // true -- acceptance must never turn this parameter pair into a live token exchange.
+    test('with the agreement accepted, no request reaches an upstream host, and boot reaches loadedStore true', async () => {
+        localStorage.setItem('upstreamServicesAgreement', 'accepted')
+        window.history.replaceState(null, '', '/?code=some-code&state=load')
         arm(baseDb())
         const { loadData, alertStore, loadedStore } = await freshLoadData()
         try {
             await loadData()
-            expect(fetchCalls().filter((u) => u.includes('/drive/token')).length).toBe(0)
-            const params = new URLSearchParams(location.search)
-            expect(params.has('code')).toBe(false)
-            expect(params.has('state')).toBe(false)
+            expect(fetchCalls()).toEqual([])
             expect(get(loadedStore)).toBe(true)
         } finally {
             alertStore.set({ type: 'none', msg: UPSTREAM_AGREEMENT_DECLINE })
