@@ -1250,7 +1250,18 @@ row 142). Traced to source, not fixed. Minor housekeeping only.
 
 ### CHORE-25 — A trigger's `setVar` writes chat variables to the chat on screen, not the trigger's chat
 
-**Status (2026-09-24):** found by Gate 1 round 1 of the composer-drafts plan
+**Status (2026-09-28): fixed by W1a, committed in `13ed2e75`.**
+- Report 33, `MC-094`; Gate 1 rows 258-260, Gate 2 rows 261-262, live check row 263.
+- Every write a trigger run makes goes to its origin by id, and there is no end-of-run commit.
+- The same stage also fixes:
+  - the manual trigger's commit, which dropped a send or edit made during its wait;
+  - the Lua button putting one chat into another's slot after a switch;
+  - the Lua writes that followed the selection;
+  - the stale Lua engine closures;
+  - `lowLevelAccess` being stamped onto trigger definitions.
+- CBS `{{setvar}}` still follows the selection until W1b.
+
+**Original status (2026-09-24):** found by Gate 1 round 1 of the composer-drafts plan
 (`Agents/Reports/22-composer-drafts-plan.md` sections 2.2 and 8; ledger row 158), Orchestrator
 re-checked in source. Not fixed. **Data-affecting:** the wrong chat's trigger variables are
 overwritten and saved. **Sequenced by the maintainer (2026-09-24): the stage right after the composer
@@ -1267,7 +1278,15 @@ stage, before `updateInlayScreen`.**
 
 ### CHORE-26 — A group member's trigger can replace the whole group with the member
 
-**Status (2026-09-24):** found by `senior-advisor` (ledger row 161) and traced by the pre-W0
+**Status (2026-09-28): fixed by W1a, committed in `13ed2e75`** (Report 33; live check row
+263).
+- A member's v2 character and lorebook effects write to the member, and chat data goes to the
+  group's chat.
+- No whole-slot replace remains.
+- **Correction:** seven of the nine effects passed the trigger-start clone. `v2ModifyLorebook` and
+  `v2SetAuthorNote` passed the live selected object.
+
+**Original status (2026-09-24):** found by `senior-advisor` (ledger row 161) and traced by the pre-W0
 checks (ledger row 162). Orchestrator re-checked in source; upstream `main` has the same code.
 Not reproduced at runtime. **Data loss:** the group's record is replaced and saved. Closed by
 writer stage W1 (`MC-076`), not fixed separately.
@@ -1291,9 +1310,13 @@ in source; upstream `main` has the same code. Closed by writer stage W2 (`MC-076
   earlier awaits, and runs that character's `request` trigger over the prompt being sent.
 - After a character switch mid-send, character B's `request` trigger rewrites character A's
   prompt.
-- The call passes `displayMode: true`, so `runTrigger` does not clone. Of the nine v2 effects
+- ~~The call passes `displayMode: true`, so `runTrigger` does not clone. Of the nine v2 effects
   above, only `v2SetAuthorNote` checks `displayMode`, so the others write to B's live data during
-  what should be a display-only run.
+  what should be a display-only run.~~
+  - **Correction (2026-09-27, ledger row 256):** a `request` run filters its effects through
+    `requestAllowList`, which excludes every v1 effect and all nine character and lorebook effects.
+  - Its only live write was the `lowLevelAccess` stamping, which W1a removes.
+  - The remaining problem is that it reads the selection.
 - Group chats never reach this block.
 
 ### CHORE-28 — Two characters sharing one `chaId` lose one of them at the next save

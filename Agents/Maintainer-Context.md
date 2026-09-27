@@ -2534,6 +2534,37 @@ included. Ledger row 202 read them as data.
 
 ---
 
+### MC-094 — A trigger run has no commit step; W1 splits into W1a (writes) and W1b (reads and the parser)
+
+- **Tag:** decision
+- **Date:** 2026-09-27
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on two questions the Orchestrator asked
+  after W1's scoping (ledger rows 253-254) and the `senior-advisor` escalation (row 255).
+- **Reasoning:** at HEAD a trigger's end-of-run whole-object commit puts a chat back to its
+  trigger-start copy. So a message sent or edited in that chat while a slow trigger awaits is
+  lost, and re-addressing the commit cannot prevent that.
+- **Alternatives rejected:** keeping the whole-object commit and only fixing its address (the loss
+  would have become a new ticket); one W1 stage.
+- **Supersedes:** `MC-076`'s "Whole-object commit stays" (Report 23's W-2).
+- **Related:** MC-073, MC-075, MC-076, MC-078, MC-089, CHORE-25, CHORE-26.
+
+**What was decided:**
+1. **No commit step (W-2′).**
+   - Each change a trigger makes is applied to the live chat or character it belongs to, addressed
+     by id, at the moment the effect runs.
+   - Nothing typed, edited or generated while a slow trigger runs is lost.
+   - A trigger's changes become visible as they happen. For example, a trigger that trims the chat
+     and then waits on an LLM shows the trimmed chat while it waits.
+   - Lua `setFullChat` still replaces the whole history, as before.
+2. **W1 is split by data class.**
+   - **W1a:** every write a trigger run makes. It closes CHORE-25 and CHORE-26.
+   - **W1b:** the read side and the parser: CBS variables, `loadLoreBookV3Prompt`, `graphmem.ts`
+     and the Lua read bindings.
+   - Each has its own plan, gates and commit.
+
+---
+
 ## Open questions
 
 The three entries below are questions addressed to the maintainer that were still unresolved as of

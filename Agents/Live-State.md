@@ -128,8 +128,12 @@ Report 25/28, see above).
 
 **Upstream sync (2026-09-27):** Svelte 5.56.8 (`425080e6`, ledger rows 244-245) and upstream's zh-Hant
 improvements (`f190d950`, row 248) are merged. `upstream/main` has nothing newer as of this date.
-6. **W1: engine binding.** This closes CHORE-25 and CHORE-26. Then the composer stage (Report 22
-   rev 3), then W2 and W3.
+6. **W1: engine binding, in progress.** W1a is committed (`13ed2e75`); W1b is next. `MC-094` split it into W1a and W1b.
+   - **W1a:** every write a trigger run makes. It closes CHORE-25 and CHORE-26. Its plan will be
+     Report 33.
+   - **W1b:** the read side and the parser. It follows W1a.
+   - After W1: the composer stage (Report 22 rev 3), then W2 and W3.
+   See "W1 state" below.
 7. **CHORE-35's opt-in stage** (the remaining upstream-infrastructure features: `/proxy2`'s
    static-web default, the transformers CDN, the MCP OAuth helper, `#import=<url>`,
    `getProxyStreamJobBaseUrl`), after W1.
@@ -198,6 +202,94 @@ bug) is blocked on the maintainer's console output, not scheduled by position.
   - report the Lua and CBS resolution counts;
   - measure a production build with throttling;
   - prove that `runTrigger`'s whole-clone commit cannot drop a message.
+
+## W1 state (2026-09-27)
+
+- **Scoping:** ledger rows 253-254. **Escalation:** row 255 (`senior-advisor`).
+- **Decision: `MC-094`.**
+  - A trigger run has no commit step (W-2′, superseding Report 23's W-2 and `MC-076`'s "whole-object
+    commit stays"). Each change is applied to the origin's live target when the effect runs.
+  - The clones go, and `runTrigger` returns no `chat`.
+  - W1 splits into W1a (writes) and W1b (reads and the parser).
+- **Why:** at HEAD, a send or edit made in a chat while a manual trigger awaits is lost to
+  `setCurrentChat(clone)`. That trigger sets no `doingChat`.
+- **Pre-plan work in flight:**
+  - row 256, `investigator`: the W1a mechanism inventory (awaits, in-place normalisations, result
+    consumers, origins per caller, display mode, tests);
+  - row 257, `perf-analyzer`: a throttled production measurement in headless Chrome of the clone,
+    proxy reads, resolution and the memo.
+- **Report 33 rev 3.1** (the W1a plan): **Gate 1 passed** (rows 258-260: two substantive
+  rejections, then an editorial round; the reviewer was reused).
+- **Build, tests first:**
+  1. the seam: `src/ts/process/sendCharacterMessage.ts`, extracted from `sendMain` with no
+     behaviour change; the suite stays at the baseline. Done, uncommitted. That coder ran
+     `git add -N` and a bare `git reset`. The index was empty at the time, and the wiki session
+     has been warned;
+  2. the red tests (`test-warrior`):
+     - First writer (~562k): three suites, `triggerOriginWrites.svelte.test.ts`,
+       `sendCharacterMessage.svelte.test.ts` and `Chat.triggerOriginWrites.svelte.test.ts`. At HEAD
+       29 fail and 10 pass (the guards). The Orchestrator re-ran them.
+     - Gaps: the seam suite failed on the return value rather than on behaviour, and the
+       real-engine `sendChat` suite (tests 10, 21, and 12/13's `sendChatBody` half) was not
+       written.
+     - A second writer (~378k) finished both and added a Lua-button guard. There are four suites,
+       adding `src/ts/process/tests/sendChatTriggerWrites.svelte.test.ts`.
+     - The Orchestrator re-ran them: **at HEAD 35 fail (34 on behavioural or contract assertions,
+       one on its then-missing test export), and 12 pass (eight guards, three specification
+       tests, one diagnostic; ledger row 264).** The first writer's "all LF" claim was false: three of its
+       files are CRLF. Each file is internally consistent, and autocrlf normalises them;
+  3. the implementation (a separate `sonnet-coder`, ~518k): done.
+     - It left 2 failures, both test defects, which a test writer fixed and re-proved red against
+       HEAD through scratch alias configs. The module-stamping test moved to
+       `src/ts/process/tests/modulesTriggerStamping.svelte.test.ts`.
+     - Plan rev 3.2 aligned §3's gone-member rule for `upsertLocalLoreBook` with T4.
+     - Orchestrator checks on the pre-gate snapshot: **135 files, 1604 passed, 4 skipped, exit
+       0**; `pnpm check` clean; `pnpm run build` passes;
+  4. **Gate 2 round 1 (row 261): [REJECT].**
+     - B1: the Lua path never marks for save.
+     - B3: a gone member collapses to the owner, which feeds nested triggers and image generation.
+     - B2: mutants survive, and tests are missing.
+     - T9: `{chara}` is read after an await.
+     - Editorial fixes in production comments and tests.
+     - The remediation runs tests first:
+       - The test writer (~313k) is done. Its six reproducers (B1 ×4, B3 ×2) are red on the
+         current tree, which the Orchestrator re-ran. The mutant-killers pass, and the test
+         editorials are applied. It made and deleted a probe file inside `src/ts/process/`,
+         against the rules; nothing is left.
+       - The implementer fixed B1, B3, T9 and the four production comments.
+       - A further gap was found and closed tests-first. Lua `setChatVar` in a call with an
+         origin (the Lua button) still used the selection-bound `chatVar`. `runScripted` now
+         gives such a call origin-bound defaults.
+       - Orchestrator checks: **135 files, 1625 passed, 4 skipped, exit 0**; `pnpm check`
+         clean; history grep 0.
+       - **Gate 2 round 2 (row 262): [EDITORIAL]**, closed by the Orchestrator after verifying
+         E-a to E-d. Two optional mutant-killers were added. **Gate 2 passed.**
+       - Final snapshot: **135 files, 1628 passed, 4 skipped, exit 0**; `pnpm check` clean; the
+         build passes.
+  5. **Live check passed (row 263).** It covered the CHORE-25 switch, a send during a button
+     trigger's wait, and the CHORE-26 group, on a production build with Echo. `save/` was restored
+     and hash-verified. The maintainer closed the Chrome tab on localhost:6001; the server is
+     stopped.
+  6. **The records are updated:**
+     - Report 23: W-2 is superseded by W-2′.
+     - Report 24: O-6 and §10 are annotated.
+     - Roadmap: CHORE-25 and CHORE-26 are fixed; CHORE-27's bullet is corrected.
+     - Ledger row 253 is corrected.
+  7. **The commit-message fact-check (row 264): [EDITORIAL], applied.** The final draft is in the
+     scratchpad (`w1a-commit-msg.txt`). The stale wiki claims are listed in Report 33 §13 for the
+     maintainer. **Committed on the maintainer's request (2026-09-28): the fix as `13ed2e75`, then these
+     records.**
+  8. **Next after the commit: W1b** (CBS variables, `loadLoreBookV3Prompt`, `graphmem.ts`, the Lua
+     read bindings, `infunctions.ts`, the render-time subjects), then the composer stage, W2 and W3.
+- **To update in the plan's records:**
+  - Report 23: W-2′ supersedes W-2.
+  - Report 24: strike §10's last bullet and O-6's "W1 uses `commitChat`".
+  - Roadmap: CHORE-25 and CHORE-26.
+- **For W2:**
+  - `findCharacterbyIdwithCache` may hand `sendChat` a non-live member.
+  - Roadmap CHORE-27's claim that 8 of the 9 effects write live during a `request` run is false.
+    The `request` and `display` allowlists exclude them (ledger row 256). Correct CHORE-27's
+    entry with W1a's records.
 
 ## Operational notes for this environment
 

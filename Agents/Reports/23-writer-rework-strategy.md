@@ -60,6 +60,13 @@ the write.
 - **W-2.** Whole-object commit stays. The trigger engine mutates a clone and the caller commits
   it; only the address changes. Field merging would be a trigger-engine rewrite and is out of
   scope.
+  - **Superseded by W-2′ (`MC-094`, 2026-09-27; ledger rows 253-255; Report 33).**
+  - W-2 rested on a false premise. Every trigger write except `chat.message` (and Lua
+    `localLore`) was already a live field write, and the whole-object commit put a chat back to its
+    trigger-start copy. That drops a message sent or edited during the trigger's await, whatever the
+    commit's address.
+  - **W-2′:** a trigger run has no commit step. Each change is applied to the origin's live target
+    when the effect runs, reads see the same target, and the clones go.
 - **W-3.** An origin-bound write to a character that is not selected is saved. Ledger row 162,
   check 1, ran this: an in-place write to a non-selected character is lost without
   `markCharacterForSave`, while whole-object replacement is caught by the identity tracker. So

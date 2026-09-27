@@ -334,8 +334,13 @@ must also measure a production build with CPU throttling before the cost is acce
   equals the slot's `chaId`.
 - `commitChat(origin, clone)` replaces the chat only when `clone.id` equals `origin.chatId`.
 
-Both follow O-4, return false otherwise, and mark what they wrote. W1 uses `commitChat` for
-`Chat.svelte`'s manual trigger commit and `sendChat`'s trigger commit.
+Both follow O-4, return false otherwise, and mark what they wrote. ~~W1 uses `commitChat` for
+`Chat.svelte`'s manual trigger commit and `sendChat`'s trigger commit.~~
+- **Superseded (`MC-094`, Report 33):** W1a removes those commits altogether, so `commitCharacter`
+  and `commitChat` have no W1 caller. They stay as tested API.
+- **O-3 and O-5 refined by Report 33 §5:** a run subject hands out live objects per access only,
+  memoised for one synchronous stretch and cleared on every yield. It is not the index cache O-5
+  forbids, because nothing survives a tick.
 
 **O-7: the in-flight registry (W-5).**
 - **`beginWork(character, chat, member?)`** takes objects **read back through `DBState`**, never a
@@ -560,9 +565,11 @@ it mounts under the same setup. If it does not, record that as a code-review che
   database. Only a duplicate that the old database also held can misbehave.
 - **W2's:** group turns re-read the selection in each recursive `sendChat` (W-4). There are three
   chat-delete handlers.
-- **For W1:** `runTrigger` clones the whole character, chats included, so a `commitCharacter` of
+- ~~**For W1:** `runTrigger` clones the whole character, chats included, so a `commitCharacter` of
   that clone overwrites chat changes made while the trigger awaits. This is W-2's accepted
-  limitation, and W1 must show it cannot drop a message.
+  limitation, and W1 must show it cannot drop a message.~~
+  - **Resolved differently.** W1's scoping showed that the commit does drop messages (ledger rows
+    253-255). `MC-094` removed the commit step, and W1a removes the clones (Report 33).
 
 ## 11. Files expected
 
