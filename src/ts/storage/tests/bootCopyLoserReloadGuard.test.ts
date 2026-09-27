@@ -1,0 +1,106 @@
+// @vitest-environment happy-dom
+
+/**
+ * CHORE-39 (Agents/Reports/30-chore39-opfs-migration-plan.md section 2) and
+ * CHORE-42 (Agents/Reports/32-chore42-restore-other-tabs-plan.md section 2)
+ * together require that a boot-copy participant still inside its own first
+ * `AutoStorage.Init()` -- with no persisted storage-epoch reading of its
+ * own -- never reloads merely for losing the race for the exclusive lock:
+ * it keeps CHORE-39's own re-read of the migration marker and the flag,
+ * under its restored presence hold, instead. `createStorageTabLocks()`
+ * (`../storageTabLocks`) skips both epoch comparisons for a page with no
+ * persisted reading. These are compatibility guards: if the failed-attempt
+ * comparison ran for such a page, a loser that queued before the winner's
+ * grant, and whose wait outlasts it, would request a reload it must not
+ * request.
+ *
+ * Drives the REAL, unmocked `createStorageTabLocks()` against two simulated
+ * tabs sharing one `FakeLockManagerCore` (`./fakeWebLocks`), neither of
+ * which ever calls `recordStorageEpoch()` -- modelling two tabs racing for
+ * the exclusive lock while each is still inside its own first-ever
+ * `Init()`, per CHORE-39's own boot-copy race. `makeSimulatedTab()`'s own
+ * `reload` option captures whether the loser ever asked to reload, without
+ * it actually navigating.
+ *
+ * The loser's own failed-attempt flow does not even reach its epoch
+ * comparison until its presence hold is back, and that hold cannot be
+ * granted while the winner still holds the exclusive lock -- so the loser's
+ * OWN internal wait timing out (its `AbortSignal` firing) and the loser's
+ * outer `acquireExclusiveStorageMigrationLock()` call actually resolving
+ * are two different moments here. Every test below lets the internal
+ * timeout elapse first, then releases the winner, then awaits the loser's
+ * outer call -- releasing the winner any earlier would let the loser's
+ * still-queued exclusive request be granted instead of timing out at all.
+ */
+import { describe, expect, test, vi } from 'vitest'
+import { FakeLockManagerCore, makeSimulatedTab } from './fakeWebLocks'
+
+const tick = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+describe('a boot-copy loser with no persisted epoch reading never reloads for losing the race', () => {
+    test('compatibility guard: a copy longer than the loser\'s own timeout leaves the loser un-reloaded', async () => {
+        const core = new FakeLockManagerCore()
+        const loserReload = vi.fn()
+        const winner = makeSimulatedTab(core, 'winner')
+        const loser = makeSimulatedTab(core, 'loser', { reload: loserReload })
+        // Each tab's own presence hold must actually be granted first --
+        // exactly the order `AutoStorage.decideBackend()` itself always
+        // follows -- or releasing it before requesting exclusive access
+        // would be a no-op, leaving that hold to deadlock this same tab's
+        // own exclusive request against itself.
+        await winner.locks.tabPresenceLockAcquired
+        await loser.locks.tabPresenceLockAcquired
+
+        // Both tabs attempt within the same synchronous tick, exactly as two
+        // tabs racing to become AutoStorage's migrator would: the winner's
+        // own request queues first, so it is the one granted (and the one
+        // whose grant bumps the shared epoch) once both tabs release their
+        // permanent shared presence holds to queue for exclusive access.
+        const winnerAttempt = winner.locks.acquireExclusiveStorageMigrationLock(5000) // "the copy" -- held well past the loser's own timeout below
+        const loserAttempt = loser.locks.acquireExclusiveStorageMigrationLock(150)
+
+        const releaseWinner = await winnerAttempt
+        expect(releaseWinner).not.toBeNull()
+
+        // The loser's own internal wait elapses while the winner is still
+        // "copying" (holding the lock) -- the loser's outer call stays
+        // pending regardless, re-requesting its presence hold behind the
+        // winner's still-held exclusive lock.
+        await tick(250)
+
+        // The winner "finishes the copy" and releases -- only now can the
+        // loser's presence hold (and its epoch comparison) proceed.
+        await releaseWinner?.()
+
+        expect(await loserAttempt).toBeNull()
+        expect(loserReload).not.toHaveBeenCalled()
+    }, 10000)
+
+    test('compatibility guard: the winner closing its tab after the loser\'s own exclusive request already timed out leaves the loser un-reloaded', async () => {
+        const core = new FakeLockManagerCore()
+        const loserReload = vi.fn()
+        const winner = makeSimulatedTab(core, 'winner')
+        const loser = makeSimulatedTab(core, 'loser', { reload: loserReload })
+        await winner.locks.tabPresenceLockAcquired
+        await loser.locks.tabPresenceLockAcquired
+
+        const winnerAttempt = winner.locks.acquireExclusiveStorageMigrationLock(5000)
+        const loserAttempt = loser.locks.acquireExclusiveStorageMigrationLock(150)
+
+        const releaseWinner = await winnerAttempt
+        expect(releaseWinner).not.toBeNull()
+
+        // The loser's own internal wait elapses first.
+        await tick(250)
+
+        // The winner's tab closes -- CHORE-39's own "migrating tab closed
+        // after the waiting tab's exclusive request already timed out"
+        // scenario, matching `autoStorage.opfsMigration.test.ts`'s own test
+        // of that name at the `AutoStorage` level -- rather than winner
+        // calling its own release(), which a closed tab never does.
+        winner.close()
+
+        expect(await loserAttempt).toBeNull()
+        expect(loserReload).not.toHaveBeenCalled()
+    }, 10000)
+})

@@ -1628,6 +1628,11 @@ export const languageEnglish = {
     encryptedBackupRefused: "This backup is encrypted by RisuAccount and cannot be read here, for technical reasons. Nothing was imported.\n\nIn upstream RisuAI, you can still bring this data over:\n\n1. Use \"Save Partial Backup Locally (Excluding Character Assets)\". It is not encrypted and keeps every chat, including cold storage. It keeps character, group and persona profile images, the user icon, the background, and folder and preset images. It drops other images and VITS files.\n\n2. \"Logout\" of account sync, then \"Save Backup Locally\". This keeps the .png assets but loses cold-storage chats.\n\nDoing both, and importing both here, keeps everything. See the migration guide for details.",
     encryptedBackupImportStopped: "This backup contains an encrypted part and the import stopped. Some images or cold-storage entries may already have been added or replaced. Your current database was not changed.",
     backupFileUnreadable: "The file could not be read. Nothing was imported.",
+    restoreCheckingOtherTabs: "Checking for other open tabs of this app before restoring...",
+    restoreOtherTabRefused: "Another tab of this app appears to be open. Close every other tab of this app first, then try again. Nothing was restored.",
+    restoreNoLockWarningConfirm: "Your browser can't check whether another tab of this app is open before restoring. If another tab of this app is open, it can overwrite the data you're restoring with its own older data the next time it saves -- even if that tab has no unsaved changes of its own. Close every other tab of this app first, then continue. Continue anyway?",
+    restoreWriteFailed: "The restored backup could not be saved. Some images or cold-storage entries may already have been added or replaced. Your current database was not changed.",
+    restoreSavedReloadOrRestart: "Your backup was restored and saved, but the app could not reload automatically. Please reload the page (or restart the app) to finish.",
     pluginProviderNotFound: "Unknown Plugin detected. Please change the model or enable the corresponding plugin.",
     bootstrap: {
         dataCorruptionDetected: (name: string, type: string) => `Data Corruption Detected\n\nModule "${name}" has corrupted lorebook format.\n\nCorrupted data type: ${type}`,

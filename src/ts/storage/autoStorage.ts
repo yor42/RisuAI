@@ -1,5 +1,5 @@
 import localforage from "localforage"
-import { tabPresenceLockAcquired, acquireExclusiveStorageMigrationLock } from "../globalApi.svelte"
+import { tabPresenceLockAcquired, acquireExclusiveStorageMigrationLock, recordStorageEpoch } from "../globalApi.svelte"
 import { isNodeServer } from "src/ts/platform"
 import { NodeStorage } from "./nodeStorage"
 import { OpfsStorage } from "./opfsStorage"
@@ -20,9 +20,10 @@ export type OpfsSwitchNotice = {
 /**
  * True for a `DOMException` named `QuotaExceededError`, or carrying either
  * legacy numeric quota code (22 in most browsers, 1014 in older Firefox).
- * This module's only dependency on `globalApi.svelte.ts` is
- * `tabPresenceLockAcquired` and `acquireExclusiveStorageMigrationLock`, so
- * this check stays local rather than sharing that module's copy of it.
+ * This module's only dependency on `globalApi.svelte.ts` is its storage tab
+ * locks bindings (`tabPresenceLockAcquired`, `acquireExclusiveStorageMigrationLock`,
+ * `recordStorageEpoch`), so this check stays local rather than sharing that
+ * module's copy of it.
  */
 function isQuotaExceededError(error: unknown): boolean {
     return error instanceof DOMException &&
@@ -54,7 +55,8 @@ export class AutoStorage{
      * `Init()`, never captured at construction time, since `forageStorage`
      * is constructed at module-evaluation time in `globalApi.svelte.ts`,
      * before that module's own `tabPresenceLockAcquired`/
-     * `acquireExclusiveStorageMigrationLock` bindings exist yet.
+     * `acquireExclusiveStorageMigrationLock`/`recordStorageEpoch` bindings
+     * exist yet.
      */
     private readonly injectedLocks?: StorageTabLocks
 
@@ -99,7 +101,18 @@ export class AutoStorage{
         return this.initPromise
     }
 
+    /**
+     * Runs the backend decision, then, on every path that settles it (never
+     * on a rejection -- see `decideBackend()`'s decision-state read
+     * failure), takes a fresh storage-epoch reading. A page whose `Init()`
+     * rejected therefore keeps no reading of its own.
+     */
     private async runInit(): Promise<void> {
+        await this.decideBackend()
+        ;(this.injectedLocks?.recordStorageEpoch ?? recordStorageEpoch)?.()
+    }
+
+    private async decideBackend(): Promise<void> {
         // Waits for this tab's own shared cross-tab presence lock to actually
         // be granted first — while `enableOpfs()`/`disableOpfs()` hold the same
         // lock exclusively (see storageTabLocks.ts), a new tab must not start
@@ -150,13 +163,14 @@ export class AutoStorage{
 
             if(!release){
                 // Telling a genuinely unsupported browser apart from a lost race
-                // needs to know whether a lock manager exists at all, which the
-                // StorageTabLocks contract this class depends on doesn't expose.
-                // The production default is the only case checked directly here
-                // (an injected instance, as tests use to simulate real Web Locks
-                // queueing, is never treated as unsupported) -- this only
-                // matters when opfs_flag! was set outside the app, since
-                // enableOpfs() itself already refuses without navigator.locks.
+                // needs to know whether a lock manager exists at all. Checked
+                // directly here, against the real global `navigator`, rather
+                // than through an injected instance's own `locksSupported` --
+                // an injected instance, as tests use to simulate real Web Locks
+                // queueing, is never treated as unsupported here, regardless of
+                // what it reports. This only ever matters when opfs_flag! was
+                // set outside the app, since enableOpfs() itself already
+                // refuses without navigator.locks.
                 const unsupported = !this.injectedLocks && (typeof navigator === 'undefined' || !navigator.locks)
                 if(unsupported){
                     localStorage.removeItem('opfs_flag!')

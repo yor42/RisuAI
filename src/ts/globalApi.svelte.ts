@@ -544,7 +544,11 @@ export let requiresFullEncoderReload = $state({
  * A minimal async mutex serializing writes to the shared `database/database.bin`
  * key between saveDb()'s autosave loop and any other direct writer (currently
  * LoadLocalBackup()'s restore write, and the exclusive storage-migration lock's
- * `enableOpfs()`/`disableOpfs()`/boot-copy holders below). A boolean "is someone
+ * `enableOpfs()`/`disableOpfs()`/boot-copy holders below). LoadLocalBackup()'s
+ * restore write acquires this directly only on Tauri or when Web Locks aren't
+ * supported; on an ordinary web build its exclusive storage lock already holds
+ * this internally for the same reason (see `acquireExclusiveStorageMigrationLock`
+ * below) and the restore must NOT acquire it a second time. A boolean "is someone
  * else writing" flag checked once before encoding is NOT sufficient — the flag
  * can flip true after the check but before the write actually lands, letting a
  * stale autosave clobber a just-completed restore. Acquiring this lock actually
@@ -584,6 +588,14 @@ const storageTabLocks = createStorageTabLocks(
 export const tabPresenceLockAcquired: Promise<void> = storageTabLocks.tabPresenceLockAcquired
 
 /**
+ * Whether this page's storage tab locks were built against a defined lock
+ * manager, i.e. whether Web Locks are actually available in this browser.
+ * See `storageTabLocks.ts`'s `locksSupported` for the full contract —
+ * callers MUST compare this with `=== false`, never with a falsy check.
+ */
+export const locksSupported = storageTabLocks.locksSupported
+
+/**
  * Attempts to acquire the storage tab lock in EXCLUSIVE mode, for a
  * storage-backend migration. See `storageTabLocks.ts`'s
  * `acquireExclusiveStorageMigrationLock` for the full contract and its
@@ -591,6 +603,12 @@ export const tabPresenceLockAcquired: Promise<void> = storageTabLocks.tabPresenc
  * must NOT separately acquire it themselves.
  */
 export const acquireExclusiveStorageMigrationLock = storageTabLocks.acquireExclusiveStorageMigrationLock
+
+/**
+ * Takes a fresh reading of this tab's storage epoch. See
+ * `storageTabLocks.ts`'s `recordStorageEpoch` for the full contract.
+ */
+export const recordStorageEpoch = storageTabLocks.recordStorageEpoch
 
 export interface BootSaveSequenceOptions {
     tracker: toSaveType

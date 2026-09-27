@@ -1534,6 +1534,11 @@ export const languageChineseTraditional = {
     "encryptedBackupRefused": "此備份由 RisuAccount 加密，基於技術原因，無法在此處讀取。未匯入任何內容。\n\n在上游 RisuAI 中，您仍然可以搬移這些資料：\n\n1. 使用 \"儲存部分本機備份（不含角色資源）\"。此備份未加密，會保留包含冷儲存在內的所有對話，並保留角色、群組與人設的頭像圖片、使用者圖示、背景，以及資料夾與預設圖片，其他圖片與 VITS 檔案則會被捨棄。\n\n2. 從帳號同步 \"登出\"，然後使用 \"在本機儲存備份\"。這樣會保留 .png 資源，但會遺失冷儲存中的對話。\n\n兩者都執行並在此處一併匯入，即可保留全部內容。詳情請參閱遷移指南。",
     "encryptedBackupImportStopped": "此備份包含已加密的部分，匯入已中止。部分圖片或冷儲存項目可能已被新增或取代。目前的資料庫未被變更。",
     "backupFileUnreadable": "無法讀取該檔案。未匯入任何內容。",
+    "restoreCheckingOtherTabs": "正在復原前檢查此應用程式是否有其他已開啟的分頁...",
+    "restoreOtherTabRefused": "此應用程式似乎已在另一個分頁中開啟。請先關閉此應用程式的所有其他分頁，然後再試一次。未復原任何內容。",
+    "restoreNoLockWarningConfirm": "您的瀏覽器無法在復原前檢查此應用程式是否已在另一個分頁中開啟。如果此應用程式的另一個分頁已開啟，它可能會在下次儲存時用自己較舊的資料覆寫您正在復原的資料——即使該分頁沒有任何未儲存的變更也是如此。請先關閉此應用程式的所有其他分頁，然後再繼續。仍要繼續嗎？",
+    "restoreWriteFailed": "無法儲存已復原的備份。部分圖片或冷儲存項目可能已被新增或取代。目前的資料庫未被變更。",
+    "restoreSavedReloadOrRestart": "備份已復原並儲存，但應用程式無法自動重新載入。請重新載入頁面（或重新啟動應用程式）以完成。",
     "pluginProviderNotFound": "偵測到未知外掛。請更換模型，或啟用對應的外掛",
     "bootstrap": {
         "dataCorruptionDetected": (name: string, type: string) => `偵測到資料損毀\n\n模組「${name}」的 Lorebook 格式已損毀。\n\n損毀資料類型：${type}`,

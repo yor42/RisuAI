@@ -22,8 +22,10 @@
  * identity against its return value), `src/ts/platform` (an `isNodeServer`
  * getter backed by a hoisted flag, toggled per test; `isTauri` fixed `false`,
  * since `Init()`'s stale-profile detection is a non-Tauri-only path),
- * `globalApi.svelte` (just `tabPresenceLockAcquired`, the one export
- * `AutoStorage` still imports from it), `storage/database.svelte` (just
+ * `globalApi.svelte` (`tabPresenceLockAcquired` and a no-op
+ * `recordStorageEpoch`, since every scenario here settles `Init()` on a path
+ * that records; `acquireExclusiveStorageMigrationLock` is never reached in
+ * any of these three cases), `storage/database.svelte` (just
  * `getDatabase`, needed by `alert.ts`), `util` (the handful of leaves
  * `alert.ts`/`NodeStorage`/`OpfsStorage` import but never call in any
  * scenario here), `stores.svelte` (just `alertStore`, needed by `alert.ts`).
@@ -54,6 +56,7 @@ vi.mock(import('src/ts/platform'), () => ({
 
 vi.mock(import('src/ts/globalApi.svelte'), () => ({
     tabPresenceLockAcquired: Promise.resolve(),
+    recordStorageEpoch: vi.fn(),
 }) as unknown as typeof import('src/ts/globalApi.svelte'))
 
 vi.mock(import('src/ts/storage/database.svelte'), () => ({

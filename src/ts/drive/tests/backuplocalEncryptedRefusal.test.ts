@@ -76,6 +76,7 @@ vi.mock(import('../../storage/database.svelte'), () => ({
 
 const requiresFullEncoderReloadMock = vi.hoisted(() => ({ state: false }))
 const forageSetItemMock = vi.hoisted(() => vi.fn(async (_key: string, _data: Uint8Array) => {}))
+const acquireExclusiveStorageMigrationLockMock = vi.hoisted(() => vi.fn(async () => (async () => {})))
 
 vi.mock(import('../../globalApi.svelte'), () => ({
     LocalWriter: class {},
@@ -86,6 +87,15 @@ vi.mock(import('../../globalApi.svelte'), () => ({
     },
     requiresFullEncoderReload: requiresFullEncoderReloadMock,
     dbWriteLock: { acquire: vi.fn(async () => vi.fn()) },
+    // Granted immediately, standing in for "no other tab is open". The
+    // encrypted-backup refusal (MC-081) fires before any lock is attempted
+    // (asserted below, J7); the blocks that restore a backup with no marker
+    // on a web build do reach this lock and rely on it being granted.
+    acquireExclusiveStorageMigrationLock: acquireExclusiveStorageMigrationLockMock,
+    // `LoadLocalBackup()` imports `locksSupported` and `tabPresenceLockAcquired`
+    // by name, and a module mock must provide every export its importers read.
+    locksSupported: true,
+    tabPresenceLockAcquired: Promise.resolve(),
 }) as unknown as typeof import('../../globalApi.svelte'))
 
 const alertMocks = vi.hoisted(() => ({
@@ -141,6 +151,7 @@ vi.mock(import('../../stores.svelte'), () => ({
 
 import { LoadLocalBackup } from '../backuplocal'
 import { encodeRisuSaveLegacy } from '../../storage/risuSave'
+import { isAppInitiatedReload } from '../../reloadGuard'
 
 /** Narrows a `Uint8Array<ArrayBufferLike>` to the `Uint8Array<ArrayBuffer>` shape `BlobPart` requires; mirrors `asBuffer` in `src/ts/util.ts`. */
 function asBlobPart(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
@@ -414,6 +425,7 @@ beforeEach(() => {
     forageSetItemMock.mockClear()
     tauriWriteFileMock.mockClear()
     setColdStorageItemMock.mockClear()
+    acquireExclusiveStorageMigrationLockMock.mockClear()
     requiresFullEncoderReloadMock.state = false
 
     for (const value of Object.values(alertMocks)) {
@@ -536,6 +548,14 @@ describe('the refusal fires before any write, wherever the marker sits and whate
 
         expectNoWritesNoInstallNoNetwork()
         expectRefusalShown()
+    })
+
+    test('takes no cross-tab lock (J7): the encrypted-backup refusal never calls acquireExclusiveStorageMigrationLock', async () => {
+        await loadBackupBytes(upstreamOrderFixture())
+
+        expectNoWritesNoInstallNoNetwork()
+        expectRefusalShown()
+        expect(acquireExclusiveStorageMigrationLockMock).not.toHaveBeenCalled()
     })
 
     test('refuses a backup whose marker body is not valid JSON, writing nothing', async () => {
@@ -726,7 +746,11 @@ describe('a backup with no encryption.risudat entry anywhere restores every entr
         const installed = setDatabaseMock.mock.calls[0][0] as Database
         expect(installed.characters).toEqual([])
         expect(fetchMock).not.toHaveBeenCalled()
-        expect(alertMocks.alertNormal).toHaveBeenCalledWith('Success')
+        // A successful restore reloads instead of showing a "Success" alert,
+        // and marks that reload app-initiated so the app's own "Leave site?"
+        // guard lets it through.
+        expect(alertMocks.alertNormal).not.toHaveBeenCalledWith('Success')
+        expect(isAppInitiatedReload()).toBe(true)
     })
 
     test('imports the entries before a truncated final database entry and reports file corruption', async () => {

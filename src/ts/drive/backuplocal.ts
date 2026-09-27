@@ -1,6 +1,7 @@
 import { BaseDirectory, readFile, readDir, writeFile } from "@tauri-apps/plugin-fs";
 import { alertError, alertNormal, alertStore, alertWait, alertMd, alertConfirm } from "../alert";
-import { LocalWriter, forageStorage, requiresFullEncoderReload, dbWriteLock } from "../globalApi.svelte";
+import { LocalWriter, forageStorage, requiresFullEncoderReload, dbWriteLock, tabPresenceLockAcquired, acquireExclusiveStorageMigrationLock, locksSupported } from "../globalApi.svelte";
+import { markAppInitiatedReload, isAppInitiatedReload } from "../reloadGuard";
 import { isTauri } from "src/ts/platform"
 import { decodeRisuSave, encodeRisuSaveLegacy } from "../storage/risuSave";
 import { getDatabase, setDatabase } from "../storage/database.svelte";
@@ -359,6 +360,22 @@ export async function SavePartialLocalBackup(){
     }
 }
 
+/**
+ * How long the restore waits for the exclusive storage lock (MC-093) before
+ * refusing with "another tab is open". A tab that is simply open, with no
+ * exclusive operation of its own in progress, never releases its presence
+ * lock -- so this wait can never turn a genuinely open tab into a grant;
+ * every value of this timeout refuses that case identically, only sooner or
+ * later. What this wait actually bounds is how long this restore waits
+ * behind another tab's own IN-PROGRESS exclusive operation (an OPFS switch,
+ * or another restore) before giving up on it and refusing instead. Kept
+ * well under the OPFS switch's own 5000ms default so a restore doesn't make
+ * its own user wait for however long an unrelated tab's operation takes to
+ * finish, at the cost of occasionally refusing an in-progress operation of
+ * similar length that would have finished moments later.
+ */
+const RESTORE_EXCLUSIVE_LOCK_TIMEOUT_MS = 2000;
+
 export function LoadLocalBackup(){
     try {
         const input = document.createElement('input');
@@ -376,7 +393,8 @@ export function LoadLocalBackup(){
             // database itself -- must wait until the whole file is known to
             // carry no encryption.risudat entry (MC-081). A walk exception
             // means the file could not be confirmed safe, so it is treated
-            // the same as finding the marker: nothing is written.
+            // the same as finding the marker: nothing is written. This scan
+            // takes no lock and runs before the cross-tab guard below.
             let hasEncryptionMarker: boolean;
             try {
                 let lastWalkProgressText: string | null = null;
@@ -400,187 +418,274 @@ export function LoadLocalBackup(){
                 return;
             }
 
-            const reader = file.stream().getReader();
-            const CHUNK_SIZE = 1024 * 1024; // 1MB chunk size
-            let bytesRead = 0;
-            let remainingBuffer = new Uint8Array();
-            let pendingDatabase: Uint8Array | null = null;
-            const restoredColdStorageKeys = new Set<string>();
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) {
-                    break;
-                }
-
-                bytesRead += value.length;
-                const progress = ((bytesRead / file.size) * 100).toFixed(2);
-                alertWait(`Loading local Backup... (${progress}%)`);
-
-                const newBuffer = new Uint8Array(remainingBuffer.length + value.length);
-                newBuffer.set(remainingBuffer);
-                newBuffer.set(value, remainingBuffer.length);
-                remainingBuffer = newBuffer;
-
-                // Resolve every entry currently complete in remainingBuffer
-                // before writing any of them: a stream this walk already
-                // cleared can still disagree with the walk if the File's
-                // slice() and stream() views diverge, so this loop must
-                // independently refuse to write anything from a batch that
-                // itself contains the marker, including entries that sit
-                // before it in file order. A complete marker name counts as
-                // a match whether or not its data-length field or body fits
-                // in the batch, so the name is always checked before either
-                // of those is checked.
-                const resolvedEntries: { header: BackupEntryHeader; dataStart: number }[] = [];
-                let scanOffset = 0;
-                let markerInBatch = false;
-                while (true) {
-                    const entryBuffer = remainingBuffer.subarray(scanOffset);
-                    const result = parseBackupEntryHeader(entryBuffer);
-                    if (result.status === 'ok') {
-                        if (result.header.name === BACKUP_ENCRYPTION_MARKER_NAME) {
-                            markerInBatch = true;
-                            break;
+            // Nothing else on this browser origin may write the database, or
+            // start its own exclusive storage operation, while this restore
+            // runs (MC-093). Tauri is single-instance and skips this check
+            // and its warning entirely. Once granted, `releaseExclusiveHold`
+            // already holds `dbWriteLock` internally for the rest of this
+            // restore -- the write below must NOT acquire it a second time,
+            // which would deadlock against this same hold.
+            let releaseExclusiveHold: ((keepWriteLock?: boolean) => Promise<void>) | null = null;
+            if (!isTauri) {
+                if (locksSupported === false) {
+                    if (!await alertConfirm(language.restoreNoLockWarningConfirm)) {
+                        return;
+                    }
+                } else {
+                    await tabPresenceLockAcquired;
+                    alertWait(language.restoreCheckingOtherTabs);
+                    releaseExclusiveHold = await acquireExclusiveStorageMigrationLock(RESTORE_EXCLUSIVE_LOCK_TIMEOUT_MS);
+                    if (!releaseExclusiveHold) {
+                        // A reload already in flight (this attempt was overtaken
+                        // by another tab's own exclusive operation, MC-091) needs
+                        // no message of its own -- this page is already on its
+                        // way out. Otherwise this is an ordinary refusal: another
+                        // tab is genuinely open.
+                        if (!isAppInitiatedReload()) {
+                            alertError(language.restoreOtherTabRefused);
                         }
-                        const dataStart = scanOffset + result.header.headerLength;
-                        const bodyEnd = dataStart + result.header.dataLength;
-                        if (bodyEnd > remainingBuffer.length) {
-                            break;
-                        }
-                        resolvedEntries.push({ header: result.header, dataStart });
-                        scanOffset = bodyEnd;
-                        continue;
+                        return;
                     }
-                    if (result.stage === 'dataLength' && !result.nameSkipped
-                            && decodeEntryName(entryBuffer, result.nameLength) === BACKUP_ENCRYPTION_MARKER_NAME) {
-                        markerInBatch = true;
-                    }
-                    break;
                 }
-
-                if (markerInBatch) {
-                    alertError(language.encryptedBackupImportStopped);
-                    return;
-                }
-
-                for (const { header, dataStart } of resolvedEntries) {
-                    const name = header.name;
-                    if (name === undefined) {
-                        // parseBackupEntryHeader is called above with no name-length
-                        // limit, so every entry name here is always decoded; this
-                        // only narrows the type.
-                        continue;
-                    }
-                    const data = remainingBuffer.slice(dataStart, dataStart + header.dataLength);
-
-                    if (name === 'database.risudat') {
-                        pendingDatabase = new Uint8Array(data);
-                    }
-
-                    else {
-                        const coldStorageKey = getColdStorageBackupKey(name)
-                        let handledAsColdStorage = false
-
-                        if (coldStorageKey) {
-                            handledAsColdStorage = true
-                            try {
-                                const text = new TextDecoder().decode(data)
-                                const jsonData = JSON.parse(text)
-
-                                if (isColdStorageBackupData(jsonData)) {
-                                    if(await setColdStorageItem(coldStorageKey, jsonData)){
-                                        restoredColdStorageKeys.add(coldStorageKey)
-                                    } else {
-                                        console.error(`Failed to restore cold storage item ${coldStorageKey}`)
-                                    }
-                                } else {
-                                    console.warn(`Skipping invalid cold storage backup item ${name}`)
-                                }
-                            } catch (e) {
-                                console.error(`Failed to parse cold storage item ${coldStorageKey}:`, e)
-                            }
-                        }
-
-                        if (!handledAsColdStorage) {
-                            if (isTauri) {
-                                await writeFile(`assets/` + name, data, { baseDir: BaseDirectory.AppData });
-                            } else {
-                                await forageStorage.setItem('assets/' + name, data);
-                            }
-                        }
-                    }
-                    await sleep(10);
-                }
-                remainingBuffer = remainingBuffer.slice(scanOffset);
             }
 
-            if(!pendingDatabase){
-                alertError('Failed, Is file corrupted?')
-                return
-            }
-
-            const db = pendingDatabase;
-            const dbData = await decodeRisuSave(db);
-            const missingColdStorageKeys:string[] = []
-            for(const key of await listColdDataKeys(dbData)){
-                if(restoredColdStorageKeys.has(key)){
-                    continue
-                }
-                const existingColdStorage = await getColdStorageItem(key)
-                if(!isColdStorageBackupData(existingColdStorage)){
-                    missingColdStorageKeys.push(key)
-                }
-            }
-            if(!await confirmIncompleteColdStorageOperation(dbData, missingColdStorageKeys, 'restore')){
-                return
-            }
-
-            // The page reload below runs after setDatabase installs this object, and
-            // the save loop can run once in between; it repairs ids on the decoded
-            // backup before setDatabase, matching the other backup loads, instead of
-            // relying on the repair that boot itself runs after the reload completes.
-            repairDatabaseIds(dbData)
-            setDatabase(dbData);
-            requiresFullEncoderReload.state = true;
-
-            // Acquired before the write and held through it -- the same write mutex
-            // saveDb()'s autosave loop takes around this key (see globalApi.svelte.ts's
-            // AsyncMutex/dbWriteLock) -- so a save cycle that already encoded the
-            // pre-restore database can never land after this write. Deliberately NOT
-            // released once the write succeeds: the reload below follows immediately,
-            // and no in-flight save cycle's bytes, encoded from the pre-restore
-            // database before `setDatabase(dbData)` installed the restored one, must
-            // ever write this key again. It IS released if the write fails, since then
-            // no reload happens and permanently blocking the autosave loop would be
-            // worse.
-            const releaseWriteLock = await dbWriteLock.acquire();
+            // From here on, every exit that never lands the database write
+            // must show exactly one message, before releasing whatever hold
+            // was taken above -- and every exit that DID land it keeps that
+            // hold's write-lock portion closed forever (a reload or restart
+            // is imminent), reporting instead that the restore is saved if
+            // anything after the write fails.
+            let releaseDbWriteLock: (() => void) | null = null;
+            let writeAttempted = false;
             let restoreWriteSucceeded = false;
             try {
+                const reader = file.stream().getReader();
+                let bytesRead = 0;
+                let remainingBuffer = new Uint8Array();
+                let pendingDatabase: Uint8Array | null = null;
+                const restoredColdStorageKeys = new Set<string>();
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                        break;
+                    }
+
+                    bytesRead += value.length;
+                    const progress = ((bytesRead / file.size) * 100).toFixed(2);
+                    alertWait(`Loading local Backup... (${progress}%)`);
+
+                    const newBuffer = new Uint8Array(remainingBuffer.length + value.length);
+                    newBuffer.set(remainingBuffer);
+                    newBuffer.set(value, remainingBuffer.length);
+                    remainingBuffer = newBuffer;
+
+                    // Resolve every entry currently complete in remainingBuffer
+                    // before writing any of them: a stream this walk already
+                    // cleared can still disagree with the walk if the File's
+                    // slice() and stream() views diverge, so this loop must
+                    // independently refuse to write anything from a batch that
+                    // itself contains the marker, including entries that sit
+                    // before it in file order. A complete marker name counts as
+                    // a match whether or not its data-length field or body fits
+                    // in the batch, so the name is always checked before either
+                    // of those is checked.
+                    const resolvedEntries: { header: BackupEntryHeader; dataStart: number }[] = [];
+                    let scanOffset = 0;
+                    let markerInBatch = false;
+                    while (true) {
+                        const entryBuffer = remainingBuffer.subarray(scanOffset);
+                        const result = parseBackupEntryHeader(entryBuffer);
+                        if (result.status === 'ok') {
+                            if (result.header.name === BACKUP_ENCRYPTION_MARKER_NAME) {
+                                markerInBatch = true;
+                                break;
+                            }
+                            const dataStart = scanOffset + result.header.headerLength;
+                            const bodyEnd = dataStart + result.header.dataLength;
+                            if (bodyEnd > remainingBuffer.length) {
+                                break;
+                            }
+                            resolvedEntries.push({ header: result.header, dataStart });
+                            scanOffset = bodyEnd;
+                            continue;
+                        }
+                        if (result.stage === 'dataLength' && !result.nameSkipped
+                                && decodeEntryName(entryBuffer, result.nameLength) === BACKUP_ENCRYPTION_MARKER_NAME) {
+                            markerInBatch = true;
+                        }
+                        break;
+                    }
+
+                    if (markerInBatch) {
+                        alertError(language.encryptedBackupImportStopped);
+                        return;
+                    }
+
+                    for (const { header, dataStart } of resolvedEntries) {
+                        const name = header.name;
+                        if (name === undefined) {
+                            // parseBackupEntryHeader is called above with no name-length
+                            // limit, so every entry name here is always decoded; this
+                            // only narrows the type.
+                            continue;
+                        }
+                        const data = remainingBuffer.slice(dataStart, dataStart + header.dataLength);
+
+                        if (name === 'database.risudat') {
+                            pendingDatabase = new Uint8Array(data);
+                        }
+
+                        else {
+                            const coldStorageKey = getColdStorageBackupKey(name)
+                            let handledAsColdStorage = false
+
+                            if (coldStorageKey) {
+                                handledAsColdStorage = true
+                                try {
+                                    const text = new TextDecoder().decode(data)
+                                    const jsonData = JSON.parse(text)
+
+                                    if (isColdStorageBackupData(jsonData)) {
+                                        if(await setColdStorageItem(coldStorageKey, jsonData)){
+                                            restoredColdStorageKeys.add(coldStorageKey)
+                                        } else {
+                                            console.error(`Failed to restore cold storage item ${coldStorageKey}`)
+                                        }
+                                    } else {
+                                        console.warn(`Skipping invalid cold storage backup item ${name}`)
+                                    }
+                                } catch (e) {
+                                    console.error(`Failed to parse cold storage item ${coldStorageKey}:`, e)
+                                }
+                            }
+
+                            if (!handledAsColdStorage) {
+                                if (isTauri) {
+                                    await writeFile(`assets/` + name, data, { baseDir: BaseDirectory.AppData });
+                                } else {
+                                    await forageStorage.setItem('assets/' + name, data);
+                                }
+                            }
+                        }
+                        await sleep(10);
+                    }
+                    remainingBuffer = remainingBuffer.slice(scanOffset);
+                }
+
+                if(!pendingDatabase){
+                    alertError('Failed, Is file corrupted?')
+                    return
+                }
+
+                const db = pendingDatabase;
+                const dbData = await decodeRisuSave(db);
+                const missingColdStorageKeys:string[] = []
+                for(const key of await listColdDataKeys(dbData)){
+                    if(restoredColdStorageKeys.has(key)){
+                        continue
+                    }
+                    const existingColdStorage = await getColdStorageItem(key)
+                    if(!isColdStorageBackupData(existingColdStorage)){
+                        missingColdStorageKeys.push(key)
+                    }
+                }
+                if(!await confirmIncompleteColdStorageOperation(dbData, missingColdStorageKeys, 'restore')){
+                    return
+                }
+
+                // Repairs ids on the decoded backup before installing it,
+                // matching every other backup-loading path -- never left
+                // for boot's own repair after the reload below, which
+                // would leave a duplicate or missing chat id live in this
+                // page's own in-memory database for as long as this page
+                // stays open before that reload actually happens.
+                repairDatabaseIds(dbData)
+
+                // The exclusive hold taken above (when granted) already holds
+                // dbWriteLock internally for the rest of this restore --
+                // acquiring it again here would deadlock against that same
+                // hold. Only the Tauri and Web-Locks-unsupported paths, which
+                // never took it, still need it directly: the same write mutex
+                // saveDb()'s autosave loop takes around this key (see
+                // globalApi.svelte.ts's AsyncMutex/dbWriteLock).
+                if (!releaseExclusiveHold) {
+                    releaseDbWriteLock = await dbWriteLock.acquire();
+                }
+
+                writeAttempted = true;
                 if (isTauri) {
                     await writeFile('database/database.bin', db, { baseDir: BaseDirectory.AppData });
-                    restoreWriteSucceeded = true;
-                    await relaunch();
-                    alertStore.set({
-                        type: "wait",
-                        msg: "Success, Refreshing your app."
-                    });
                 } else {
                     await forageStorage.setItem('database/database.bin', db);
-                    restoreWriteSucceeded = true;
-                    location.search = '';
+                }
+                restoreWriteSucceeded = true;
+
+                // Installed only now that the write has actually succeeded --
+                // a failed write above leaves this page on its pre-restore
+                // database, so the error shown for it can truthfully say the
+                // restore did not complete.
+                setDatabase(dbData);
+                requiresFullEncoderReload.state = true;
+
+                alertStore.set({
+                    type: "wait",
+                    msg: "Success, Refreshing your app."
+                });
+                // The exclusive hold's Web Lock portion (if any) has nothing
+                // further to protect once this page's own write has landed --
+                // other tabs may now proceed. Its write-lock portion stays closed
+                // forever (`keepWriteLock`): no in-flight save cycle's bytes,
+                // encoded from the pre-restore database before setDatabase()
+                // above installed the restored one, must ever write this key
+                // again from this now-stale page. Awaited before marking the
+                // reload as app-initiated below: this release can itself
+                // queue behind another tab's own pending exclusive request
+                // for longer than the mark's own lifetime
+                // (`APP_INITIATED_RELOAD_RESET_MS` in reloadGuard.ts), and a
+                // mark that expired before the navigation would let the
+                // "Leave site?" guard stop it.
+                if (releaseExclusiveHold) {
+                    await releaseExclusiveHold(true);
+                }
+                markAppInitiatedReload();
+                if (isTauri) {
+                    await relaunch();
+                } else {
+                    // history.replaceState drops any query string, keeping
+                    // any fragment, and location.reload() always performs a
+                    // full reload, whatever the current URL looks like.
+                    history.replaceState(null, '', location.pathname + location.hash);
+                    location.reload();
+                }
+            } catch (error) {
+                console.error(error);
+                if (restoreWriteSucceeded) {
+                    // The write already landed and the in-memory database is
+                    // installed; a reload or restart is already in flight (or
+                    // was attempted). Whatever failed after that must never be
+                    // reported as "nothing happened" -- the write lock stays
+                    // closed, since another write from this now-stale context
+                    // must never follow a restore that already committed.
                     alertStore.set({
                         type: "wait",
-                        msg: "Success, Refreshing your app."
+                        msg: language.restoreSavedReloadOrRestart
                     });
+                } else if (writeAttempted) {
+                    alertError(language.restoreWriteFailed);
+                } else {
+                    alertError('Failed, Is file corrupted?');
                 }
             } finally {
                 if (!restoreWriteSucceeded) {
-                    releaseWriteLock();
+                    if (releaseDbWriteLock) {
+                        releaseDbWriteLock();
+                    }
+                    if (releaseExclusiveHold) {
+                        await releaseExclusiveHold();
+                    }
                 }
             }
-
-            alertNormal('Success');
         };
 
         input.click();

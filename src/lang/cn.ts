@@ -1488,6 +1488,11 @@ export const languageChinese = {
     "encryptedBackupRefused": "此备份由 RisuAccount 加密，出于技术原因，无法在此处读取。未导入任何内容。\n\n在上游 RisuAI 中，您仍然可以迁移这些数据：\n\n1. 使用 \"Save Partial Backup Locally (Excluding Character Assets)\"。此备份未加密，会保留包括冷存储在内的所有聊天记录，并保留角色、群组和人设的头像图片、用户头像、背景，以及文件夹和预设图片，其他图片和 VITS 文件则会被丢弃。\n\n2. 从账号同步中 \"注销\"，然后使用 \"本地保存备份\"。此方式会保留 .png 资源，但会丢失冷存储中的聊天记录。\n\n同时执行以上两步并在此处都导入，即可保留全部内容。详情请参阅迁移指南。",
     "encryptedBackupImportStopped": "此备份包含已加密的部分，导入已中止。部分图片或冷存储条目可能已被添加或替换。当前数据库未被更改。",
     "backupFileUnreadable": "无法读取该文件。未导入任何内容。",
+    "restoreCheckingOtherTabs": "正在恢复前检查此应用是否有其他已打开的标签页...",
+    "restoreOtherTabRefused": "此应用似乎在另一个标签页中打开。请先关闭此应用的所有其他标签页，然后重试。未恢复任何内容。",
+    "restoreNoLockWarningConfirm": "您的浏览器无法在恢复前检查此应用是否已在另一个标签页中打开。如果此应用的另一个标签页处于打开状态，它可能会在下次保存时用自己更旧的数据覆盖您正在恢复的数据——即使该标签页没有任何未保存的更改也是如此。请先关闭此应用的所有其他标签页，然后再继续。仍要继续吗？",
+    "restoreWriteFailed": "无法保存已恢复的备份。部分图片或冷存储条目可能已被添加或替换。当前数据库未被更改。",
+    "restoreSavedReloadOrRestart": "备份已恢复并保存，但应用无法自动重新加载。请重新加载页面（或重启应用）以完成操作。",
     "pluginProviderNotFound": "检测到未知插件。请更改模型或启用相应的插件。",
     "bootstrap": {
         "dataCorruptionDetected": (name: string, type: string) => `检测到数据损坏\n\n模块"${name}"的世界书格式已损坏。\n\n损坏的数据类型：${type}`,

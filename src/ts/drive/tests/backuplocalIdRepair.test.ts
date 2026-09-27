@@ -78,6 +78,14 @@ vi.mock(import('../../globalApi.svelte'), () => ({
     },
     requiresFullEncoderReload: requiresFullEncoderReloadMock,
     dbWriteLock: { acquire: vi.fn(async () => vi.fn()) },
+    // Granted immediately, standing in for "no other tab is open" -- this
+    // suite is about chaId repair (MC-078), not the cross-tab guard, so a
+    // caller reaching this export at all is not this file's concern.
+    acquireExclusiveStorageMigrationLock: vi.fn(async () => (async () => {})),
+    // `LoadLocalBackup()` imports `locksSupported` and `tabPresenceLockAcquired`
+    // by name, and a module mock must provide every export its importers read.
+    locksSupported: true,
+    tabPresenceLockAcquired: Promise.resolve(),
 }) as unknown as typeof import('../../globalApi.svelte'))
 
 vi.mock(import('../../alert'), () => ({
