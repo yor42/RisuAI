@@ -1,6 +1,11 @@
 # CHORE-42 — A local restore while other tabs are open
 
-**STATUS:** plan rev 3.1, 2026-09-27. **Gate 1 passed** (round 3 [APPROVE], ledger row 247). Not implemented. Rev 3.1 folds in round 3's optional points.
+**STATUS:** **done, committed as `ce6bc594`** (2026-09-27).
+- Gate 1 passed (rows 243, 246, 247).
+- Gate 2: round 1 [REJECT] (row 249); round 2 [EDITORIAL], closed by the Orchestrator (row 250).
+- Live check passed (row 251).
+- The commit message had an [EDITORIAL] check (row 252).
+- Plan rev 3.1, as below.
 - **Gate 1 round 2 (the same reviewer, ledger row 246): [REJECT].**
   - The epoch design, the reload fix, installing the database after the write, and the single release owner are accepted.
   - Three narrow MINOR findings: J8 against CHORE-39's boot-copy tests; the re-record trap and the release order on a mismatch; how J8 is tested.

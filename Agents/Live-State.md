@@ -104,10 +104,11 @@ Report 25/28, see above).
    (CHORE-36), dead code (CHORE-37, plus the Communities page, `MC-093`), `risuaiAccountCached`
    (CHORE-38), the Patreon page, and a lock on the local restore write.
 
-**Next: step 5a, CHORE-42** (`MC-093`: refuse, or at least warn about, a local restore while
-other tabs are open). It follows from the removal stage's restore lock. The plan, Report 32 rev 3.1, passed Gate 1
-(ledger rows 243, 246, 247). Implementation: step 1, a behaviour-preserving lock-contract seam refactor (in progress);
-step 2, the tests, each first shown to fail against the current code; step 3, the fix; then Gate 2 by `opus-reviewer` and a live check.
+5a. **CHORE-42** (`MC-093`: refuse, or warn about, a local restore while other tabs are open). Done,
+   committed as `ce6bc594` (Report 32; Gate 2 rows 249-250; live check row 251). It adds a per-origin
+   storage epoch to `storageTabLocks.ts`. It also fixes `237ebba1`'s cancellable restore reload.
+
+**Next: step 6, W1** (engine binding), per the order below.
 
 **Upstream sync (2026-09-27):** Svelte 5.56.8 (`425080e6`, ledger rows 244-245) and upstream's zh-Hant
 improvements (`f190d950`, row 248) are merged. `upstream/main` has nothing newer as of this date.
