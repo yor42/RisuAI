@@ -5,6 +5,7 @@ These pages were rewritten for this fork against the current source, starting fr
 New to RisuAI? Start here:
   - [[RisuAI Basics]]
   - [[Creating a Basic Bot]]
+  - Coming from upstream RisuAI? See [[Migrating from upstream]]
 
 How RisuAI works:
   - Syntax
@@ -35,3 +36,14 @@ How RisuAI works:
   - Plugins
      - [[Plugin Docs]]
         - [[Plugin API Reference]]
+  - [[Settings]]
+     - [[Settings Chat Bot]]
+     - [[Settings Persona]]
+     - [[Settings Other Bots]]
+     - [[Settings Display]]
+     - [[Settings Language]]
+     - [[Settings Accessibility]]
+     - [[Settings Plugins]]
+     - [[Settings Backup and Files]]
+     - [[Settings Hotkeys]]
+     - [[Settings Advanced]]

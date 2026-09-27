@@ -9,24 +9,35 @@
 ## What this fork does not have
 
 This fork does not have RisuAccount sign-in, and does not sync your data to RisuAccount's cloud
-service. There is no login screen for it, and no "on/off" switch to turn sync back on. If you
-want RisuAccount sign-in or sync, use upstream RisuAI.
+service. There is no login screen for it, and no "on/off" switch to turn sync back on. Google
+Drive backup is also gone. If you want RisuAccount sign-in, sync, or Drive backup, use upstream
+RisuAI.
 
-This does **not** affect RisuRealm or Google Drive backup. You can still browse, download and
-anonymously upload to RisuRealm, and back up to and restore from Google Drive, without signing
-in to RisuAccount.
+This does **not** affect RisuRealm — you can still browse, download and anonymously upload to
+RisuRealm without signing in to RisuAccount. RisuRealm is the only one of upstream's services this
+fork still uses.
 
-The first time you use either one, this fork asks you to accept upstream RisuAI's Terms of
-Service and Privacy Policy, since Realm and Google Drive backup are services upstream
-operates, not this app. Accepting once covers both. An acceptance you already gave in
-upstream RisuAI itself does not carry over; this fork asks again, the first time.
+The first time you use Realm, this fork asks you to accept upstream RisuAI's Terms of Service and
+Privacy Policy, since Realm is a service upstream operates, not this app. An acceptance you already
+gave in upstream RisuAI itself does not carry over; this fork asks again, the first time.
 
 ## The normal route: a `.bin` local backup
 
 For almost everyone, migrating is the same as moving between any two RisuAI installs: on
-upstream, use **Settings → Account & Files → Save Backup Locally** to make a `.bin` file, then
-import it here the same way you would on upstream. This works whether or not you ever used
-RisuAccount sync, as long as the backup itself is not encrypted (see the next section).
+upstream, use **Settings → Account & Files → Save Backup Locally** to make a `.bin` file. Here,
+that same tab is **Settings → Backup & Files → Load Backup Locally** — import the file the same
+way you would on upstream. This works whether or not you ever used RisuAccount sync, as long as
+the backup itself is not encrypted (see the next section).
+
+When you import, keep in mind how this fork's restore behaves:
+
+- **Close every other tab of this app first.** If your browser supports the check needed here,
+  the restore is refused outright while another tab of the app is open. If your browser can't do
+  that check (for example a plain-HTTP LAN address, or an older browser), you instead get a
+  warning before the restore proceeds — read it, since an open second tab can silently overwrite
+  what you just restored the next time it saves.
+- On success, the app reloads (or, on the Tauri desktop build, relaunches) by itself. You don't
+  need to do anything else to finish.
 
 ## If your backup is encrypted by RisuAccount
 
@@ -69,7 +80,10 @@ Doing both, and importing both here in the right order, is how you keep everythi
 2. **Logout** of RisuAccount, then use **Save Backup Locally** to make a full, unencrypted backup.
 3. Make these two backups back to back, without using the app in between, so both capture the
    same chats.
-4. Import the **Partial** backup first, then the **Full** backup second.
+4. Import the **Partial** backup first, then the **Full** backup second, both through **Settings →
+   Backup & Files → Load Backup Locally** here. For each import, close every other tab of this app
+   first — see the restore behavior noted in the normal route above; the same tab-check and
+   automatic-reload behavior applies to both imports.
 
 The order matters. Each import replaces the whole database with the one just imported — it does
 not merge with what was already there. So the database you end up with is whichever backup you
@@ -142,10 +156,13 @@ stays at whatever it was before sync started. The two can disagree, and upstream
 reconcile them for you. If you hit this, check both places on upstream before deciding which one
 to make your migration backup from.
 
-## `risuaiAccountCached`
+## `risuaiAccountCached` and other leftover account-sync keys
 
-If you ever used account sync in a given browser, it may have left a browser storage key called
-`risuaiAccountCached` behind. This fork does not read, clear or otherwise touch it — it is
-left exactly as account sync left it. Whether anything useful can be recovered from it is not
-something this fork currently does anything about; that is left for later, if it turns out to
-matter.
+If you ever used account sync or Google Drive backup on this origin, upstream may have left a few
+storage keys behind: a LocalForage database called `risuaiAccountCached` (account sync), and the
+localStorage keys `risu_lastsaved` and `backup` (Drive backup's bookkeeping; `backup` only when its
+value is exactly `save` or `load`). This fork clears all three at every ordinary boot, on the web
+build and the desktop app alike. On the web build it also clears the account-sync flags `dosync`
+and `fallbackRisuToken`. The cleanup is best-effort and never blocks or fails the boot. There is no recovery step: whatever was in `risuaiAccountCached` is simply dropped, not read
+or migrated first. If you need what's in it, get your data out of an upstream install using the
+routes above before you let this fork clear it.

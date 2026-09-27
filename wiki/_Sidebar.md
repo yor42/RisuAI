@@ -3,6 +3,7 @@
 **Getting started**
 - [[RisuAI Basics]]
 - [[Creating a Basic Bot]]
+- Coming from upstream RisuAI? [[Migrating from upstream]]
 
 **Syntax**
 - [[Markdown Syntaxes]]
@@ -39,3 +40,16 @@
 **Plugins**
 - [[Plugin Docs]]
   - [[Plugin API Reference]]
+
+**Settings**
+- [[Settings]]
+  - [[Settings Chat Bot]]
+  - [[Settings Persona]]
+  - [[Settings Other Bots]]
+  - [[Settings Display]]
+  - [[Settings Language]]
+  - [[Settings Accessibility]]
+  - [[Settings Plugins]]
+  - [[Settings Backup and Files]]
+  - [[Settings Hotkeys]]
+  - [[Settings Advanced]]
