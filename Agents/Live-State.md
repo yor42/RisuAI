@@ -105,7 +105,12 @@ Report 25/28, see above).
    (CHORE-38), the Patreon page, and a lock on the local restore write.
 
 **Next: step 5a, CHORE-42** (`MC-093`: refuse, or at least warn about, a local restore while
-other tabs are open). It follows from the removal stage's restore lock and is being scoped.
+other tabs are open). It follows from the removal stage's restore lock. The plan, Report 32 rev 3.1, passed Gate 1
+(ledger rows 243, 246, 247). Implementation: step 1, a behaviour-preserving lock-contract seam refactor (in progress);
+step 2, the tests, each first shown to fail against the current code; step 3, the fix; then Gate 2 by `opus-reviewer` and a live check.
+
+**Upstream sync (2026-09-27):** Svelte 5.56.8 (`425080e6`, ledger rows 244-245) and upstream's zh-Hant
+improvements (`f190d950`, row 248) are merged. `upstream/main` has nothing newer as of this date.
 6. **W1: engine binding.** This closes CHORE-25 and CHORE-26. Then the composer stage (Report 22
    rev 3), then W2 and W3.
 7. **CHORE-35's opt-in stage** (the remaining upstream-infrastructure features: `/proxy2`'s

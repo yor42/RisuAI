@@ -1579,8 +1579,11 @@ output (below).
 
 ### CHORE-42 — Another open tab can overwrite a local-backup restore
 
-**Status (2026-09-27): decided (`MC-093`), not fixed.** The maintainer: refuse the restore, or at
-least warn, while other tabs are open. Being scoped. Filed from the removal stage's Gate 1
+**Status (2026-09-27): decided (`MC-093`); plan passed Gate 1; implementing.** Plan: Report 32 rev
+3.1. It refuses a restore when another tab holds the storage lock, and warns when Web Locks are unavailable
+(non-secure static origins, old browsers). A per-origin storage epoch makes a tab that lost a lock race
+reload rather than write. It also fixes the restore's cancellable reload in `237ebba1`. Scoping in ledger
+row 242; Gate 1 in rows 243, 246 and 247. Filed from the removal stage's Gate 1
 (Report 31, item E; ledger row 234).
 
 - `LoadLocalBackup()` writes the restored database, then reloads its own page. Report 31 item E
