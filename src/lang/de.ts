@@ -773,7 +773,6 @@ export const languageGerman = {
     "user": "Benutzer",
     "additionalAssets": "Zusätzliche Medien",
     "editDisplay": "Anzeige bearbeiten",
-    "community": "Gemeinschaft",
     "textBackgrounds": "Benutzerdefinierte Farbe für den Textbereich",
     "textBorder": "Textkonturen",
     "textScreenRound": "Abgerundeter Textbereich",

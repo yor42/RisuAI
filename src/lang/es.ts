@@ -773,7 +773,6 @@ export const languageSpanish = {
     "user": "Usuario",
     "additionalAssets": "Activos Adicionales",
     "editDisplay": "Modificar Visualización",
-    "community": "Comunidad",
     "textBackgrounds": "Color Personalizado de la Pantalla de Texto",
     "textBorder": "Contornos de Texto",
     "textScreenRound": "Pantalla de Texto Redondeada",

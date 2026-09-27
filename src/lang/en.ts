@@ -908,7 +908,6 @@ export const languageEnglish = {
     user: "User",
     additionalAssets: "Additional Assets",
     editDisplay: "Modify Display",
-    community: "Community",
     textBackgrounds: "Custom Text Screen Color",
     textBorder: "Text Outlines",
     textScreenRound: "Round Text Screen",

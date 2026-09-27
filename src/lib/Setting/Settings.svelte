@@ -9,7 +9,6 @@
     import AdvancedSettings from "./Pages/AdvancedSettings.svelte";
     import { additionalSettingsMenu, easyPanelStore, MobileGUI, SettingsMenuIndex, settingsOpen } from "src/ts/stores.svelte";
     import { DBState } from "src/ts/stores.svelte";
-    import Communities from "./Pages/Communities.svelte";
     import GlobalLoreBookSettings from "./Pages/GlobalLoreBookSettings.svelte";
     import Lorepreset from "./lorepreset.svelte";
     import GlobalRegex from "./Pages/GlobalRegex.svelte";
@@ -206,8 +205,6 @@
                         <PluginSettings />
                     {:else if $SettingsMenuIndex === 6}
                         <AdvancedSettings />
-                    {:else if $SettingsMenuIndex === 7}
-                        <Communities />
                     {:else if $SettingsMenuIndex === 8}
                         <GlobalLoreBookSettings bind:openLoreList />
                     {:else if $SettingsMenuIndex === 9}

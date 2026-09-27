@@ -773,7 +773,6 @@ export const languageChineseTraditional = {
     "user": "使用者",
     "additionalAssets": "額外資源",
     "editDisplay": "修改顯示",
-    "community": "社群",
     "textBackgrounds": "自訂文字視窗顏色",
     "textBorder": "文字邊框",
     "textScreenRound": "圓角化文字視窗",

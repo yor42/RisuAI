@@ -773,7 +773,6 @@ export const languageKorean = {
     "user": "유저",
     "additionalAssets": "추가 에셋",
     "editDisplay": "디스플레이 수정",
-    "community": "커뮤니티",
     "textBackgrounds": "커스텀 채팅창 색깔",
     "textBorder": "텍스트 윤곽선",
     "textScreenRound": "둥근 채팅창",

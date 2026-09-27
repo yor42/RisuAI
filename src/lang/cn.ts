@@ -773,7 +773,6 @@ export const languageChinese = {
     "user": "用户",
     "additionalAssets": "额外资源",
     "editDisplay": "修改显示",
-    "community": "社区",
     "textBackgrounds": "自定义文本窗口颜色",
     "textBorder": "文字边框",
     "textScreenRound": "圆角化文本窗口",

@@ -773,7 +773,6 @@ export const languageVietnamese = {
     "user": "Người dùng",
     "additionalAssets": "Tài sản bổ sung",
     "editDisplay": "Sửa đổi hiển thị",
-    "community": "Cộng đồng",
     "textBackgrounds": "Màu màn hình văn bản tùy chỉnh",
     "textBorder": "Đề cương văn bản",
     "textScreenRound": "Màn hình văn bản tròn",

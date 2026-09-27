@@ -76,7 +76,6 @@ RisuAI/
 | `Others/` | Miscellaneous components |
 | `Mobile/` | Mobile-specific UI |
 | `Playground/` | Testing/playground features |
-| `LiteUI/` | Lightweight UI variant |
 
 ## Building and Running
 
