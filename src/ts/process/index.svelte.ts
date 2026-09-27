@@ -1,5 +1,5 @@
 import { get, writable } from "svelte/store";
-import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, changeToPreset, setCurrentChat, type Message, type StreamingDisplayOptimizationMode } from "../storage/database.svelte";
+import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, changeToPreset, type Message, type StreamingDisplayOptimizationMode } from "../storage/database.svelte";
 import { DBState } from '../stores.svelte';
 import { CharEmotion, selectedCharID } from "../stores.svelte";
 import { ChatTokenizer, tokenize, tokenizeNum } from "../tokenizer";
@@ -34,6 +34,7 @@ import { readImage } from "../globalApi.svelte";
 import { pluginV2 } from "../plugins/plugins.svelte";
 import { isColdChat } from "./coldstorageData";
 import { markCharacterForSave } from "../storage/characterSaveMarks";
+import { beginWork, originStatus, resolveOrigin } from "./chatOrigin";
 
 export interface OpenAIChat{
     role: 'system'|'user'|'assistant'|'function'
@@ -930,15 +931,34 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
     
     console.log('Prepared messages for token calculation:', ms)
 
-    const triggerResult = await runTrigger(currentChar, 'start', {chat: currentChat})
-    if(triggerResult){
-        currentChat = triggerResult.chat
-        setCurrentChat(currentChat)
-        ms = makeMs(currentChat)
-        currentTokens += triggerResult.tokens
-        if(triggerResult.stopSending){
-            doingChat.set(false)
-            return false
+    let triggerResult: Awaited<ReturnType<typeof runTrigger>>
+    const startTriggerHandle = beginWork(nowChatroom, currentChat, nowChatroom.type === 'group' ? currentChar : undefined)
+    if(startTriggerHandle){
+        try {
+            triggerResult = await runTrigger(currentChar, 'start', {chat: currentChat, origin: startTriggerHandle.origin})
+        } finally {
+            startTriggerHandle.end()
+        }
+        if(triggerResult){
+            const originAfter = originStatus(startTriggerHandle.origin)
+            if(originAfter === 'gone'){
+                doingChat.set(false)
+                return false
+            }
+            // An ambiguous origin cannot be resolved to one chat by id --
+            // any write the trigger made before the duplicate appeared has
+            // already landed on the live chat, but this call falls back to
+            // the frozen slot this send started from rather than guessing
+            // which of the two duplicates is the real one.
+            currentChat = originAfter === 'ambiguous'
+                ? nowChatroom.chats[selectedChat]
+                : (resolveOrigin(startTriggerHandle.origin)?.chat ?? currentChat)
+            ms = makeMs(currentChat)
+            currentTokens += triggerResult.tokens
+            if(triggerResult.stopSending){
+                doingChat.set(false)
+                return false
+            }
         }
     }
 
@@ -1804,15 +1824,19 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
         addRerolls(generationId, Object.values(lastResponseChunk))
 
         DBState.db.characters[selectedChar].chats[selectedChat] = runCurrentChatFunction(DBState.db.characters[selectedChar].chats[selectedChat])
-        currentChat = DBState.db.characters[selectedChar].chats[selectedChat]        
-        const triggerResult = await runTrigger(currentChar, 'output', {chat:currentChat})
-        if(triggerResult && triggerResult.chat){
-            currentChat = triggerResult.chat
+        currentChat = DBState.db.characters[selectedChar].chats[selectedChat]
+        const outputTriggerHandle1 = beginWork(nowChatroom, currentChat, nowChatroom.type === 'group' ? currentChar : undefined)
+        let triggerResult: Awaited<ReturnType<typeof runTrigger>>
+        if(outputTriggerHandle1){
+            try {
+                triggerResult = await runTrigger(currentChar, 'output', {chat:currentChat, origin: outputTriggerHandle1.origin})
+            } finally {
+                outputTriggerHandle1.end()
+            }
         }
         if(triggerResult && triggerResult.sendAIprompt){
             resendChat = true
         }
-        DBState.db.characters[selectedChar].chats[selectedChat] = currentChat
         currentChat = DBState.db.characters[selectedChar].chats[selectedChat]
         const inlayMessageIndex = findMessageIndexByChatId(currentChat, outputMessageId)
         const outputMessage = currentChat.message[inlayMessageIndex]
@@ -1911,13 +1935,18 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
         }
 
         DBState.db.characters[selectedChar].chats[selectedChat] = runCurrentChatFunction(DBState.db.characters[selectedChar].chats[selectedChat])
-        currentChat = DBState.db.characters[selectedChar].chats[selectedChat]        
+        currentChat = DBState.db.characters[selectedChar].chats[selectedChat]
 
-        const triggerResult = await runTrigger(currentChar, 'output', {chat:currentChat})
-        if(triggerResult && triggerResult.chat){
-            DBState.db.characters[selectedChar].chats[selectedChat] = triggerResult.chat
+        const outputTriggerHandle2 = beginWork(nowChatroom, currentChat, nowChatroom.type === 'group' ? currentChar : undefined)
+        let triggerResult2: Awaited<ReturnType<typeof runTrigger>>
+        if(outputTriggerHandle2){
+            try {
+                triggerResult2 = await runTrigger(currentChar, 'output', {chat:currentChat, origin: outputTriggerHandle2.origin})
+            } finally {
+                outputTriggerHandle2.end()
+            }
         }
-        if(triggerResult && triggerResult.sendAIprompt){
+        if(triggerResult2 && triggerResult2.sendAIprompt){
             resendChat = true
         }
         currentChat = DBState.db.characters[selectedChar].chats[selectedChat]

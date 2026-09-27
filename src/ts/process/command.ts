@@ -1,5 +1,5 @@
 import { get } from "svelte/store";
-import { getCurrentCharacter, getCurrentChat, getDatabase, setCurrentChat, setDatabase } from "../storage/database.svelte";
+import { getCurrentCharacter, getCurrentChat, getDatabase, setDatabase } from "../storage/database.svelte";
 import { selectedCharID } from "../stores.svelte";
 import { alertInput, alertMd, alertNormal, alertSelect } from "../alert";
 import { sayTTS } from "./tts";
@@ -7,6 +7,7 @@ import { risuChatParser } from "../parser/parser.svelte";
 import { sendChat } from "./index.svelte";
 import { loadLoreBookV3Prompt } from "./lorebook.svelte";
 import { runTrigger } from "./triggers";
+import { beginWork } from "./chatOrigin";
 
 export async function processMultiCommand(command:string) {
     let pipe = ''
@@ -227,13 +228,19 @@ async function processCommand(command:string, pipe:string):Promise<false | strin
             if(currentChar.type === 'group'){
                 return;
             }
-            const triggerResult = await runTrigger(currentChar, 'manual', {
-                chat: getCurrentChat(),
-                manualName: arg
-            });
-
-            if(triggerResult){
-               setCurrentChat(triggerResult.chat);
+            const currentChat = getCurrentChat()
+            const workHandle = beginWork(currentChar, currentChat)
+            if(!workHandle){
+                return
+            }
+            try {
+                await runTrigger(currentChar, 'manual', {
+                    chat: currentChat,
+                    manualName: arg,
+                    origin: workHandle.origin,
+                });
+            } finally {
+                workHandle.end()
             }
             return
         }

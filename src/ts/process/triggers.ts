@@ -1,10 +1,10 @@
 import { parseChatML } from "../parser/chatML";
 import { risuChatParser } from "../parser/parser.svelte";
-import { getCurrentCharacter, getCurrentChat, getDatabase, setCurrentCharacter, setDatabase, type Chat, type character } from "../storage/database.svelte";
+import { getDatabase, type Chat, type character } from "../storage/database.svelte";
 import { tokenize } from "../tokenizer";
 import { getModuleTriggers } from "./modules";
 import { get } from "svelte/store";
-import { ReloadChatPointer, ReloadGUIPointer, selectedCharID, CurrentTriggerIdStore, DBState } from "../stores.svelte";
+import { ReloadChatPointer, ReloadGUIPointer, CurrentTriggerIdStore, DBState } from "../stores.svelte";
 import { processMultiCommand } from "./command";
 import { parseKeyValue, sleep } from "../util";
 import { alertError, alertInput, alertNormal, alertSelect } from "../alert";
@@ -15,6 +15,7 @@ import { generateAIImage } from "./stableDiff";
 import { writeInlayImage } from "./files/inlays";
 import { runScripted } from "./scriptings";
 import { calcString } from "./infunctions";
+import { createRunSubject, type Origin } from "./chatOrigin";
 
 
 export interface triggerscript{
@@ -1055,43 +1056,119 @@ async function collectStreamingText(stream: ReadableStream<{ [key: string]: stri
     return lastChunk
 }
 
-export async function runTrigger(char:character,mode:triggerMode, arg:{
-    chat: Chat,
+// A non-display run has no snapshot to commit: every effect writes straight
+// through its own origin, so it must be given one. A display or request run
+// keeps reading and writing the objects its own caller passed it and so
+// carries no origin.
+type RunTriggerLiveArg = {
+    chat: Chat
     recursiveCount?: number
     additonalSysPrompt?: additonalSysPrompt
     stopSending?: boolean
     manualName?: string
     triggerId?: string
-    displayMode?: boolean
+    displayMode?: false
     displayData?: string
     tempVars?: Record<string, string>
-}){
+    origin: Origin
+}
+type RunTriggerDisplayArg = {
+    chat: Chat
+    recursiveCount?: number
+    additonalSysPrompt?: additonalSysPrompt
+    stopSending?: boolean
+    manualName?: string
+    triggerId?: string
+    displayMode: true
+    displayData?: string
+    tempVars?: Record<string, string>
+    origin?: undefined
+}
+export type RunTriggerArg = RunTriggerLiveArg | RunTriggerDisplayArg
+
+export async function runTrigger(char:character,mode:triggerMode, arg: RunTriggerArg){
     arg.recursiveCount ??= 0
-    char = arg.displayMode ? char : safeStructuredClone(char)
     let varChanged = false
     let stopSending = arg.stopSending ?? false
     const CharacterlowLevelAccess = char.lowLevelAccess ?? false
     let sendAIprompt = false
-    const currentChat = getCurrentChat()
     let additonalSysPrompt:additonalSysPrompt = arg.additonalSysPrompt ?? {
         start:'',
         historyend: '',
         promptend: ''
     }
-    const triggers = char.triggerscript.map((v) => {
-        v.lowLevelAccess = CharacterlowLevelAccess
-        return v
+    // A run never writes back onto a trigger definition: every entry
+    // carries a shallow copy of the module's or character's own
+    // `lowLevelAccess`, computed for this run only.
+    const triggers = char.triggerscript.map((v): triggerscript => {
+        return { ...v, lowLevelAccess: CharacterlowLevelAccess }
     }).concat(getModuleTriggers())
     const db = getDatabase()
     const defaultVariables = parseKeyValue(char.defaultVariables).concat(parseKeyValue(db.templateDefaultVariables))
-    let chat = arg.displayMode ? arg.chat : safeStructuredClone(arg.chat ?? char.chats[char.chatPage])
-    
+    let chat: Chat = arg.chat ?? char.chats[char.chatPage]
+
+    // Every persistent read and write in a non-display run goes through the
+    // run's own origin, re-resolved at the moment of use -- never through a
+    // reference held since before an `await`. Every case below that awaits
+    // and then reads or writes `char`/`chat`/`runner` calls `refreshSubject`
+    // again first, since the memo behind it does not survive that `await`.
+    // A display or request run has no origin and keeps reading/writing its
+    // caller's `char`/`chat` directly, unchanged.
+    const subject = arg.origin ? createRunSubject(arg.origin) : null
+
+    // The character whose own fields an effect that needs one real
+    // character -- a nested trigger, `generateImage`'s image effects --
+    // should act on: the member in a group run, the owner otherwise, and
+    // `char` unchanged when there is no subject at all. Kept apart from
+    // `char`, which falls back to the owner for reads, because `runner`
+    // must not: a gone or ambiguous group member makes it `null`, and a
+    // caller of it must skip rather than substitute the group.
+    let runner: character | null = null
+
+    // Refreshes `char`, `chat` and `runner` from the origin for the run's
+    // current synchronous stretch. Returns false, changing none of them,
+    // when the origin itself is gone or ambiguous -- callers stop the run
+    // cleanly on false. A gone or ambiguous group member does not fail this:
+    // `char` still falls back to the owner and `chat` is still the group's,
+    // only `runner` becomes null.
+    function refreshSubject(): boolean {
+        if (!subject) {
+            runner = char
+            return true
+        }
+        if (subject.status() !== 'ok') {
+            return false
+        }
+        const ctx = subject.resolve()
+        if (!ctx) {
+            return false
+        }
+        char = (ctx.member ?? ctx.owner) as character
+        chat = ctx.chat
+        runner = arg.origin?.memberChaId ? (ctx.member as character | null) : (ctx.owner as character)
+        return true
+    }
+
+    // True only for a group member's run whose member is itself gone or
+    // ambiguous -- the v2 character and lorebook effects skip rather than
+    // falling back to the group. A run with no member concept at all
+    // (no `origin.memberChaId`) is never "member required but gone".
+    function memberRequiredButGone(): boolean {
+        return runner === null
+    }
+
+    // Marks the origin's owner -- and its member, whenever it resolved --
+    // for save. A display or request run has no subject and marks nothing.
+    function markWrite(): void {
+        subject?.mark()
+    }
+
     const previousTriggerId = get(CurrentTriggerIdStore)
     const shouldSetTriggerId = !arg.displayMode && mode !== 'display'
     if (shouldSetTriggerId) {
         CurrentTriggerIdStore.set(arg.triggerId || null)
     }
-    
+
     if((!triggers) || (triggers.length === 0)){
         if (shouldSetTriggerId) {
             CurrentTriggerIdStore.set(previousTriggerId)
@@ -1183,8 +1260,9 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
         if(localVar !== null){
             return localVar
         }
-        
-        const state = chat.scriptstate?.['$' + key]
+
+        const targetChat = subject ? subject.resolve()?.chat : chat
+        const state = targetChat?.scriptstate?.['$' + key]
         if(state === undefined || state === null){
             const findResult = defaultVariables.find((f) => {
                 return f[0] === key
@@ -1213,25 +1291,25 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
         if(localVar !== null){
             return setLocalVar(key, value, currentIndent)
         }
-        
-        const selectedCharId = get(selectedCharID)
-        const currentCharacter = getCurrentCharacter()
-        const db = getDatabase()
-        chat.scriptstate ??= {}
+
+        const targetChat = subject ? subject.resolve()?.chat : chat
+        if(!targetChat){
+            return false
+        }
+        targetChat.scriptstate ??= {}
         const stateKey = '$' + key
-        if(chat.scriptstate[stateKey] === value){
+        if(targetChat.scriptstate[stateKey] === value){
             return false
         }
 
         varChanged = true
-        chat.scriptstate[stateKey] = value
-        currentChat.scriptstate = chat.scriptstate
-        currentCharacter.chats[currentCharacter.chatPage].scriptstate = chat.scriptstate
-        db.characters[selectedCharId].chats[currentCharacter.chatPage].scriptstate = chat.scriptstate
+        targetChat.scriptstate[stateKey] = value
+        markWrite()
         return true
     }
     
     
+    triggerLoop:
     for(const trigger of triggers){
         let tempVars:Record<string, number> = {}
 
@@ -1245,6 +1323,13 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
         }
         else if(mode !== trigger.type){
             continue
+        }
+
+        // The run stops here, cleanly and silently (a warning only for an
+        // ambiguous origin), the moment its origin is gone or ambiguous:
+        // no further effect runs.
+        if(!refreshSubject()){
+            break triggerLoop
         }
 
         let pass = true
@@ -1336,7 +1421,11 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
             if(mode === 'request' && !requestAllowList.includes(effect.type)){
                 continue
             }
-            
+
+            if(!refreshSubject()){
+                break triggerLoop
+            }
+
             if(effect && 'indent' in effect && typeof effect.indent === 'number' && effect.indent >= 0){
                 currentIndent = effect.indent
             } else if(!effect || !('indent' in effect)) {
@@ -1390,6 +1479,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     else if(effect.role === 'char'){
                         chat.message.push({role: 'char', data: effectValue})
                     }
+                    markWrite()
                     break
                 }
                 case 'command':{
@@ -1403,18 +1493,21 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     break
                 }
                 case 'runtrigger':{
+                    if(runner === null){
+                        break
+                    }
                     if(arg.recursiveCount < 10 || trigger.lowLevelAccess){
                         arg.recursiveCount++
-                        const r = await runTrigger(char,'manual',{
+                        const r = await runTrigger(runner,'manual',{
                             chat,
                             recursiveCount: arg.recursiveCount,
                             additonalSysPrompt,
                             stopSending,
-                            manualName: effect.value
+                            manualName: effect.value,
+                            origin: arg.origin as Origin,
                         })
                         if(r){
                             additonalSysPrompt = r.additonalSysPrompt
-                            chat = r.chat
                             stopSending = r.stopSending
                         }
                     }
@@ -1424,6 +1517,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     const start = Number(risuChatParser(effect.start,{chara:char}))
                     const end = Number(risuChatParser(effect.end,{chara:char}))
                     chat.message = chat.message.slice(start,end)
+                    markWrite()
                     break
                 }
                 case 'modifychat':{
@@ -1431,6 +1525,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     const value = risuChatParser(effect.value,{chara:char})
                     if(chat.message[index]){
                         chat.message[index].data = value
+                        markWrite()
                     }
                     break
                 }
@@ -1540,10 +1635,13 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     if(!trigger.lowLevelAccess){
                         break
                     }
+                    if(runner === null){
+                        break
+                    }
 
                     const effectValue = risuChatParser(effect.value,{chara:char})
                     const negValue = risuChatParser(effect.negValue,{chara:char})
-                    const gen = await generateAIImage(effectValue, char, negValue, 'inlay')
+                    const gen = await generateAIImage(effectValue, runner, negValue, 'inlay')
                     if(!gen){
                         setVar(effect.inputVar, 'Error: Image generation failed')
                         break
@@ -1564,12 +1662,18 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                         getVar: getVar,
                         char: char,
                         chat: chat,
+                        origin: arg.origin,
                     })
 
                     if(triggerCodeResult.stopSending){
                         stopSending = true
                     }
-                    chat = triggerCodeResult.chat
+                    // Every write a Lua call may have made -- messages,
+                    // `setChatVar`, the character fields, `localLore` --
+                    // already landed on its own live target; mark both the
+                    // owner and the member (whichever resolved) rather than
+                    // trying to tell which of them the call actually wrote.
+                    markWrite()
                     break
                 }
 
@@ -1801,18 +1905,21 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     break
                 }
                 case 'v2RunTrigger':{
+                    if(runner === null){
+                        break
+                    }
                     if(arg.recursiveCount < 10 || trigger.lowLevelAccess){
                         arg.recursiveCount++
-                        const r = await runTrigger(char,'manual',{
+                        const r = await runTrigger(runner,'manual',{
                             chat,
                             recursiveCount: arg.recursiveCount,
                             additonalSysPrompt,
                             stopSending,
-                            manualName: effect.target
+                            manualName: effect.target,
+                            origin: arg.origin as Origin,
                         })
                         if(r){
                             additonalSysPrompt = r.additonalSysPrompt
-                            chat = r.chat
                             stopSending = r.stopSending
                         }
                     }
@@ -1836,8 +1943,9 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     if(isNaN(end)){
                         end = chat.message.length
                     }
-                    
+
                     chat.message = chat.message.slice(start,end)
+                    markWrite()
                     break
                 }
                 case 'v2ModifyChat':{
@@ -1845,6 +1953,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
                     if(chat.message[index]){
                         chat.message[index].data = value
+                        markWrite()
                     }
                     break
                 }
@@ -1861,6 +1970,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     else if(effect.role === 'char'){
                         chat.message.push({role: 'char', data: value})
                     }
+                    markWrite()
                     break
                 }
                 case 'v2Command':{
@@ -1879,9 +1989,15 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     if(!trigger.lowLevelAccess){
                         break
                     }
+                    if(runner === null){
+                        break
+                    }
                     let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
                     let negValue = effect.negValueType === 'value' ? risuChatParser(effect.negValue,{chara:char}) : getVar(risuChatParser(effect.negValue,{chara:char}))
-                    let gen = await generateAIImage(value, char, negValue, 'inlay')
+                    let gen = await generateAIImage(value, runner, negValue, 'inlay')
+                    if(!refreshSubject()){
+                        break triggerLoop
+                    }
                     if(!gen){
                         setVar(risuChatParser(effect.outputVar, {chara:char}), 'null')
                         break
@@ -1889,6 +2005,9 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     let imgHTML = new Image()
                     imgHTML.src = gen
                     let inlay = await writeInlayImage(imgHTML)
+                    if(!refreshSubject()){
+                        break triggerLoop
+                    }
                     let res = `{{inlay::${inlay}}}`
                     setVar(risuChatParser(effect.outputVar, {chara:char}), res)
                     break
@@ -1903,6 +2022,9 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     let processer = new HypaProcesser()
                     await processer.addText(value.split('§'))
                     let val = await processer.similaritySearch(source)
+                    if(!refreshSubject()){
+                        break triggerLoop
+                    }
                     setVar(risuChatParser(effect.outputVar, {chara:char}), val.join('§'))
                     break
                 }
@@ -1921,12 +2043,18 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                         useStreaming: effect.streaming ?? false,
                         noMultiGen: true,
                     }, effect.model)
+                    if(!refreshSubject()){
+                        break triggerLoop
+                    }
 
                     if(result.type === 'fail' || result.type === 'multiline'){
                         setVar(risuChatParser(effect.outputVar, {chara:char}), 'null')
                     }
                     else if(result.type === 'streaming'){
                         const text = await collectStreamingText(result.result)
+                        if(!refreshSubject()){
+                            break triggerLoop
+                        }
                         setVar(risuChatParser(effect.outputVar, {chara:char}), text)
                     }
                     else{
@@ -1977,6 +2105,9 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     break
                 }
                 case 'v2ModifyLorebook':{
+                    if(memberRequiredButGone()){
+                        break
+                    }
                     char.globalLore = char.globalLore ?? []
                     const target = effect.targetType === 'value' ? risuChatParser(effect.target,{chara:char}) : getVar(risuChatParser(effect.target,{chara:char}))
                     const value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
@@ -1984,12 +2115,8 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     const index = char.globalLore.findIndex((v) => v[0] === target)
                     if(index !== -1){
                         char.globalLore[index][1] = value
+                        markWrite()
                     }
-
-                    const db = getDatabase()
-                    const selectedCharId = get(selectedCharID)
-                    db.characters[selectedCharId].globalLore = char.globalLore
-                    setCurrentCharacter(db.characters[selectedCharId])
                     break
                 }
                 case 'v2GetLorebook':{
@@ -2014,16 +2141,14 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     break
                 }
                 case 'v2SetLorebookActivation':{
+                    if(memberRequiredButGone()){
+                        break
+                    }
                     char.globalLore = char.globalLore ?? []
                     let index = effect.indexType === 'value' ? Number(risuChatParser(effect.index,{chara:char})) : Number(getVar(risuChatParser(effect.index,{chara:char})))
                     let value = effect.value
                     char.globalLore[index][2] = value
-
-                    const selectedCharId = get(selectedCharID)
-                    const db = getDatabase()
-                    db.characters[selectedCharId].globalLore = char.globalLore
-                    setCurrentCharacter(char)
-
+                    markWrite()
                     break
                 }
                 case 'v2GetLorebookIndexViaName':{
@@ -2121,12 +2246,12 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     break
                 }
                 case 'v2SetCharacterDesc':{
+                    if(memberRequiredButGone()){
+                        break
+                    }
                     let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
                     char.desc = value
-                    const selectedCharId = get(selectedCharID)
-                    const db = getDatabase();
-                    (db.characters[selectedCharId] as character).desc = value
-                    setCurrentCharacter(char)
+                    markWrite()
                     break
                 }
                 case 'v2GetPersonaDesc':{
@@ -2149,12 +2274,12 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     break
                 }
                 case 'v2SetReplaceGlobalNote':{
+                    if(memberRequiredButGone()){
+                        break
+                    }
                     const value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
                     char.replaceGlobalNote = value
-                    const selectedCharId = get(selectedCharID)
-                    const db = getDatabase();
-                    (db.characters[selectedCharId] as character).replaceGlobalNote = value
-                    setCurrentCharacter(char)
+                    markWrite()
                     break
                 }
                 case 'v2MakeArrayVar':{
@@ -2327,6 +2452,9 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     let value = await alertInput(
                         effect.displayType === 'value' ? risuChatParser(effect.display,{chara:char}) : getVar(risuChatParser(effect.display,{chara:char}))
                     )
+                    if(!refreshSubject()){
+                        break triggerLoop
+                    }
                     setVar(risuChatParser(effect.outputVar, {chara:char}), value)
                     break
                 }
@@ -2338,6 +2466,9 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     const value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
                     const options = value.split('|')
                     let result = await alertSelect(options, display)
+                    if(!refreshSubject()){
+                        break triggerLoop
+                    }
                     setVar(risuChatParser(effect.outputVar, {chara:char}), result)
                     break
                 }
@@ -2511,12 +2642,15 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     break
                 }
                 case 'v2CreateLorebook':{
+                    if(memberRequiredButGone()){
+                        break
+                    }
                     char.globalLore = char.globalLore ?? []
                     const name = effect.nameType === 'value' ? risuChatParser(effect.name,{chara:char}) : getVar(risuChatParser(effect.name,{chara:char}))
                     const key = effect.keyType === 'value' ? risuChatParser(effect.key,{chara:char}) : getVar(risuChatParser(effect.key,{chara:char}))
                     const content = effect.contentType === 'value' ? risuChatParser(effect.content,{chara:char}) : getVar(risuChatParser(effect.content,{chara:char}))
                     const insertOrder = effect.insertOrderType === 'value' ? Number(risuChatParser(effect.insertOrder,{chara:char})) : Number(getVar(risuChatParser(effect.insertOrder,{chara:char})))
-                    
+
                     char.globalLore.push({
                         key: key,
                         comment: name,
@@ -2527,17 +2661,16 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                         secondkey: "",
                         selective: false
                     })
-
-                    const selectedCharId = get(selectedCharID)
-                    const db = getDatabase()
-                    db.characters[selectedCharId].globalLore = char.globalLore
-                    setCurrentCharacter(char)
+                    markWrite()
                     break
                 }
                 case 'v2ModifyLorebookByIndex':{
+                    if(memberRequiredButGone()){
+                        break
+                    }
                     char.globalLore = char.globalLore ?? []
                     let index = effect.indexType === 'value' ? Number(risuChatParser(effect.index,{chara:char})) : Number(getVar(risuChatParser(effect.index,{chara:char})))
-                    
+
                     if(Number.isNaN(index) || index < 0 || index >= char.globalLore.length || !char.globalLore[index]){
                         break
                     }
@@ -2563,26 +2696,22 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                         char.globalLore[index].insertorder = insertOrderNum
                     }
 
-                    const selectedCharId = get(selectedCharID)
-                    const db = getDatabase()
-                    db.characters[selectedCharId].globalLore = char.globalLore
-                    setCurrentCharacter(char)
+                    markWrite()
                     break
                 }
                 case 'v2DeleteLorebookByIndex':{
+                    if(memberRequiredButGone()){
+                        break
+                    }
                     char.globalLore = char.globalLore ?? []
                     let index = effect.indexType === 'value' ? Number(risuChatParser(effect.index,{chara:char})) : Number(getVar(risuChatParser(effect.index,{chara:char})))
-                    
+
                     if(Number.isNaN(index) || index < 0 || index >= char.globalLore.length || !char.globalLore[index]){
                         break
                     }
 
                     char.globalLore.splice(index, 1)
-
-                    const selectedCharId = get(selectedCharID)
-                    const db = getDatabase()
-                    db.characters[selectedCharId].globalLore = char.globalLore
-                    setCurrentCharacter(char)
+                    markWrite()
                     break
                 }
                 case 'v2GetLorebookCountNew':{
@@ -2591,19 +2720,18 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     break
                 }
                 case 'v2SetLorebookAlwaysActive':{
+                    if(memberRequiredButGone()){
+                        break
+                    }
                     char.globalLore = char.globalLore ?? []
                     let index = effect.indexType === 'value' ? Number(risuChatParser(effect.index,{chara:char})) : Number(getVar(risuChatParser(effect.index,{chara:char})))
-                    
+
                     if(Number.isNaN(index) || index < 0 || index >= char.globalLore.length || !char.globalLore[index]){
                         break
                     }
 
                     char.globalLore[index].alwaysActive = effect.value
-
-                    const selectedCharId = get(selectedCharID)
-                    const db = getDatabase()
-                    db.characters[selectedCharId].globalLore = char.globalLore
-                    setCurrentCharacter(char)
+                    markWrite()
                     break
                 }
                 case 'v2RegexTest':{
@@ -2626,15 +2754,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                 case 'v2SetAuthorNote':{
                     const value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
                     chat.note = value
-                    
-                    if(!arg.displayMode){
-                        const selectedCharId = get(selectedCharID)
-                        const currentCharacter = getCurrentCharacter()
-                        const db = getDatabase()
-                        currentCharacter.chats[currentCharacter.chatPage].note = value
-                        db.characters[selectedCharId].chats[currentCharacter.chatPage].note = value
-                        setCurrentCharacter(currentCharacter)
-                    }
+                    markWrite()
                     break
                 }
                 case 'v2MakeDictVar':{
@@ -2820,15 +2940,13 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
         caculatedTokens += await tokenize(additonalSysPrompt.promptend)
     }
     if(varChanged){
-        const currentChat = getCurrentChat()
-        currentChat.scriptstate = chat.scriptstate
         ReloadGUIPointer.set(get(ReloadGUIPointer) + 1)
     }
 
     if (shouldSetTriggerId && mode !== 'manual') {
         CurrentTriggerIdStore.set(previousTriggerId)
     }
-    
-    return {additonalSysPrompt, chat, tokens:caculatedTokens, stopSending, sendAIprompt, displayData: arg.displayData, tempVars: arg.tempVars}
+
+    return {additonalSysPrompt, tokens:caculatedTokens, stopSending, sendAIprompt, displayData: arg.displayData, tempVars: arg.tempVars}
 
 }

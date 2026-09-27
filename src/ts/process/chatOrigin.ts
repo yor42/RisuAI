@@ -72,17 +72,32 @@ interface ChatMatch {
 }
 
 /**
- * Scans `DBState.db.characters` for every holder of `chaId`, live, on every
- * call -- no cache, no memory of a past result. Returns null when nothing
- * holds it, when its one holder is a cold-storage placeholder (both "gone",
- * `MC-075`), or when more than one character holds it ("ambiguous",
- * `MC-078`; warns in that case only). A trashed character (`trashTime` set)
- * still resolves.
+ * Whether a holder scan found exactly one live holder ("ok"), none ("gone",
+ * `MC-075`), or more than one ("ambiguous", `MC-078`).
  */
-function resolveCharacterByChaId(chaId: string): CharacterMatch | null {
+export type OriginStatus = 'ok' | 'gone' | 'ambiguous'
+
+interface CharacterLookup {
+    status: OriginStatus
+    match: CharacterMatch | null
+}
+
+interface ChatLookup {
+    status: OriginStatus
+    match: ChatMatch | null
+}
+
+/**
+ * Scans `DBState.db.characters` for every holder of `chaId`, live, on every
+ * call -- no cache, no memory of a past result. `status` is "gone" when
+ * nothing holds it or its one holder is a cold-storage placeholder, and
+ * "ambiguous" when more than one character holds it (warns in that case
+ * only). A trashed character (`trashTime` set) still resolves "ok".
+ */
+function resolveCharacterByChaId(chaId: string): CharacterLookup {
     const characters = DBState.db?.characters
     if (!Array.isArray(characters)) {
-        return null
+        return { status: 'gone', match: null }
     }
     let match: CharacterMatch | null = null
     let holders = 0
@@ -94,19 +109,19 @@ function resolveCharacterByChaId(chaId: string): CharacterMatch | null {
         }
     }
     if (holders === 0) {
-        return null
+        return { status: 'gone', match: null }
     }
     if (holders > 1) {
         console.warn(
             `More than one character holds chaId "${chaId}". Skipping the write rather than guessing which `
             + `one is real -- this resolves on its own once the duplicate is gone.`
         )
-        return null
+        return { status: 'ambiguous', match: null }
     }
     if (match && match.character.coldstorage) {
-        return null
+        return { status: 'gone', match: null }
     }
-    return match
+    return { status: 'ok', match }
 }
 
 /**
@@ -114,10 +129,10 @@ function resolveCharacterByChaId(chaId: string): CharacterMatch | null {
  * Same gone/ambiguous rules as `resolveCharacterByChaId`, scoped to this one
  * owner's chats rather than the whole database.
  */
-function resolveChatInOwner(owner: character | groupChat, chatId: string): ChatMatch | null {
+function resolveChatInOwner(owner: character | groupChat, chatId: string): ChatLookup {
     const chats = owner.chats
     if (!Array.isArray(chats)) {
-        return null
+        return { status: 'gone', match: null }
     }
     let match: ChatMatch | null = null
     let holders = 0
@@ -129,16 +144,64 @@ function resolveChatInOwner(owner: character | groupChat, chatId: string): ChatM
         }
     }
     if (holders === 0) {
-        return null
+        return { status: 'gone', match: null }
     }
     if (holders > 1) {
         console.warn(
             `More than one chat holds id "${chatId}" within "${owner.name}". Skipping the write rather than `
             + `guessing which one is real -- this resolves on its own once the duplicate is gone.`
         )
-        return null
+        return { status: 'ambiguous', match: null }
     }
-    return match
+    return { status: 'ok', match }
+}
+
+/**
+ * The full result of a scan: the origin's own status (covering the owner and
+ * the chat together), the resolved context when that status is "ok", and --
+ * separately -- the member's own status. A gone or ambiguous member never
+ * changes the origin's own status: a caller that only cares whether the
+ * owner and chat are usable must not have that answer flip because of an
+ * unrelated member problem.
+ */
+interface OriginResolution {
+    status: OriginStatus
+    ctx: OriginContext | null
+    memberStatus: OriginStatus | null
+}
+
+function resolveOriginFull(origin: Origin): OriginResolution {
+    const ownerLookup = resolveCharacterByChaId(origin.chaId)
+    if (ownerLookup.status !== 'ok' || !ownerLookup.match) {
+        return { status: ownerLookup.status, ctx: null, memberStatus: null }
+    }
+    const chatLookup = resolveChatInOwner(ownerLookup.match.character, origin.chatId)
+    if (chatLookup.status !== 'ok' || !chatLookup.match) {
+        return { status: chatLookup.status, ctx: null, memberStatus: null }
+    }
+    let member: character | null = null
+    let memberIndex: number | null = null
+    let memberStatus: OriginStatus | null = null
+    if (origin.memberChaId) {
+        const memberLookup = resolveCharacterByChaId(origin.memberChaId)
+        memberStatus = memberLookup.status
+        if (memberLookup.status === 'ok' && memberLookup.match) {
+            member = memberLookup.match.character as character
+            memberIndex = memberLookup.match.index
+        }
+    }
+    return {
+        status: 'ok',
+        ctx: {
+            owner: ownerLookup.match.character,
+            ownerIndex: ownerLookup.match.index,
+            chat: chatLookup.match.chat,
+            chatIndex: chatLookup.match.index,
+            member,
+            memberIndex,
+        },
+        memberStatus,
+    }
 }
 
 /**
@@ -150,36 +213,23 @@ function resolveChatInOwner(owner: character | groupChat, chatId: string): ChatM
  * fabricates an object, and never guesses between two holders of an id.
  *
  * Exported for tests only. Every other caller reaches the live data through
- * `writeAt`, `readAt`, `commitCharacter` or `commitChat`, which resolve an
- * origin and discard the result at the end of one synchronous callback; none
- * of those return a live object or an index that can outlive that callback.
+ * `writeAt`, `readAt`, `commitCharacter`, `commitChat` or a run subject
+ * (`createRunSubject`), which resolve an origin and discard the result at
+ * the end of one synchronous stretch; none of those return a live object or
+ * an index that can outlive that stretch.
  */
 export function resolveOrigin(origin: Origin): OriginContext | null {
-    const ownerMatch = resolveCharacterByChaId(origin.chaId)
-    if (!ownerMatch) {
-        return null
-    }
-    const chatMatch = resolveChatInOwner(ownerMatch.character, origin.chatId)
-    if (!chatMatch) {
-        return null
-    }
-    let member: character | null = null
-    let memberIndex: number | null = null
-    if (origin.memberChaId) {
-        const memberMatch = resolveCharacterByChaId(origin.memberChaId)
-        if (memberMatch) {
-            member = memberMatch.character as character
-            memberIndex = memberMatch.index
-        }
-    }
-    return {
-        owner: ownerMatch.character,
-        ownerIndex: ownerMatch.index,
-        chat: chatMatch.chat,
-        chatIndex: chatMatch.index,
-        member,
-        memberIndex,
-    }
+    return resolveOriginFull(origin).ctx
+}
+
+/**
+ * A one-off status check for a caller that needs to tell a gone origin apart
+ * from an ambiguous one after a run has already ended -- `resolveOrigin`
+ * alone answers only "resolved" or not. Does not memoise and is not counted
+ * by `resolutionCountForTests`, the same as `beginWork`'s own resolution.
+ */
+export function originStatus(origin: Origin): OriginStatus {
+    return resolveOriginFull(origin).status
 }
 
 /**
@@ -250,6 +300,105 @@ export function writeAt(origin: Origin, fn: OriginCallback): boolean {
  */
 export function readAt(origin: Origin, fn: OriginCallback): boolean {
     return runOrigin(origin, fn, false)
+}
+
+// A count of full resolutions (actual scans of `characters`), not memo hits.
+// Only `createRunSubject`'s own fills increment this -- `writeAt`, `readAt`,
+// `commitCharacter`, `commitChat` and `beginWork` each resolve at most once
+// per call and are not part of a run's per-stretch cost, so counting them
+// here would mix two different things a caller of these test-only exports
+// might want to measure separately.
+let resolutionCount = 0
+
+export function resolutionCountForTests(): number {
+    return resolutionCount
+}
+
+export function resetResolutionCountForTests(): void {
+    resolutionCount = 0
+}
+
+/**
+ * A run's own address into the live database, held for the run's whole
+ * lifetime rather than re-created on every access. Resolution is memoised
+ * for one synchronous stretch: filled on first use, and cleared by a
+ * `queueMicrotask` queued at fill time, so the cached answer never survives
+ * past whichever `await` the current stretch suspends on next -- a queued
+ * microtask always runs before that suspension's own continuation. Before
+ * reusing a still-live memo, `resolve`/`status`/`memberStatus` each confirm
+ * the owner, its chat and the member (when present) are still at the
+ * indices the memo recorded, and rescan when one has moved; this catches a
+ * structural edit made by another flow of this same run -- concurrent Lua
+ * coroutines sharing one call's subject -- that replaces or removes the
+ * slot within one microtask checkpoint, without this run's own code ever
+ * reaching an `await`.
+ *
+ * A caller must never keep the object `resolve()` returns past the
+ * synchronous statement that called it -- the next access should go through
+ * this same subject again, not through a held reference.
+ */
+export interface RunSubject {
+    readonly origin: Origin
+    resolve(): OriginContext | null
+    status(): OriginStatus
+    memberStatus(): OriginStatus | null
+    mark(): void
+}
+
+export function createRunSubject(origin: Origin): RunSubject {
+    let memo: OriginResolution | null = null
+
+    function stillAtItsIndices(r: OriginResolution): boolean {
+        if (r.status !== 'ok' || !r.ctx) {
+            return true
+        }
+        const characters = DBState.db?.characters
+        if (!Array.isArray(characters) || characters[r.ctx.ownerIndex] !== r.ctx.owner) {
+            return false
+        }
+        if (!Array.isArray(r.ctx.owner.chats) || r.ctx.owner.chats[r.ctx.chatIndex] !== r.ctx.chat) {
+            return false
+        }
+        if (r.ctx.member !== null && characters[r.ctx.memberIndex] !== r.ctx.member) {
+            return false
+        }
+        return true
+    }
+
+    function ensure(): OriginResolution {
+        if (memo && !stillAtItsIndices(memo)) {
+            memo = null
+        }
+        if (!memo) {
+            memo = resolveOriginFull(origin)
+            resolutionCount++
+            queueMicrotask(() => { memo = null })
+        }
+        return memo
+    }
+
+    return {
+        origin,
+        resolve(): OriginContext | null {
+            return ensure().ctx
+        },
+        status(): OriginStatus {
+            return ensure().status
+        },
+        memberStatus(): OriginStatus | null {
+            return ensure().memberStatus
+        },
+        mark(): void {
+            const r = ensure()
+            if (r.status !== 'ok' || !r.ctx) {
+                return
+            }
+            markCharacterForSave(r.ctx.owner.chaId)
+            if (r.ctx.member) {
+                markCharacterForSave(r.ctx.member.chaId)
+            }
+        },
+    }
 }
 
 /**

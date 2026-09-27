@@ -465,8 +465,7 @@ export function getModuleTriggers() {
         }
         if (module.trigger) {
             triggers = triggers.concat(module.trigger.map((t) => {
-                t.lowLevelAccess = module.lowLevelAccess
-                return t
+                return { ...t, lowLevelAccess: module.lowLevelAccess }
             }))
         }
     }

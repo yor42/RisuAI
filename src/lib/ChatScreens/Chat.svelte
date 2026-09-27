@@ -7,6 +7,7 @@
     import { runLuaButtonTrigger } from 'src/ts/process/scriptings'
     import { risuChatParser } from "src/ts/process/scripts"
     import { runTrigger } from 'src/ts/process/triggers'
+    import { beginWork, originStatus } from 'src/ts/process/chatOrigin'
     import { sayTTS } from "src/ts/process/tts"
     import { DBState, ReloadChatPointer, CurrentTriggerIdStore, popupStore } from 'src/ts/stores.svelte'
     import { registerDraft, unregisterDraft } from "src/ts/localDrafts"
@@ -22,7 +23,7 @@
     import { language } from "../../lang"
     import { alertClear, alertConfirm, alertInput, alertNormal, alertRequestData, alertWait } from "../../ts/alert"
     import { ParseMarkdown, type CbsConditions, type simpleCharacterArgument } from "../../ts/parser/parser.svelte"
-    import { getCurrentCharacter, getCurrentChat, setCurrentChat, type MessageGenerationInfo, type StreamingDisplayOptimizationMode } from "../../ts/storage/database.svelte"
+    import { getCurrentCharacter, getCurrentChat, type MessageGenerationInfo, type StreamingDisplayOptimizationMode } from "../../ts/storage/database.svelte"
     import { selectedCharID } from "../../ts/stores.svelte"
     import { HideIconStore, ReloadGUIPointer, selIdState } from "../../ts/stores.svelte"
     import AutoresizeArea from "../UI/GUI/TextAreaResizable.svelte"
@@ -573,19 +574,32 @@
         const triggerId = origin.getAttribute('risu-id')
         const btnEvent = origin.getAttribute('risu-btn')
 
-        const triggerResult =
-            triggerName ?
-                await runTrigger(currentChar, 'manual', {
-                    chat: getCurrentChat(),
-                    manualName: triggerName,
-                    triggerId: triggerId || undefined,
-                }) :
-            btnEvent ?
-                await runLuaButtonTrigger(currentChar, btnEvent) :
-            null
+        const currentChat = getCurrentChat()
+        const workHandle = beginWork(currentChar, currentChat)
+        if (!workHandle) {
+            return
+        }
 
-        if(triggerResult) {
-            setCurrentChat(triggerResult.chat)
+        let triggerResult
+        try {
+            triggerResult =
+                triggerName ?
+                    await runTrigger(currentChar, 'manual', {
+                        chat: currentChat,
+                        manualName: triggerName,
+                        triggerId: triggerId || undefined,
+                        origin: workHandle.origin,
+                    }) :
+                btnEvent ?
+                    await runLuaButtonTrigger(currentChar, btnEvent, workHandle.origin) :
+                null
+        } finally {
+            workHandle.end()
+        }
+
+        // A gone origin skips the reload bump; an ambiguous one still gets
+        // it whenever a trigger ran, since its chat is still on screen.
+        if(triggerResult && originStatus(workHandle.origin) !== 'gone') {
             ReloadChatPointer.update((v) => {
                 v[idx] = (v[idx] ?? 0) + 1
                 return v

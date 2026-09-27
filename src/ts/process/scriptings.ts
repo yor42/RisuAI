@@ -4,7 +4,7 @@ import { hasher, type simpleCharacterArgument, risuChatParser } from "../parser/
 import { LuaEngine, LuaFactory } from "wasmoon";
 import { getCurrentCharacter, getCurrentChat, getDatabase, setDatabase, type Chat, type character, type groupChat, type triggerscript } from "../storage/database.svelte";
 import { get } from "svelte/store";
-import { DBState, ReloadChatPointer, ReloadGUIPointer, selectedCharID } from "../stores.svelte";
+import { ReloadChatPointer, ReloadGUIPointer, selectedCharID } from "../stores.svelte";
 import { alertSelect, alertError, alertInput, alertNormal, alertConfirm } from "../alert";
 import { HypaProcesser } from "./memory/hypamemory";
 import { generateAIImage } from "./stableDiff";
@@ -17,7 +17,8 @@ import { Mutex } from "../mutex";
 import { tokenize } from "../tokenizer";
 import { fetchNative, readImage } from "../globalApi.svelte";
 import { loadLoreBookV3Prompt } from './lorebook.svelte';
-import { getPersonaPrompt, getUserName, getUserIcon } from '../util';
+import { getPersonaPrompt, getUserName, getUserIcon, parseKeyValue } from '../util';
+import { createRunSubject, type Origin, type RunSubject } from "./chatOrigin";
 let luaFactory:LuaFactory
 let ScriptingSafeIds = new Set<string>()
 let ScriptingEditDisplayIds = new Set<string>()
@@ -29,8 +30,105 @@ interface BasicScriptingEngineState {
     code?: string;
     mutex: Mutex;
     chat?: Chat;
+    // The call's own runner (the member in a group call, else the owner) and
+    // origin subject, refreshed on every call -- never a value a `declareAPI`
+    // closure captured when the engine was first built, which would go stale
+    // the moment a later call reuses this same engine for a different
+    // character or chat.
+    char?: character|groupChat|simpleCharacterArgument;
+    subject?: RunSubject | null;
+    stopSending?: boolean;
     setVar?: (key:string, value:string) => boolean|void,
     getVar?: (key:string) => string,
+}
+
+/**
+ * The chat a binding should act on: the origin's chat when the call carries
+ * one, re-resolved at the moment of the call (never a reference held from
+ * when the engine was built or from an earlier binding in this same call);
+ * otherwise `state.chat`, set fresh on every call, for a caller that has no
+ * origin to give.
+ */
+function currentChatFor(state: ScriptingEngineState): Chat | undefined {
+    if (state.subject) {
+        return state.subject.resolve()?.chat ?? undefined
+    }
+    return state.chat
+}
+
+/**
+ * The owner the name/description/first-message/background bindings act on:
+ * the origin's owner (the group itself, in a group call) when the call
+ * carries one, re-resolved at the moment of the call; otherwise the current
+ * selection, for a caller with no origin to give.
+ */
+function ownerFor(state: ScriptingEngineState): character | groupChat | undefined {
+    if (state.subject) {
+        return state.subject.resolve()?.owner
+    }
+    const db = getDatabase()
+    const selectedChar = get(selectedCharID)
+    return db.characters[selectedChar]
+}
+
+/**
+ * Marks the call's own origin for save, in the same synchronous stretch as
+ * the write it follows -- a write a binding makes before the Lua call's own
+ * `await` must already be marked by the time that `await` suspends, not
+ * only once the whole call later returns. A call with no origin marks
+ * nothing, the same as `currentChatFor`/`ownerFor`'s selection fallback.
+ */
+function markWriteFor(state: ScriptingEngineState): void {
+    state.subject?.mark()
+}
+
+/**
+ * The origin-bound default for Lua's `getChatVar` binding, used only for a
+ * call that carries an origin and was given no explicit `getVar`. Same
+ * semantics as `chatVar.svelte.ts`'s `getChatVar`: a `$`-prefixed key in the
+ * chat's `scriptstate`, falling back to the call's own character's
+ * `defaultVariables` and then the database's `templateDefaultVariables`,
+ * then `'null'` -- except the chat is `currentChatFor(state)`, never the
+ * selection, so a gone or ambiguous origin makes `chat` undefined and goes
+ * through the same `defaultVariables`/`templateDefaultVariables`/`'null'`
+ * fallback chain.
+ */
+function defaultGetVarFor(state: ScriptingEngineState, key: string): string {
+    const chat = currentChatFor(state)
+    const stateValue = chat?.scriptstate?.['$' + key]
+    if (stateValue === undefined || stateValue === null) {
+        const runnerVariables = (state.char as character | groupChat | undefined)?.defaultVariables ?? ''
+        const defaultVariables = parseKeyValue(runnerVariables).concat(parseKeyValue(getDatabase().templateDefaultVariables))
+        const findResult = defaultVariables.find((f) => f[0] === key)
+        if (findResult) {
+            return findResult[1]
+        }
+        return 'null'
+    }
+    return stateValue.toString()
+}
+
+/**
+ * The origin-bound default for Lua's `setChatVar` binding, used only for a
+ * call that carries an origin and was given no explicit `setVar`. Same
+ * semantics as `chatVar.svelte.ts`'s `setChatVar` (a no-op, returning false,
+ * when the value is unchanged), except the write lands on
+ * `currentChatFor(state)` and is marked in the same synchronous stretch,
+ * and a gone or ambiguous origin writes nothing.
+ */
+function defaultSetVarFor(state: ScriptingEngineState, key: string, value: string): boolean {
+    const chat = currentChatFor(state)
+    if (!chat) {
+        return false
+    }
+    chat.scriptstate ??= {}
+    const stateKey = '$' + key
+    if (chat.scriptstate[stateKey] === value) {
+        return false
+    }
+    chat.scriptstate[stateKey] = value
+    markWriteFor(state)
+    return true
 }
 
 interface LuaScriptingEngineState extends BasicScriptingEngineState {
@@ -59,12 +157,11 @@ export async function runScripted(code:string, arg:{
     meta?: object,
     mode?: string,
     type?: 'lua'|'py'
+    origin?: Origin,
 }){
     const type: 'lua'|'py' = arg.type ?? 'lua'
     const char = arg.char ?? getCurrentCharacter()
     const data = arg.data ?? ''
-    const setVar = arg.setVar ?? setChatVar
-    const getVar = arg.getVar ?? getChatVar
     const meta = arg.meta ?? {}
     const mode = arg.mode ?? 'manual'
 
@@ -76,9 +173,24 @@ export async function runScripted(code:string, arg:{
         await ensureLuaFactory()
     }
     let ScriptingEngineState = await getOrCreateEngineState(mode, type);
-    
+
+    // A call with an origin and no explicit override resolves `setChatVar`/
+    // `getChatVar` through it, never the selection; a call with no origin
+    // keeps the selection-bound defaults, unchanged for `runLuaEditTrigger`
+    // and every other origin-less caller. An explicit `setVar`/`getVar`, as
+    // `triggerlua` passes, always wins over either default.
+    const setVar = arg.setVar ?? (arg.origin
+        ? (key: string, value: string) => defaultSetVarFor(ScriptingEngineState, key, value)
+        : setChatVar)
+    const getVar = arg.getVar ?? (arg.origin
+        ? (key: string) => defaultGetVarFor(ScriptingEngineState, key)
+        : getChatVar)
+
     return await ScriptingEngineState.mutex.runExclusive(async () => {
         ScriptingEngineState.chat = chat
+        ScriptingEngineState.char = char
+        ScriptingEngineState.subject = arg.origin ? createRunSubject(arg.origin) : null
+        ScriptingEngineState.stopSending = false
         ScriptingEngineState.setVar = setVar
         ScriptingEngineState.getVar = getVar
         if (code !== ScriptingEngineState.code) {
@@ -126,7 +238,7 @@ export async function runScripted(code:string, arg:{
                 if(!ScriptingSafeIds.has(id)){
                     return
                 }
-                stopSending = true
+                ScriptingEngineState.stopSending = true
             })
             declareAPI('alertError', (id:string, value:string) => {
                 if(!ScriptingSafeIds.has(id)){
@@ -160,7 +272,7 @@ export async function runScripted(code:string, arg:{
             })
 
             declareAPI('getChatMain', (id:string, index:number) => {
-                const chat = ScriptingEngineState.chat.message.at(index)
+                const chat = currentChatFor(ScriptingEngineState)?.message.at(index)
                 if(!chat){
                     return JSON.stringify(null)
                 }
@@ -173,17 +285,17 @@ export async function runScripted(code:string, arg:{
             })
 
             declareAPI('getChatData', (id:string, index:number) => {
-                const chat = ScriptingEngineState.chat.message.at(index)
+                const chat = currentChatFor(ScriptingEngineState)?.message.at(index)
                 return chat?.data ?? ''
             })
 
             declareAPI('getChatRole', (id:string, index:number) => {
-                const chat = ScriptingEngineState.chat.message.at(index)
+                const chat = currentChatFor(ScriptingEngineState)?.message.at(index)
                 return chat?.role ?? ''
             })
 
             declareAPI('getRecentChatsMain', (id:string, count:number) => {
-                const chats = ScriptingEngineState.chat.message
+                const chats = currentChatFor(ScriptingEngineState)?.message ?? []
                 const safeCount = Math.max(0, Math.floor(count || 0))
                 const start = Math.max(0, chats.length - safeCount)
                 return JSON.stringify(chats.slice(start).map((v) => ({
@@ -197,45 +309,63 @@ export async function runScripted(code:string, arg:{
                 if(!ScriptingSafeIds.has(id)){
                     return
                 }
-                const message = ScriptingEngineState.chat.message?.at(index)
+                const message = currentChatFor(ScriptingEngineState)?.message?.at(index)
                 if(message){
                     message.data = value ?? ''
+                    markWriteFor(ScriptingEngineState)
                 }
             })
             declareAPI('setChatRole', (id:string, index:number, value:string) => {
                 if(!ScriptingSafeIds.has(id)){
                     return
                 }
-                const message = ScriptingEngineState.chat.message?.at(index)
+                const message = currentChatFor(ScriptingEngineState)?.message?.at(index)
                 if(message){
                     message.role = value === 'user' ? 'user' : 'char'
+                    markWriteFor(ScriptingEngineState)
                 }
             })
             declareAPI('cutChat', (id:string, start:number, end:number) => {
                 if(!ScriptingSafeIds.has(id)){
                     return
                 }
-                ScriptingEngineState.chat.message = ScriptingEngineState.chat.message.slice(start,end)
+                const target = currentChatFor(ScriptingEngineState)
+                if(target){
+                    target.message = target.message.slice(start,end)
+                    markWriteFor(ScriptingEngineState)
+                }
             })
             declareAPI('removeChat', (id:string, index:number) => {
                 if(!ScriptingSafeIds.has(id)){
                     return
                 }
-                ScriptingEngineState.chat.message.splice(index, 1)
+                const target = currentChatFor(ScriptingEngineState)
+                if(target){
+                    target.message.splice(index, 1)
+                    markWriteFor(ScriptingEngineState)
+                }
             })
             declareAPI('addChat', (id:string, role:string, value:string) => {
                 if(!ScriptingSafeIds.has(id)){
                     return
                 }
                 let roleData:'user'|'char' = role === 'user' ? 'user' : 'char'
-                ScriptingEngineState.chat.message.push({role: roleData, data: value ?? ''})
+                const target = currentChatFor(ScriptingEngineState)
+                if(target){
+                    target.message.push({role: roleData, data: value ?? ''})
+                    markWriteFor(ScriptingEngineState)
+                }
             })
             declareAPI('insertChat', (id:string, index:number, role:string, value:string) => {
                 if(!ScriptingSafeIds.has(id)){
                     return
                 }
                 let roleData:'user'|'char' = role === 'user' ? 'user' : 'char'
-                ScriptingEngineState.chat.message.splice(index, 0, {role: roleData, data: value ?? ''})
+                const target = currentChatFor(ScriptingEngineState)
+                if(target){
+                    target.message.splice(index, 0, {role: roleData, data: value ?? ''})
+                    markWriteFor(ScriptingEngineState)
+                }
             })
 
             declareAPI('getTokens', async (id:string, value:string) => {
@@ -246,11 +376,11 @@ export async function runScripted(code:string, arg:{
             })
 
             declareAPI('getChatLength', (id:string) => {
-                return ScriptingEngineState.chat.message.length
+                return currentChatFor(ScriptingEngineState)?.message.length ?? 0
             })
 
             declareAPI('getFullChatMain', (id:string) => {
-                const data = JSON.stringify(ScriptingEngineState.chat.message.map((v) => {
+                const data = JSON.stringify((currentChatFor(ScriptingEngineState)?.message ?? []).map((v) => {
                     return {
                         role: v.role,
                         data: v.data,
@@ -280,13 +410,18 @@ export async function runScripted(code:string, arg:{
                     return
                 }
                 const realValue = JSON.parse(value)
+                const target = currentChatFor(ScriptingEngineState)
+                if(!target){
+                    return
+                }
 
-                ScriptingEngineState.chat.message = realValue.map((v) => {
+                target.message = realValue.map((v) => {
                     return {
                         role: v.role,
                         data: v.data
                     }
                 })
+                markWriteFor(ScriptingEngineState)
             })
 
             declareAPI('logMain', (value:string) => {
@@ -393,7 +528,15 @@ export async function runScripted(code:string, arg:{
                 if(!ScriptingLowLevelIds.has(id)){
                     return
                 }
-                const gen = await generateAIImage(value, char as character, negValue, 'inlay')
+                // A gone or ambiguous group member skips rather than
+                // falling back to the group -- the runner is only usable
+                // here when it is either not a group member at all, or a
+                // member that still resolves.
+                if(ScriptingEngineState.subject?.origin.memberChaId && ScriptingEngineState.subject.memberStatus() !== 'ok'){
+                    return 'Error: Image generation failed'
+                }
+                const runner = ScriptingEngineState.char ?? char
+                const gen = await generateAIImage(value, runner as character, negValue, 'inlay')
                 if(!gen){
                     return 'Error: Image generation failed'
                 }
@@ -649,69 +792,73 @@ export async function runScripted(code:string, arg:{
             })
             
             declareAPI('getName', (id:string) => {
-                const db = getDatabase()
-                const selectedChar = get(selectedCharID)
-                const char = db.characters[selectedChar]
-                return char.name
+                return ownerFor(ScriptingEngineState)?.name
             })
 
             declareAPI('setName', (id:string, name:string) => {
                 if(!ScriptingSafeIds.has(id)){
                     return
                 }
-                const selectedChar = get(selectedCharID)
                 if(typeof name !== 'string'){
                     throw('Invalid data type')
                 }
-                DBState.db.characters[selectedChar].name = name
+                const owner = ownerFor(ScriptingEngineState)
+                if(!owner){
+                    return
+                }
+                owner.name = name
+                markWriteFor(ScriptingEngineState)
             })
 
             declareAPI('getDescription', (id:string) => {
                 if(!ScriptingSafeIds.has(id)){
                     return
                 }
-                const selectedChar = get(selectedCharID)
-                const char = DBState.db.characters[selectedChar]
-                if(char.type === 'group'){
+                const owner = ownerFor(ScriptingEngineState)
+                if(!owner){
+                    return
+                }
+                if(owner.type === 'group'){
                     throw('Character is a group')
                 }
-                return char.desc
+                return owner.desc
             })
 
             declareAPI('setDescription', (id:string, desc:string) => {
                 if(!ScriptingSafeIds.has(id)){
                     return
                 }
-                const selectedChar = get(selectedCharID)
-                const char = DBState.db.characters[selectedChar]
-                if(typeof data !== 'string'){
+                if(typeof desc !== 'string'){
                     throw('Invalid data type')
                 }
-                if(char.type === 'group'){
+                const owner = ownerFor(ScriptingEngineState)
+                if(!owner){
+                    return
+                }
+                if(owner.type === 'group'){
                     throw('Character is a group')
                 }
-                char.desc = desc
-                DBState.db.characters[selectedChar] = char
+                owner.desc = desc
+                markWriteFor(ScriptingEngineState)
             })
 
             declareAPI('getCharacterFirstMessage', (id:string) => {
-                const selectedChar = get(selectedCharID)
-                const char = DBState.db.characters[selectedChar]
-                return char.firstMessage
+                return ownerFor(ScriptingEngineState)?.firstMessage
             })
 
             declareAPI('setCharacterFirstMessage', (id:string, data:string) => {
                 if(!ScriptingSafeIds.has(id)){
                     return
                 }
-                const db = getDatabase()
-                const selectedChar = get(selectedCharID)
-                const char = db.characters[selectedChar]
                 if(typeof data !== 'string'){
                     return false
                 }
-                char.firstMessage = data
-                DBState.db.characters[selectedChar] = char
+                const owner = ownerFor(ScriptingEngineState)
+                if(!owner){
+                    return false
+                }
+                owner.firstMessage = data
+                markWriteFor(ScriptingEngineState)
                 return true
             })
 
@@ -728,29 +875,30 @@ export async function runScripted(code:string, arg:{
             })
 
             declareAPI('getAuthorsNote', (id:string) => {
-                return ScriptingEngineState.chat?.note ?? ''
+                return currentChatFor(ScriptingEngineState)?.note ?? ''
             })
 
             declareAPI('getBackgroundEmbedding', (id:string) => {
                 if(!ScriptingSafeIds.has(id)){
                     return
                 }
-                const db = getDatabase()
-                const selectedChar = get(selectedCharID)
-                const char = db.characters[selectedChar]
-                return char.backgroundHTML
+                const owner = ownerFor(ScriptingEngineState)
+                return owner?.backgroundHTML
             })
 
             declareAPI('setBackgroundEmbedding', (id:string, data:string) => {
                 if(!ScriptingSafeIds.has(id)){
                     return
                 }
-                const db = getDatabase()
-                const selectedChar = get(selectedCharID)
                 if(typeof data !== 'string'){
                     return false
                 }
-                DBState.db.characters[selectedChar].backgroundHTML = data
+                const owner = ownerFor(ScriptingEngineState)
+                if(!owner){
+                    return false
+                }
+                owner.backgroundHTML = data
+                markWriteFor(ScriptingEngineState)
                 return true
             })
 
@@ -793,7 +941,21 @@ export async function runScripted(code:string, arg:{
                     return
                 }
 
-                if (char.type !== 'character') {
+                // The runner's own type gates this, read fresh every call --
+                // never the `char` this closure was built with, which goes
+                // stale the moment a later call reuses this same engine for
+                // a different character. A group's member is always type
+                // 'character', so a group run skips the check and instead
+                // writes to the group's own chat below: that write must land
+                // even when the member is gone or ambiguous.
+                const runner = ScriptingEngineState.char ?? char
+                const isGroupRun = !!ScriptingEngineState.subject?.origin.memberChaId
+                if(!isGroupRun && runner.type !== 'character'){
+                    return
+                }
+
+                const targetChat = currentChatFor(ScriptingEngineState)
+                if(!targetChat){
                     return
                 }
 
@@ -805,9 +967,7 @@ export async function runScripted(code:string, arg:{
                     secondKey = '',
                 } = options
 
-                const currentChat = char.chats[char.chatPage]
-
-                const newLocalLoreBooks = currentChat.localLore.filter((book) => book.comment !== name)
+                const newLocalLoreBooks = targetChat.localLore.filter((book) => book.comment !== name)
                 newLocalLoreBooks.push({
                     alwaysActive,
                     comment: name,
@@ -819,7 +979,8 @@ export async function runScripted(code:string, arg:{
                     selective: !!secondKey,
                     useRegex: regex,
                 })
-                currentChat.localLore = newLocalLoreBooks
+                targetChat.localLore = newLocalLoreBooks
+                markWriteFor(ScriptingEngineState)
             })
 
             declareAPI('loadLoreBooksMain', async (id:string, reserve:number) => {
@@ -1165,7 +1326,8 @@ export async function runScripted(code:string, arg:{
         }
         ScriptingSafeIds.delete(accessKey)
         ScriptingLowLevelIds.delete(accessKey)
-        chat = ScriptingEngineState.chat
+        chat = currentChatFor(ScriptingEngineState) ?? ScriptingEngineState.chat
+        stopSending = stopSending || !!ScriptingEngineState.stopSending
 
         return {
             stopSending, chat, res
@@ -1424,9 +1586,8 @@ export async function runLuaEditTrigger<T extends string|OpenAIChat[]>(char:char
     try {
         let data = content
 
-        const triggers = char.type === 'group' ? (getModuleTriggers()) : (char.triggerscript.map((v) => {
-            v.lowLevelAccess = false
-            return v
+        const triggers = char.type === 'group' ? (getModuleTriggers()) : (char.triggerscript.map((v): triggerscript => {
+            return { ...v, lowLevelAccess: false }
         }).concat(getModuleTriggers()))
     
         for(let trigger of triggers){
@@ -1449,7 +1610,7 @@ export async function runLuaEditTrigger<T extends string|OpenAIChat[]>(char:char
     }
 }
 
-export async function runLuaButtonTrigger(char:character|groupChat|simpleCharacterArgument, data:string):Promise<any>{
+export async function runLuaButtonTrigger(char:character|groupChat|simpleCharacterArgument, data:string, origin?:Origin):Promise<any>{
     let runResult
     try {
         const triggers = char.type === 'group' ? getModuleTriggers() : char.triggerscript.map<triggerscript>((v) => ({
@@ -1463,7 +1624,8 @@ export async function runLuaButtonTrigger(char:character|groupChat|simpleCharact
                     char: char,
                     lowLevelAccess: trigger.lowLevelAccess,
                     mode: 'onButtonClick',
-                    data: data
+                    data: data,
+                    origin,
                 })
             }
         }

@@ -14,13 +14,12 @@
     import { isExpTranslator, translate } from "../../ts/translator/translator";
     import { alertError, alertNormal, alertWait, showHypaV2Alert } from "../../ts/alert";
     import sendSound from '../../etc/send.mp3'
-    import { processScript } from "src/ts/process/scripts";
     import CreatorQuote from "./CreatorQuote.svelte";
     import { stopTTS } from "src/ts/process/tts";
     import MainMenu from '../UI/MainMenu.svelte';
     import AssetInput from './AssetInput.svelte';
     import { aiLawApplies, chatFoldedState, chatFoldedStateMessageIndex, downloadFile } from 'src/ts/globalApi.svelte';
-    import { runTrigger } from 'src/ts/process/triggers';
+    import { sendCharacterMessage } from 'src/ts/process/sendCharacterMessage';
     import { v4 } from 'uuid';
     import { PreUnreroll, Prereroll } from 'src/ts/process/prereroll';
     import { processMultiCommand } from 'src/ts/process/command';
@@ -275,6 +274,7 @@
         }
 
         let cha = DBState.db.characters[selectedChar].chats[DBState.db.characters[selectedChar].chatPage].message
+        let characterMessageHandled = false
 
         if(messageInput.startsWith('/')){
             const commandProcessed = await processMultiCommand(messageInput)
@@ -306,16 +306,13 @@
         else{
             const char = DBState.db.characters[selectedChar]
             if(char.type === 'character'){
-                let triggerResult = await runTrigger(char,'input', {chat: char.chats[char.chatPage]})
-                if(triggerResult){
-                    cha = triggerResult.chat.message
+                const appended = await sendCharacterMessage(selectedChar, cha, messageInput)
+                if(!appended){
+                    // The origin chat is gone: nothing was appended, so the
+                    // composer keeps its text and the send stops here.
+                    return
                 }
-
-                cha.push({
-                    role: 'user',
-                    data: await processScript(char,messageInput,'editinput'),
-                    time: Date.now()
-                })
+                characterMessageHandled = true
             }
             else{
                 cha.push({
@@ -327,7 +324,9 @@
         }
         messageInput = ''
         messageInputTranslate = ''
-        DBState.db.characters[selectedChar].chats[DBState.db.characters[selectedChar].chatPage].message = cha
+        if(!characterMessageHandled){
+            DBState.db.characters[selectedChar].chats[DBState.db.characters[selectedChar].chatPage].message = cha
+        }
         rerolls = []
         await sleep(10)
         updateInputSizeAll()
