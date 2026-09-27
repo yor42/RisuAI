@@ -35,7 +35,10 @@ the Roadmap and Reports 25/28, CHORE-35 to CHORE-41 filed, MC-092, Report 30, le
 223-228).
 
 **Committed 2026-09-26/27:** CHORE-39 (`37898465`) and its records (ledger rows 229-231, Report
-30, the Roadmap, this file). Not pushed since `877d233b`.
+30, the Roadmap, this file). Pushed (`b7b1fd00`).
+
+**Committed 2026-09-27, not pushed:** the removal stage (`2af8d4fe`, `a9c29ba7`, `237ebba1`) and its
+records (Report 31, ledger rows 232-241, `MC-093`, the Roadmap, this file).
 
 ## CHORE-33 (RisuAccount removal): done
 
@@ -97,10 +100,12 @@ Report 25/28, see above).
 4. **CHORE-39** (OPFS migration) — done, committed (`37898465`); Gate 2 rows 229-230, live
    check row 231.
 
-**Next: step 5, the removal stage.**
-5. **A removal stage:** Google Drive backup (CHORE-36, superseding `MC-080`'s "keep Drive"),
-   CHORE-37's dead code, CHORE-38 (clear `risuaiAccountCached`, no recovery), and the Patreon list
-   (part of CHORE-35's scope, removed rather than made opt-in).
+5. **The removal stage** — done, committed (`2af8d4fe`, `a9c29ba7`, `237ebba1`). Report 31: Drive
+   (CHORE-36), dead code (CHORE-37, plus the Communities page, `MC-093`), `risuaiAccountCached`
+   (CHORE-38), the Patreon page, and a lock on the local restore write.
+
+**Next: step 5a, CHORE-42** (`MC-093`: refuse, or at least warn about, a local restore while
+other tabs are open). It follows from the removal stage's restore lock and is being scoped.
 6. **W1: engine binding.** This closes CHORE-25 and CHORE-26. Then the composer stage (Report 22
    rev 3), then W2 and W3.
 7. **CHORE-35's opt-in stage** (the remaining upstream-infrastructure features: `/proxy2`'s
@@ -214,9 +219,8 @@ bug) is blocked on the maintainer's console output, not scheduled by position.
 
 ## Test suite
 
-**128 files: 1531 passed, 4 skipped, 0 failed** — the Orchestrator's check on the final CHORE-39
-snapshot (`37898465`, before its last comment-only corrections). `pnpm check` is clean; `pnpm run
-build` passes.
+**127 files: 1535 passed, 4 skipped, 0 failed** — the check on the removal stage's final tree
+(`237ebba1`). `pnpm check` is clean; `pnpm run build` and `cargo check` pass.
 - Run the suite with `npx vitest run --exclude "**/.claude/**" --exclude "**/node_modules/**"`.
   Plain `pnpm test` also picks up `.claude/worktrees/**`.
 

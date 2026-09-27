@@ -2510,6 +2510,30 @@ included. Ledger row 202 read them as data.
 
 ---
 
+### MC-093 — Remove the Communities page; guard a local restore against other open tabs
+
+- **Tag:** decision
+- **Date:** 2026-09-27
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, in reply to the removal stage's report (Report 31). The report
+  noted that `Communities.svelte` has had no menu entry since upstream `3d2d07fe` repointed it to the supporter page. It also asked
+  for a product call on CHORE-42: another open tab can overwrite a local-backup restore.
+- **Related:** MC-092 (the removal stage), MC-054 (the Discord invite stays on the home
+  screen), MC-011 (local `.bin` restore is the migration path from upstream), CHORE-42.
+
+> commit them, and remove the communities page too. I think its good idea to refuse the restore or
+> at least warn the user about it before restore if there are other tabs open.
+
+**What was decided:**
+- **Remove the Communities settings page.** It joins the removal stage's dead code.
+- **CHORE-42: guard a local restore against other open tabs.**
+  - When other tabs of the app are open, the restore is refused, or at least the user is warned
+    before it starts.
+  - Refusal is the stronger of the two options the maintainer allowed. Which one ships is
+    to be planned and gated.
+
+---
+
 ## Open questions
 
 The three entries below are questions addressed to the maintainer that were still unresolved as of

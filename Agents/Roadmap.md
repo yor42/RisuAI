@@ -1456,6 +1456,8 @@ See
 **Status (2026-09-26):** filed out of scope from CHORE-33's plan (Report 28 section 3.5, item 1),
 `MC-087` #3b. Traced to source, not fixed.
 
+**Patreon removed (2026-09-27, `a9c29ba7`),** as part of the removal stage (Report 31).
+
 **Decided (`MC-092`, 2026-09-26):** the upstream-infrastructure features below become **opt-in**,
 not removed — the maintainer notes `/proxy2` "was there before EULA was introduced," but "making
 these features opt-in sounds more solid." The **Patreon list is removed** ("I do not wish to take
@@ -1475,7 +1477,11 @@ a donation, and upstream patreon feels off to be in a fork"), as part of the rem
 
 ### CHORE-36 — Remove Google Drive backup
 
-**Status (2026-09-26): decided (`MC-092`), not started.** Filed out of scope from CHORE-33's plan
+**Status (2026-09-27): ✅ DONE (`237ebba1`).** Report 31; Gate 1 rows 233-236, Gate 2 rows 237-239,
+live check row 240. The same commit makes `LoadLocalBackup()` hold `dbWriteLock` (Report 31
+item E); the cross-tab case is CHORE-42.
+
+**Decided:** (2026-09-26, `MC-092`). Filed out of scope from CHORE-33's plan
 (Report 28 section 3.5, item 2) as a question about a possible restore-over-the-wrong-account bug
 (INFERRED, not reproduced — see below); the maintainer then decided to remove Google Drive backup
 entirely rather than investigate or fix it further — "let's remove the google drive sync - I do
@@ -1493,7 +1499,10 @@ Realm and `/hub-proxy` stay kept. Placed in the removal stage, after CHORE-39 an
 
 ### CHORE-37 — Dead code left after the RisuAccount removal
 
-**Status (2026-09-26):** filed out of scope from CHORE-33's plan (Report 28 section 3.5, item 3).
+**Status (2026-09-27): ✅ DONE (`2af8d4fe`).** Report 31. The commit also removes `GithubStars.svelte`,
+its icon, and the Communities page (`MC-093`), all unreachable.
+
+**Filed (2026-09-26):** out of scope from CHORE-33's plan (Report 28 section 3.5, item 3).
 Traced to source (confirmed still present at HEAD), not fixed. Housekeeping only. **`MC-092`
 (2026-09-26): joins the removal stage**, alongside CHORE-36, CHORE-38 and the Patreon list, after
 CHORE-39 and before W1.
@@ -1504,7 +1513,10 @@ CHORE-39 and before W1.
 
 ### CHORE-38 — Decide what to do with the leftover `risuaiAccountCached` data
 
-**Status (2026-09-26): decided (`MC-092`), not started.** Filed out of scope from CHORE-33's plan
+**Status (2026-09-27): ✅ DONE (`237ebba1`).** Every ordinary boot drops the whole database and
+clears Drive's `risu_lastsaved` and `backup` (`save`/`load` only). Report 31; live check row 240.
+
+**Decided:** (2026-09-26, `MC-092`). Filed out of scope from CHORE-33's plan
 (Report 28 section 3.5, item 4) as the maintainer's call to make; decided: clear it, no recovery
 — "I think it's safe to clear them." Placed in the removal stage, after CHORE-39 and before W1.
 
@@ -1564,6 +1576,22 @@ output (below).
 - **The report's build:** upstream's hosted site, risuai.xyz, on a roughly 36 GB `.bin` save
   (`MC-090`); all data stored locally, no account sync. Whether the same triggers occur at this
   fork's likely scale is unconfirmed.
+
+### CHORE-42 — Another open tab can overwrite a local-backup restore
+
+**Status (2026-09-27): decided (`MC-093`), not fixed.** The maintainer: refuse the restore, or at
+least warn, while other tabs are open. Being scoped. Filed from the removal stage's Gate 1
+(Report 31, item E; ledger row 234).
+
+- `LoadLocalBackup()` writes the restored database, then reloads its own page. Report 31 item E
+  serializes that write with **this page's** save loop through `dbWriteLock`.
+- Another tab of the same origin runs its own save loop and holds its own copy of the
+  pre-restore database. If that tab saves after the restore's write, it overwrites the restore
+  (INFERRED from the per-page scope of `dbWriteLock`; not traced through the BroadcastChannel
+  reload logic or MC-050's multi-tab reload rules, and not reproduced).
+- A likely shape: take the exclusive storage-migration lock (`storageTabLocks.ts`, the one the
+  OPFS switch uses), which waits for every other tab to close and refuses after a timeout.
+  Refusing a restore while another tab is open is a product trade-off.
 
 ## Sequencing Summary
 
