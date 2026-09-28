@@ -1626,6 +1626,40 @@ row 242; Gate 1 in rows 243, 246 and 247. Filed from the removal stage's Gate 1
   OPFS switch uses), which waits for every other tab to close and refuses after a timeout.
   Refusing a restore while another tab is open is a product trade-off.
 
+### CHORE-43 — Unreroll can write one chat's reply into another chat
+
+**Status (2026-09-28):** filed from Gate 1 rounds 5 and 6 of the composer stage's S1 (Report 22;
+ledger rows 276-277; `MC-100` 2). Not fixed and not scheduled.
+
+- **Mechanism (TRACED by the gate reviewer, not run):**
+  - `DefaultChatScreen.svelte` keeps the reroll history (`rerolls`, `rerollid`) as component
+    state.
+  - It is reset only when `lastCharId`, a `characters` index, differs, or after a send appends.
+    `sendChatMain` pushes each generation's new messages into it, including reroll and auto-mode
+    ticks.
+- **Scenario:** reroll in chat A, switch to chat B of the same character without a remount
+  (desktop), then reroll and unreroll. `unReroll` writes A's reply objects over B's last message,
+  and that is saved.
+- **Scope:** present upstream. On mobile, a chat switch remounts the component, which resets the
+  history.
+- **A likely shape:** key the history by owner `chaId` and chat id. Every read **and every write**
+  resets it when the chat differs (round 6 found that a read-only reset misses auto-mode writes).
+
+### CHORE-44 — Auto mode cannot be stopped from a remounted composer
+
+**Status (2026-09-28):** filed from Gate 2 round 1 of the composer stage's S1 (Report 22; ledger
+row 284). Not fixed and not scheduled. Present at `688b13e8` as well.
+
+- **Mechanism (probe run by the gate reviewer):**
+  - `autoMode` is per composer instance, and `runAutoMode`'s loop runs in the instance that
+    started it.
+  - After a remount (the mobile chat list, Settings), the new instance's toggle counts as a
+    start, and S1's window refuses it.
+  - The new instance's busy button aborts only the current generation. The old loop keeps
+    running until the selected character changes.
+- **A likely shape:** keep auto mode's running state at module level, beside S1's window, so any
+  instance's toggle stops it.
+
 ## Sequencing Summary
 
 ```

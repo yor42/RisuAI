@@ -2795,3 +2795,138 @@ attempted"). No mention of "maintainer" or "project owner" occurs anywhere near 
 text, its mechanism analysis, or its "shape of a real fix" section. This was an investigation-scoping
 outcome — the plan gate that reviewed the mutex-only design rejected it, and the deferral followed
 from that rejection — not a call the maintainer made or was asked to make.
+
+---
+
+### MC-097 — Composer stage: generation after a mid-send switch is W2's; the composer empties at Send
+
+- **Tag:** decision
+- **Date:** 2026-09-28
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on two questions the Orchestrator asked
+  after the composer stage's re-scoping (ledger row 272), before Report 22 rev 3.
+- **Reasoning:**
+  - W2 binds generation to the send's origin anyway, and nothing ships between the stages
+    (`MC-089`), so a stop added now would only be reworked there.
+  - Taking the composer's contents at Send removes the double send, and removes rev 2's
+    partial-clear rule, which Gate 1 attacked.
+- **Alternatives rejected:**
+  - Stopping before generation when the chat on screen has changed (Report 22 rev 2's I6).
+  - Keeping the text visible until the message is appended, with a "sending" flag and a
+    partial clear.
+- **Related:** MC-072, MC-073, MC-075, MC-076, MC-089, Report 22.
+
+**What was decided:**
+1. **The composer stage does not touch generation.** After a mid-send switch, the user message
+   lands in the chat the send started from, and the reply is still generated on the chat now on
+   screen, until W2.
+2. **Send empties the composer at once.** The text, files and translation are taken out of that
+   chat's draft the moment Send is pressed, so while a slow input trigger runs, the text is
+   visible nowhere until the message is appended. If the send appends nothing because its chat is
+   gone, the text goes back into that chat's draft, which is never shown again.
+
+---
+
+### MC-098 — The Send button shows busy from Send until generation starts; `sendPofile` belongs to W2/W3
+
+- **Tag:** decision
+- **Date:** 2026-09-28
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on two questions the Orchestrator asked
+  after the `senior-advisor` escalation on the composer stage (ledger row 274).
+- **Reasoning:**
+  - With `MC-097` 2 the composer is empty during a slow input trigger. Without a busy state, the
+    user sees no sign that the send is running, and a press is silently refused.
+  - `sendPofile` is a send with no origin, the same subject as generation and `/` commands, not a
+    composer draft.
+- **Alternatives rejected:**
+  - the button staying idle-looking and silently refusing presses;
+  - binding `sendPofile` in the composer stage.
+- **Amends:** `MC-073`'s "a refused action is silent", for the composer's own actions during this
+  window only. No toast or string is added; the existing busy look is reused.
+- **Related:** MC-072, MC-073, MC-075, MC-097, Report 22.
+
+**What was decided:**
+1. **Busy state.** From the moment Send takes the composer's contents until generation starts,
+   the Send button shows the busy look it already has during generation. Switching chats stays
+   unrefused.
+2. **`sendPofile`** (the `.po` Post File path in `multisend.ts`) is bound to its origin in W2/W3.
+   It is not a composer-stage limitation.
+
+---
+
+### MC-099 — The busy button cancels a send that has not reached generation
+
+- **Tag:** decision
+- **Date:** 2026-09-28
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on a question the Orchestrator asked
+  after Gate 1 round 4 of the composer stage's S1 (ledger row 275).
+- **Reasoning:**
+  - With `MC-097` 2 the text is out of sight while the input trigger runs.
+  - A trigger or plugin hook that never settles would otherwise block every composer action until
+    a reload, and the reload loses the text.
+- **Alternatives rejected:** no cancel before generation.
+- **Related:** MC-094, MC-097, MC-098, Report 22.
+
+**What was decided:**
+1. **Clicking the busy button before the user message is appended cancels the send.** The text,
+   files and translation go back into the composer, and the Send button is free again.
+2. **If the stalled step finishes later,** the message is never appended and nothing is
+   generated.
+3. **Whatever the trigger itself has already written stays,** as for any trigger (`MC-094`).
+4. **After the append,** the button aborts generation, as today.
+
+---
+
+### MC-100 — Lock the composer from Send until generation starts; the reroll history's cross-chat bug is its own ticket
+
+- **Tag:** decision
+- **Date:** 2026-09-28
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option after Gate 1 rejected the composer
+  stage's S1 plan six rounds running (ledger rows 273 and 275 to 277). Since the escalation (row
+  274), each rejection had hit a rule added only to merge text typed during a send's wait back
+  into the composer.
+- **Reasoning:**
+  - At `790643ff`, text typed during that wait is silently lost anyway, because the send clears
+    the composer after appending.
+  - A lock removes the whole merge family, and cancel (`MC-099`) keeps the user from being stuck.
+- **Alternatives rejected:**
+  - Keep typing allowed, with rev 7 fixes: track the last-edited field, re-issue its translation,
+    and reset the reroll history on every write.
+  - A second `senior-advisor` escalation.
+- **Related:** MC-073, MC-097, MC-098, MC-099, Report 22, CHORE-43.
+
+**What was decided:**
+1. **The lock.** From the moment Send takes the composer's contents until generation starts (or
+   the send is cancelled or fails), both composer fields are read-only. Nothing can be added to
+   the composer.
+   - Switching chats is not locked.
+   - Typing is possible again as soon as generation starts, or after a cancel.
+2. **The reroll history** stays per composer instance, as it is today. Its cross-chat bug is filed
+   separately as `CHORE-43`: an unreroll in one chat can write another chat's reply. It exists
+   upstream, and on desktop.
+
+---
+
+### MC-101 — Finish the composer stage before the upstream sync batch
+
+- **Tag:** decision
+- **Date:** 2026-09-28
+- **Source:** after the upstream triage (ledger row 287), the maintainer said "let's finish the
+  composer stage first", in answer to the Orchestrator's question on order.
+- **Reasoning:** as stated. Upstream's reroll perf change (`7fd4b875`) lands inside the composer
+  stage's `composerActions.svelte.ts`, so finishing that work first gives it a settled target.
+- **Alternatives rejected:** moving upstream's plugin-permission security fix (`5537816a`) ahead of
+  the composer stage.
+- **Related:** MC-011, MC-089, MC-100, Report 22, ledger row 287.
+
+**What was decided:**
+1. The composer stage (S1, then S2) is finished first.
+2. The upstream batch follows, in row 287's proposed order:
+   - `b544d744`, `e8c063c0`, `a66f81a8` and `851e8ca5`;
+   - `5f9e3cbe`, with `opus-reviewer`;
+   - then the hand port of `5537816a`, with `opus-reviewer`.
+   `7fd4b875` is ported by hand into `composerActions.svelte.ts`, and `ca1345fc` is not ported:
+   `zh-Hant`'s `providerPermissionDenied` is translated here.

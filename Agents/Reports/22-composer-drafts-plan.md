@@ -2,305 +2,379 @@
 
 **STATUS:** open
 
-**Status:** rev 2, 2026-09-24. **Sequenced after writer stages W0 and W1 (`MC-076`)**; rev 3 will take its
-identity rule (I1) from W0 and its send-window invariants from W0's resolver. Gate 1 round 1 on
-rev 1 and round 2 on rev 2 were both **[REJECT]** (section 11). Round 2 found I2 (the record is the
-composer's state) sound, and every major in the send window, before generation starts. The
-maintainer chose to investigate reworking the writer rather than locking switches during a send.
-Sections 4 (I5, I6) and 5 (scenarios 5 to 8) wait on that decision; the rest of the plan does
-not.
+**Status:** rev 7.1, 2026-09-28. **Gate 1 passed for S1** (round 7 [EDITORIAL], corrections applied). **The stage is split into S0, S1 and S2** (section 1). This rev is
+the normative plan for **S1, the composer's actions**; only S1 is under Gate 1. S0 is carve-out
+sized and is in its post-implementation review. S2 is outlined in section 7, and gets its own
+Gate 1 after S1 lands.
 
-**Scope.** The composer stage split out of Report 20 (section 4.5; `MC-043`). The maintainer's
-product decisions are `MC-072`. Evidence: investigator packet, 2026-09-24 (ledger row 157); the
-Orchestrator's source check of `sendMain` (section 2.2); Gate 1 round 1 (ledger row 158).
+Rev 1 to rev 6 were rejected on substance. After rev 3, `senior-advisor` set the direction (ledger
+row 274). Rounds 4 to 6 found that direction sound, and rejected rules added to handle text typed
+during a send's wait. The maintainer then chose to lock the composer during that wait (`MC-100`),
+which removes those rules (section 11).
+
+**Maintainer decisions:**
+- `MC-072`: the product decisions;
+- `MC-073`: no switch lock;
+- `MC-075`: `/` commands are W3's, and a write to a gone origin drops silently;
+- `MC-076`: the order;
+- `MC-078`: an ambiguous target is never guessed;
+- `MC-089` and `MC-091`;
+- `MC-094` and `MC-095`;
+- `MC-097`: generation is W2's, and the composer empties at Send;
+- `MC-098`: busy until generation starts, and `sendPofile` is W2/W3's;
+- `MC-099`: the busy button cancels a send that has not reached generation;
+- `MC-100`: the composer is locked from Send until generation starts, and the reroll history stays
+  per composer (its cross-chat bug is `CHORE-43`).
+
+**Evidence:**
+- ledger row 272 (re-scoping);
+- row 273 (Gate 1 round 3);
+- row 274 (`senior-advisor`);
+- row 275 (Gate 1 round 4);
+- row 276 (Gate 1 round 5);
+- row 277 (Gate 1 round 6).
 
 ---
 
-## 1. What the stage must do
+## 1. The stage's shape
 
-- **No mis-send.** Text, staged files and the input translation typed while chat A was open can
-  never be sent into chat B, whether B is another character or another chat of the same
-  character (including a chat created by Branch, Copy or New Chat).
-- **No loss on a switch, a remount or a re-key.** Leaving chat A keeps its unsent composer state;
-  returning to A shows it again, silently (`MC-072` 1). This holds when the composer component is
-  destroyed and recreated in between, as it is on mobile on every switch and on desktop when
-  Settings or the grid opens. A chat never seen before opens with an empty composer.
-- **A send stays on the chat it started on.** The user message goes into the chat that was open
-  when Send was pressed, with the text, files and translation that were in the composer then. No
-  other chat's `message` array is written.
-- **No double send.** Once a send has taken the composer's contents, those contents cannot
-  reappear anywhere — not on return, not after a remount.
-- **Late async results go to their own chat** (`MC-072` 2), never to the chat now on screen.
-- **Only the composer on screen holds the multi-tab reload** (`MC-072` 3).
-- Nothing about the save format, the plugin API or any persisted file changes. Composer drafts
-  live in memory only, as today; a reload drops them, as today.
+The stage's goal is unchanged from rev 3:
+- no mis-send;
+- no loss on a switch, a remount or a re-key;
+- a send's message stays on its own chat, and no two chats share one array;
+- no double send;
+- reroll and auto mode leave the composer alone;
+- late results go to their own chat;
+- only the composer on screen, or a send in flight, holds the multi-tab reload;
+- the hotkeys switch like a click;
+- no format or plugin API change.
 
-## 2. The loss surface
+The stage is delivered in three items, in this order (an `MC-091` amendment; section 11):
 
-### 2.1 The mis-send (Report 20 section 4.5, re-verified at HEAD)
-
-There is exactly one composer: `messageInput`, `messageInputTranslate` and `fileInput` are
-component `$state` in `DefaultChatScreen.svelte`, which serves every theme, the mobile layout and
-LiteUI. On desktop it is not unmounted on a character or chat switch. On mobile, `MobileBody`
-unmounts it whenever the chat list or character settings open (`MobileSideBar > 0`) and when no
-character is selected. So on mobile a switch currently **drops** the composer text rather than
-mis-sending it, and on desktop it mis-sends. Nothing clears or swaps the three values on a switch.
-`sendMain` reads `$selectedCharID` and the character's live `chatPage` when Send is pressed.
-
-**Repro (desktop):** type in chat A, select chat B (another character, or another chat of the same
-character), press Send. The text goes into B.
-
-### 2.2 `sendMain` can overwrite another chat's whole history (new)
-
-`sendMain` takes `cha = …chats[chatPage].message` near its start, then awaits
-`processMultiCommand`, `runTrigger(char, 'input', …)` and `processScript(…, 'editinput')` (and a
-`sleep(10)`), then writes `DBState.db.characters[selectedChar].chats[<live chatPage>].message =
-cha`. `doingChat` is set only later, inside `sendChat`; `changeChatTo` and the chat-list click
-handlers have no guard, and `changeChar`'s `doingChat` check is still false in this window
-(Gate 1 round 1 confirmed all of this by reading).
-
-**Repro (traced, not yet run):** a character with an `input` trigger that takes time (a Lua
-trigger calling an LLM takes seconds). Type, press Send, and while the trigger runs select
-another chat of the same character. Chat B's `message` array is replaced by chat A's, and the
-save loop writes it.
-
-Two further live reads in the same window: `processScript(char, messageInput, …)` reads the
-composer after the trigger await, `fileInput` is inlined after the `processMultiCommand` await,
-and the final clear empties whatever the composer holds by then. Once drafts are per-chat, all
-three would act on chat B's draft. This stage fixes them.
-
-**Not fixed here — `CHORE-25`:** in the same window, a trigger's `setVar` writes `scriptstate` to
-the **live** selection (`triggers.ts`, the `setVar` closure and the `varChanged` block), so B's
-trigger variables are replaced by A's. The same happens for output triggers during generation,
-since `changeChatTo` is unguarded then too. It is a trigger-engine defect independent of the
-composer, recorded as `CHORE-25` and sequenced by the maintainer as the stage after this one
-(section 8).
-
-### 2.3 Async writers with no identity check
-
-| Writer | Writes | Can resolve after a switch |
+| Item | Scope | Gate |
 |---|---|---|
-| `updateInputTransateMessage` (both branches; the experimental-translator branch adds a 1.5 s sleep) | `messageInput` or `messageInputTranslate`, from a `.then()` | yes |
-| "Post File" menu → `postChatFile` (waits on the native file picker) | appends to `fileInput` / `messageInput` | yes, for as long as the picker is open |
-| `onpaste` → `FileReader.onload` → `postChatFile` | same | yes |
+| **S0** | `prevChar`/`nextChar` go through `changeChar`; the bounds are fixed; from Home, `nextChar` opens the first character in name order and `prevChar` the last | carve-out: red tests, then the fix, then the post-implementation review |
+| **S1** | The composer's actions (Send, Continue, reroll, unreroll, auto mode) move into a `.ts` seam. Send becomes an ownership transfer with one window, a pre-generation cancel, and every branch bound to the origin | this rev |
+| **S2** | Per-chat records, the id fill at the first write, the late writers, on-screen liveness, the cap, the remount paths, the textarea height, and the mount harness | its own plan and Gate 1, after S1 |
 
-### 2.4 Two upstream bugs in the New Chat handlers (folded in)
+**Why S1 comes before S2.** With per-chat records but the current send, a live read after the
+`/` command's await would fetch B's draft and append it to A. Nothing ships between the stages
+(`MC-089`).
 
-Both New Chat handlers `unshift` the new chat, then address it as `chats[len]` — which after the
-`unshift` is the **oldest existing chat**. For a group, each member's greeting is pushed into that
-old chat. `ChatList.svelte`'s handler then calls `changeChatTo(len)`, opening the oldest chat
-instead of the new one, and creates the chat with no `id`. (Upstream `main` has the same code.)
-This stage edits exactly these handlers to give the chat an id (I1), so it fixes both indices too.
+**What S1 does not do:**
+- per-chat drafts: H1 is still the one shared composer;
+- generation's own reads after a mid-send switch (`MC-097` 1);
+- `/` commands' own reads (`MC-075` 1);
+- `sendPofile` (`MC-098` 2);
+- generation starters outside the composer (section 8).
 
-## 3. Identity
+## 2. S1's loss surface at `688b13e8`
 
-**The draft key is `(chaId, chat.id)`.** It is derived from the chat on screen,
-`characters[selectedCharID].chats[chatPage]`, never from an index.
+The code under `src/` is identical to `790643ff`.
 
-**I1 — every chat has an `id` before the composer keys it, and that id does not change while the
-chat exists.** Round 1's blocker was that `chatWindowKey`'s per-object `WeakMap` fallback for
-id-less chats is not stable: `characterFormatUpdate` fills in the id in place when the character is
-clicked, and `sendChat` replaces the chat object with the trigger's structured clone after every
-reply. For the window policy a re-key only moves the view. For the composer it would strand the
-text under a key nothing derives again. So:
-- **The creation sites that omit an id get one:** `ChatList.svelte`'s New Chat, the fallback
-  chats in `characterFormatUpdate` and `createNewGroup` (and any other literal `chats: [{…}]` in
-  `characters.ts` without an id — the implementer enumerates them, and the code review checks the
-  list).
-- **Imports never introduce a duplicate id within a character:** a JSON or HTML chat import whose
-  id is missing, or already used by another chat of that character, gets a fresh one. (HTML import
-  today keeps the file's id, so re-importing an exported chat creates two chats with one key.)
-- Boot's `assignIds` already covers upstream saves and legacy data; nothing changes there.
-- **A chat still lacking an id** (a plugin's `setChatToIndex` supplying an id-less object is the
-  only known route) is keyed by the existing `WeakMap` fallback. The residual is listed in
-  section 9.
+| Item | Where |
+|---|---|
+| **Double send.** `sendMain`'s `$doingChat` check runs once, before the awaits; `doingChat` is set only in `sendChatBody`. A second Enter during the input trigger re-reads the same text | `sendMain` (`DefaultChatScreen.svelte`), `sendChatBody` (`index.svelte.ts`) |
+| **Reroll, unreroll or auto mode during a send.** They pass their `$doingChat` check. A reroll trims the chat and starts generation; the send then appends into that chat mid-generation, its own hand-off is refused, and its `sendChatMain` clears `doingChat` under the running reroll | `reroll`, `unReroll`, `runAutoMode`, `sendChatMain` |
+| **The `sleep(10)` gap.** Each send sleeps 10 ms after its append. With two sends, the first reaches `sendChatMain` first; the second is refused by `sendChat`'s `isDoing` check, and the second's `sendChatMain` then sets `$doingChat = false` under the first's generation | `sendMain`, `sendChatMain` |
+| **A second composer during a send.** On mobile a switch remounts the composer. A Send from the new instance during A's wait races the same way | `MobileBody.svelte`, `sendChatMain` |
+| **The write-back after a `/` command's await.** `cha` is captured as the live array before the await, and `messageInput` and `fileInput` are re-read live after it. If no command handles the text, and either the composer was emptied during the await (the empty branch, any character type) or the send is in a group, `chats[<live chatPage>].message = cha` runs. After a switch to another chat of the same owner during the await, two chats share one array. It needs a command that awaits: `/test_lorebook`, `/multisend`, `/input`, `/buttons`, or `/speak` for a character (`/speak` returns at once for a group) | `sendMain` |
+| **Frozen index.** `selectedChar` is held as a `characters` index across that await and passed to `sendCharacterMessage`. A permanent delete at a lower index names another character (traced, not run) | `sendMain`, `sendCharacterMessage.ts` |
+| **Reroll and auto mode clear the composer** | `sendChatMain`'s `messageInput = ''` |
+| **Reroll bookkeeping is not tied to a chat.** `rerolls`/`rerollid` reset only when `lastCharId` (a `characters` index) differs, or after an append. Reroll in chat A, switch to chat B of the same character, then reroll and unreroll: A's reply objects are written over B's last message. On desktop this is reachable within one component instance; on mobile the remount resets it. **Not S1: `CHORE-43` (`MC-100` 2)** | `reroll`, `unReroll`, `sendMain` |
+| **No cancel before generation.** The busy button calls `abortChat`, which aborts only the controller `sendChatMain` creates | `abortChat`, `sendChatMain` |
+| **Work registration.** Only the character branch calls `beginWork`, so `isWriting` misses the other branches. It has no non-test caller yet; W2 wires the delete warning to it | `sendCharacterMessage.ts`, `chatOrigin.ts` |
 
-With a stable id, replacing the chat object (the trigger clone, a cold-character restore, a
-multiuser sync, a plugin write) keeps the key, and the draft stays put.
+## 3. S1 invariants (normative)
 
-A JSON/HTML import `unshift`s without `changeChatTo`, so the chat on screen genuinely changes
-under the user. The composer follows the chat, which is correct; A's draft stays under A's key.
+**The holders.** At every instant, each taken value is in exactly one of these holders:
+- **H1, the composer.** In S1: the component's `messageInput`, `messageInputTranslate` and
+  `fileInput`, reached through a source the component supplies. In S2: the per-chat record.
+- **H2, the in-flight slot.**
+  - It is module-level, survives a remount, and is never shown.
+  - While it holds anything, it registers one `COMPOSER_DRAFT_KIND` draft under its own key.
+- **H3, the chat's message array,** reached only through the send's origin.
 
-## 4. Invariants (normative)
+The seam never keeps a taken value in a local, a closure or an argument that outlives an await,
+except as a copy passed to a hook while H2 still holds the original.
 
-### Why the mechanism changed
+**I-S1 — Accept or refuse before anything moves.**
+- **A Send or Continue is refused, and nothing is taken, when:**
+  - the chat is cold (the existing guard and alert);
+  - `doingChat` is set;
+  - the window is open (I-S3);
+  - `beginWork` refuses the origin.
+- **Otherwise, in one synchronous step:**
+  - `beginWork` captures the origin (owner `chaId` and chat id);
+  - the send's own abort controller is created;
+  - H1's three values move to H2, leaving H1 empty;
+  - the window opens.
 
-Rev 1 kept the three values as component `$state` and copied them in and out of a store at a
-switch ("flush under the remembered key, then load"). Round 1 showed that design has three holes
-the switch step cannot see: a re-key without a switch (above), a remount (the component and its
-remembered key are destroyed; on mobile this happens on every switch), and a store record that
-outlives the send that consumed it (A→B→A leaves A's record stored; Send clears only the live
-buffer; a remount then reloads the sent text, which can be sent again). Each hole comes from
-having **two copies** of the draft — the buffer and the record — and a step that must keep them
-in sync.
+**I-S2 — Each value leaves H2 exactly once.**
+- **Append.** The message is built from H2's values, with the files inlined into the text as
+  today. H2 is emptied at the push, in the same synchronous stretch, including the
+  ambiguous-origin push onto the held chat object.
+- **Handled `/` command.** The text is consumed. The staged files and the translation go back to
+  H1, as at `790643ff`.
+- **Every other exit without an append goes back to H1:** a gone origin, a throw from anywhere
+  in the send, a cancel (I-S8), and a refused append.
+- **The put-back rule.** Because of I-S10, H1 at a put-back holds nothing typed. It holds at most
+  the late results of a file operation (paste, Post File) that started before the take.
+  - Each text field becomes the taken value followed directly by H1's value, which is what a late
+    result's own append produces.
+  - The taken files go in front of H1's.
+  - The taken values are the originals: the text before `{{inlayed::}}` inlining, and the files.
+  - Nothing is re-derived.
+  - Afterwards, the input is resized, as typing does.
+- **A translation result is written only while its source is unchanged.** Both translation paths
+  (`updateInputTransateMessage`, forward and reverse) capture the source field's text when they
+  start. When they resolve, they write the derived field only if the source field still holds
+  exactly that text; otherwise the result is discarded. So neither a translation in flight at the
+  take nor one started during the wait can overwrite a put-back.
+- **One outermost `try/finally`** owns all of this. The plan states that rule, not a list of
+  exits.
 
-**I2 — The per-chat record *is* the composer's state.** There is one copy. The composer reads
-and writes the three values directly on the record for the current key; a switch changes which
-record it shows, and nothing is copied. A remount shows whatever the record holds. The records
-live outside the component (module level), so they survive its destruction.
+**I-S3 — One composer action at a time.**
+- **The window** is module-level and global: one for every chat and composer instance. It opens
+  at a Send's or Continue's take, or at the start of a reroll, unreroll or auto mode. It closes
+  in that action's outermost `finally`, after its generation hand-off has returned. For auto mode,
+  that is when the loop ends.
+- **While it is open,** Send, Continue, reroll, unreroll and starting auto mode are refused
+  silently, and a refused action changes nothing. Switching chats or characters is not refused
+  (`MC-073`).
+- **Stopping auto mode is never refused.** Neither is the busy button's abort.
+- **It is not `doingChat`.** `changeChar` refuses on `doingChat`, so building the window on it
+  would make the switch lock `MC-073` rejected.
+- **A `finally` acts only on its own action.** A cancelled send's `finally`, running late when its
+  stalled await settles, never closes a newer window, empties a newer slot or puts anything back
+  a second time.
 
-**I3 — The three values move together.** `messageInput`, `messageInputTranslate` and `fileInput`
-belong to one record. A record whose three values are all empty is not kept (it may be dropped
-when it becomes empty or when its key leaves the screen — implementer's choice, but an empty
-record never counts for anything).
+**I-S4 — Every branch appends through the origin captured at the take.**
+- This covers the character branch (as in W1a), the group branch and the `*says nothing*` push.
+- After any await, the send never addresses by `$selectedCharID`, `chatPage`, a `characters`
+  index or a message array captured before the await, and never reads H1.
+- **An ambiguous origin** appends to the chat object held since the take, as W1a decided (row 259,
+  N2).
+- **A gone origin** appends nothing.
 
-**I4 — Showing a record is not writing one.** Switching to a chat, remounting, or re-deriving the
-key never creates, modifies or re-timestamps a record. Only a write to one of the three values
-does.
+**I-S5 — Busy (`MC-098` 1).** The Send button shows its existing busy state while the window is
+open or `doingChat` is set.
 
-**I5 — A send is bound to its origin record.** At Send, `sendMain` captures the character, the
-chat's key and the **record** — and reads the text, files and translation from that record at
-that moment. Every later step uses the captures: the command, trigger and script calls, the file
-inlining, the write-back and the clear.
-- **Write-back** resolves the target chat **by key inside the captured character at write time**
-  (so a chat object replaced mid-send by a trigger clone, a multiuser sync or a plugin still
-  receives the message). If no chat with that key exists any more, the send writes nothing,
-  alerts, and leaves the record as it is (round 1, MAJOR 3).
-- **Clear** acts on the captured record, wherever it is shown. If the record still holds exactly
-  what was captured, it is emptied. If the user has added to it since (they went back to A
-  mid-send and typed), only the captured text is removed when the record's text still starts with
-  it; otherwise the record is left untouched. Either way, text the send took cannot survive to be
-  sent again, and text the send did not take is not destroyed.
+**I-S6 — Only a take empties the composer.** Generation, reroll, unreroll and auto mode never write
+H1.
 
-**I6 — Generation does not run against a different chat.** If the chat on screen has a different
-key by the time `sendMain` would call `sendChatMain`, the send stops after writing the user
-message into its origin chat. The user can continue or reroll from that chat. Round 1 confirmed
-this strands no one (empty-composer sends, groups, `sendContinue`, the A→B→A return).
+**I-S7 — The work registration ends with its action.** `beginWork`'s handle is ended in the
+outermost `finally`, on every exit.
 
-**I7 — Late results follow their origin record.** Each async writer in section 2.3 captures the
-record (or key) when it starts, and writes to that record when it resolves, whether or not it is
-on screen:
-- **File or pasted image:** appended to the origin record.
-- **Translation:** written to the origin record's derived field **only if** its source field still
-  holds exactly the text that was translated; otherwise discarded. Because the result goes to the
-  origin record whether or not it is on screen, a translation that finishes after a switch is not
-  lost, and the derived field is not left stale (round 1, MINOR 6: in reverse mode `sendMain`
-  sends the derived `messageInput`).
+**I-S8 — Cancel before generation (`MC-099`).**
+- Clicking the busy button before the append aborts the send. H2 goes back to H1 (I-S2), the
+  handle ends, and the window closes at once.
+- An aborted send never appends and never starts generation, even when its stalled await settles
+  later. The check reads **that send's own** controller, not whichever action is current, and runs
+  at the push, in the same synchronous stretch.
+- Writes the input trigger has made stay (`MC-094`).
+- After the append, the button aborts generation, as today.
 
-**I8 — Liveness unchanged.** The existing `COMPOSER_DRAFT_KIND` registration (one per mounted
-composer, present while the **record on screen** is non-empty) behaves as today. Records not on
-screen register nothing: they never reach `hasLocalDrafts()`, `hasMessageEditorDrafts()`, the
-window policy or the multi-tab gate, and they do not go through `draftContentOrphanGate`
-(`MC-072` 3; Report 20 section 3.1's premise).
+**I-S9 — Reroll bookkeeping stays with its composer instance (`MC-100` 2).** The reroll history
+(`rerolls`, `rerollid`, `lastCharId`) is held per composer instance, reached through the source,
+and behaves exactly as at `790643ff`, including the reset a remount gives it. The module's
+actions read and write it only through the source. Its cross-chat defect is `CHORE-43`.
 
-**I9 — Bounded.** Stored records are capped (non-normative: the same order as
-`DRAFT_CONTENT_RECORD_LIMIT`, least recently written evicted first), and the record on screen is
-never evicted. A record for a deleted chat is never shown again and ages out under the cap.
+**I-S10 — The composer is locked from the take until generation starts (`MC-100` 1).**
+- **When:** from a Send's or Continue's take, until its hand-off to generation or its put-back.
+- **What is locked:**
+  - both text fields are read-only;
+  - paste, Post File, stickers and suggestions add nothing;
+  - the Send button shows busy, and its click cancels (I-S5, I-S8).
+- **What still happens:**
+  - late results of a file operation started before the take land in H1;
+  - switching chats and characters is not refused (`MC-073`).
+- **Where it lives:** the lock is module state, so it holds in every composer instance and
+  survives a remount.
+- **When it ends:** at the hand-off, meaning the moment before the generation callback is called.
+  It also ends in the outermost `finally` on every exit, so no path leaves it set. Input is open
+  again while generation runs, as at `790643ff`; the window (I-S3) still refuses the composer's
+  actions until generation returns.
 
-**I10 — Existing exits kept.**
-- The cold-storage guard at the top of `sendMain` still returns without clearing.
-- A recognised `/` command still clears, under I5's clear rule.
-- A failed send still does not restore the text, as today.
+**Mechanism (non-normative).**
+- A module such as `src/ts/process/composerActions.svelte.ts` holds:
+  - H2 and the window (reactive, for I-S5);
+  - the current action's abort controller;
+  - the lock (reactive, for I-S10);
+  - one function per action: `send(continue)`, `reroll`, `unreroll`, `toggleAutoMode`, `abort`.
+- The component calls them one-to-one, and supplies:
+  - a source with live accessors (`get`/`set` for each of the three fields, and for the reroll
+    bookkeeping);
+  - the translation call;
+  - the input resize.
+- `sendCharacterMessage` takes the origin's handle and an append callback, and no longer calls
+  `beginWork` itself.
+- **Order of work:**
+  1. Move the actions' current logic into the module **with no behaviour change**. The source's
+     live accessors let the moved code read `messageInput` and `fileInput` after the `/` await
+     exactly as it does now. The suite stays at its baseline.
+  2. Write the red tests against that module.
+  3. Fix.
+- **The component binds the lock** to both textareas' `readonly` and to its input handlers.
 
-**Mechanism (non-normative).** A module (for example `src/ts/composerDrafts.svelte.ts`) holding a
-map from key to a reactive record, a `getOrCreate(key)`/`peek(key)` pair, the clear rule, the cap,
-and the late-result routing, unit-testable without mounting `DefaultChatScreen`. The component
-derives the key and binds its inputs to the record's fields. **Hazards for the implementer:** a
-record must not be created inside a `$derived` or the template if that writes reactive state
-(Svelte 5's `state_unsafe_mutation`), and I4 forbids creating a record merely to show it — a
-`peek` that returns an empty, un-stored view until the first write satisfies both. `MC-043`'s
-"generation token" is met by capturing the record and I7's source-text check.
+## 4. S1 acceptance scenarios
 
-## 5. Acceptance scenarios (each becomes a test; red first where the bug exists today)
+Every scenario is a test on the module, with an in-memory source.
+- **Red:** fails against the behaviour-preserving move on an assertion.
+- **Guard:** passes before and after.
 
-1. **Switch:** type in A, switch to B (another character; and separately another chat of the same
-   character): B's composer is empty; Send from B carries nothing from A; back in A, A's text is
-   there.
-2. **Return to origin:** A → B → A without typing in B: A's text is there, and no record exists
-   for B.
-3. **Branch / Copy / New Chat:** type in A, then Branch (and separately Copy, and each New Chat
-   button): the new chat's composer is empty and A keeps the text.
-4. **All three values:** stage a file and a translation in A, switch away and back: all three are
-   there. Send from B: A's file is still staged in A only.
-5. **Mid-send switch (section 2.2):** with a slow `input` trigger, press Send in A and switch to B
-   (same character) before the trigger resolves. A gains the user message with A's text; B's
-   `message` array is unchanged in content and identity; B's composer shows B's own draft; A's
-   record is empty; `sendChatMain` is not called. **Must fail against HEAD.**
-6. **Mid-send, no switch:** today's behaviour: the message is pushed, the composer is cleared, and
-   `sendChatMain` runs.
-7. **Mid-send, return and type:** Send in A, switch to B and back to A during the trigger, type
-   " more": after the send, A's composer holds " more" (and not the sent text).
-8. **Mid-send, chat object replaced:** during the trigger, replace A's chat object with a clone
-   (same id): the message lands in the chat object now in the array.
-9. **Remount:** type in A, unmount and remount the composer (mobile chat list; desktop Settings):
-   A's text is there. Send in A after an A → B → A round trip, then remount: the sent text does
-   **not** come back.
-10. **Re-key without a switch:** a chat created by `ChatList`'s New Chat, typed into, then its
-    character clicked again (`characterFormatUpdate`), and separately a completed reply whose
-    output trigger replaces the chat object: the text stays in the composer.
-11. **Late file / paste:** start in A, switch to B, resolve: B unchanged; back in A the file is
-    staged.
-12. **Late translation:** start in A, switch to B, resolve: B unchanged, A's derived field holds
-    the result. With the source edited before it resolves: discarded.
-13. **Liveness:** text stored for A, nothing in B on screen: `hasLocalDrafts()` is false; text on
-    screen: true, as today. A stored record never makes `hasMessageEditorDrafts()` true.
-14. **Showing is not writing:** switching to a chat with no record and back creates no record;
-    switching to a chat with a record does not alter or re-timestamp it.
-15. **Cap:** past the cap the least recently written record goes, never the one on screen.
-16. **Cold-storage guard:** Send in a cold chat alerts and leaves the composer untouched.
-17. **Ids:** every creation site in I1 yields a chat with an id; a JSON/HTML import of a chat whose
-    id collides with an existing chat of that character gets a fresh id; an import with a unique
-    id keeps it.
-18. **New Chat (section 2.4):** for a group, the greetings land in the new chat and no existing
-    chat's `message` changes; `ChatList`'s New Chat opens the new chat.
+1. **Double send** (red): Send in A with a slow input trigger. During the wait, Send again and,
+   separately, Continue.
+   - Exactly one message, with A's text, is appended, and generation starts once.
+   - After generation returns, Send works.
+2. **Other actions during a send** (red): during A's wait, reroll, unreroll and starting auto mode
+   each change nothing. The chat is not trimmed, and no generation starts. While auto mode runs,
+   Send is refused, and toggling auto mode off stops it after the current tick (guard).
+3. **The `sleep(10)` gap** (red): a Send between the append and the hand-off is refused.
+4. **A second source** (red): during A's wait, a Send through a different source (a remounted
+   composer) is refused and takes nothing.
+5. **Busy** (red): the busy state is true from the take until generation returns, and false after
+   every exit in scenarios 6 to 9.
+6. **A throw before the append.** Separately: the input trigger throws; a plugin `editinput` hook
+   rejects; `processMultiCommand` throws.
+   - Nothing is appended.
+   - The three original values are back: the text un-inlined and the files staged.
+   - The window and the lock are closed, and `isWriting` is false.
+   - This is a guard for the text and the closed window: at `790643ff` the clear follows the
+     append. It is red for the files when the trigger or the hook throws, since the move inlines
+     them before the trigger. When `processMultiCommand` throws, the files are not yet inlined, so
+     that half is a guard.
+7. **Gone origin:** delete the origin chat during the wait. Nothing is appended, the values go
+   back, and the window is closed. For a character, the wait is the input trigger; this half is a
+   guard (W1a returns false). For a group, which runs no input trigger, the wait is a slow `/`
+   command that no command handles; this half is red.
+8. **Handled `/` command** (guard): the text is consumed, and the staged files and translation
+   remain.
+9. **Cancel before generation** (red): Send with a trigger that never settles, then abort.
+   - The values are back, and the window is closed.
+   - Then a new Send, with its own controller, is started, and after that the old trigger
+     resolves. The old send appends nothing and starts no generation, and the new send is not
+     disturbed by the old send's late `finally`.
+10. **In-flight liveness** (red): during the wait, with the composer empty, `hasLocalDrafts()` is
+    true and `getMultiTabAction` for a clean tab returns `'stay'`. After the append, only H1's own
+    registration counts.
+11. **Write-back after a `/` await** (red), each with a switch to another chat of the same owner
+    during a slow first command:
+    - a group send;
+    - a character send whose composer is emptied during the await.
+    The origin chat gains the message where one is due. The other chat's array is unchanged in
+    content and identity, and is not the origin's array.
+12. **Frozen index** (red): during a slow `/` command's await, a character at a lower index is
+    permanently deleted. The message lands in the origin character's chat, found by `chaId`.
+13. **Reroll and auto mode keep the composer** (red): with text typed, a reroll and one auto-mode
+    tick leave it in place.
+14. **The lock** (red, on the lock flag; the component's enforcement is in the live check):
+    - The lock flag is set from the take until the hand-off. It is cleared at the hand-off, after
+      a cancel, after a throw, and after every other exit.
+    - The flag is module-level: a second source created during the wait sees it set.
+    - A late **text** result (a text file from Post File or a paste) from an operation started
+      before Send, which resolves during the wait, is in the composer after a successful send.
+      This half is red: at `790643ff` the clears in `sendMain` and `sendChatMain` drop it.
+    - A late **asset** result from such an operation is in the composer after the send too. This
+      half is a guard: at `790643ff`, `fileInput` is emptied before the trigger's await and never
+      again.
+    - After a cancel, late results follow the restored values.
+15. **A translation in flight at the take** (guard, on the source-equality rule): with
+    translate-input on, Send while a translation of the text is still in flight.
+    - If it resolves during the wait and the send is then cancelled, both fields hold exactly the
+      taken values, with no duplicate.
+    - If it resolves after the cancel, the derived field holds the fresh translation, with no
+      duplicate.
+16. **No switch** (guard): the message is appended, the composer is empty, generation runs once,
+    and the window closes after it.
+17. **Refused actions change nothing** (guard, and red for the window): a cold chat, `doingChat`,
+    an open window and a `beginWork` refusal each leave the composer and the chat unchanged.
 
-## 6. Compatibility
+## 5. Compatibility
 
-- **Save format, plugin API, CBS, Lua and triggers: untouched.** No plugin API reads or writes the
-  composer; no CBS tag or script hook touches `messageInput` (grep of `src/ts/plugins`, `cbs.ts`,
-  `scriptings.ts`; round 1 re-checked). Lua chat APIs act on the trigger's cloned chat.
-- **Chat ids:** adding an `id` at creation matches what boot's `assignIds` and
-  `characterFormatUpdate` already do to every chat, so every saved chat already carries one after
-  a reload; upstream builds read and write the field. Giving an imported chat a fresh id only when
-  it would collide changes nothing an upstream build relies on.
-- **Triggers:** `runTrigger(char, 'input', …)` receives the same chat as today in the no-switch
-  case. In the switch case it received the origin chat's messages; its `setVar` writes are
-  `CHORE-25`'s, not fixed here (section 2.2).
-- **Theme and layout:** one component. A `customHTML` layout's composer bindings go through the
-  same component; the code review checks them rather than this plan assuming.
+- **No change to** the save format, the plugin API, CBS, Lua or triggers.
+- **Plugin `editinput` hooks** receive the text they received at `790643ff` in the no-switch case.
+- **A legacy plugin that reads the textarea's DOM** during an `editinput` hook now sees it empty.
+  No plugin API exposes the composer, and hooks receive the text as their argument.
+- **The busy state** is the existing Send-button swap.
+- **Translation results** are discarded when their source changed before they resolved. At
+  `790643ff`, a stale result overwrote the derived field.
+- **Every theme, the mobile layout and customHTML** use the same `DefaultChatScreen`.
 
-## 7. Tests
+## 6. Tests and checks
 
-- Unit tests for the module in section 4 cover scenarios 2, 4, 11 to 15 at the seam.
-- `sendMain` and the remount cases are in-component. Scenarios 1, 5 to 10 and 16 use a mount
-  harness for `DefaultChatScreen` on the pattern of `Chat.messageEditor.svelte.test.ts` (round 1:
-  a test of a not-yet-extracted helper fails on import at HEAD, which proves nothing). **Scenarios
-  1 and 5 must fail against HEAD for the stated reason** (text in B; B's array replaced and
-  `sendChatMain` called), recorded before the fix.
-- Scenarios 17 and 18 test the creation and import sites directly.
-- `localDrafts.test.ts` passes unmodified (I8).
+- **The module suite** carries scenarios 1 to 17, on the pattern of
+  `sendCharacterMessage.svelte.test.ts` (real `runTrigger` and `processScript`, network mocked).
+- **The component** keeps no action logic; its wiring (a button or key to a module function) is
+  checked by review and the live check.
+- **Red evidence:** each red scenario's failure against the behaviour-preserving move is recorded,
+  with its reason, in the gate record.
+- **Guards:** the existing `sendCharacterMessage.svelte.test.ts` and `localDrafts.test.ts`, updated
+  only where signatures change.
+- **Checks:** the Orchestrator runs the full suite, `pnpm check` and `pnpm run build` on the final
+  snapshot.
+- **Live check** on a production build with Echo:
+  - a slow Lua input trigger with a second Send, a reroll, and a cancel;
+  - the busy state;
+  - a switch during the wait;
+  - **the lock:** during a slow trigger, typing in both fields, an image paste, Post File, a sticker
+    and a suggestion click all add nothing. A remount during the wait (Settings, or the mobile chat
+    list) shows a locked composer. Input works again once generation starts, and after a cancel;
+  - **Enter with a Korean IME in Chrome.** The main textarea checks `!e.isComposing`, and the
+    translate-input textarea does not. WebKit's composition ordering cannot be checked here; that
+    stays listed in section 9.
 
-## 8. Next stage: `CHORE-25`
+## 7. S2 outline (not under review in this round)
 
-A trigger's `setVar` (and the `varChanged` block after the trigger) writes `scriptstate` to the
-chat on screen rather than the chat the trigger ran for. Any chat switch while a trigger runs —
-the `input` trigger in `sendMain`'s window, or an `output` trigger during generation, since
-`changeChatTo` is unguarded — replaces the new chat's trigger variables with the old chat's, and
-the save loop writes them. The maintainer has sequenced it as the stage right after this one,
-before `updateInlayScreen` (2026-09-24).
+- **Records.** Per-chat records at module level replace H1 (rev 3's I2 to I4). Records exist only
+  for chats with both ids; the first write to an id-less on-screen chat fills them through W0's
+  helpers. There is no `WeakMap` key, re-key or alias.
+- **Late writers** capture the key when they start, and write to that record only if its source
+  field is unchanged (rev 3's I7).
+- **The rest:** on-screen liveness as today, plus H2; the cap (I9); the textarea height (I10) by
+  live check; the mount harness. Rev 3's scenarios 1 to 4, 9 to 15 and 21 carry over, with 11 and
+  12 on the harness.
+- **The lock's scope:** S2 decides whether I-S10 locks every record or only the origin's.
+- **Notices for the maintainer, with S2's plan:** two chats holding one id share one draft
+  (`MC-078`); a chat whose id cannot be filled gets no draft.
 
-## 9. Accepted limitations
+## 8. Limitations
 
-- Composer drafts do not survive a reload, as today (`MC-072` 3's reasoning).
-- A multi-tab reload drops stored drafts for chats not on screen (`MC-072` 3).
-- A chat that reaches the database with no id through a plugin's `setChatToIndex` is keyed by the
-  per-object fallback; if that object is then replaced, its draft is stranded (not sent anywhere
-  wrong).
-- `sendPofile` (the `.po` "Post File" path in `multisend.ts`) pushes into the chat on screen and
-  calls `sendChat` directly; a switch while its picker is open still sends into the new chat.
-  `MC-072` 2 is met for staged files and pasted images, not for this path.
-- A `/` command acts on whatever its own code reads when it runs; only the composer text passed to
-  it and the clear are bound (I5).
-- `sendChat`'s own reads of the selection once it starts are out of scope; I6 stops the send
-  before it can start on a different chat.
-- A failed send still does not restore the composer text.
-- Trigger variables in a mid-send switch: `CHORE-25` (section 8).
+**Covered by maintainer decisions:**
+- Generation after a mid-send switch runs on the chat on screen until W2 (`MC-097` 1).
+- The text is out of sight during a slow send (`MC-097` 2). The busy state shows it, and the
+  button cancels it (`MC-098` 1, `MC-099`).
+- `sendPofile` is W2/W3's (`MC-098` 2). A `/` command's own reads are W3's (`MC-075` 1).
 
-## 10. Claims not independently re-verified
+**Decided by `MC-100`:**
+- The next message cannot be typed while a send's input trigger runs; input opens when generation
+  starts, or on cancel.
+- The reroll history's cross-chat defect is `CHORE-43`, not S1.
 
-- The plugin sandbox's DOM layer was checked by grep only (section 6).
-- Section 2.2's repro is traced from source by two independent reads, not yet run. Scenario 5's
-  red test is its verification.
+**Proposed, S1 interim until S2:**
+- **Put-backs land in the shared composer.** After a remount the owning instance is gone, and the
+  put-back is lost. After a switch, the text shows in the chat now on screen. This diverges from
+  `MC-097` 2's "that chat's draft", which S2 delivers. It is no worse than `790643ff`, where the
+  text simply stayed in the shared composer.
+- **Generation starters outside the composer do not consult the window:** plugin v3 `sendChat`,
+  the `previewRequest` hotkey, DevTool and `sendPofile`. If one starts during a send's wait, that
+  send's hand-off is refused, its message gets no reply, and its `sendChatMain` clears `doingChat`
+  under the other generation. That is as at `790643ff`. W2 owns generation's starters and the
+  `doingChat` flag's ownership.
+
+**Pre-existing, outside S1 (noted for their owners):**
+- `/multisend` leaves `doingChat` set (W3).
+- `doingChatInputTranslate` is never set.
+- Auto mode on a cold chat may spin without yielding (traced, not run; a ticket candidate).
+
+## 9. Claims not independently re-verified
+
+- The frozen-index row (scenario 12) is traced from source, not run.
+- The throw propagation from `runTrigger` rests on the Orchestrator's reading (row 273). The
+  `finally` holds either way.
+- `isWriting` has no non-test caller (`senior-advisor`'s grep, row 274; round 4 agreed).
+- The ordering of WebKit's IME composition against a synchronous take (round 4's suspicion) cannot
+  be checked on this machine.
 
 ## 11. Gate record
 
@@ -358,3 +432,373 @@ Orchestrator re-checked M1, M2, M4 and M5 in source before acting on them.
   Orchestrator asked whether the mechanism was the problem. It was: making the send window
   survive a switch means binding every writer in the trigger engine. The Orchestrator offered a
   switch lock; the maintainer chose to investigate a writer rework instead (`MC-073`).
+
+### Rev 3 — 2026-09-28
+
+- Rewritten after W0 and W1 were committed. Re-scoping packet: ledger row 272.
+- **Closed upstream of this stage:**
+  - I1's creation and import rules (W0), and the New Chat bugs (W0);
+  - M1 and M5 (W1a, `MC-094`);
+  - the character branch's write-back (W1a, S1).
+- **Maintainer decisions:**
+  - `MC-097` 1: generation after a mid-send switch is W2's, so rev 2's I6 stop is dropped;
+  - `MC-097` 2: the composer empties at Send (I5's take), replacing rev 2's partial-clear rule
+    (M3).
+- **Added, per `MC-091`'s scope-amendment rule:** each is in `sendMain` or on the composer's own
+  key path, and each was raised by this plan's own gates or re-scoping.
+  - the group and empty branches' write-back and the frozen index (I5);
+  - the one-send window (I13);
+  - reroll and auto mode (I11, from M2);
+  - the hotkeys (I12, from M4);
+  - the textarea height (I10);
+  - I1's re-key across an id fill (Report 24 section 6).
+
+### Gate 1 round 3 — `opus-reviewer` (fresh), rev 3 — **[REJECT]** (ledger row 273)
+
+The Orchestrator re-checked BLOCKER-1 and MAJOR-1 in source before acting on them.
+
+- **Sound:**
+  - Every "closed upstream" row in section 2 (W1a's origin-bound append; no
+    `setCurrentCharacter`/`setCurrentChat` left in the trigger or send path; W0's ids at New
+    Chat, Branch, both Copy paths and the plugin install routes).
+  - Section 2's open rows, and the late-writer list, which is complete.
+  - I13's premise (`sendChat` sets `doingChat` before any await), and I11 (nothing needs
+    `sendChatMain`'s clear).
+  - Key derivation for groups, the playground and Home; the harness is feasible; no plugin, CBS or
+    Lua hook reads the composer.
+  - The reviewer judged the take-at-Send mechanism itself sound.
+- **BLOCKER-1:** a throw before the append loses the taken values. `runTrigger`, a v2 plugin
+  `editinput` hook (`processScriptFull`'s `await plugin(data)`) and `processMultiCommand` do not
+  catch. At `790643ff` the text survives, because the clear follows the append.
+- **MAJOR-1:** once the take has emptied the record, nothing registers `COMPOSER_DRAFT_KIND`, so
+  `getMultiTabAction` auto-reloads a clean tab mid-send, and the message is lost silently.
+- **MAJOR-2:** scenarios 11 and 12 (and 13) were placed on a module that does not exist yet. The
+  late writers are component code, so they need the mount harness.
+- **MAJOR-3:** I13's window is not required to survive a remount. On mobile a switch remounts the
+  composer.
+- **MINORs:**
+  - a handled `/` command now drops staged files and the translation;
+  - a refused Send must not take;
+  - the empty branch never follows an await;
+  - I1 needs a lasting alias for late writers and must cover a `chaId` fill;
+  - I10 has no verification route;
+  - sections 5 and 7 disagree on which scenarios are red, and scenario 10's second bullet
+    contradicts I5;
+  - section 9's items 3 and 4 are not maintainer-accepted;
+  - I12 from Home, `prevChar` from the last character, and `reseter`;
+  - duplicate ids share one draft record.
+- **Optional:**
+  - a busy indicator during I13's window;
+  - `beginWork`'s handle ends on every exit;
+  - a restore puts back the original values, not the inlined text;
+  - I7 stands in for `MC-043`'s generation token.
+- **Escalation count: 3 consecutive substantive rejections.** Escalated to `senior-advisor`
+  before a rev 4 (ledger row 274).
+
+### Escalation — `senior-advisor` (ledger row 274)
+
+- **Root cause.** Every rev specified the send as a value pipeline. The text sat in a local of
+  `sendMain` across an await, which is an unowned holder: nothing registers it, a remount cannot
+  reach it, and nothing puts it back on a throw. Each round found that interval. The plan also
+  enumerated exits instead of stating one structural rule, and each round gated 13 invariants and
+  22 scenarios in a new shape.
+- **Direction.**
+  - Take-at-Send stays (`MC-097` 2), specified as an **ownership transfer** between holders: the
+    per-chat record; one module-level in-flight slot per origin, which is never shown, holds the
+    liveness registration and **is** the one-send window; and the chat's message array.
+  - Each transition is synchronous. The in-flight slot goes back to the record in one outermost
+    `finally`. A handled `/` command consumes the text only.
+  - The window closes after `sendChatMain` returns, which covers the `sleep(10)` gap.
+  - `beginWork` runs once at the take, for all three branches.
+  - Ids are filled at the first write to a record. That removes the `WeakMap` key, the re-key and
+    the alias.
+  - I10 goes to the live check.
+- **Split (`MC-091` amendment, recorded by the Orchestrator).** The composer stage becomes three
+  items, in this order:
+  - **S0**, the hotkeys (I12): carve-out sized, with its own post-implementation review.
+  - **S1**, the send seam: extraction, then the ownership model.
+  - **S2**, the per-chat records, the late writers and the mount harness.
+  - Why: S1 before S2 is safe, and the reverse is not. With records but the current send, a live
+    read after the `/` await would fetch B's draft and append it to A.
+- **Orchestrator's checks:**
+  - Svelte 5.56.8's `bind_value` calls the setter from the `input` event listener, not from an
+    effect, so an id fill at the first keystroke is safe.
+  - The composer's generating actions are `sendMain` (Send, Continue), `reroll` and `runAutoMode`.
+  - The hotkey bounds and the throw from Home are confirmed.
+- **Maintainer (`MC-098`):** the Send button shows its busy state from the take until generation
+  starts, and `sendPofile` belongs to W2/W3.
+
+### Rev 4 — 2026-09-28
+
+- Follows the escalation's direction. It is the normative plan for S1 only. S0 goes to its
+  post-implementation review, and S2 gets its own plan (section 7).
+- **Round 3 findings, disposed:**
+  - BLOCKER-1 → I-S2 (one outermost `finally` puts the values back);
+  - MAJOR-1 → H2 holds the liveness registration (scenario 8);
+  - MAJOR-2 → S2, with the harness;
+  - MAJOR-3 → I-S3 is module-level and global (scenario 3).
+  - **MINORs:**
+    - a handled `/` command → I-S2 (the files and translation go back);
+    - a refused Send → I-S1 and scenario 13;
+    - the empty branch → section 2 (never after an await);
+    - I1 and the late writers → S2 (fill at the first write);
+    - I10 → S2's live check;
+    - the test contradictions → section 4's single red/guard labelling;
+    - section 9 → section 8 separates decided from proposed items;
+    - I12 → S0, with Home defined;
+    - duplicate ids → S2's notice.
+  - **Optional items:** the busy state is `MC-098` 1 (I-S5); `beginWork`'s end is I-S7; the
+    original values are restored (I-S2); I7's substitution for `MC-043`'s token is carried into
+    S2.
+
+### Gate 1 round 4 — `opus-reviewer` (fresh), rev 4 (S1) — **[REJECT]** (ledger row 275)
+
+The Orchestrator re-checked M2, m6 and the IME handler in source.
+
+- **Sound:**
+  - the holder model H1/H2/H3, the synchronous take, the one outermost `finally`, and the global
+    module-level window, which survives a remount;
+  - the premise that `sendChat` sets `doingChat` synchronously;
+  - the handled-command put-back matching `790643ff`;
+  - `processMultiCommand` really can throw;
+  - S1 before S2 is safe;
+  - no plugin, `editinput`, format or switch-lock exposure.
+- **M1 (test design):** `reroll`, `unReroll` and `runAutoMode` stay in the component, so a
+  seam-only suite cannot show that they respect the window. A reroll during the input trigger's
+  wait then races the send.
+- **M2 (design):** the busy control calls `abortChat`, which does nothing before `sendChatMain`
+  creates a controller. A stalled input trigger or `editinput` hook blocks every composer action
+  until a reload, which loses the taken text. The maintainer chose cancel (`MC-099`).
+- **MINORs:**
+  - m1: the merge rule is wrong in "translate input" mode, where `messageInput` is derived and a
+    late translation can overwrite the restored text;
+  - m2: stray newlines;
+  - m3: scenarios 5, 6 and 8 are mislabelled (8 is red);
+  - m4: `take`/`putBack` cannot express the behaviour-preserving extraction;
+  - m5: H2 must be emptied inside the append callback;
+  - m6: `/speak` returns at once for a group;
+  - m7: the empty branch is reachable after the `/` await through the live re-read, and its
+    write-back aliases a character's chats too;
+  - m8: the `sleep(10)` roles are reversed;
+  - m9: "nothing is worse" is overstated;
+  - m10: non-composer generation starters do not consult the window, and the hand-off clears
+    `doingChat` unconditionally;
+  - m11: the put-back does not resize the input;
+  - m12: the interim put-back diverges from `MC-097` 2.
+- **Suspicions, for the live check:** Enter with a Korean IME on WebKit versus the synchronous
+  take; a legacy plugin reading the textarea's DOM.
+- **Pre-existing, noted:**
+  - `/multisend` leaves `doingChat` stuck (W3);
+  - `doingChatInputTranslate` is never set;
+  - auto mode on a cold chat may spin (traced, not run).
+- **Escalation count:** the fourth consecutive substantive rejection, and the first after the
+  escalation. The Orchestrator asked whether the mechanism is the problem. The reviewer found the
+  escalation's structure sound. Its majors are one test-design omission and one behaviour the
+  plan left unspecified. So rev 5 follows the same structure rather than re-escalating.
+
+### Rev 5 — 2026-09-28
+
+- **M1:** every composer action moves into the module (section 3's mechanism, I-S3), so the
+  suite drives reroll, unreroll and auto mode (scenarios 2 and 13).
+- **M2:** `MC-099`, which gives I-S8 and scenario 9.
+- **m1:** the typed-field rule and re-derivation (I-S2, scenario 15).
+- **m2:** non-empty parts only.
+- **m3:** relabelled (6 and 7 per half; 10 is red).
+- **m4:** a source with live accessors.
+- **m5:** H2 is emptied inside the append callback, with the abort checked there.
+- **m6 and m7:** section 2's write-back row is rewritten (it covers the empty branch too, and
+  character sends), and scenario 11 has both cases.
+- **m8:** the `sleep(10)` roles are corrected.
+- **m9:** section 1's claim is removed; section 8 lists the interim differences.
+- **m10:** I-S9, scenario 14, and section 8's disclosure.
+- **m11:** a resize after a put-back.
+- **m12:** section 8 states the divergence from `MC-097` 2.
+- **Suspicions:** the Korean IME Enter goes to the live check, and WebKit is listed as
+  unverifiable. The legacy DOM-reading plugin is in section 5.
+- **Pre-existing items:** section 8.
+- **Orchestrator addition:** stopping auto mode, and the busy button's abort, are never refused
+  (I-S3). This holds because the window stays open for the whole auto-mode loop.
+
+### Gate 1 round 5 — the round-4 reviewer (reuse), rev 5 — **[REJECT]** (ledger row 276)
+
+- **Resolved:** every round-4 finding except m1, which is partly resolved. All red/guard labels
+  hold.
+- **MAJOR-A:** the module-level reroll bookkeeping resets only on a `characters`-index change. An
+  unreroll in chat B can write chat A's reply objects over B's last message, and a remount no
+  longer resets it. The same bug is reachable on desktop within one instance.
+- **MAJOR-B:**
+  - I-S9's "its own call set it" cannot be read from `sendChat`'s return value, since many
+    `return false` paths leave `doingChat` set. Reading it that way leaves the composer busy and
+    `changeChar` refusing every switch.
+  - Under I-S9, auto mode started while another generation holds `doingChat` spins on microtasks
+    and freezes the tab.
+- **MINORs:**
+  - m-a: the abort check must read the send's own controller;
+  - m-b: the re-derivation has no request ordering;
+  - m-c: the typed field chosen by mode is wrong when the user types into the main field;
+  - m-d: scenario 7's group half needs a slow `/` command.
+- **Optional:** `/input` and `/buttons` are modal; the ambiguous push is not a callback; a cancel
+  during `/multisend` (W3).
+- **Escalation count:** the fifth consecutive substantive rejection. The Orchestrator asked
+  whether the mechanism is the problem. Both majors are in surface that rev 5 added, not in the
+  escalation's structure.
+
+### Rev 6 — 2026-09-28
+
+- **MAJOR-B → I-S9 removed.** `doingChat` is handled exactly as at `790643ff`, which has no
+  auto-mode spin. The clobber by outside starters is disclosed in section 8, for W2.
+- **MAJOR-A → I-S9 (new):** the reroll history is keyed by the chat. Scenario 14 now tests it, and
+  section 2 lists the pre-existing desktop bug.
+- **m-b and m-c → the put-back merges each text field independently, with no re-derivation.** A
+  translation result is written only while its source is unchanged (rev 3's I7 rule, applied to
+  both translation paths). Scenario 15 has the late translation resolve last.
+- **m-a:** I-S8 checks the send's own controller; scenario 9 has cancel, then a new Send, then a
+  late resolve.
+- **m-d:** scenario 7 names the group's wait.
+- **Optional:** the ambiguous push is covered by I-S2's wording.
+
+### Gate 1 round 6 — the round-4 reviewer (reuse), rev 6 — **[REJECT]** (ledger row 277)
+
+- **Resolved:**
+  - MAJOR-B (dropping the old I-S9 restores the clear of `790643ff`; no auto-mode spin);
+  - m-a (scenario 9's order kills a current-controller check);
+  - m-b and m-c;
+  - m-d.
+  - The source-equality rule agrees with the exp-translator path's 1500 ms check. With the old
+    I-S9 gone, no window or auto-mode defect remains.
+- **MAJOR-1:** "nothing is re-derived" combined with "discard a result whose source changed" leaves
+  `messageInput` stale for good after a translate-input put-back. A translation in flight is
+  discarded, and nothing re-issues it, so after an `MC-099` cancel the next Enter sends only the
+  old translation. This is worse than `790643ff`, and scenario 15 as written asserts the defect.
+- **MAJOR-2:** I-S9 resets only when a reroll or unreroll reads the history. Every generation
+  hand-off, including each auto-mode tick, also writes it, so a group's auto-mode reply in chat B
+  is recorded under chat A's key and can be written over A's last message. On mobile this is
+  new: the remount used to reset it.
+- **m-1:** step 1 cannot move the reroll bookkeeping to module level without a behaviour change.
+- **Escalation count:** the sixth consecutive substantive rejection. Rounds 4 to 6 each found the
+  escalation's structure sound, and rejected rules added to answer the previous round. The
+  Orchestrator stopped iterating and put the stage's direction to the maintainer.
+
+### Rev 7 — 2026-09-28 (`MC-100`)
+
+- **The composer is locked from the take until generation starts (I-S10).** A put-back therefore
+  meets only late file results, and goes in front of them. That removes the typed-text merge and
+  the re-derivation, which are round 6's MAJOR-1 and the source of round 4's m1 and round 5's m-b
+  and m-c.
+- **The reroll bookkeeping stays per composer instance, as at `790643ff` (I-S9).** That removes
+  round 6's MAJOR-2 and m-1. The cross-chat reroll defect is filed as `CHORE-43`.
+- **Scenarios:**
+  - 1 no longer types during the wait;
+  - 6 checks the un-inlined files;
+  - 14 is now the lock;
+  - 15 is the translation in flight at Send.
+- **Unchanged:** the source-equality rule for translation results. It still stops a translation
+  in flight at the take from writing into the emptied composer and doubling the text after a
+  put-back.
+
+### Gate 1 round 7 — the round-4 reviewer (reuse), rev 7 — **[EDITORIAL]** (ledger row 280)
+
+- **Design accepted.** `MC-100` removes the merge family.
+- **Resolved:** round 6's MAJOR-1, MAJOR-2 and m-1.
+- **The lock is sound:**
+  - it ends at the hand-off, while the window runs until generation returns;
+  - every exit ends it;
+  - late file results are consistent with the put-back rule;
+  - a readonly textarea still fires `paste` and `keydown`, so the paste handler checks the lock
+    and Enter and Ctrl+M are refused by the window;
+  - there is no interaction with auto mode or reroll;
+  - a remount sees the lock.
+- **Required corrections, applied by the Orchestrator in rev 7.1:**
+  - E1: scenario 15 contradicted I-S2's own rule, and its red label did not hold. It is now a
+    guard, and asserts the fresh translation when the result resolves after a cancel.
+  - E2: scenario 14 asserted component wiring. It now asserts the lock flag, and the live check
+    lists the lock.
+  - E3: a late text result is red; a late asset is a guard.
+  - E4: I-S10 ends in the outermost `finally` too, and "the hand-off" is defined.
+- **Also applied:** the optional correction to scenario 6's label, for the `processMultiCommand`
+  throw.
+- **Not applied:** the optional re-application of a translation discarded during the wait. S1
+  restores the values as they were at Send.
+- **Gate 1 for S1: passed.**
+
+### Build — S1
+
+- **Move:** row 281. **Red tests:** row 282. Against the move, 23 fail and 10 pass (guards). The
+  busy and lock flags are specification tests. The `beginWork`-refusal leg of scenario 17 cannot
+  be reached through the composer.
+- **Implementation:** row 283. Orchestrator checks: 140 files, 1709 passed, 4 skipped; `pnpm
+  check` clean; build passes.
+
+### Gate 2 round 1 — `opus-reviewer` (fresh) — **[REJECT], tests only** (ledger row 284)
+
+- **No production defect.** The reviewer re-derived the red evidence (23/10) from its own pre-fix
+  reconstruction.
+- **Surviving mutants:**
+  - M8: the lock is held through generation;
+  - M9/M10: translation source-equality;
+  - M12: an unconditional in-flight clear;
+  - M14: put-back order;
+  - M19: the group's ambiguous push.
+- **MAJOR 1:** scenario 15 has no real test.
+- **MAJOR 2:** the lock's release at the hand-off, and scenario 9's order (cancel A, B stalls, A
+  resolves, cancel B), are untested.
+- **MINORs:**
+  - scenario 5's busy state after exits 7 to 9;
+  - conditional busy and lock assertions;
+  - no reset between tests;
+  - stale comments in the test file;
+  - four false production comments;
+  - I-S2's push gap: a cancel in it duplicates the text, but no user event can land there. It is
+    fixed anyway with an `onAppended` callback, as section 3 planned.
+- **Pre-existing, filed:** auto mode started in one composer instance cannot be stopped from a
+  remounted one (`CHORE-44`). That contradicts I-S3's "stopping auto mode is never refused"
+  across instances, so I-S3 holds within one instance only until `CHORE-44`.
+
+### Gate 2 round 2 — the round-1 reviewer (reuse) — **[EDITORIAL]** (ledger rows 285-286)
+
+- **Behaviour accepted.**
+  - All 19 mutants are killed.
+  - `onAppended` closes the push gap, confirmed by probes.
+  - The `finally` holds on every outcome.
+- **Required:**
+  - E1: the `InflightRecord` comment;
+  - E2: three tests that pass before the fix are labelled `guard:`.
+- **Taken, although optional:**
+  - `registerDraft` moves inside the outermost `try`, so a throwing drafts listener cannot strand the taken values;
+  - a forward-direction translation test.
+- **Not taken:** scenario 17's `beginWork`-refusal test. The composer cannot reach that path without faking `beginWork`, and the code is three lines that are correct on inspection.
+
+### Gate 2 round 3 — the round-1 reviewer (reuse) — **[EDITORIAL]**, closed (ledger row 288)
+
+- **Resolved:**
+  - E1 and E2. Pre-fix, exactly the 13 `guard:` tests pass.
+  - The forward test kills M20. All 20 mutants are killed.
+  - `registerDraft` inside the `try` holds for a listener that throws at registration.
+- **E3:** the comment claimed more than that. A listener that also throws at the `finally`'s
+  `unregisterDraft` is not covered, and no production listener can throw. The Orchestrator
+  narrowed the comment (editorial only).
+- **Gate 2 for S1: passed.**
+- **Final snapshot:** 140 files, 1718 passed, 4 skipped; `pnpm check` clean; build passes.
+- **Next:** the live check (section 6), then the commit.
+
+### Live check — S1 — passed (ledger row 289)
+
+- **Setup:** a production build on the Node server, in Chrome, with Echo (4 s delay) set in
+  Settings first. The input trigger was a Lua `onInput` that sleeps 8 s.
+- **Send:**
+  - the composer is locked, empty and busy at Send;
+  - typing and a second Enter are refused, and exactly one message is appended;
+  - the lock releases at the append, while busy continues through generation;
+  - text typed during generation is kept.
+- **Cancel:** a physical click on the busy button before the append restores the text within
+  19 ms, and nothing is appended later. A click after the append aborts generation (`MC-099` 4).
+- **During a wait:** Ctrl+M is refused, a paste into the locked composer adds nothing, a switch
+  leaves the composer locked, and the message lands in its own chat with no aliasing. Generation
+  then runs on the chat on screen (`MC-097` 1, W2).
+- **Remount:** a composer remounted through Settings is locked.
+- **Saved:** `database.bin` holds every appended message and not the cancelled one.
+- **Not live:**
+  - the Korean IME Enter;
+  - Post File;
+  - stickers and suggestions (review only).
+- **Cleanup:** the server was stopped, and `save/` restored and verified by SHA-256.

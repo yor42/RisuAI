@@ -10,7 +10,7 @@ treat it as a log or history.
 
 ## Session date
 
-2026-09-25 to 2026-09-27.
+2026-09-25 to 2026-09-28.
 
 ## Branch and commit state
 
@@ -29,6 +29,9 @@ The branch is `fix/persistence-conflict-platform-hardening`. **It is pushed thro
   - `0efc3d22`: the `{{slot}}` help text in every language;
   - `4cdb5ef1`: the maintainer's own rewording of the Korean `{{slot}}` note.
 - CHORE-42 (Report 32): `80c9128a` (plan records), `ce6bc594` (the fix) and `2cdfb2b5` (its records).
+- W1 (not pushed): W1a `13ed2e75` and records `490bdec2`; W1b `22db8dfe` and records `790643ff`.
+- The composer stage: S0 `b05231c6` (the hotkeys), S1 `1bc5f288` (the composer), then the records
+  commit on top. Not pushed. See "Composer stage state" below.
 
 ## Parallel sessions (from 2026-09-27)
 
@@ -133,8 +136,17 @@ improvements (`f190d950`, row 248) are merged. `upstream/main` has nothing newer
      Report 33.
    - **W1b:** the read side and the parser. Its plan is Report 34. `MC-095` moves the send's own
      parser calls, `{{setvar}}` writes, lorebook call and graph memory to W2.
-   - After W1: the composer stage (Report 22 rev 3), then W2 and W3.
+   - After W1: the composer stage (Report 22), then the upstream batch (`MC-101`), then W2 and W3.
    See "W1 state" below.
+6a. **The composer stage (Report 22), in progress.** Split into S0, S1 and S2 (an `MC-091`
+   amendment, after the `senior-advisor` escalation, ledger row 274). **S0 and S1 are done.** S2
+   (per-chat drafts) is next and needs its own plan and Gate 1. See "Composer stage state" below.
+6b. **The upstream batch (`MC-101`, ledger row 287)**, after the composer stage, in this order:
+   - `b544d744`, `e8c063c0`, `a66f81a8` and `851e8ca5`;
+   - `5f9e3cbe`, with `opus-reviewer`;
+   - the hand port of `5537816a`, the plugin-permission security fix, with `opus-reviewer`.
+   `7fd4b875` is ported by hand into `composerActions.svelte.ts`. `ca1345fc` is not ported;
+   `providerPermissionDenied` is translated for zh-Hant here.
 7. **CHORE-35's opt-in stage** (the remaining upstream-infrastructure features: `/proxy2`'s
    static-web default, the transformers CDN, the MCP OAuth helper, `#import=<url>`,
    `getProxyStreamJobBaseUrl`), after W1.
@@ -309,7 +321,145 @@ bug) is blocked on the maintainer's console output, not scheduled by position.
   - `@@inject`/`@@repeat_back` need `chatID !== -1`; they belong to the send.
 - **Stale wiki claims:** the `doc-verifier` list went to the Wiki session, at the maintainer's
   request.
-- **Next:** the composer stage (Report 22 rev 3), then W2 and W3.
+- **Next:** done; see the composer stage below.
+
+## Composer stage state (2026-09-28)
+
+- **Plan:** Report 22 rev 7.1.
+  - Gate 1 was rejected six rounds running (rows 273, 275-277), escalated after the third (row
+    274), and passed at round 7 (row 280).
+  - The maintainer's decisions: `MC-097` (generation is W2's; empty at Send), `MC-098` (busy;
+    `sendPofile` goes to W2/W3), `MC-099` (cancel before generation) and `MC-100` (the lock; the
+    reroll history stays per instance).
+- **S0, the hotkeys (`b05231c6`):** tests and fix (row 278); Gate 2 [APPROVE] (row 279).
+- **S1, the composer's actions (`1bc5f288`):**
+  - `src/ts/process/composerActions.svelte.ts`: the move (row 281), the red tests (row 282), and
+    the fix (row 283);
+  - Gate 2: round 1 [REJECT], tests only (row 284); the remediation (row 285); rounds 2-3
+    [EDITORIAL] (rows 286, 288);
+  - live check (row 289); commit-message check (row 290).
+- **Filed:** `CHORE-43` (unreroll can write one chat's reply into another) and `CHORE-44` (auto
+  mode cannot be stopped from a remounted composer).
+- **Known S1 interim limits, fixed by S2:** a put-back after a remount lands in the unmounted
+  composer and is lost; after a switch, a put-back shows in the chat on screen.
+- **For W2:** generation still runs on the selection after a mid-send switch; the hand-off clears
+  `doingChat` unconditionally; `changeChatTo` is unguarded during generation.
+- **For W3:** a cancel during a slow `/` command puts its text back while the command keeps
+  running; `/multisend` leaves `doingChat` set.
+- **Wiki:** the stale-claims list (`Settings-Hotkeys.md`, `RisuAI-Basics.md`) went to the Wiki
+  session.
+- **Next: S2's plan**, then Gate 1 (use `opus-reviewer`: the send path, data loss). The facts
+  below are what S2 starts from.
+
+### S1 as built (S2 builds on it)
+
+- **The module** `src/ts/process/composerActions.svelte.ts`.
+  - **Actions:** `send`, `sendContinue`, `sendMain`, `reroll`, `unReroll`, `sendChatMain`,
+    `abortChat`, `runAutoMode` and `updateInputTransateMessage`.
+  - **What they take:** a `ComposerActionsSource` of live get/set accessors that the component
+    supplies: `messageInput`, `messageInputTranslate`, `fileInput`, `rerolls`, `rerollId`,
+    `lastCharId`, `autoMode`, `abortController`, `closeMenu()` and `updateInputSizeAll()`.
+  - **Module state:** `windowOpen`, `locked` (`$state`), the `inflight` record (`InflightRecord`: the
+    taken values, the controller, the work handle, the source, `settled`), and `inflightDraftKey`.
+  - **Exports:** `isComposerBusy()`, `isComposerLocked()` and `resetComposerActionsForTests()`.
+- **`sendMain`'s shape.**
+  - **Refuse or take:** the refusals are a cold chat, `doingChat`, `windowOpen`, and `beginWork`
+    returning null. Otherwise, synchronously: `beginWork`, the take, the controller, the window and
+    lock, then `inflight = record`.
+  - **The one outermost `try/finally`:**
+    - `registerDraft` is its first statement;
+    - `outcome` is `'appended'`, `'commandHandled'` or `'refused'`;
+    - on `'refused'` the `finally` puts the values back, unless `settled`;
+    - the lock clears right before `sendChatMain` (the hand-off);
+    - the window closes after generation returns.
+  - **`sendCharacterMessage(workHandle, char, startChat, text, signal, onAppended)`:** `onAppended`
+    runs synchronously after the push and clears the in-flight record at that moment.
+- **Put-back.** It goes to `record.source`, which is **the component instance that sent**. After a
+  remount it therefore lands in a dead instance and is lost. That is S1's disclosed interim limit;
+  S2 fixes it by making H1 the per-chat record at module level.
+- **The component** (`DefaultChatScreen.svelte`):
+  - it still owns `messageInput`/`messageInputTranslate`/`fileInput` as `$state`, plus the
+    `COMPOSER_DRAFT_KIND` `$effect` registration (`composerDraftKey`);
+  - `readonly={isComposerLocked()}` is on both textareas, and the busy swap is
+    `$doingChat || isComposerBusy() || doingChatInputTranslate`;
+  - the lock is checked at the start of the paste handler, the Post File menu item and the sticker
+    `onSelect`, and in `Suggestion.svelte`'s two buttons. A late result of an operation started
+    before the take still lands.
+- **Tests:**
+  - `src/ts/process/tests/composerActions.svelte.test.ts` (42, LF): an in-memory source; generation
+    is a spy that mirrors the `doingChat` handling; `afterEach(resetComposerActionsForTests)`;
+  - `src/ts/hotkeyCharSwitch.svelte.test.ts` (18).
+  - There is still **no `DefaultChatScreen` mount harness**. S2 builds it on the pattern of
+    `src/lib/ChatScreens/Chat.messageEditor.svelte.test.ts`.
+- **Line endings.** CRLF: `composerActions.svelte.ts`, `sendCharacterMessage.ts`,
+  `DefaultChatScreen.svelte`, `Suggestion.svelte`, `hotkey.ts`,
+  `sendCharacterMessage.svelte.test.ts`. LF: the two new test files and `editInputOrigin.svelte.test.ts`.
+  `sed -i` turned one CRLF file to LF in S1's build, so check line endings by byte count.
+
+### What S2 must do (Report 22 section 7, plus the escalation's direction)
+
+- **Records.** Per-chat records at module level become H1, with one copy (rev 3's I2): the
+  composer's three values are the record for key `chaId + chat.id`.
+  - I3: all three move together, and an empty record counts for nothing.
+  - I4: showing is not writing; a record is created or re-timestamped only by a write.
+  - I9: a cap of the same order as `DRAFT_CONTENT_RECORD_LIMIT` (not shared); the least recently
+    written goes first, never the one on screen.
+- **Identity** (`senior-advisor`, row 274). A record exists only for a chat with both ids. The
+  **first write** to an id-less chat on screen fills the ids through W0's helpers (`chatIds.ts`,
+  `fillMissingChatSlotId`; `beginWork` also fills).
+  - The fill is safe at the first keystroke: Svelte 5.56.8's `bind_value` setter runs from the
+    `input` listener, not an effect (verified).
+  - So there is **no `WeakMap` key, no re-key and no alias** (they made rev 1's BLOCKER).
+- **Put-back and the lock.** The put-back goes to the **origin's record** (by key), not to the
+  source instance, which fixes the remount loss. S2 decides whether I-S10's lock covers every
+  record or only the origin's (Report 22 section 7).
+- **Late writers** (rev 3's I7) capture the **key** when they start and write to that record:
+  - the paste `FileReader`, the Post File `postChatFile` and `updateInputTransateMessage`;
+  - a translation is written only if its source is unchanged (S1 already enforces that for the
+    live fields).
+- **Liveness** (I8): the on-screen record registers `COMPOSER_DRAFT_KIND` as today, and H2 as in
+  S1. Stored records not on screen never register (`MC-072` 3). The composer does not use
+  `draftContents.ts` or `draftContentOrphanGate.ts`.
+- **I10:** the textarea height follows the record shown, checked by the live check (happy-dom has
+  no layout).
+- **Scenarios.** Rev 3's scenarios 1-4, 9-15 and 21 carry over, with late file and translation
+  (11, 12) on the mount harness. Red first against HEAD for the mis-send (scenario 1) and remount
+  (9).
+- **Notices for the maintainer, with S2's plan:**
+  - two chats holding one id share one draft (`MC-078`);
+  - a chat whose id cannot be filled gets no draft.
+- **Watch for:** `CHORE-44` (auto mode across a remount) touches the same per-instance state. S2
+  may fold it in under `MC-091` if the shared cause is the same, or leave it.
+
+### Process lessons from this stage
+
+- Gate 1 rejected S1's plan six times in a row. Each time, the rejected rule had been added only
+  to merge text typed during the wait. The fix was a product simplification put to the maintainer
+  (the `MC-100` lock), not more rules. When a plan keeps failing on rules for one edge case, ask
+  whether a product constraint removes the edge case.
+- Test titles must state the required behaviour, never the defect; five S1 titles had to be
+  renamed. Weak assertions (`toContain` where exact equality was meant) made two reds pass against
+  the defect.
+- **Live check in Chrome:**
+  - the window must be visible, or screenshots time out;
+  - the plugin `getDatabase` proxy only writes `allowedDbKeys`, so the model must be set in
+    Settings (Echo is under "For Developer", behind "show unrecommended settings");
+  - a click meant to land during a wait must be in the **same** `browser_batch` as the Send: the
+    latency between tool calls is seconds.
+
+### Upstream batch facts (row 287; after the composer stage, `MC-101`)
+
+- **Fetch state:** `upstream/main` is at `ca1345fc`; the merge base is still `669b12ce`. Use a
+  selective pick, not a merge.
+- **`7fd4b875` (reroll perf)** now targets `composerActions.svelte.ts`'s `sendChatMain`:
+  `rerolls.push(safeStructuredClone(...message).slice(previousLength))` becomes
+  slice-then-clone.
+- **`5537816a` (plugin permissions):**
+  - the fork's `getPluginPermission` has a sixth type, `'inlay'`, which upstream's
+    `PluginPermission` union lacks;
+  - the cache is two name-keyed `Set`s in `v3.svelte.ts`, which upstream re-keys by script hash;
+  - `providerPermissionDenied` must be translated for zh-Hant here.
+- **`a66f81a8` (DOMPurify `asset:`):** check the Tauri asset-protocol scope first.
 
 ## Operational notes for this environment
 
