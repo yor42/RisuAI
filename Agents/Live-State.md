@@ -31,8 +31,12 @@ The branch is `fix/persistence-conflict-platform-hardening`. **It is pushed thro
 - CHORE-42 (Report 32): `80c9128a` (plan records), `ce6bc594` (the fix) and `2cdfb2b5` (its records).
 - W1 (not pushed): W1a `13ed2e75` and records `490bdec2`; W1b `22db8dfe` and records `790643ff`.
 - The composer stage: S0 `b05231c6` (the hotkeys), S1 `1bc5f288` (the composer) and records
-  `2177f7d2`; S2 `67f17f1a` (per-chat drafts), then its records commit on top. Not pushed. See
+  `2177f7d2`; S2 `67f17f1a` (per-chat drafts) and records `9ce59e0d`. Not pushed. See
   "Composer stage state" below.
+- Vitest excludes `.claude/**` (`7b72b813`).
+- The upstream batch (`MC-101`), not pushed: `3482ef4f`, `73edeb69`, `295c0fa7`, `5064bc4c`,
+  `5c85cac7`, `0f38ac8c`, `9213ebc2`, then its records commit on top. See "Upstream batch state"
+  below.
 
 ## Parallel sessions (from 2026-09-27)
 
@@ -141,12 +145,9 @@ improvements (`f190d950`, row 248) are merged. `upstream/main` has nothing newer
    See "W1 state" below.
 6a. **The composer stage (Report 22) is done.** S0 `b05231c6`, S1 `1bc5f288` and S2 `67f17f1a`,
    each with its records commit. See "Composer stage state" below.
-6b. **Next: the upstream batch (`MC-101`, ledger row 287)**, in this order:
-   - `b544d744`, `e8c063c0`, `a66f81a8` and `851e8ca5`;
-   - `5f9e3cbe`, with `opus-reviewer`;
-   - the hand port of `5537816a`, the plugin-permission security fix, with `opus-reviewer`.
-   `7fd4b875` is ported by hand into `composerActions.svelte.ts`. `ca1345fc` is not ported;
-   `providerPermissionDenied` is translated for zh-Hant here.
+6b. **The upstream batch (`MC-101`) is done** (ledger rows 301-304). See "Upstream batch state"
+   below.
+6c. **Next: W2, then W3.** See "The composer as built" below for what W2 starts from.
 7. **CHORE-35's opt-in stage** (the remaining upstream-infrastructure features: `/proxy2`'s
    static-web default, the transformers CDN, the MCP OAuth helper, `#import=<url>`,
    `getProxyStreamJobBaseUrl`), after W1.
@@ -436,19 +437,38 @@ bug) is blocked on the maintainer's console output, not scheduled by position.
   - a click meant to land during a wait must be in the **same** `browser_batch` as the Send: the
     latency between tool calls is seconds.
 
-### Upstream batch facts (row 287; after the composer stage, `MC-101`)
+## Upstream batch state (2026-09-28; `MC-101`, rows 287 and 301-304)
 
-- **Fetch state:** `upstream/main` is at `ca1345fc`; the merge base is still `669b12ce`. Use a
-  selective pick, not a merge.
-- **`7fd4b875` (reroll perf)** now targets `composerActions.svelte.ts`'s `sendChatMain`:
-  `source.rerolls.get().push(safeStructuredClone(...message).slice(previousLength))` becomes
-  slice-then-clone. The line is unchanged by S2.
-- **`5537816a` (plugin permissions):**
-  - the fork's `getPluginPermission` has a sixth type, `'inlay'`, which upstream's
-    `PluginPermission` union lacks;
-  - the cache is two name-keyed `Set`s in `v3.svelte.ts`, which upstream re-keys by script hash;
-  - `providerPermissionDenied` must be translated for zh-Hant here.
-- **`a66f81a8` (DOMPurify `asset:`):** check the Tauri asset-protocol scope first.
+- **`upstream/main` is at `ca1345fc`** (fetched 2026-09-28); the merge base is still `669b12ce`.
+  Every first-parent landing in `669b12ce..ca1345fc` is now in the fork, except `ca1345fc` itself,
+  which is not ported. Two of them came in before this batch: `25001174` as `425080e6` and
+  `9546973a` as `f190d950`. Each pick in this batch was taken as its first-parent diff.
+- **Straight picks, each authored by its upstream contributor:**
+  - `3482ef4f` (`b544d744`): Claude 5 Opus; `resolveClaudeThinkingType`;
+  - `73edeb69` (`e8c063c0`): Monaco workers through `?worker`; Lua completion;
+  - `295c0fa7` (`a66f81a8`): DOMPurify keeps `asset:` media `src`. There is no new exposure: on
+    Windows the same scope is already served as `http://asset.localhost/`;
+  - `5064bc4c` (`851e8ca5`): the Lua `axLLM` mode option;
+  - `5c85cac7` (`5f9e3cbe`): the loadout apply options are persisted (the generic root path,
+    row 302).
+- **Hand ports, authored `yor42` with the upstream contributor as co-author:**
+  - `0f38ac8c` (`5537816a`): plugin permissions are keyed by script hash plus permission, and a
+    denied provider is enforced (row 303). `readInlay` and `addRisuChatListener` go through the
+    scoped check. On `upstream/main` both still use the old argument order, so upstream refuses
+    them for every plugin without asking. `providerPermissionDenied` is in all seven languages;
+    zh-Hant is the fork's own.
+  - `9213ebc2` (`7fd4b875`): the reroll snapshot in `sendChatMain` slices before it clones
+    (row 304).
+- **Open, not scheduled:**
+  - Two overlapping `alertConfirm` calls share one answer, so a user can grant a permission whose
+    prompt they never saw. This predates the batch and is the same upstream. It is a possible
+    follow-up ticket.
+  - A session-cached grant skips the periodic reconfirm for the rest of that session, the same as
+    upstream.
+  - `hasher` needs `crypto.subtle`, so plugin permission checks throw on a plain-HTTP LAN origin.
+    This predates the batch.
+  - A partial `loadoutApplyOptions` object, which only a hand-edited save can hold, hides the
+    missing toggles. This is the same upstream.
 
 ## Operational notes for this environment
 
@@ -492,8 +512,8 @@ bug) is blocked on the maintainer's console output, not scheduled by position.
 
 ## Test suite
 
-**142 files: 1758 passed, 4 skipped, 0 failed**, the check on the composer stage's final tree
-(`67f17f1a`, re-run after `7b72b813`). `pnpm check` is clean, and `pnpm run build` passes.
+**145 files: 1778 passed, 4 skipped, 0 failed**, the check on the upstream batch's final tree
+(`9213ebc2`). `pnpm check` is clean, and `pnpm run build` passes.
 `cargo check` last ran on the removal stage.
 - Run the suite with plain `pnpm test` or `npx vitest run`. `vitest.config.ts` excludes
   `.claude/**` (`7b72b813`).
