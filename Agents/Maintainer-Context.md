@@ -2594,6 +2594,93 @@ included. Ledger row 202 read them as data.
 
 ---
 
+### MC-096 — Android wrapper analysis: Capacitor-vs-Tauri OOM mechanisms and the IPC-boundary escape hatches, kept for when Android is scheduled
+
+- **Tag:** decision
+- **Date:** 2026-09-28
+- **Sweep ref:** none (stated directly this session; no report file — recorded here on the
+  maintainer's instruction because it is judged significant enough to reuse)
+- **Source:** the maintainer's own rough Android plan, stated directly this session (drop
+  Capacitor, build Android on Tauri 2), and two read-only investigations this session against
+  this repo (no Android build present) and against `C:\Projects\HaejeokRisuai` (a Capacitor +
+  native-SQLite Android fork used only as a reference), followed by the Orchestrator's own
+  source verification of the Tauri/wry claims below (pinned versions `tauri 2.11.5`,
+  `wry 0.55.1`, `tauri-plugin-fs 2.5.2`, `tauri-runtime-wry 2.11.4`).
+- **Reasoning:** MC-047 gates Android behind the Roadmap's RAM/residency rework, but says nothing
+  about wrapper choice or IPC cost — a separate axis that a wrapper decision must also account
+  for, and one worth fixing in place now rather than rediscovering later.
+- **Related:** MC-047 (Android gated behind the RAM rework), MC-002 (platform mix), MC-011 (fork
+  never shipped; upstream compatibility). This entry assumes MC-047's rework is done by the time
+  Android is scheduled — it is about wrapper/IPC boundary cost, not about the still-open
+  residency work.
+
+**What the investigation found:**
+
+1. **Premise check: HaejeokRisu's Android build is Capacitor, not Tauri.** Confirmed from its
+   `capacitor.config.ts`, `android/` project and its `publish-android` CI job that builds the
+   signed APK users actually install. Upstream's own prior Android attempt (also Capacitor) was
+   fully removed in January 2026 (`74bb6aa80`). Neither is evidence about how *our* Tauri
+   architecture would behave on Android — this repo has no Android build (`src-tauri/gen` has no
+   `android/`, `[lib]` is commented out in `Cargo.toml`).
+2. **Capacitor's own OOM mechanisms, confirmed in HaejeokRisu's source:** every file read/write
+   crosses its Capacitor↔native bridge as base64 text (`capacitorStorage.ts`), producing several
+   simultaneous copies of the same bytes; and its native SQLite plugin builds one Java object per
+   result row with no `android:largeHeap` set, so a single large query can hit the Java heap
+   ceiling independent of how well-paginated the design is. HaejeokRisu's own git history shows
+   they already hit and fixed two adjacent mechanisms (a 32MB-heap-tested streaming restore, and
+   device-scaled asset-cache limits) — evidence several "obvious" candidate mechanisms are
+   already closed there, narrowing what's left.
+3. **Tauri's IPC boundary has an analogous, but narrower, cost — confirmed in the pinned source,
+   not general knowledge:**
+   - **Write side (page → Rust) is Android-specific, not a Tauri-wide cost.** Android's WebView
+     cannot let native code read a custom-protocol request body, so Tauri falls back to
+     `postMessage`, which JSON-stringifies a `Uint8Array` into a number array (`ipc-protocol.js`,
+     `process-ipc-message-fn.js`) — several times the byte size, transiently. **Desktop does not
+     pay this cost**: a binary `invoke()` argument there goes out as a raw
+     `application/octet-stream` body over the custom-protocol `fetch()` path, no JSON at all,
+     because desktop's WebView backends can read that request body.
+   - **Read side (Rust → page) has a real ceiling, also Android-specific.** wry's Android
+     response path (`android/binding.rs`, `handle_request`) does exactly one
+     `env.byte_array_from_slice(bytes)` JNI copy of the *entire* response body into a Java
+     `byte[]`, with no internal chunking — this is a JNI/WebView-API requirement with no desktop
+     analogue (desktop protocol handlers never cross a JVM boundary).
+   - **The escape hatch already half-exists.** Tauri's shared asset protocol
+     (`tauri/src/protocol/asset.rs`) already implements HTTP Range requests and caps every
+     ranged response at `MAX_LEN = 1000 * 1024` (~1MB) — so a caller that issues genuine ranged
+     reads (streamed `fetch`, or `<video>`/`<img>` elements that request ranges) bounds each JNI
+     copy to ~1MB regardless of the underlying file size. This code is shared across all
+     platforms already; only the *benefit* is Android-specific, since desktop has no comparable
+     ceiling to work around.
+   - **For bulk writes, the recommended pattern is a loopback HTTP server in Rust** (e.g.
+     `tauri-plugin-localhost`, or a small hand-rolled server), with the page using plain `fetch()`
+     against it instead of `invoke()`. A real socket read by Android's own network stack bypasses
+     wry's IPC/JNI response path entirely. This needs care if implemented: loopback-only binding
+     plus a per-launch random token on every request, to close the known "malicious page probes
+     this app's localhost port" class of vulnerability (DNS rebinding and similar).
+4. **Scope: both problems, and both fixes, are Android-specific.** Desktop already avoids the
+   write-side cost (octet-stream fetch), and the read-side ceiling has no desktop analogue at
+   all. Web and Docker/self-hosted are architecturally unaffected either way — they never touch
+   Tauri's IPC or protocol code (web uses OPFS/localForage blobs; Docker's self-hosted Node
+   server, `server/node/server.cjs`, is a separate implementation with **no Range/206 support
+   today**, confirmed by grep — flagged so a future change never assumes ranged reads work
+   uniformly across every backend without checking first).
+5. **Left unverified, needs a real device or a `node_modules` install to close:** the actual
+   Java heap ceiling on target hardware; whether Android gives an in-app WebView page a different
+   memory ceiling than a Chrome tab on the same device (this investigation tier could not settle
+   it from source); and Capacitor 8.5.0's exact bridge serialization format (its packages were
+   not installed in the referenced `HaejeokRisuai` checkout).
+
+> that got me thinking, is there an escape hatch for Java-heap-copy issue too? or is it something
+> we have to live with?
+>
+> does it affect other platforms(tauri-desktop, docker, web, etc) too, or is it something we can
+> implement without major downside or sacrifices?
+>
+> add MC entry recording this Android wrapper analysis - I think this is significant enough to
+> come back to during android support.
+
+---
+
 ## Open questions
 
 The three entries below are questions addressed to the maintainer that were still unresolved as of
