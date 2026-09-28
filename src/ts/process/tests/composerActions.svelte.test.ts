@@ -1647,6 +1647,67 @@ describe('composerActions: refused actions change nothing', () => {
     })
 })
 
+describe('composerActions: the reroll snapshot sendChatMain stores', () => {
+    test('guard: a completed send\'s reroll snapshot holds only the messages generation appended, not the user\'s own', async () => {
+        const char = makeCharacter('c-reroll-snapshot')
+        installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'hello' })
+        sendChatMock.mockImplementationOnce(async () => {
+            doingChatMock.set(true)
+            char.chats[char.chatPage].message.push(
+                { role: 'char', data: 'reply-1', time: Date.now() } as unknown as Message,
+                { role: 'char', data: 'reply-2', time: Date.now() } as unknown as Message,
+            )
+            doingChatMock.set(false)
+            return true
+        })
+
+        const { source } = makeSource()
+        await send(source)
+
+        expect(char.chats[0].message.map((m) => m.data)).toEqual(['hello', 'reply-1', 'reply-2'])
+        expect(source.rerolls.get().length).toBe(1)
+        expect(source.rerollId.get()).toBe(0)
+        expect(source.rerolls.get()[0].map((m) => m.data)).toEqual(['reply-1', 'reply-2'])
+    })
+
+    test('guard: the stored reroll snapshot is detached from the live chat\'s messages in both directions', async () => {
+        const char = makeCharacter('c-reroll-detached')
+        installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'hello' })
+        sendChatMock.mockImplementationOnce(async () => {
+            doingChatMock.set(true)
+            char.chats[char.chatPage].message.push({ role: 'char', data: 'original', time: Date.now() } as unknown as Message)
+            doingChatMock.set(false)
+            return true
+        })
+
+        const { source } = makeSource()
+        await send(source)
+
+        const snapshot = source.rerolls.get()[source.rerollId.get()]
+        const liveMessage = char.chats[0].message[char.chats[0].message.length - 1]
+
+        liveMessage.data = 'mutated-live'
+        expect(snapshot[0].data).toBe('original')
+
+        snapshot[0].data = 'mutated-snapshot'
+        expect(liveMessage.data).toBe('mutated-live')
+    })
+
+    test('guard: a send whose generation appends nothing pushes no reroll snapshot', async () => {
+        const char = makeCharacter('c-reroll-no-append')
+        installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'hello' })
+
+        const { source } = makeSource()
+        await send(source)
+
+        expect(char.chats[0].message.map((m) => m.data)).toEqual(['hello'])
+        expect(source.rerolls.get().length).toBe(0)
+    })
+})
+
 //#region helpers that must be declared after the mocked gate infrastructure above
 
 function interceptSleep(ms: number) {

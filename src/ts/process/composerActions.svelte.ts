@@ -491,7 +491,7 @@ export async function sendChatMain(source: ComposerActionsSource, continued: boo
             continue: continued
         })
         if(previousLength < DBState.db.characters[get(selectedCharID)].chats[DBState.db.characters[get(selectedCharID)].chatPage].message.length){
-            source.rerolls.get().push(safeStructuredClone(DBState.db.characters[get(selectedCharID)].chats[DBState.db.characters[get(selectedCharID)].chatPage].message).slice(previousLength))
+            source.rerolls.get().push(safeStructuredClone(DBState.db.characters[get(selectedCharID)].chats[DBState.db.characters[get(selectedCharID)].chatPage].message.slice(previousLength)))
             source.rerollId.set(source.rerolls.get().length - 1)
         }
     } catch (error) {
