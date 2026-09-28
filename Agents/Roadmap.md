@@ -1648,17 +1648,20 @@ ledger rows 276-277; `MC-100` 2). Not fixed and not scheduled.
 ### CHORE-44 — Auto mode cannot be stopped from a remounted composer
 
 **Status (2026-09-28):** filed from Gate 2 round 1 of the composer stage's S1 (Report 22; ledger
-row 284). Not fixed and not scheduled. Present at `688b13e8` as well.
+row 284). **Fixed in `67f17f1a`**, folded into S2 (Report 22 section 7, D11 and D12; an `MC-091`
+amendment; live-checked, ledger row 299). Present at `688b13e8` as well.
 
 - **Mechanism (probe run by the gate reviewer):**
   - `autoMode` is per composer instance, and `runAutoMode`'s loop runs in the instance that
     started it.
   - After a remount (the mobile chat list, Settings), the new instance's toggle counts as a
     start, and S1's window refuses it.
-  - The new instance's busy button aborts only the current generation. The old loop keeps
-    running until the selected character changes.
-- **A likely shape:** keep auto mode's running state at module level, beside S1's window, so any
-  instance's toggle stops it.
+  - The new instance's busy button aborts nothing: after the append, `abortChat` aborts the
+    clicking instance's own controller, which is `null` in a new instance (Gate 1 round 1 of S2
+    ran a probe). The old loop keeps running until the selected character changes. The same
+    holds for an ordinary send's generation after a remount.
+- **A likely shape:** keep auto mode's running state and the current generation's abort controller
+  at module level, beside S1's window, so any instance's toggle or busy button stops it.
 
 ## Sequencing Summary
 

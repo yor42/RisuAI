@@ -2930,3 +2930,29 @@ from that rejection — not a call the maintainer made or was asked to make.
    - then the hand port of `5537816a`, with `opus-reviewer`.
    `7fd4b875` is ported by hand into `composerActions.svelte.ts`, and `ca1345fc` is not ported:
    `zh-Hant`'s `providerPermissionDenied` is translated here.
+
+---
+
+### MC-102 — Composer drafts (S2): the lock stays global; two chats holding one id share one draft
+
+- **Tag:** decision
+- **Date:** 2026-09-28
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on two questions the Orchestrator asked
+  after S2's scoping (ledger row 291), before Report 22 rev 8.
+- **Reasoning:**
+  - The global lock is what S1 built, gated and live-checked. It lasts only until generation
+    starts, and a per-draft lock would bring back the rules for text typed during a send's wait
+    that kept S1's Gate 1 looping (`MC-100`).
+  - A duplicate id comes only from a plugin within a session, and boot repairs it. A shared draft
+    is visible in the composer before anything is sent, so nothing crosses chats silently.
+- **Alternatives rejected:**
+  - Locking only the sending chat's draft, so another chat can be typed into during the wait.
+  - Keeping no stored draft for a chat whose id is duplicated.
+- **Related:** MC-072, MC-073, MC-078, MC-100, Report 22.
+
+**What was decided:**
+1. **The lock stays global.** From Send until generation starts, or until a cancel, every
+   composer is read-only, whichever chat it shows. Switching chats is not locked.
+2. **Two chats of one character holding the same id share one composer draft.** This is recorded
+   as a known limitation, not guarded against.

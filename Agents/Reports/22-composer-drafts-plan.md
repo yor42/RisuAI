@@ -1,11 +1,9 @@
 # Composer drafts: per-chat unsent text, and a send that stays on its own chat
 
-**STATUS:** open
+**STATUS:** implemented (`b05231c6`, `1bc5f288`, `67f17f1a`) — S0, S1 and S2 shipped
 
-**Status:** rev 7.1, 2026-09-28. **Gate 1 passed for S1** (round 7 [EDITORIAL], corrections applied). **The stage is split into S0, S1 and S2** (section 1). This rev is
-the normative plan for **S1, the composer's actions**; only S1 is under Gate 1. S0 is carve-out
-sized and is in its post-implementation review. S2 is outlined in section 7, and gets its own
-Gate 1 after S1 lands.
+**Status:** rev 8.2, 2026-09-28. **The composer stage is done:** S0 `b05231c6`, S1 `1bc5f288`
+and S2 `67f17f1a` (section 11). Section 7 is S2's accepted plan. Sections 3 to 6 and 8 are S1's.
 
 Rev 1 to rev 6 were rejected on substance. After rev 3, `senior-advisor` set the direction (ledger
 row 274). Rounds 4 to 6 found that direction sound, and rejected rules added to handle text typed
@@ -24,7 +22,8 @@ which removes those rules (section 11).
 - `MC-098`: busy until generation starts, and `sendPofile` is W2/W3's;
 - `MC-099`: the busy button cancels a send that has not reached generation;
 - `MC-100`: the composer is locked from Send until generation starts, and the reroll history stays
-  per composer (its cross-chat bug is `CHORE-43`).
+  per composer (its cross-chat bug is `CHORE-43`);
+- `MC-102`: S2's lock stays global, and two chats holding one id share one draft.
 
 **Evidence:**
 - ledger row 272 (re-scoping);
@@ -324,21 +323,305 @@ Every scenario is a test on the module, with an in-memory source.
     translate-input textarea does not. WebKit's composition ordering cannot be checked here; that
     stays listed in section 9.
 
-## 7. S2 outline (not under review in this round)
+## 7. S2 — per-chat drafts (rev 8.2, normative; implemented in `67f17f1a`)
 
-- **Records.** Per-chat records at module level replace H1 (rev 3's I2 to I4). Records exist only
-  for chats with both ids; the first write to an id-less on-screen chat fills them through W0's
-  helpers. There is no `WeakMap` key, re-key or alias.
-- **Late writers** capture the key when they start, and write to that record only if its source
-  field is unchanged (rev 3's I7).
-- **The rest:** on-screen liveness as today, plus H2; the cap (I9); the textarea height (I10) by
-  live check; the mount harness. Rev 3's scenarios 1 to 4, 9 to 15 and 21 carry over, with 11 and
-  12 on the harness.
-- **The lock's scope:** S2 decides whether I-S10 locks every record or only the origin's.
-- **Notices for the maintainer, with S2's plan:** two chats holding one id share one draft
-  (`MC-078`); a chat whose id cannot be filled gets no draft.
+**Base:** `2177f7d2`. S0 (`b05231c6`) and S1 (`1bc5f288`) are in. Scoping packet: ledger row 291.
+**Decisions:** `MC-072`, `MC-073`, `MC-075`, `MC-078`, `MC-089`, `MC-091`, `MC-097` to `MC-100`,
+and `MC-102` (the lock stays global; two chats holding one id share one draft).
 
-## 8. Limitations
+### 7.1 Scope
+
+**S2 delivers:**
+- per-chat composer records at module level, which become H1;
+- the id fill at the first write;
+- put-backs to the origin's record, which removes S1's interim limits (section 8);
+- late writers bound to the record they started in (`MC-072` 2);
+- on-screen liveness (`MC-072` 3), the cap and the textarea height;
+- a `DefaultChatScreen` mount harness;
+- **`CHORE-44`, folded in** (an `MC-091` amendment):
+  - **The failures:**
+    - after a remount, auto mode cannot be stopped from the composer on screen, and its loop keeps
+      generating until the selected character changes;
+    - after a remount, the busy button cannot abort a generation that is already running. The
+      controller it aborts is the clicked instance's own, which is `null` in a new instance
+      (Gate 1 round 1's probe, run against `2177f7d2`). That breaks I-S8's last bullet
+      (`MC-099`) across a remount.
+  - **The shared cause:** composer state held per component instance, which a remount resets.
+    S2 moves the composer's values out of the instance for the same reason.
+  - **The smallest correction:** auto mode's running state and the current action's generation
+    controller become module state, beside S1's window.
+
+**S2 does not do:**
+- the reroll history (`MC-100` 2, `CHORE-43`);
+- generation after a mid-send switch (`MC-097` 1, W2);
+- `sendPofile` (`MC-098` 2);
+- `/` commands' own reads (`MC-075` 1, W3);
+- persistence: drafts stay in memory, as today.
+
+### 7.2 The loss surface at `2177f7d2`
+
+| Item | Where |
+|---|---|
+| **One composer for every chat.** `messageInput`, `messageInputTranslate` and `fileInput` are component `$state`. On desktop, text typed in A shows in B and a Send there sends it into B. On mobile, and on desktop through Settings, the grid or a theme change, a remount drops it | `DefaultChatScreen.svelte`; mounted through `ChatScreen.svelte` from `App.svelte` and `MobileBody.svelte` |
+| **A put-back goes to the sending instance** (`record.source`). After a remount it lands in the unmounted instance and is lost. After a switch it shows in the chat now on screen | `sendMain`'s `finally` and `abortChat` in `composerActions.svelte.ts` |
+| **Late writers write the instance's live fields.** A paste or Post File that resolves after a switch lands in the chat on screen. The translation paths compare and write the live fields | `DefaultChatScreen.svelte`'s `onpaste` and Post File handlers; `updateInputTransateMessage` |
+| **Auto mode and the generation's abort controller are per instance** (`CHORE-44`) | `autoMode` and `abortController` in `DefaultChatScreen.svelte`; `runAutoMode`, `sendChatMain` and `abortChat` |
+
+### 7.3 Invariants
+
+S1's I-S1 to I-S10 stay in force. H1 is now the origin's per-chat record.
+
+**D1. The per-chat record is the composer's state.**
+- Records live at module level. Each holds the three values.
+- The composer on screen reads and writes the record for the on-screen key directly: one copy,
+  with no mirror in the component.
+- A switch changes which record is shown, and nothing is copied. A remount shows whatever the
+  record holds.
+- The three values belong to one record. A record whose three values are all empty is dropped
+  at once, so it never counts toward the cap (D8) and never outlives the write that emptied it.
+
+**D2. The key.**
+- The key is the owner's `chaId` plus `chat.id` for the chat on screen,
+  `characters[selectedCharID].chats[chatPage]`.
+- It never contains an index or an object identity.
+- It is **not** `chatWindowKey`: that helper falls back to a per-object `WeakMap` key for an
+  id-less chat, which is the alias rev 1 was rejected for.
+- **With no chat object on screen** (Home, an out-of-range `chatPage`), there is no record, and
+  nothing is shown or written.
+- **Two chats of one owner holding one id** share one record (`MC-102` 2). By the same reasoning,
+  two owners holding one `chaId` share the records of chats whose ids also match.
+- **A chat object replaced by one with the same id** (a cold restore, a plugin write, Lua
+  `setFullChat`) keeps its record.
+
+**D3. Ids are filled at the first write, never by showing.**
+- **When:** a write to the on-screen chat while its owner's `chaId` or its `chat.id` is missing.
+- **How:** first fill the ids through `beginWork` on the live objects, then write under the
+  resulting key. After that the chat's key never changes.
+- **The fill leaves no registration.** The handle `beginWork` returns is ended at once, so
+  `isWriting` never stays true for a keystroke.
+- **Where:** fills run only from event handlers (the textarea's `input` listener, a late writer's
+  start), never inside a `$derived`, an `$effect` or the template.
+- **If `beginWork` refuses** the on-screen chat, the write goes to a transient record bound to
+  that chat object.
+  - It is never stored, never shown under another chat, and is dropped when the chat leaves the
+    screen.
+  - A Send from it is refused by I-S1's `beginWork` rule.
+  - This is not expected to be reachable: the on-screen chat is read through `DBState`.
+- **Reachability.** No route that produces an id-less chat within a session was found at
+  `2177f7d2`: W0 fills at creation and import, and the plugin install routes fill missing ids
+  through `chatIds.ts`'s install helpers. The fill is a backstop.
+
+**D4. Showing is not writing.** Switching to a chat, a remount, or re-deriving the key never
+creates, modifies or re-timestamps a record. Only a write to one of the three values does.
+
+**D5. A send's values leave and return through the origin's record.**
+- The take moves the on-screen record's three values to H2 (I-S1). The record on screen at the
+  take is the origin's, since the key and the origin come from the same ids.
+- **Every put-back (I-S2, I-S8) writes to the origin's record by its key:**
+  - whether or not that record is on screen;
+  - whichever composer instance is mounted, or none;
+  - under I-S2's put-back rule, applied to that record.
+- **A put-back never writes any other record.**
+- **A gone origin's** put-back lands in a record that is never shown again and ages out (D8).
+- **An ambiguous origin** appends as W1a decided, and so has no put-back.
+
+**D6. Late results go to the record they started in (`MC-072` 2).**
+- **Which writers:** each writer that resolves after an await captures the key when it starts
+  (filling ids per D3):
+  - the paste `FileReader` → `postChatFile`;
+  - Post File's `postChatFile`;
+  - both directions of `updateInputTransateMessage`, including the experimental translator's
+    delayed path.
+- **At resolve,** it writes to that key's record, on screen or not.
+- **A translation** writes the derived field only if that record's source field still holds
+  exactly the text that was translated. Otherwise it is discarded. S1 checks this on the live
+  fields; S2 checks it on the record.
+- **Synchronous writers** write the on-screen record within the same handler:
+  - the sticker `onSelect`;
+  - `Suggestion.svelte`'s two buttons;
+  - the staged file's remove button;
+  - the synchronous clears in `updateInputTransateMessage`.
+- **Every write goes through the record's write,** including today's in-place edits (`push`,
+  `splice`, `+=`), so D3's fill and D8's write time apply to it. The empty view shown for a chat
+  with no record is never mutated.
+- I-S10's lock checks stay where S1 put them, at each writer's start.
+
+**D7. Liveness (`MC-072` 3).**
+- While the **on-screen** record is non-empty, the composer holds its one `COMPOSER_DRAFT_KIND`
+  registration, as today.
+- H2 registers as in S1.
+- Records not on screen register nothing. They never reach `hasLocalDrafts()`,
+  `hasMessageEditorDrafts()`, the window policy or the multi-tab gate.
+- The composer does not use `draftContents.ts` or `draftContentOrphanGate.ts`.
+
+**D8. Bounded.**
+- **The cap:** stored records are capped by the composer's own constant. It is of the same order
+  as `DRAFT_CONTENT_RECORD_LIMIT` (200) but not shared with it.
+- **Eviction:**
+  - the least recently **written** record goes first, and is dropped silently (7.7);
+  - the record on screen is never evicted;
+  - a record for a deleted chat is never shown again, and ages out.
+
+**D9. The height follows the shown text, whoever writes it.**
+- Both inputs are sized to the text of the record on screen, as typing sizes them today.
+- This holds when a different record is shown, and after any write to the shown record:
+  typing, a put-back, a late result or a clear.
+- It holds after a remount too. No writer has to resize an instance itself, since the instance
+  that started an operation may be gone.
+
+**D10. The lock is global (`MC-102` 1).** I-S10 is unchanged. From a take until its hand-off or
+put-back, every composer is read-only, whichever record it shows. Switching is not refused
+(`MC-073`).
+
+**D11. Auto mode is module state (`CHORE-44`).**
+- **Running:** whether auto mode is running is held at module level, and every composer instance
+  shows it.
+- **Stopping:** a toggle in any instance, including one mounted after the loop started, stops the
+  loop after its current tick.
+- **Starting:** it is refused while the window is open (I-S3), as in S1.
+- The loop's existing stop, when the selected character changes, stays.
+
+**D12. The busy button in any instance aborts the current generation (`CHORE-44`, `MC-099`).**
+- The abort controller of the generation the window's current action started is module state.
+  It is not held per instance.
+- Once a send has appended, or during a reroll or an auto-mode tick, the busy button
+  in any composer instance aborts that generation. That includes an instance mounted after the
+  generation started.
+- Before the append, I-S8's cancel is unchanged.
+
+**Mechanism (non-normative).**
+- **A module** such as `src/ts/process/composerDrafts.svelte.ts` holds:
+  - a map from key to a reactive record;
+  - a `peek(key)` that returns the stored record, or a shared empty view that is never stored;
+  - `write`, `take`, `putBack`, the cap, and the key and fill helpers.
+- **The component** binds with function bindings (`bind:value={getter, setter}`). The setter runs
+  from the `input` listener (Svelte 5.56.8, ledger row 274). Svelte also calls it once at mount
+  when the getter returns `null` or `undefined`, so the getter always returns a string.
+- **Where records are created:** never in a `$derived` or the template, which would hit
+  `state_unsafe_mutation`.
+- **The source:** `composerActions.svelte.ts` reaches the records by key, not through the
+  instance's `composerSource`. The source keeps only the instance-held reroll history and
+  `closeMenu`; the controller (D12) and auto mode (D11) move to the module.
+- **The height (D9):** one effect on the shown values. A `$effect.pre` runs before the DOM value
+  updates, so it would measure the old text.
+
+### 7.4 Acceptance scenarios
+
+Each scenario is a test unless marked live.
+- **Red:** it fails against `2177f7d2` on a behavioural assertion.
+- **Guard:** it passes before and after.
+- **Spec:** a specification test on the new draft module, which has no counterpart before the
+  change. It is neither red nor a guard.
+
+The harness scenarios run on the new `DefaultChatScreen` mount harness, which is built and run
+against `2177f7d2` first.
+
+1. **Switch** (red, harness): in A, type text, stage a file and set the translation. Switch to B:
+   another character, and separately another chat of the same character.
+   - B's composer is empty.
+   - A Send from B carries nothing of A's.
+   - Back in A, all three values are there.
+2. **Return to origin** (spec on the module; guard on the harness): A → B → A without typing in B. A's values are there,
+   and no record exists for B.
+3. **Branch, Copy, New Chat** (red, harness): type in A, then Branch; separately Copy; separately
+   each New Chat button. The new chat's composer is empty, and A keeps its text.
+4. **Remount** (red, harness):
+   - Type in A, then unmount and remount. A's text is there.
+   - Send in A to completion, then remount. The sent text does not come back.
+5. **Put-back after a remount** (red): Send in A with an input trigger that never settles. Remount,
+   then cancel from the new instance. The new instance shows A's three original values.
+6. **Put-back after a switch** (red on `composerActions`, where at `2177f7d2` B's composer, the
+   one shared source, receives A's put-back; spec for the record half on the draft module):
+   - B holds its own draft. Send in A with a slow trigger, switch to B, and cancel.
+     - B's composer is unchanged.
+     - Back in A, A's original values are there.
+   - Separately, delete A's chat during the wait:
+     - nothing is appended anywhere;
+     - B's record is untouched.
+7. **Id fill at the first write** (spec on the module; on the harness, the first bullet is red
+   and the other two are guards):
+   - An id-less chat, installed on the live database and shown, is typed into once.
+     - Its id, and a missing `chaId`, are filled.
+     - `isWriting` is false afterwards, and the text is kept.
+     - More typing, then a switch away and back, keeps it under the same key.
+   - Showing an id-less chat and leaving it without typing fills nothing.
+   - A same-id object replacement keeps the draft.
+8. **Late file or paste** (red, harness): start in A, switch to B, then resolve.
+   - B is unchanged.
+   - Back in A, the file is staged and any text result is appended.
+9. **Late translation** (red): start a translation in A, switch to B, then resolve.
+   - B is unchanged, and A's derived field holds the result.
+   - If A's source field was edited before it resolved, the result is discarded.
+   - Covered for both directions, and for the experimental translator's delayed path.
+10. **Liveness:**
+    - With text stored for A and nothing in B on screen, `hasLocalDrafts()` is false (red on the
+      harness: at `2177f7d2` A's text is still in the shared composer, and registered).
+    - With text on screen, it is true (guard).
+    - A stored record never makes `hasMessageEditorDrafts()` true (spec on the module; guard on
+      the harness).
+11. **Showing is not writing** (spec): switching to a chat with no record, and back, creates no record.
+    Switching to a chat with a record does not alter or re-timestamp it; the eviction order shows
+    this.
+12. **Cap** (spec): past the cap, the least recently written record goes, never the one on screen.
+13. **Duplicate id** (spec, `MC-102` 2): two chats of one owner holding one id show one draft.
+14. **Auto mode across a remount** (red): start auto mode, remount, then toggle it off in the new
+    instance. The loop stops after its current tick.
+15. **Generation abort across a remount** (red): a generation is running, started by a Send
+    that has appended and, separately, by an auto-mode tick. A second source (a remounted
+    composer) clicks the busy button, and that generation's signal is aborted.
+16. **S1's suite** (guard): `src/ts/process/tests/composerActions.svelte.test.ts` passes, changed only where the source
+    shape changes, and every one of its scenarios is kept.
+17. **Live check, production build with Echo:**
+    - the height follows the shown text (D9): a multi-line draft in A and a one-line one in B,
+      and a multi-line put-back after a remount;
+    - the busy button aborting generation after a remount (D12);
+    - scenario 1 on desktop;
+    - a put-back after a remount through the mobile chat list;
+    - auto mode stopped from a remounted composer;
+    - S1's unexercised items: Korean IME Enter, Post File, a sticker and a suggestion.
+
+### 7.5 Compatibility
+
+- **No change to** the save format, the plugin API, CBS, Lua or triggers. Drafts stay in memory
+  only.
+- **Nothing outside the composer reads its values** (row 291's grep: only
+  `DefaultChatScreen.svelte`, and `Suggestion.svelte` through a callback prop).
+- **The id fill** writes `chat.id` or `chaId` on live objects and marks the character for save,
+  as `beginWork` does today at a send. It now happens at the first keystroke instead.
+- **Every theme, the mobile layout and customHTML** mount the same `DefaultChatScreen`.
+
+### 7.6 Tests and checks
+
+- **The draft module:** scenarios 2, 7, 11, 12 and 13, plus the record half of 6 and 10.
+- **`src/ts/process/tests/composerActions.svelte.test.ts`:** scenarios 5, 6, 9, 14, 15 and 16.
+- **The mount harness:** scenarios 1, 3, 4 and 8, plus the wiring half of 2, 7 and 10.
+  - It is built on the pattern of `Chat.messageEditor.svelte.test.ts` and
+    `composerActions.svelte.test.ts`'s mocks.
+  - Harness scenarios drive the real component; only services outside it are mocked.
+- **Red evidence:** each red scenario's failure against `2177f7d2`, with its reason, is recorded
+  in the gate record. A failure caused by a missing module or export proves nothing. Spec tests
+  on the new draft module make no red claim.
+- **Checks:** the Orchestrator runs the full suite, `pnpm check` and `pnpm run build` on the final
+  snapshot, then the live check.
+
+### 7.7 Limitations
+
+- **A reload drops composer drafts,** as today. A multi-tab reload drops stored drafts for chats
+  not on screen (`MC-072` 3). That includes a put-back to a record not on screen.
+- **Two chats holding one id share one draft** (`MC-102` 2), and so do chats with matching ids
+  under two owners holding one `chaId`. Boot repairs such duplicates; a plugin can create one
+  within a session. Anything sent is visible in the composer first.
+- **Past the cap, the least recently written draft is dropped silently** (D8). A put-back to a
+  deleted chat counts as a write, so its record ages out like any other.
+- **The id fill can move the chat list's view.** The chat window policy sees a new key when an
+  id-less chat gains its id. Unless a message editor is open, it resets the loaded page window,
+  as a switch does. This happens only for id-less chats, for which no in-session route was
+  found (D3). It happens at `2177f7d2` too, at the first send.
+- **A chat whose id cannot be filled** gets only a transient draft (D3). This is not expected to
+  be reachable.
+- **The reroll history** stays per instance (`MC-100` 2, `CHORE-43`).
+
+## 8. Limitations (S1)
 
 **Covered by maintainer decisions:**
 - Generation after a mid-send switch runs on the chat on screen until W2 (`MC-097` 1).
@@ -802,3 +1085,199 @@ The Orchestrator re-checked M2, m6 and the IME handler in source.
   - Post File;
   - stickers and suggestions (review only).
 - **Cleanup:** the server was stopped, and `save/` restored and verified by SHA-256.
+
+### S2 plan, rev 8 — 2026-09-28
+
+- Written from the scoping packet (ledger row 291) and the maintainer's `MC-102`.
+- `CHORE-44` is folded in under `MC-091` (section 7.1).
+
+### S2 Gate 1 round 1 — `opus-reviewer` (fresh), rev 8 — **[REJECT]** (ledger row 292)
+
+The Orchestrator re-checked MAJOR-1, MINOR-3 and E1 in source.
+
+- **Sound:**
+  - D5 against S1 as built: the take and origin share one read, and the put-back runs once.
+  - D2's refusal of `chatWindowKey`.
+  - D3: `beginWork` is safe in an event handler, and Svelte 5.56.8's bind setter runs from the
+    `input` listener, outside any reactive context. Nothing fills ids inside a derivation.
+  - D6's late-writer list, D7, D10, D11's failure statement, 7.2 and 7.5, and harness
+    feasibility.
+  - Red labels on scenarios 1, 3, 4, 5, 6, 8, 9 and 14 (traced).
+- **MAJOR-1:** after a remount, the busy button cannot abort a running generation. `abortChat`
+  aborts the clicking instance's own controller, which is `null` in a new instance. The reviewer's
+  probe confirmed it against `2177f7d2`. It has `CHORE-44`'s cause, and the plan named no home for
+  the controller. The Roadmap's `CHORE-44` text also said the button "aborts only the current
+  generation"; it aborts nothing.
+- **MINORs:**
+  - D9 covered only a change of record, not writes to the shown record from outside the instance,
+    such as a put-back after a remount;
+  - D8 let empty records count toward the cap, and did not disclose eviction loss;
+  - D6 omitted the staged file's remove button and the experimental translator's synchronous
+    clears, and did not require in-place edits to go through the record write;
+  - the scenario labels: 10's first bullet is red, 13 cannot be a guard on a new module, 2, 7, 11
+    and 12 were unlabelled, and the "stub" rule had no meaning for a new store.
+- **Editorial:**
+  - no in-session route to an id-less chat was found (the plugin install routes fill ids);
+  - two owners sharing a `chaId` share records too;
+  - the bind getter must never return `null` or `undefined`;
+  - the test file's path.
+
+### S2 plan, rev 8.1 — 2026-09-28
+
+- MAJOR-1 → D12 (the generation's controller is module state) and scenario 15. The Roadmap's
+  `CHORE-44` text is corrected.
+- MINOR-1 → D9 (the height follows the shown text, whoever writes it).
+- MINOR-2 → D1 (empty records are dropped at once) and a 7.7 disclosure. Eviction stays
+  least-recently-written, with no new rule for dead records.
+- MINOR-3 → D6 (the full synchronous list; every write goes through the record).
+- MINOR-4 → the red, guard and spec labels in 7.4 and 7.6.
+- Editorials → D2, D3, the mechanism, and 7.7.
+
+### S2 Gate 1 round 2 — the round-1 reviewer (reuse), rev 8.1 — **[EDITORIAL]**, closed (ledger row 293)
+
+- Every round-1 finding is fixed. D12 was traced against `abortChat`, `sendMain` and
+  `sendChatMain`:
+  - I-S8's in-flight cancel is untouched;
+  - after the append, the only controller left is the send's own;
+  - a stale, aborted controller is harmless.
+- MINOR-2's answer (drop empty records, disclose eviction) was judged sufficient.
+- **Editorial, applied as rev 8.2 and checked in source by the Orchestrator:**
+  - scenario 7's harness labels;
+  - scenario 6's red half;
+  - D12 no longer lists unreroll, which starts no generation;
+  - D3's citation of the plugin install helpers;
+  - optional: scenario 10's third bullet is labelled, and the Roadmap's `CHORE-44` shape names the
+    controller.
+- **Gate 1 for S2 is passed.**
+
+### Build — S2 (ledger rows 294-296)
+
+- **Red tests first** (row 294). The new `DefaultChatScreen` mount harness drives the real
+  component. It had 20 tests against `2177f7d2`: 15 red and 5 guards.
+- **The fix** (row 295). It adds `src/ts/process/composerDrafts.svelte.ts` and changes
+  `composerActions.svelte.ts` and `DefaultChatScreen.svelte`. S1's suite was changed only for
+  the source shape.
+- **Spec tests and coverage** (row 296). The draft module got 10 spec tests, and the harness
+  gained 7 more tests.
+- **Final snapshot:** 142 files, 1755 passed and 4 skipped; `pnpm check` clean; the build
+  passes.
+
+### S2 Gate 2 round 1 — `opus-reviewer` (fresh) — **[REJECT]** (ledger row 297)
+
+The Orchestrator re-checked MAJOR-1 in source.
+
+- **Sound:**
+  - the invariants, as implemented:
+    - D1-D5: every put-back goes by the origin's key;
+    - D6: no in-place edit is left, and every late writer captures its key at the start;
+    - D7-D11;
+    - D12, apart from MAJOR-1's window;
+  - Svelte reactivity: no write is reachable from a derivation, and the binding getter always
+    returns a string;
+  - S1's suite: the same 42 titles, and no assertion was weakened;
+  - compatibility;
+  - the 15 reds, re-run against `2177f7d2` through a load-hook swap;
+  - of 23 mutants, all but four were killed.
+- **MAJOR-1 (logic):**
+  - After the append and before generation, which is the `sleep(10)` gap, a busy-button click
+    aborted the previous generation's controller, or nothing.
+  - The send's own controller became module state only inside `sendChatMain`.
+  - At `2177f7d2`, the take published it at once, so this broke D12 and I-S8's last bullet.
+  - The reviewer's probe confirmed it.
+- **MAJOR-2 (test):** nothing checked that a late Post File, paste or forward-translation result
+  lands in A's record. Three mutants that silently drop an off-screen result survived.
+- **MINORs:**
+  - the spec tests could not tell "least recently written" from "least recently created"
+    (mutant M7 survived);
+  - if `sendChatMain` throws, `runAutoMode`'s `finally` leaves `autoModeRunning` set.
+- **Editorial:**
+  - three `guard:` tests are reproducers: at `2177f7d2` they fail;
+  - two comments narrate history;
+  - two comments name `composerDrafts.ts`;
+  - the `SvelteMap` comment's staleness claim.
+
+### S2 remediation — 2026-09-28 (ledger row 298)
+
+- **Tests first.**
+  - A reproducer for MAJOR-1. It was red before the source fix: `signal.aborted` was false.
+  - MAJOR-2's switch-back assertions, and MINOR-1's rewrite spec.
+  - Scenario 1 now checks all three values on returning, and scenario 7 checks the key is stable.
+  - The three reproducers lost their `guard:` prefix, and two comments were rewritten.
+- **Source.**
+  - The send's controller is published at the take.
+  - `runAutoMode`'s `finally` clears `autoModeRunning`.
+  - Two file names in comments, and the `SvelteMap` comment.
+
+### S2 Gate 2 round 2 — the round-1 reviewer (reuse) — **[APPROVE]** (ledger row 298)
+
+- **Every finding is fixed.**
+  - The reproducer fails with the round-1 source swapped in, and passes now.
+  - Mutants M7, M15a, M15b, M15d, M16 and M18 are killed.
+  - Against `2177f7d2`, the harness has 18 failing and 9 passing. The 9 that pass are exactly the
+    tests titled `guard:`.
+- **The early publish was traced** against a cancelled in-flight send, a following reroll or
+  auto-mode tick, and a handled `/` command. Probes P2 to P4 pass, and no new defect was found.
+- **Optional:** M17 survived, because the `finally` clear had no test. A test was added after the
+  approval (row 299).
+
+### After approval — S2 (ledger row 299)
+
+- **The optional MINOR-2 test:** "a generation that throws during an auto-mode tick leaves auto
+  mode stopped". It fails against a scratchpad mutant without the `finally` clear (`expected true
+  to be false`).
+- **Final snapshot:** 142 files, 1758 passed and 4 skipped; `pnpm check` is clean; the production
+  build ran after the last source change.
+
+### Live check — S2 — passed (ledger row 299)
+
+- **Setup:** a production build on the Node server, in Chrome, with Echo (3 s delay) set in
+  Settings.
+  - Alpha has two chats and a Lua `onInput` that sleeps 8 s.
+  - Beta has one chat.
+  - The group Gamma has Alpha and Beta as members.
+  - A remount is a Settings round trip. A tag on the textarea element showed that a new element
+    was created each time.
+- **Switch (scenario 1) and height (D9):**
+  - Alpha's four-line draft was 128 px.
+  - Beta, and Alpha's other chat, showed an empty 44 px composer.
+  - Back in Alpha, the four lines were there at 128 px.
+- **Put-back after a remount (scenario 5):**
+  - The composer was locked and empty during the wait in the new element.
+  - A physical busy click restored all three lines at 100 px.
+  - Nothing was appended in the 10 s after.
+- **Put-back after a switch (scenario 6):**
+  - During Alpha's wait, Beta showed its own draft, read-only (`MC-102` 1).
+  - The cancel left Beta's draft as it was, and Alpha's text was back in Alpha.
+  - Nothing was appended.
+- **Abort after a remount (D12):** Send in Beta, a remount, then a busy click during Echo's delay.
+  No reply was appended.
+- **Auto mode after a remount (D11):**
+  - In Gamma, the remounted composer showed auto mode running (`autoload`).
+  - Toggling it off there let the current tick finish (2 to 3 messages), and nothing more was
+    generated in 18 s.
+- **Not live:**
+  - the Korean IME Enter;
+  - Post File (the native picker);
+  - stickers and suggestions (harness and review only).
+- **Cleanup:**
+  - The server was stopped by PID, and the port was confirmed closed.
+  - `save/` was restored and verified by SHA-256 (6 files, no mismatch). The two backups the
+    check created were moved to the scratchpad.
+  - The Chrome tab is still open for the maintainer to close, because of the leave-site guard.
+
+### Commit-message check — S2 — the Gate 2 reviewer (reuse) — **[EDITORIAL]**, closed (ledger row 300)
+
+- **Correction to the gate record above:** the MAJOR-1 test is a **guard** against `2177f7d2`,
+  not a reproducer.
+  - `2177f7d2` already published the send's controller at the take
+    (`source.abortController.set(controller)`), and probe P1 passes there.
+  - The gap was a regression in this change's first implementation, which moved the controller
+    to module state. The test was renamed `guard: …`.
+- **The auto-mode throw test is a reproducer against `2177f7d2`:** probe P5 fails there, because
+  the flag stays true.
+- **The message was corrected:**
+  - the controller publish is described as kept behaviour;
+  - the auto-mode fix is added;
+  - both tests are labelled, with P5's pre-fix failure;
+  - the silent eviction past 200 drafts is added to "Known limits", with the optional limits;
+  - the id fill and resize wordings are made precise.
