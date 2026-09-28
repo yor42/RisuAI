@@ -8,6 +8,7 @@ import { defaultHotkeys } from "./defaulthotkeys"
 import { doingChat, previewBody, sendChat } from "./process/index.svelte"
 import { RISU_SIDEBAR_DRAG_TYPE } from "./dragTypes"
 import { shouldYieldToFocusedControl } from "./hotkeyYield"
+import { changeChar } from "./characters"
 
 export function initHotkey(){
     document.addEventListener('keydown', async (ev) => {
@@ -98,32 +99,44 @@ export function initHotkey(){
                     const sorted = database.characters.map((v, i) => {
                         return {name: v.name, i}
                     }).sort((a, b) => a.name.localeCompare(b.name))
+                    if(sorted.length === 0){
+                        return
+                    }
                     const currentIndex = sorted.findIndex(v => v.i === get(selectedCharID))
                     if(currentIndex === 0){
                         return
                     }
-                    if(currentIndex >= sorted.length - 1){
-                        return
+                    const targetIndex = currentIndex === -1 ? sorted.length - 1 : currentIndex - 1
+                    const target = sorted[targetIndex].i
+                    ev.preventDefault()
+                    ev.stopPropagation()
+                    await changeChar(target)
+                    if(get(selectedCharID) === target){
+                        PlaygroundStore.set(0)
+                        OpenRealmStore.set(false)
                     }
-                    selectedCharID.set(sorted[currentIndex - 1].i)
-                    PlaygroundStore.set(0)
-                    OpenRealmStore.set(false)
                     break
                 }
                 case 'nextChar':{
                     const sorted = database.characters.map((v, i) => {
                         return {name: v.name, i}
                     }).sort((a, b) => a.name.localeCompare(b.name))
+                    if(sorted.length === 0){
+                        return
+                    }
                     const currentIndex = sorted.findIndex(v => v.i === get(selectedCharID))
-                    if(currentIndex === 0){
+                    if(currentIndex === sorted.length - 1){
                         return
                     }
-                    if(currentIndex >= sorted.length - 1){
-                        return
+                    const targetIndex = currentIndex === -1 ? 0 : currentIndex + 1
+                    const target = sorted[targetIndex].i
+                    ev.preventDefault()
+                    ev.stopPropagation()
+                    await changeChar(target)
+                    if(get(selectedCharID) === target){
+                        PlaygroundStore.set(0)
+                        OpenRealmStore.set(false)
                     }
-                    selectedCharID.set(sorted[currentIndex + 1].i)
-                    PlaygroundStore.set(0)
-                    OpenRealmStore.set(false)
                     break
                 }
                 case 'quickMenu':{

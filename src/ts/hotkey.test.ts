@@ -63,6 +63,16 @@ vi.mock(import('./process/index.svelte'), () => {
     } as unknown as typeof import('./process/index.svelte')
 })
 
+// prevChar/nextChar route through changeChar, imported from characters.ts.
+// This file only exercises the shouldYieldToFocusedControl wiring, so a
+// stand-in keeps the real characters.ts (and its own heavy import graph)
+// out of this test's minimal mocks.
+vi.mock(import('./characters'), () => {
+    return {
+        changeChar: vi.fn(),
+    } as unknown as typeof import('./characters')
+})
+
 //#endregion
 
 import { initHotkey } from './hotkey'
