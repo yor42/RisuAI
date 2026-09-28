@@ -1,4 +1,5 @@
 import { getChatVar, getGlobalChatVar } from '../parser/chatVar.svelte';
+import type { RunSubject } from './chatOrigin';
 
 function toRPN(expression:string) {
     let outputQueue = '';
@@ -112,16 +113,16 @@ function calculateRPN(expression:string) {
     return stack.pop()
 }
 
-function executeRPNCalculation(text:string) {
+function executeRPNCalculation(text:string, subject?: RunSubject) {
     text = text.replace(/\$([a-zA-Z0-9_]+)/g, (_, p1) => {
-        const v = getChatVar(p1)
+        const v = getChatVar(p1, subject)
         const parsed = parseFloat(v)
         if(isNaN(parsed)){
             return "0"
         }
         return parsed.toString()
     }).replace(/\@([a-zA-Z0-9_]+)/g, (_, p1) => {
-        const v = getGlobalChatVar(p1)
+        const v = getGlobalChatVar(p1, subject)
         const parsed = parseFloat(v)
         if(isNaN(parsed)){
             return "0"
@@ -140,7 +141,7 @@ function executeRPNCalculation(text:string) {
     return evaluated
 }
 
-export function calcString(text:string) {
+export function calcString(text:string, subject?: RunSubject) {
     let depthText:string[] = ['']
 
     for(let i = 0; i < text.length; i++) {
@@ -148,7 +149,7 @@ export function calcString(text:string) {
             depthText.push('')
         }
         else if(text[i] === ')' && depthText.length > 1) {
-            let result = executeRPNCalculation(depthText.pop())
+            let result = executeRPNCalculation(depthText.pop(), subject)
             depthText[depthText.length - 1] += result
         }
         else {
@@ -156,5 +157,5 @@ export function calcString(text:string) {
         }
     }
 
-    return executeRPNCalculation(depthText.join(''))
+    return executeRPNCalculation(depthText.join(''), subject)
 }

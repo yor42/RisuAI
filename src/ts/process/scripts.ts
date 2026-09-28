@@ -11,6 +11,7 @@ import { HypaProcesser } from "./memory/hypamemory";
 import { runLuaEditTrigger } from "./scriptings";
 import { pluginV2 } from "../plugins/plugins.svelte";
 import { runTrigger } from "./triggers";
+import { createRunSubject, type Origin, type RunSubject } from "./chatOrigin";
 
 const dreg = /{{data}}/g
 const randomness = /\|\|\|/g
@@ -23,8 +24,8 @@ type pScript = {
     actions: string[]
 }
 
-export async function processScript(char:character|groupChat, data:string, mode:ScriptMode, cbsConditions:CbsConditions = {}){
-    return (await processScriptFull(char, data, mode, -1, cbsConditions)).data
+export async function processScript(char:character|groupChat, data:string, mode:ScriptMode, cbsConditions:CbsConditions = {}, origin?:Origin){
+    return (await processScriptFull(char, data, mode, -1, cbsConditions, origin)).data
 }
 
 export function exportRegex(s?:customscript[]){
@@ -68,13 +69,13 @@ export async function importRegex(o?:customscript[]):Promise<customscript[]>{
 let bestMatchCache = new Map<string, string>()
 let processScriptCache = new Map<string, string>()
 
-function generateScriptCacheKey(scripts: customscript[], data: string, mode: ScriptMode, chatID = -1, cbsConditions: CbsConditions = {}) {
+function generateScriptCacheKey(scripts: customscript[], data: string, mode: ScriptMode, chatID = -1, cbsConditions: CbsConditions = {}, subject?: RunSubject) {
     let hash = data + '|||' + mode + '|||';
     for (const script of scripts) {
         if(script.type !== mode){
             continue
         }
-        hash += `${script.flag?.includes('<cbs>') ? risuChatParser(script.in, { chatID: chatID, cbsConditions }) : script.in}|||${script.out}${chatID}|||${script.flag ?? ''}|||${script.ableFlag ? 1 : 0}`;
+        hash += `${script.flag?.includes('<cbs>') ? risuChatParser(script.in, { chatID: chatID, cbsConditions, subject }) : script.in}|||${script.out}${chatID}|||${script.flag ?? ''}|||${script.ableFlag ? 1 : 0}`;
     }
     return hash;
 }
@@ -96,10 +97,11 @@ export function resetScriptCache(){
     processScriptCache = new Map()
 }
 
-export async function processScriptFull(char:character|groupChat|simpleCharacterArgument, data:string, mode:ScriptMode, chatID = -1, cbsConditions:CbsConditions = {}){
+export async function processScriptFull(char:character|groupChat|simpleCharacterArgument, data:string, mode:ScriptMode, chatID = -1, cbsConditions:CbsConditions = {}, origin?:Origin){
     let db = getDatabase()
     let emoChanged = false
-    data = await runLuaEditTrigger(char, mode, data, { index:chatID })
+    const subject = origin ? createRunSubject(origin) : undefined
+    data = await runLuaEditTrigger(char, mode, data, { index:chatID }, origin)
 
     if(mode === 'editdisplay'){
         const currentChar = getCurrentCharacter()
@@ -130,9 +132,9 @@ export async function processScriptFull(char:character|groupChat|simpleCharacter
         }
     }
 
-    data = risuChatParser(data, { chatID: chatID, cbsConditions })
-    const scripts = (db.presetRegex ?? []).concat(char.customscript).concat(getModuleRegexScripts())
-    const hash = generateScriptCacheKey(scripts, data, mode, chatID, cbsConditions)
+    data = risuChatParser(data, { chatID: chatID, cbsConditions, subject })
+    const scripts = (db.presetRegex ?? []).concat(char.customscript).concat(getModuleRegexScripts(subject))
+    const hash = generateScriptCacheKey(scripts, data, mode, chatID, cbsConditions, subject)
     const cached = getScriptCache(hash)
     if(cached){
         return {data: cached, emoChanged: false}
@@ -175,7 +177,7 @@ export async function processScriptFull(char:character|groupChat|simpleCharacter
 
             let input = script.in
             if(pscript.actions.includes('cbs')){
-                input = risuChatParser(input, { chatID: chatID, cbsConditions })
+                input = risuChatParser(input, { chatID: chatID, cbsConditions, subject })
             }
 
             const reg = new RegExp(input, flag)
@@ -245,7 +247,7 @@ export async function processScriptFull(char:character|groupChat|simpleCharacter
                         }
                     }
                     else{
-                        data = risuChatParser(data.replace(reg, outScript), { chatID: chatID, cbsConditions })
+                        data = risuChatParser(data.replace(reg, outScript), { chatID: chatID, cbsConditions, subject })
                     }
                 }
                 else{
@@ -288,7 +290,7 @@ export async function processScriptFull(char:character|groupChat|simpleCharacter
                 }
             }
             else{
-                data = risuChatParser(data.replace(reg, outScript), { chatID: chatID, cbsConditions })
+                data = risuChatParser(data.replace(reg, outScript), { chatID: chatID, cbsConditions, subject })
             }
         }
     }

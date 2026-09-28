@@ -19,6 +19,7 @@ import { language } from 'src/lang';
 import katex from 'katex'
 import { getModelInfo } from '../model/modellist';
 import { registerCBS, type matcherArg, type RegisterCallback } from '../cbs';
+import type { RunSubject } from '../process/chatOrigin';
 import cssSelectorParser from 'postcss-selector-parser'
 
 const markdownItOptions = {
@@ -1106,7 +1107,7 @@ function matcher (p1:string,matcherArg:matcherArg,vars:{[key:string]:string}|nul
     try {
         if(p1.startsWith('? ')){
             const substring = p1.substring(2)
-            return calcString(substring).toString()
+            return calcString(substring, matcherArg.subject).toString()
         }
         const colonIndex = p1.indexOf(':')
         let splited: string[]
@@ -1307,7 +1308,7 @@ function blockStartMatcher(p1:string,matcherArg:matcherArg):{type:blockMatch,typ
                         break
                     }
                     case 'var':{
-                        const variable = getChatVar(condition)
+                        const variable = getChatVar(condition, matcherArg.subject)
                         if(isTruthy(variable)){
                             statement.push('1')
                         }
@@ -1317,7 +1318,7 @@ function blockStartMatcher(p1:string,matcherArg:matcherArg):{type:blockMatch,typ
                         break
                     }
                     case 'toggle':{
-                        const variable = getGlobalChatVar('toggle_' + condition)
+                        const variable = getGlobalChatVar('toggle_' + condition, matcherArg.subject)
                         if(isTruthy(variable)){
                             statement.push('1')
                         }
@@ -1327,7 +1328,7 @@ function blockStartMatcher(p1:string,matcherArg:matcherArg):{type:blockMatch,typ
                         break
                     }
                     case 'vis':{ //vis = variable is
-                        const variable = getChatVar(statement.pop())
+                        const variable = getChatVar(statement.pop(), matcherArg.subject)
                         if(variable === condition){
                             statement.push('1')
                         }
@@ -1337,7 +1338,7 @@ function blockStartMatcher(p1:string,matcherArg:matcherArg):{type:blockMatch,typ
                         break
                     }
                     case 'visnot':{ //visnot = variable is not
-                        const variable = getChatVar(statement.pop())
+                        const variable = getChatVar(statement.pop(), matcherArg.subject)
                         if(variable !== condition){
                             statement.push('1')
                         }
@@ -1347,7 +1348,7 @@ function blockStartMatcher(p1:string,matcherArg:matcherArg):{type:blockMatch,typ
                         break
                     }
                     case 'tis':{ //tis = toggle is
-                        const variable = getGlobalChatVar('toggle_' + statement.pop())
+                        const variable = getGlobalChatVar('toggle_' + statement.pop(), matcherArg.subject)
                         if(variable === condition){
                             statement.push('1')
                         }
@@ -1357,7 +1358,7 @@ function blockStartMatcher(p1:string,matcherArg:matcherArg):{type:blockMatch,typ
                         break
                     }
                     case 'tisnot':{ //tisnot = toggle is not
-                        const variable = getGlobalChatVar('toggle_' + statement.pop())
+                        const variable = getGlobalChatVar('toggle_' + statement.pop(), matcherArg.subject)
                         if(variable !== condition){
                             statement.push('1')
                         }
@@ -1613,6 +1614,7 @@ export function risuChatParser(da:string, arg:{
     functions?:Map<string,{data:string,arg:string[]}>
     callStack?:number
     cbsConditions?:CbsConditions
+    subject?:RunSubject
 } = {}):string{
     const chatID = arg.chatID ?? -1
     const db = arg.db ?? DBState.db
@@ -1621,8 +1623,13 @@ export function risuChatParser(da:string, arg:{
 
     if(aChara){
         if(typeof(aChara) !== 'string' && aChara.type === 'group'){
-            if(aChara.chats[aChara.chatPage].message.length > 0){
-                const gc = findCharacterbyId(aChara.chats[aChara.chatPage].message.at(-1).saying ?? '')
+            // With a target, the group's last speaker comes from the
+            // target's own chat, never `aChara`'s -- a gone or ambiguous
+            // target reads as no messages (an empty chat), not `aChara`'s
+            // own live chat, and never throws.
+            const groupChat = arg.subject ? arg.subject.resolve()?.chat : aChara.chats[aChara.chatPage]
+            if(groupChat && groupChat.message.length > 0){
+                const gc = findCharacterbyId(groupChat.message.at(-1).saying ?? '')
                 if(gc.name !== 'Unknown Character'){
                     chara = gc
                 }
@@ -1683,6 +1690,7 @@ export function risuChatParser(da:string, arg:{
         consistantChar: arg.consistantChar ?? false,
         cbsConditions: arg.cbsConditions ?? {},
         callStack: arg.callStack,
+        subject: arg.subject,
         getNested: () => {
             return nested
         },

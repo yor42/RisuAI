@@ -1,5 +1,5 @@
 import { get, writable, type Writable } from "svelte/store"
-import type { Database, Message } from "./storage/database.svelte"
+import type { Chat, Database, Message } from "./storage/database.svelte"
 import { getDatabase } from "./storage/database.svelte"
 import { DBState, selectedCharID } from "./stores.svelte"
 import {open} from '@tauri-apps/plugin-dialog'
@@ -117,24 +117,37 @@ export const replacePlaceholders = (msg:string, name:string) => {
                 .replace(/(\{\{((set)|(get))var::.+?\}\})/gu,'')
 }
 
-export function checkPersonaBinded(){
+// `chat` is optional. Omitted entirely, this reads the selected chat.
+// Passed as `null`, it means "a target chat was wanted but none resolved"
+// -- never falls back to the selection, so a gone or ambiguous target reads
+// as no persona bound (the global persona) rather than leaking the
+// selection's own binding.
+export function checkPersonaBinded(chat?: Chat | null){
     try {
         let db = DBState.db
-        const selectedChar = get(selectedCharID)
-        const character = db.characters[selectedChar]
-        const chat = character.chats[character.chatPage]
-        if(!chat.bindedPersona){
+        let c: Chat
+        if(chat !== undefined){
+            if(!chat){
+                return null
+            }
+            c = chat
+        } else {
+            const selectedChar = get(selectedCharID)
+            const character = db.characters[selectedChar]
+            c = character.chats[character.chatPage]
+        }
+        if(!c.bindedPersona){
             return null
         }
-        const persona = db.personas.find(v => v.id === chat.bindedPersona)
-        return persona 
+        const persona = db.personas.find(v => v.id === c.bindedPersona)
+        return persona
     } catch (error) {
         return null
     }
 }
 
-export function getUserName(){
-    const bindedPersona = checkPersonaBinded()
+export function getUserName(chat?: Chat | null){
+    const bindedPersona = checkPersonaBinded(chat)
     if(bindedPersona){
         return bindedPersona.name
     }
@@ -142,8 +155,8 @@ export function getUserName(){
     return db.username ?? 'User'
 }
 
-export function getUserIcon(){
-    const bindedPersona = checkPersonaBinded()
+export function getUserIcon(chat?: Chat | null){
+    const bindedPersona = checkPersonaBinded(chat)
     if(bindedPersona){
         return bindedPersona.icon
     }
@@ -151,8 +164,8 @@ export function getUserIcon(){
     return db.userIcon ?? ''
 }
 
-export function getPersonaPrompt(){
-    const bindedPersona = checkPersonaBinded()
+export function getPersonaPrompt(chat?: Chat | null){
+    const bindedPersona = checkPersonaBinded(chat)
     if(bindedPersona){
         return bindedPersona.personaPrompt
     }

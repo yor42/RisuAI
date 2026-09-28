@@ -29,7 +29,7 @@ export async function sendCharacterMessage(selectedChar: number, cha: Message[],
     try {
         await runTrigger(char, 'input', { chat: startChat, origin: workHandle.origin })
 
-        const data = await processScript(char, messageInput, 'editinput')
+        const data = await processScript(char, messageInput, 'editinput', {}, workHandle.origin)
 
         const status = originStatus(workHandle.origin)
         if (status === 'gone') {

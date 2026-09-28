@@ -16,7 +16,7 @@ import { getModuleLorebooks, getModuleTriggers } from "./modules";
 import { Mutex } from "../mutex";
 import { tokenize } from "../tokenizer";
 import { fetchNative, readImage } from "../globalApi.svelte";
-import { loadLoreBookV3Prompt } from './lorebook.svelte';
+import { loadLoreBookV3Prompt, snapshotSubject } from './lorebook.svelte';
 import { getPersonaPrompt, getUserName, getUserIcon, parseKeyValue } from '../util';
 import { createRunSubject, type Origin, type RunSubject } from "./chatOrigin";
 let luaFactory:LuaFactory
@@ -80,6 +80,20 @@ function ownerFor(state: ScriptingEngineState): character | groupChat | undefine
  */
 function markWriteFor(state: ScriptingEngineState): void {
     state.subject?.mark()
+}
+
+/**
+ * The chat a persona lookup (`getUserName`/`getUserIcon`/`getPersonaPrompt`)
+ * should bind to: `undefined` with no origin, so those functions fall back
+ * to the selection; the origin's own chat, or `null` when it did not
+ * resolve, so a gone or ambiguous origin reads as no persona bound rather
+ * than the selection's.
+ */
+function personaChatFor(state: ScriptingEngineState): Chat | null | undefined {
+    if (!state.subject) {
+        return undefined
+    }
+    return state.subject.resolve()?.chat ?? null
 }
 
 /**
@@ -232,7 +246,7 @@ export async function runScripted(code:string, arg:{
                 }
             })
             declareAPI('getGlobalVar', (id:string, key:string) => {
-                return getGlobalChatVar(key)
+                return getGlobalChatVar(key, ScriptingEngineState.subject)
             })
             declareAPI('stopChat', (id:string) => {
                 if(!ScriptingSafeIds.has(id)){
@@ -402,7 +416,7 @@ export async function runScripted(code:string, arg:{
             })
 
             declareAPI('cbs', (value) => {
-                return risuChatParser(value, { chara: getCurrentCharacter() })
+                return risuChatParser(value, { chara: ownerFor(ScriptingEngineState), subject: ScriptingEngineState.subject })
             })
             
             declareAPI('setFullChatMain', (id:string, value:string) => {
@@ -548,19 +562,12 @@ export async function runScripted(code:string, arg:{
 
             declareAPI('getCharacterImageMain', async (id:string) => {
                 try {
-                    const db = getDatabase()
-                    const selectedChar = get(selectedCharID)
+                    const character = ownerFor(ScriptingEngineState)
 
-                    if (selectedChar < 0 || selectedChar >= db.characters.length) {
-                        return ''
-                    }
-
-                    const character = db.characters[selectedChar]
-                    
                     if (!character || character.type === 'group' || !character.image) {
                         return ''
                     }
-                    
+
                     const img = await readImage(character.image)
                     const imgObj = new Image()
                     const extention = character.image.split('.').at(-1)
@@ -582,7 +589,7 @@ export async function runScripted(code:string, arg:{
 
             declareAPI('getPersonaImageMain', async (id:string) => {
                 try {
-                    const icon = getUserIcon()
+                    const icon = getUserIcon(personaChatFor(ScriptingEngineState))
 
                     if(!icon) {
                         return ''
@@ -863,15 +870,13 @@ export async function runScripted(code:string, arg:{
             })
 
             declareAPI('getPersonaName', (id:string) => {
-                return getUserName()
+                return getUserName(personaChatFor(ScriptingEngineState))
             })
 
             declareAPI('getPersonaDescription', (id:string) => {
-                const db = getDatabase()
-                const selectedChar = get(selectedCharID)
-                const char = db.characters[selectedChar]
+                const char = ownerFor(ScriptingEngineState)
 
-                return risuChatParser(getPersonaPrompt(), { chara: char })
+                return risuChatParser(getPersonaPrompt(personaChatFor(ScriptingEngineState)), { chara: char, subject: ScriptingEngineState.subject })
             })
 
             declareAPI('getAuthorsNote', (id:string) => {
@@ -904,23 +909,22 @@ export async function runScripted(code:string, arg:{
 
             // Lore books
             declareAPI('getLoreBooksMain', (id:string, search:string) => {
-                const db = getDatabase()
-                const selectedChar = db.characters[get(selectedCharID)]
-                if (selectedChar.type !== 'character') {
+                const selectedChar = ownerFor(ScriptingEngineState)
+                if (!selectedChar || selectedChar.type !== 'character') {
                     return
                 }
 
                 const loreSources = [
-                    selectedChar.chats[selectedChar.chatPage]?.localLore ?? [],
+                    currentChatFor(ScriptingEngineState)?.localLore ?? [],
                     selectedChar.globalLore,
-                    getModuleLorebooks()
+                    getModuleLorebooks(ScriptingEngineState.subject)
                 ]
 
                 const found = []
                 for (const source of loreSources) {
                     for (const b of source) {
                         if (b.comment === search) {
-                            found.push({ ...b, content: risuChatParser(b.content, { chara: selectedChar }) })
+                            found.push({ ...b, content: risuChatParser(b.content, { chara: selectedChar, subject: ScriptingEngineState.subject }) })
                         }
                     }
                 }
@@ -988,15 +992,20 @@ export async function runScripted(code:string, arg:{
                     return
                 }
 
-                const db = getDatabase()
+                const selectedChar = ownerFor(ScriptingEngineState)
 
-                const selectedChar = db.characters[get(selectedCharID)]
-
-                if (selectedChar.type !== 'character') {
+                if (!selectedChar || selectedChar.type !== 'character') {
                     return
                 }
 
-                const fullLoreBooks = (await loadLoreBookV3Prompt()).actives
+                // Captured before `loadLoreBookV3Prompt`'s own awaits, so the
+                // per-book parse below reads this call's one snapshot rather
+                // than resolving again once the scan's `tokenize` awaits have
+                // let the run's own memo go stale.
+                const bookSubject = ScriptingEngineState.subject ? snapshotSubject(ScriptingEngineState.subject.resolve()) : undefined
+
+                const fullLoreBooks = (await loadLoreBookV3Prompt(ScriptingEngineState.subject)).actives
+                const db = getDatabase()
                 const maxContext = db.maxContext - reserve
                 if (maxContext < 0) {
                     return JSON.stringify([])
@@ -1006,7 +1015,7 @@ export async function runScripted(code:string, arg:{
                 const loreBooks = []
 
                 for (const book of fullLoreBooks) {
-                    const parsed = risuChatParser(book.prompt, { chara: selectedChar }).trim()
+                    const parsed = risuChatParser(book.prompt, { chara: selectedChar, subject: bookSubject }).trim()
                     if (parsed.length === 0) {
                         continue
                     }
@@ -1138,13 +1147,18 @@ export async function runScripted(code:string, arg:{
             })
 
             declareAPI('getCharacterLastMessage', (id: string) => {
-                const chat = ScriptingEngineState.chat
+                // With an origin, re-resolved on every call, never the chat
+                // object held since the call began -- a replacement of the
+                // origin chat's slot during this call's own await must still
+                // be seen here. With no origin, this is `state.chat`, fixed
+                // for the whole call, so a replacement of that slot during
+                // an await is not seen.
+                const chat = currentChatFor(ScriptingEngineState)
                 if (!chat) {
                     return ''
                 }
 
-                const db = getDatabase()
-                const selchar = db.characters[get(selectedCharID)]
+                const selchar = ownerFor(ScriptingEngineState)
 
                 let pointer = chat.message.length - 1
                 while (pointer >= 0) {
@@ -1155,50 +1169,11 @@ export async function runScripted(code:string, arg:{
                     pointer--
                 }
 
-                return selchar.firstMessage
+                return selchar?.firstMessage
             })
 
             declareAPI('getUserLastMessage', (id: string) => {
-                const chat = ScriptingEngineState.chat
-                if (!chat) {
-                    return ''
-                }
-
-                let pointer = chat.message.length - 1
-                while (pointer >= 0) {
-                    if (chat.message[pointer].role === 'user') {
-                        const messageData = chat.message[pointer].data
-                        return messageData
-                    }
-                    pointer--
-                }
-
-                return ''
-            })
-
-            declareAPI('getCharacterLastMessage', (id: string) => {
-                const chat = ScriptingEngineState.chat
-                if (!chat) {
-                    return ''
-                }
-
-                const db = getDatabase()
-                const selchar = db.characters[get(selectedCharID)]
-
-                let pointer = chat.message.length - 1
-                while (pointer >= 0) {
-                    if (chat.message[pointer].role === 'char') {
-                        const messageData = chat.message[pointer].data
-                        return messageData
-                    }
-                    pointer--
-                }
-
-                return selchar.firstMessage
-            })
-
-            declareAPI('getUserLastMessage', (id: string) => {
-                const chat = ScriptingEngineState.chat
+                const chat = currentChatFor(ScriptingEngineState)
                 if (!chat) {
                     return ''
                 }
@@ -1568,7 +1543,7 @@ ${code}
 `
 }
 
-export async function runLuaEditTrigger<T extends string|OpenAIChat[]>(char:character|groupChat|simpleCharacterArgument, mode:string, content:T, meta?:object):Promise<T>{
+export async function runLuaEditTrigger<T extends string|OpenAIChat[]>(char:character|groupChat|simpleCharacterArgument, mode:string, content:T, meta?:object, origin?:Origin):Promise<T>{
     switch(mode){
         case 'editinput':
             mode = 'editInput'
@@ -1585,11 +1560,15 @@ export async function runLuaEditTrigger<T extends string|OpenAIChat[]>(char:char
 
     try {
         let data = content
+        // Resolved once, here, before the module list is read -- an origin
+        // makes the module selection follow it, never the selection, for
+        // every trigger this call runs.
+        const subject = origin ? createRunSubject(origin) : undefined
 
-        const triggers = char.type === 'group' ? (getModuleTriggers()) : (char.triggerscript.map((v): triggerscript => {
+        const triggers = char.type === 'group' ? (getModuleTriggers(subject)) : (char.triggerscript.map((v): triggerscript => {
             return { ...v, lowLevelAccess: false }
-        }).concat(getModuleTriggers()))
-    
+        }).concat(getModuleTriggers(subject)))
+
         for(let trigger of triggers){
             if(trigger?.effect?.[0]?.type === 'triggerlua'){
                 const runResult = await runScripted(trigger.effect[0].code, {
@@ -1598,13 +1577,14 @@ export async function runLuaEditTrigger<T extends string|OpenAIChat[]>(char:char
                     mode: mode,
                     data,
                     meta,
+                    origin,
                 })
                 data = runResult.res ?? data
             }
         }
-        
-    
-        return data   
+
+
+        return data
     } catch (error) {
         return content
     }

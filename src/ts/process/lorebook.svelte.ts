@@ -1,7 +1,7 @@
 import { get } from "svelte/store";
 import { getChatVar, setChatVar } from '../parser/chatVar.svelte';
 import {selectedCharID} from '../stores.svelte'
-import { type Message, type loreBook } from "../storage/database.svelte";
+import { type Chat, type character, type groupChat, type Message, type loreBook } from "../storage/database.svelte";
 import { DBState } from '../stores.svelte';
 import { tokenize } from "../tokenizer";
 import { risuChatParser } from "../parser/parser.svelte";
@@ -12,6 +12,36 @@ import { downloadFile } from "../globalApi.svelte";
 import { getModuleLorebooks } from "./modules";
 import { CCardLib } from "@risuai/ccardlib";
 import { v4 } from "uuid";
+import type { OriginContext, RunSubject } from "./chatOrigin";
+import { markCharacterForSave } from "../storage/characterSaveMarks";
+
+/**
+ * A fixed stand-in for `RunSubject` that always resolves to `ctx`, captured
+ * once, rather than re-resolving the live database -- the lorebook scan's
+ * own reads, flag writes and parses all share this one snapshot for the
+ * whole call, however many entries and `tokenize` awaits it crosses. A gone
+ * or ambiguous target's `ctx` is `null`: reads see an empty chat and writes
+ * are skipped, exactly as an unresolved `RunSubject` would, but with no
+ * further live lookups. `mark()` marks the snapshot's own owner (and member,
+ * when present) directly, never through a fresh resolution.
+ */
+export function snapshotSubject(ctx: OriginContext | null): RunSubject {
+    return {
+        origin: ctx ? { chaId: ctx.owner.chaId, chatId: ctx.chat.id } : { chaId: '', chatId: '' },
+        resolve: () => ctx,
+        status: () => ctx ? 'ok' : 'gone',
+        memberStatus: () => ctx?.member ? 'ok' : null,
+        mark: () => {
+            if(!ctx){
+                return
+            }
+            markCharacterForSave(ctx.owner.chaId)
+            if(ctx.member){
+                markCharacterForSave(ctx.member.chaId)
+            }
+        },
+    }
+}
 
 export function addLorebook(type:number) {
     const selectedID = get(selectedCharID)
@@ -72,20 +102,39 @@ export function addLorebookFolder(type:number) {
     }
 }
 
-export async function loadLoreBookV3Prompt(){
-    const selectedID = get(selectedCharID)
-    const char = DBState.db.characters[selectedID]
-    const page = char.chatPage
-    const characterLore = char.globalLore ?? []
-    const chatLore = char.chats[page].localLore ?? []
-    const moduleLorebook = getModuleLorebooks()
+export async function loadLoreBookV3Prompt(subject?: RunSubject){
+    // Resolved once, here, for the whole call -- every read below, the flag
+    // writes further down, and this call's own CBS parses all share this one
+    // snapshot, never a fresh resolution after one of this loop's own
+    // `tokenize` awaits. A gone or ambiguous target leaves `char`/`chat`
+    // undefined: the scan then has no character or chat lore, only whatever
+    // `getModuleLorebooks` still returns from the database's own
+    // `enabledModules`/`moduleIntergration` (not chat- or character-scoped),
+    // and makes no per-chat reads or writes at all.
+    let char: character | groupChat | undefined
+    let chat: Chat | undefined
+    let flagSubject: RunSubject | undefined
+    if(subject){
+        const ctx = subject.resolve()
+        char = ctx?.owner
+        chat = ctx?.chat
+        flagSubject = snapshotSubject(ctx)
+    }
+    else{
+        const selectedID = get(selectedCharID)
+        char = DBState.db.characters[selectedID]
+        chat = char?.chats?.[char.chatPage]
+    }
+    const characterLore = char?.globalLore ?? []
+    const chatLore = chat?.localLore ?? []
+    const moduleLorebook = getModuleLorebooks(subject)
     const fullLore = safeStructuredClone(characterLore.concat(chatLore).concat(moduleLorebook))
-    const currentChat = char.chats[page].message
-    const loreDepth = char.loreSettings?.scanDepth ?? DBState.db.loreBookDepth
-    const loreToken = char.loreSettings?.tokenBudget ?? DBState.db.loreBookToken
-    const fullWordMatchingSetting = char.loreSettings?.fullWordMatching ?? false
+    const currentChat = chat?.message ?? []
+    const loreDepth = char?.loreSettings?.scanDepth ?? DBState.db.loreBookDepth
+    const loreToken = char?.loreSettings?.tokenBudget ?? DBState.db.loreBookToken
+    const fullWordMatchingSetting = char?.loreSettings?.fullWordMatching ?? false
     const chatLength = currentChat.length + 1 //includes first message
-    const recursiveScanning = char.loreSettings?.recursiveScanning ?? true
+    const recursiveScanning = char?.loreSettings?.recursiveScanning ?? true
     let recursivePrompt:{
         prompt: string,
         source: string,
@@ -129,7 +178,7 @@ export async function loadLoreBookV3Prompt(){
             else{
                 return {
                     source: `message ${i} by char`,
-                    prompt: `\x01{{${msg.name ?? (msg.saying ? findCharacterbyId(msg.saying)?.name : null) ?? char.name}}}:` + msg.data + '\x01',
+                    prompt: `\x01{{${msg.name ?? (msg.saying ? findCharacterbyId(msg.saying)?.name : null) ?? char?.name}}}:` + msg.data + '\x01',
                     data: msg.data
                 }
             }
@@ -325,7 +374,7 @@ export async function loadLoreBookV3Prompt(){
                         return
                     }
                     case 'keep_activate_after_match':{
-                        const vara = getChatVar('__internal_ka_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()))
+                        const vara = getChatVar('__internal_ka_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()), flagSubject)
                         if(vara === 'true'){
                             forceState = 'activate'
                         }
@@ -335,7 +384,7 @@ export async function loadLoreBookV3Prompt(){
                         return false
                     }
                     case 'dont_activate_after_match': {
-                        const vara = getChatVar('__internal_da_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()))
+                        const vara = getChatVar('__internal_da_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()), flagSubject)
                         if(vara === 'true'){
                             forceState = 'deactivate'
                         }
@@ -376,7 +425,7 @@ export async function loadLoreBookV3Prompt(){
                         if(Number.isNaN(int)){
                             return false
                         }
-                        if(((char.chats[page].fmIndex ?? -1) + 1) !== int){
+                        if(((chat?.fmIndex ?? -1) + 1) !== int){
                             activated = false
                         }
                         return
@@ -573,7 +622,7 @@ export async function loadLoreBookV3Prompt(){
                     // so cutoff reflects what actually reaches the context, not the unevaluated source.
                     // runVar is left false (matching the output path in index.svelte.ts), so this
                     // evaluation has no side effects like setvar.
-                    tokens: await tokenize(risuChatParser(content, {chara: char})),
+                    tokens: await tokenize(risuChatParser(content, {chara: char, subject: flagSubject})),
                     priority: priority,
                     source: fullLore[i].comment || `lorebook ${i}`,
                     inject: inject ?? null
@@ -581,10 +630,10 @@ export async function loadLoreBookV3Prompt(){
                 activatedIndexes.push(i)
 
                 if(keepActivateAfterMatch){
-                    setChatVar('__internal_ka_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()), 'true')
+                    setChatVar('__internal_ka_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()), 'true', flagSubject)
                 }
                 if(dontActivateAfterMatch){
-                    setChatVar('__internal_da_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()), 'true')
+                    setChatVar('__internal_da_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()), 'true', flagSubject)
                 }
 
 

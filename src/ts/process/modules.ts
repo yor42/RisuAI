@@ -1,6 +1,7 @@
 import { language } from "src/lang"
 import { alertClear, alertConfirm, alertError, alertModuleSelect, alertNormal, alertStore, alertWait } from "../alert"
 import { getCurrentCharacter, getCurrentChat, getDatabase, setCurrentCharacter, setDatabase, type customscript, type loreBook, type triggerscript } from "../storage/database.svelte"
+import type { RunSubject } from "./chatOrigin"
 import { AppendableBuffer, downloadFile, forageStorage, LocalWriter, readImage, saveAsset, VirtualWriter } from "../globalApi.svelte"
 import { checkPersonaBinded, selectSingleFile, sleep } from "../util"
 import { v4 } from "uuid"
@@ -395,10 +396,20 @@ function deduplicateModuleById(modules:RisuModule[]){
 
 let lastModules = ''
 let lastModuleData:RisuModule[] = []
-export function getModules(){
-    const currentChat = getCurrentChat()
-    const character = getCurrentCharacter()
-    const persona = checkPersonaBinded()
+export function getModules(subject?: RunSubject){
+    let currentChat: ReturnType<typeof getCurrentChat>
+    let character: ReturnType<typeof getCurrentCharacter>
+    let persona: ReturnType<typeof checkPersonaBinded>
+    if(subject){
+        const ctx = subject.resolve()
+        currentChat = ctx?.chat
+        character = ctx?.owner
+        persona = checkPersonaBinded(ctx?.chat ?? null)
+    } else {
+        currentChat = getCurrentChat()
+        character = getCurrentCharacter()
+        persona = checkPersonaBinded()
+    }
     const db = getDatabase()
     let ids = db.enabledModules ?? []
     if (currentChat){
@@ -427,8 +438,8 @@ export function getModules(){
 }
 
 
-export function getModuleLorebooks() {
-    const modules = getModules()
+export function getModuleLorebooks(subject?: RunSubject) {
+    const modules = getModules(subject)
     let lorebooks: loreBook[] = []
     for (const module of modules) {
         if(!module){
@@ -441,8 +452,8 @@ export function getModuleLorebooks() {
     return lorebooks
 }
 
-export function getModuleAssets() {
-    const modules = getModules()
+export function getModuleAssets(subject?: RunSubject) {
+    const modules = getModules(subject)
     let assets: [string,string,string][] = []
     for (const module of modules) {
         if(!module){
@@ -456,8 +467,8 @@ export function getModuleAssets() {
 }
 
 
-export function getModuleTriggers() {
-    const modules = getModules()
+export function getModuleTriggers(subject?: RunSubject) {
+    const modules = getModules(subject)
     let triggers: triggerscript[] = []
     for (const module of modules) {
         if(!module){
@@ -472,8 +483,8 @@ export function getModuleTriggers() {
     return triggers
 }
 
-export function getModuleRegexScripts() {
-    const modules = getModules()
+export function getModuleRegexScripts(subject?: RunSubject) {
+    const modules = getModules(subject)
     let customscripts: customscript[] = []
     for (const module of modules) {
         if(!module){
