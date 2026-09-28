@@ -709,6 +709,12 @@ export function setDatabase(data:Database){
     data.enableRisuaiProTools ??= data.plugins.length > 0
     data.keepSessionAlive ??= 'off'
     data.loadouts ??= []
+    data.loadoutApplyOptions ??= {
+        modules: true,
+        globalVariables: true,
+        preset: true,
+        persona: true
+    }
     data.longPressToPopupEditor ??= false
     data.customSidebarItems ??= []
     data.moveInsteadOfCopyOnCMPConvert ??= false
@@ -1259,6 +1265,12 @@ export interface Database{
     keepSessionAlive: 'off' | 'pip' | 'sound'
     longPressToPopupEditor?: boolean
     loadouts: Loadout[]
+    loadoutApplyOptions: {
+        modules: boolean
+        globalVariables: boolean
+        preset: boolean
+        persona: boolean
+    }
     disableAprilFools?:boolean
     customSidebarItems: CustomSideBarItem[]
     lastLoadedLoadoutName: string
