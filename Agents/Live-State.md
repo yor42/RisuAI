@@ -409,12 +409,10 @@ bug) is blocked on the maintainer's console output, not scheduled by position.
   - W3: `/` commands' own reads; `/multisend` leaves `doingChat` set;
   - the composer part of the wiki waits for W2 (a source-line anchor in `RisuAI-Basics.md` shifts
     with S2).
-- **Vitest and `.claude/worktrees`:**
-  - The maintainer ran the offered task in the worktree `.claude/worktrees/fervent-bose-f8d7aa`.
-    It adds `exclude: [...configDefaults.exclude, '**/.claude/**']` to `vitest.config.ts`,
-    keeping CRLF.
-  - As of `67f17f1a`, that change is **not on this branch**. Until it lands, pass
-    `--exclude "**/.claude/**"` to vitest here, or the stale worktrees' copies get collected.
+- **Vitest and `.claude/worktrees`:** `7b72b813` adds `exclude: [...configDefaults.exclude,
+  '**/.claude/**']` to `vitest.config.ts`. Discovery no longer collects the stale Claude-app
+  worktrees' copies, so `--exclude` is no longer needed (verified: 142 files, 1758 passed and 4
+  skipped with no flag).
 
 ### Process lessons from this stage
 
