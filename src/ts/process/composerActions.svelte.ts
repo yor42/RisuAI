@@ -1,0 +1,606 @@
+import { get } from 'svelte/store'
+import { DBState, selectedCharID } from '../stores.svelte'
+import type { Message, character, Chat } from '../storage/database.svelte'
+import { doingChat, sendChat } from './index.svelte'
+import { sleep } from '../util'
+import { language } from '../../lang'
+import { alertError } from '../alert'
+import sendSound from '../../etc/send.mp3'
+import { sendCharacterMessage } from './sendCharacterMessage'
+import { PreUnreroll, Prereroll } from './prereroll'
+import { processMultiCommand } from './command'
+import { isColdChat } from './coldstorageData'
+import { isExpTranslator, translate } from '../translator/translator'
+import { beginWork, originStatus, writeAt, type WorkHandle } from './chatOrigin'
+import { markCharacterForSave } from '../storage/characterSaveMarks'
+import { registerDraft, unregisterDraft, COMPOSER_DRAFT_KIND } from '../localDrafts'
+import { v4 as uuidv4 } from 'uuid'
+
+/**
+ * Module-level state for the single in-flight composer action (Send or
+ * Continue). `windowOpen` is the one-action-at-a-time window: it is open
+ * from a Send's/Continue's take, or from the start of a reroll, unreroll or
+ * auto mode, until that action's generation hand-off returns. `locked` is
+ * open only for a Send's/Continue's own span, from the take until the
+ * moment before generation starts (or until the values go back). Both are
+ * global and survive a remount, so every composer instance sees the same
+ * state. `isComposerBusy`/`isComposerLocked` below expose them read-only.
+ */
+let windowOpen = $state(false)
+let locked = $state(false)
+
+/**
+ * The in-flight slot's own draft key. Registered under `COMPOSER_DRAFT_KIND`
+ * for as long as a Send/Continue holds the composer's taken values, so the
+ * multi-tab reload gate sees a draft in flight even though the composer
+ * itself reads empty during that span.
+ */
+const inflightDraftKey = uuidv4()
+
+/**
+ * A Send's or Continue's own pre-append span: the taken values, its work
+ * handle and abort controller, and the source they came from. `abortChat`
+ * sets `settled` to true when the busy button cancels this record before
+ * its push; a successful push never sets it, and instead clears `inflight`
+ * directly (see `clearInflightIfCurrent`'s call sites in `sendMain`), which
+ * is what stops a later `abortChat` call from treating an already-pushed
+ * send as still cancelable. `sendMain`'s own `finally` always runs
+ * `clearInflightIfCurrent` and ends the work handle -- both are harmless to
+ * repeat -- but reads `settled` to decide the rest: when it is true, the
+ * busy button already put the values back and closed the window and the
+ * lock, so `finally` does not put them back a second time, and does not
+ * close a window or a lock a later send may since have opened.
+ */
+interface InflightRecord {
+    controller: AbortController
+    workHandle: WorkHandle
+    source: ComposerActionsSource
+    takenMessageInput: string
+    takenMessageInputTranslate: string
+    takenFileInput: string[]
+    settled: boolean
+}
+
+/**
+ * The one Send/Continue currently between its take and its push, or `null`
+ * when none is. Cleared the moment that span ends, whichever way -- so a
+ * later `abortChat` call (during generation, or with nothing in flight)
+ * falls through to aborting whichever controller the source itself holds,
+ * instead of re-cancelling a send that has already finished with it.
+ */
+let inflight: InflightRecord | null = null
+
+function clearInflightIfCurrent(record: InflightRecord): void {
+    if(inflight === record){
+        inflight = null
+    }
+}
+
+/**
+ * Test-only reset: clears whatever in-flight record a stuck test left
+ * behind, and closes the window and the lock, so a timed-out test cannot
+ * cascade into every test that runs after it. Never called from production
+ * code.
+ */
+export function resetComposerActionsForTests(): void {
+    inflight = null
+    unregisterDraft(inflightDraftKey)
+    locked = false
+    windowOpen = false
+}
+
+/** True while the one-action window is open; the Send button's busy state. */
+export function isComposerBusy(): boolean {
+    return windowOpen
+}
+
+/** True from a Send's/Continue's take until its hand-off or put-back. */
+export function isComposerLocked(): boolean {
+    return locked
+}
+
+/**
+ * The composer's live state, reached through get/set pairs so every read
+ * below sees the value the bound textarea, the staged files and the reroll
+ * bookkeeping currently hold, including a read that runs after an await.
+ */
+export interface ComposerActionsSource {
+    messageInput: {
+        get(): string
+        set(value: string): void
+    }
+    messageInputTranslate: {
+        get(): string
+        set(value: string): void
+    }
+    fileInput: {
+        get(): string[]
+        set(value: string[]): void
+    }
+    rerolls: {
+        get(): Message[][]
+        set(value: Message[][]): void
+    }
+    rerollId: {
+        get(): number
+        set(value: number): void
+    }
+    lastCharId: {
+        get(): number
+        set(value: number): void
+    }
+    autoMode: {
+        get(): boolean
+        set(value: boolean): void
+    }
+    abortController: {
+        get(): AbortController | null
+        set(value: AbortController | null): void
+    }
+    closeMenu(): void
+    updateInputSizeAll(): void
+}
+
+export async function send(source: ComposerActionsSource): Promise<void> {
+    return sendMain(source, false)
+}
+
+export async function sendContinue(source: ComposerActionsSource): Promise<void> {
+    return sendMain(source, true)
+}
+
+export async function sendMain(source: ComposerActionsSource, continueResponse: boolean): Promise<void> {
+    // CHORE-07 stage 7b: refuse to run against a chat whose first
+    // message is still a live cold-storage pointer -- checked before
+    // processMultiCommand so /cut, /del, /multisend etc. can't mutate a
+    // chat that hasn't finished loading. This runs before the take, so the
+    // composer is never touched at all.
+    {
+        const guardChar = DBState.db.characters[get(selectedCharID)]
+        const guardChat = guardChar?.chats?.[guardChar.chatPage]
+        if(isColdChat(guardChat)){
+            alertError(language.errors.coldStorageChatStillLoading)
+            return
+        }
+    }
+
+    if(get(doingChat)){
+        return
+    }
+    if(windowOpen){
+        return
+    }
+
+    const selectedChar = get(selectedCharID)
+    const char = DBState.db.characters[selectedChar]
+    if(!char){
+        return
+    }
+    const startChat = char.chats?.[char.chatPage]
+    if(!startChat){
+        return
+    }
+
+    if(source.lastCharId.get() !== selectedChar){
+        source.rerolls.set([])
+        source.rerollId.set(-1)
+    }
+
+    // beginWork captures the origin (and refuses to take anything when the
+    // character or chat cannot be found or given an id).
+    const workHandle = beginWork(char, startChat)
+    if(!workHandle){
+        return
+    }
+
+    // The take: the composer's three values move into the module-level
+    // in-flight slot synchronously, leaving the composer empty; the send's
+    // own abort controller is created; the window and the lock open.
+    const takenMessageInput = source.messageInput.get()
+    const takenMessageInputTranslate = source.messageInputTranslate.get()
+    const takenFileInput = source.fileInput.get()
+    source.messageInput.set('')
+    source.messageInputTranslate.set('')
+    source.fileInput.set([])
+
+    const controller = new AbortController()
+    source.abortController.set(controller)
+
+    windowOpen = true
+    locked = true
+
+    const record: InflightRecord = {
+        controller,
+        workHandle,
+        source,
+        takenMessageInput,
+        takenMessageInputTranslate,
+        takenFileInput,
+        settled: false,
+    }
+    inflight = record
+
+    // Exactly one of these three outcomes is reached, and every exit from
+    // the try block below goes through the one outermost finally, which
+    // always ends the work handle. Past that: a handled command restores
+    // the files and the translation itself, inside the try; an appended
+    // message needs nothing restored; only 'refused' makes finally put the
+    // taken values back. The window and the lock close in finally on every
+    // outcome, unless the busy button already closed them for this record.
+    // `registerDraft` runs inside the try, so a drafts-changed listener that
+    // throws when the draft is registered still reaches this finally, which
+    // puts the values back and closes the window and the lock. A listener
+    // that also throws when the finally unregisters the draft is not covered.
+    let outcome: 'appended' | 'commandHandled' | 'refused' = 'refused'
+    try {
+        registerDraft(inflightDraftKey, COMPOSER_DRAFT_KIND)
+
+        let workingText = takenMessageInput
+
+        if(workingText.startsWith('/')){
+            const commandProcessed = await processMultiCommand(workingText)
+            if(controller.signal.aborted){
+                return
+            }
+            if(commandProcessed !== false){
+                // A handled command consumes the text; the staged files and
+                // the translation go back into the composer, in front of
+                // anything a late file result already placed there.
+                source.fileInput.set([...takenFileInput, ...source.fileInput.get()])
+                source.messageInputTranslate.set(takenMessageInputTranslate + source.messageInputTranslate.get())
+                outcome = 'commandHandled'
+                clearInflightIfCurrent(record)
+                return
+            }
+        }
+
+        let workingFiles = takenFileInput
+        if(workingFiles.length > 0){
+            for(const file of workingFiles){
+                workingText = workingText + `{{inlayed::${file}}}`
+            }
+            workingFiles = []
+        }
+
+        if(workingText === ''){
+            if(controller.signal.aborted){
+                return
+            }
+            const status = originStatus(workHandle.origin)
+            if(status === 'gone'){
+                return
+            }
+            if(char.type !== 'group' && DBState.db.useSayNothing){
+                const appendSayNothing = (chat: Chat) => {
+                    if(chat.message.length === 0 || chat.message[chat.message.length - 1].role !== 'user'){
+                        chat.message.push({ role: 'user', data: '*says nothing*' })
+                    }
+                }
+                if(status === 'ambiguous'){
+                    appendSayNothing(startChat)
+                    markCharacterForSave(char.chaId)
+                }
+                else{
+                    writeAt(workHandle.origin, (ctx) => { appendSayNothing(ctx.chat) })
+                }
+            }
+            outcome = 'appended'
+        }
+        else if(char.type === 'character'){
+            // `onAppended` fires inside sendCharacterMessage's own
+            // synchronous push, before this await resolves, so the record
+            // stops looking cancelable at the moment the message lands
+            // rather than a few microtask turns later.
+            await sendCharacterMessage(workHandle, char as character, startChat, workingText, controller.signal, () => {
+                outcome = 'appended'
+                clearInflightIfCurrent(record)
+                unregisterDraft(inflightDraftKey)
+            })
+        }
+        else{
+            if(controller.signal.aborted){
+                return
+            }
+            const status = originStatus(workHandle.origin)
+            if(status === 'gone'){
+                return
+            }
+            const message: Message = {
+                role: 'user',
+                data: workingText,
+                time: Date.now()
+            }
+            if(status === 'ambiguous'){
+                startChat.message.push(message)
+                markCharacterForSave(char.chaId)
+            }
+            else{
+                writeAt(workHandle.origin, (ctx) => { ctx.chat.message.push(message) })
+            }
+            outcome = 'appended'
+        }
+
+        if(outcome !== 'appended'){
+            return
+        }
+
+        // Past this point a busy-button click aborts generation (the
+        // fallback path in abortChat below), not this record: nothing is
+        // put back once the message has landed.
+        clearInflightIfCurrent(record)
+        unregisterDraft(inflightDraftKey)
+        source.rerolls.set([])
+        await sleep(10)
+        source.updateInputSizeAll()
+        // The hand-off: the lock ends the moment before the generation
+        // callback is called.
+        locked = false
+        await sendChatMain(source, continueResponse, controller)
+    }
+    finally {
+        // A finally acts only on its own action: once the busy button has
+        // already cancelled this record, its cleanup already ran, and a
+        // second pass here must not put the values back again, close a
+        // newer window, or clear an in-flight pointer a later send now
+        // owns.
+        const alreadySettled = record.settled
+        clearInflightIfCurrent(record)
+        workHandle.end()
+        if(!alreadySettled){
+            unregisterDraft(inflightDraftKey)
+            if(outcome === 'refused'){
+                // The taken values, exactly as they were taken (the text
+                // before {{inlayed::}} inlining, and the files), go in
+                // front of whatever a late file result already placed in
+                // the composer.
+                source.messageInput.set(takenMessageInput + source.messageInput.get())
+                source.fileInput.set([...takenFileInput, ...source.fileInput.get()])
+                source.messageInputTranslate.set(takenMessageInputTranslate + source.messageInputTranslate.get())
+                source.updateInputSizeAll()
+            }
+            locked = false
+            windowOpen = false
+        }
+    }
+}
+
+export async function reroll(source: ComposerActionsSource): Promise<void> {
+    if(get(doingChat)){
+        return
+    }
+    // The one-action window also covers reroll, so a Send while a reroll's
+    // own generation is running is refused the same way.
+    if(windowOpen){
+        return
+    }
+    windowOpen = true
+    try {
+        if(source.lastCharId.get() !== get(selectedCharID)){
+            source.rerolls.set([])
+            source.rerollId.set(-1)
+        }
+        const genId = DBState.db.characters[get(selectedCharID)].chats[DBState.db.characters[get(selectedCharID)].chatPage].message.at(-1)?.generationInfo?.generationId
+        if(genId){
+            const r = Prereroll(genId)
+            if(r){
+                DBState.db.characters[get(selectedCharID)].chats[DBState.db.characters[get(selectedCharID)].chatPage].message[DBState.db.characters[get(selectedCharID)].chats[DBState.db.characters[get(selectedCharID)].chatPage].message.length - 1].data = r
+                return
+            }
+        }
+        if(source.rerollId.get() < source.rerolls.get().length - 1){
+            if(Array.isArray(source.rerolls.get()[source.rerollId.get() + 1])){
+                source.rerollId.set(source.rerollId.get() + 1)
+                let rerollData = safeStructuredClone(source.rerolls.get()[source.rerollId.get()])
+                let msgs = DBState.db.characters[get(selectedCharID)].chats[DBState.db.characters[get(selectedCharID)].chatPage].message
+                for(let i = 0; i < rerollData.length; i++){
+                    msgs[msgs.length - rerollData.length + i] = rerollData[i]
+                }
+                DBState.db.characters[get(selectedCharID)].chats[DBState.db.characters[get(selectedCharID)].chatPage].message = msgs
+            }
+            return
+        }
+        if(source.rerolls.get().length === 0){
+            source.rerolls.get().push(safeStructuredClone([DBState.db.characters[get(selectedCharID)].chats[DBState.db.characters[get(selectedCharID)].chatPage].message.at(-1)]))
+            source.rerollId.set(source.rerolls.get().length - 1)
+        }
+        let cha = safeStructuredClone(DBState.db.characters[get(selectedCharID)].chats[DBState.db.characters[get(selectedCharID)].chatPage].message)
+        if(cha.length === 0 ){
+            return
+        }
+        source.closeMenu()
+        const saying = cha[cha.length - 1].saying
+        let sayingQu = 2
+        while(cha[cha.length - 1].role !== 'user'){
+            if(cha[cha.length - 1].saying === saying){
+                sayingQu -= 1
+                if(sayingQu === 0){
+                    break
+                }
+            }
+            let msg = cha.pop()
+            if(!msg){
+                return
+            }
+        }
+        DBState.db.characters[get(selectedCharID)].chats[DBState.db.characters[get(selectedCharID)].chatPage].message = cha
+        await sendChatMain(source)
+    }
+    finally {
+        windowOpen = false
+    }
+}
+
+export async function unReroll(source: ComposerActionsSource): Promise<void> {
+    if(get(doingChat)){
+        return
+    }
+    if(windowOpen){
+        return
+    }
+    windowOpen = true
+    try {
+        if(source.lastCharId.get() !== get(selectedCharID)){
+            source.rerolls.set([])
+            source.rerollId.set(-1)
+        }
+        const genId = DBState.db.characters[get(selectedCharID)].chats[DBState.db.characters[get(selectedCharID)].chatPage].message.at(-1)?.generationInfo?.generationId
+        if(genId){
+            const r = PreUnreroll(genId)
+            if(r){
+                DBState.db.characters[get(selectedCharID)].chats[DBState.db.characters[get(selectedCharID)].chatPage].message[DBState.db.characters[get(selectedCharID)].chats[DBState.db.characters[get(selectedCharID)].chatPage].message.length - 1].data = r
+                return
+            }
+        }
+        if(source.rerollId.get() <= 0){
+            return
+        }
+        if(Array.isArray(source.rerolls.get()[source.rerollId.get() - 1])){
+            source.rerollId.set(source.rerollId.get() - 1)
+            let rerollData = safeStructuredClone(source.rerolls.get()[source.rerollId.get()])
+            let msgs = DBState.db.characters[get(selectedCharID)].chats[DBState.db.characters[get(selectedCharID)].chatPage].message
+            for(let i = 0; i < rerollData.length; i++){
+                msgs[msgs.length - rerollData.length + i] = rerollData[i]
+            }
+            DBState.db.characters[get(selectedCharID)].chats[DBState.db.characters[get(selectedCharID)].chatPage].message = msgs
+        }
+    }
+    finally {
+        windowOpen = false
+    }
+}
+
+export async function sendChatMain(source: ComposerActionsSource, continued: boolean = false, existingController?: AbortController): Promise<void> {
+
+    let previousLength = DBState.db.characters[get(selectedCharID)].chats[DBState.db.characters[get(selectedCharID)].chatPage].message.length
+    // Only a take empties the composer -- generation itself never writes
+    // messageInput.
+    const controller = existingController ?? new AbortController()
+    source.abortController.set(controller)
+    try {
+        await sendChat(-1, {
+            signal: controller.signal,
+            continue: continued
+        })
+        if(previousLength < DBState.db.characters[get(selectedCharID)].chats[DBState.db.characters[get(selectedCharID)].chatPage].message.length){
+            source.rerolls.get().push(safeStructuredClone(DBState.db.characters[get(selectedCharID)].chats[DBState.db.characters[get(selectedCharID)].chatPage].message).slice(previousLength))
+            source.rerollId.set(source.rerolls.get().length - 1)
+        }
+    } catch (error) {
+        console.error(error)
+        alertError(error)
+    }
+    source.lastCharId.set(get(selectedCharID))
+    doingChat.set(false)
+    if(DBState.db.playMessage){
+        const audio = new Audio(sendSound);
+        audio.play().catch(() => {});
+    }
+}
+
+export function abortChat(source: ComposerActionsSource): void {
+    // While a Send/Continue is still between its take and its push, the
+    // busy button cancels it at once here, rather than waiting for its
+    // stalled step to resolve and unwind on its own: the window and the
+    // lock close immediately, and the taken values go back to the source
+    // they came from -- which need not be `source` above, since the window
+    // is global and any composer instance's busy button can cancel it.
+    if(inflight && !inflight.settled){
+        const record = inflight
+        record.settled = true
+        inflight = null
+        record.controller.abort()
+        record.workHandle.end()
+        unregisterDraft(inflightDraftKey)
+        record.source.messageInput.set(record.takenMessageInput + record.source.messageInput.get())
+        record.source.fileInput.set([...record.takenFileInput, ...record.source.fileInput.get()])
+        record.source.messageInputTranslate.set(record.takenMessageInputTranslate + record.source.messageInputTranslate.get())
+        record.source.updateInputSizeAll()
+        locked = false
+        windowOpen = false
+        return
+    }
+    const controller = source.abortController.get()
+    if(controller){
+        controller.abort()
+    }
+}
+
+export async function runAutoMode(source: ComposerActionsSource): Promise<void> {
+    // Stopping auto mode is never refused, even while its own loop below
+    // holds the window open.
+    if(source.autoMode.get()){
+        source.autoMode.set(false)
+        return
+    }
+    if(windowOpen){
+        return
+    }
+    const selectedChar = get(selectedCharID)
+    source.autoMode.set(true)
+    windowOpen = true
+    try {
+        while(source.autoMode.get()){
+            await sendChatMain(source)
+            if(selectedChar !== get(selectedCharID)){
+                source.autoMode.set(false)
+            }
+        }
+    }
+    finally {
+        windowOpen = false
+    }
+}
+
+export async function updateInputTransateMessage(source: ComposerActionsSource, reverse: boolean): Promise<void> {
+    if(!DBState.db.useAutoTranslateInput){
+        return
+    }
+    if(isExpTranslator()){
+        if(!reverse){
+            source.messageInputTranslate.set('')
+            return
+        }
+        if(source.messageInputTranslate.get() === '') {
+            source.messageInput.set('')
+            return
+        }
+        const lastMessageInputTranslate = source.messageInputTranslate.get()
+        await sleep(1500)
+        if(lastMessageInputTranslate === source.messageInputTranslate.get()){
+            // The derived field is written only while the source field
+            // still holds exactly the text that was sent for translation --
+            // a result whose source changed while the request was in
+            // flight is discarded rather than overwriting newer input.
+            const sourceText = source.messageInputTranslate.get()
+            translate(sourceText, reverse).then((translatedMessage) => {
+                if(translatedMessage && source.messageInputTranslate.get() === sourceText){
+                    source.messageInput.set(translatedMessage)
+                }
+            })
+        }
+        return
+
+    }
+    if(reverse && source.messageInputTranslate.get() === '') {
+        source.messageInput.set('')
+        return
+    }
+    if(!reverse && source.messageInput.get() === '') {
+        source.messageInputTranslate.set('')
+        return
+    }
+    const sourceText = reverse ? source.messageInputTranslate.get() : source.messageInput.get()
+    translate(sourceText, reverse).then((translatedMessage) => {
+        if(!translatedMessage){
+            return
+        }
+        const currentSourceText = reverse ? source.messageInputTranslate.get() : source.messageInput.get()
+        if(currentSourceText !== sourceText){
+            return
+        }
+        if(reverse)
+            source.messageInput.set(translatedMessage)
+        else
+            source.messageInputTranslate.set(translatedMessage)
+    })
+}

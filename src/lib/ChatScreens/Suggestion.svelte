@@ -3,6 +3,7 @@
     import { doingChat, type OpenAIChat } from "../../ts/process/index.svelte";
     import { type character, type Message, type groupChat } from "../../ts/storage/database.svelte";
 	import { DBState } from 'src/ts/stores.svelte';
+    import { isComposerLocked } from "src/ts/process/composerActions.svelte";
     import { selectedCharID } from "../../ts/stores.svelte";
     import { isTauri } from 'src/ts/platform';
     import { translate } from "src/ts/translator/translator";
@@ -195,6 +196,9 @@
         {#each suggestMessages??[] as suggest, i}
             <div class="flex mr-2 mb-2">
                 <button class="bg-textcolor2 hover:bg-darkbutton text-textcolor font-bold py-2 px-4 rounded-sm" onclick={() => {
+                    if(isComposerLocked()){
+                        return
+                    }
                     suggestMessages = []
                     messageInput(suggest)
                     send()
@@ -204,6 +208,9 @@
                 {/await}
                 </button>
                 <button class="bg-textcolor2 hover:bg-darkbutton text-textcolor font-bold py-2 px-4 rounded-sm ml-1" onclick={() => {
+                    if(isComposerLocked()){
+                        return
+                    }
                     messageInput(suggest)
                 }}>
                     <CopyIcon/>

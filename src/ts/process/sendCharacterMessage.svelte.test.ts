@@ -309,14 +309,16 @@ describe('sendCharacterMessage: the input trigger, after a switch', () => {
             v2('v2Wait', { value: '0', valueType: 'value' }),
         ]))
 
-        const cha = a1.message
-        const p = sendCharacterMessage(0, cha, 'hello')
+        const startChat = char.chats[char.chatPage]
+        const workHandle = beginWork(char, startChat)!
+        const p = sendCharacterMessage(workHandle, char, startChat, 'hello', new AbortController().signal, () => {})
         // `sendCharacterMessage` runs synchronously up to its first await
         // (inside the trigger's own `v2Wait`), so the switch made right
         // here, before this test itself awaits anything, reliably lands
         // inside the trigger's wait.
         char.chatPage = 1 // the selection moves to A2 of the same character, during the wait
         const appended = await p
+        workHandle.end()
 
         expect(a1.message.length).toBe(1)
         expect(a1.message[0]?.data).toBe('hello')
@@ -339,11 +341,13 @@ describe('sendCharacterMessage: the input trigger, after a switch', () => {
             return data
         })
 
-        const cha = a1.message
-        const p = sendCharacterMessage(0, cha, 'hello')
+        const startChat = char.chats[char.chatPage]
+        const workHandle = beginWork(char, startChat)!
+        const p = sendCharacterMessage(workHandle, char, startChat, 'hello', new AbortController().signal, () => {})
         char.chatPage = 1 // switch during the plugin hook's own await
         release()
         const appended = await p
+        workHandle.end()
 
         expect(a1.message.length).toBe(1)
         expect(a1.message[0]?.data).toBe('hello')
@@ -374,11 +378,13 @@ describe('sendCharacterMessage: the input trigger, after a switch', () => {
         ]))
         void gate
 
-        const cha = charA.chats[0].message
-        const p = sendCharacterMessage(0, cha, 'hello')
+        const startChat = charA.chats[charA.chatPage]
+        const workHandle = beginWork(charA, startChat)!
+        const p = sendCharacterMessage(workHandle, charA, startChat, 'hello', new AbortController().signal, () => {})
         selectedCharID.set(1) // switch to a DIFFERENT character, during the wait
         release()
         const appended = await p
+        workHandle.end()
 
         expect(charA.chats[0].message.length).toBe(1)
         expect(charA.chats[0].message[0]?.data).toBe('hello')
@@ -404,8 +410,10 @@ describe('sendCharacterMessage: the input trigger, after a switch', () => {
             v2('v2Wait', { value: '0', valueType: 'value' }),
         ]))
 
-        const cha = chat.message
-        const appended = await sendCharacterMessage(0, cha, 'new-message')
+        const startChat = char.chats[char.chatPage]
+        const workHandle = beginWork(char, startChat)!
+        const appended = await sendCharacterMessage(workHandle, char, startChat, 'new-message', new AbortController().signal, () => {})
+        workHandle.end()
 
         expect(char.chats[0].message.length).toBe(2)
         expect(char.chats[0].message[0]?.data).toBe('old-1')
@@ -428,8 +436,9 @@ describe('sendCharacterMessage: the input trigger, after a switch', () => {
             return data
         })
 
-        const cha = originalChat.message
-        const appended = await sendCharacterMessage(0, cha, 'hello')
+        const workHandle = beginWork(char, originalChat)!
+        const appended = await sendCharacterMessage(workHandle, char, originalChat, 'hello', new AbortController().signal, () => {})
+        workHandle.end()
 
         expect(appended).toBe(true)
         expect(char.chats[0]).toBe(replacementChat)
@@ -452,7 +461,8 @@ describe('sendCharacterMessage: a gone or ambiguous origin', () => {
         ]))
 
         const cha = chat.message
-        const p = sendCharacterMessage(0, cha, 'hello')
+        const workHandle = beginWork(char, chat)!
+        const p = sendCharacterMessage(workHandle, char, chat, 'hello', new AbortController().signal, () => {})
         char.chats.splice(0, 1) // the origin chat is gone during the wait; a2 shifts into its slot
         let appended: boolean | undefined
         let threw = false
@@ -461,6 +471,7 @@ describe('sendCharacterMessage: a gone or ambiguous origin', () => {
         } catch {
             threw = true
         }
+        workHandle.end()
 
         const anywhereInDb = char.chats.some((c: { message: { data: string }[] }) => c.message.some((m) => m.data === 'hello'))
         expect(threw).toBe(false)
@@ -493,9 +504,11 @@ describe('sendCharacterMessage: a gone or ambiguous origin', () => {
         })
 
         const heldArrayBeforeCut = chat.message
-        const p = sendCharacterMessage(0, heldArrayBeforeCut, 'new-message')
+        const workHandle = beginWork(char, chat)!
+        const p = sendCharacterMessage(workHandle, char, chat, 'new-message', new AbortController().signal, () => {})
         release()
         const appended = await p
+        workHandle.end()
 
         // Must land on the origin chat object (`chat`), never on the
         // pre-cut array held since the start and never on whichever object

@@ -291,6 +291,7 @@ let processScript: (char: character, data: string, mode: string, cbsConditions?:
 let installCharacterSaveMarks: typeof import('../../storage/characterSaveMarks').installCharacterSaveMarks
 let resetCharacterSaveMarksForTest: typeof import('../../storage/characterSaveMarks').resetCharacterSaveMarksForTest
 let originOf: typeof import('../chatOrigin').originOf
+let beginWork: typeof import('../chatOrigin').beginWork
 
 beforeAll(async () => {
     const jsonLua = await readFile(resolve(process.cwd(), 'public/lua/json.lua'), 'utf8')
@@ -309,6 +310,7 @@ beforeAll(async () => {
     resetCharacterSaveMarksForTest = marks.resetCharacterSaveMarksForTest
     const origin = await import('../chatOrigin')
     originOf = origin.originOf
+    beginWork = origin.beginWork
 })
 
 //#region fixtures
@@ -428,7 +430,8 @@ describe('editinput\'s module selection, Lua write and regex read all resolve th
         const chatA = origin.chats[0]
         const chatB = other.chats[0]
 
-        const p = sendCharacterMessage(0, [], 'REGEXMARKER')
+        const workHandle = beginWork(origin, chatA)!
+        const p = sendCharacterMessage(workHandle, origin, chatA, 'REGEXMARKER', new AbortController().signal, () => {})
         // A caller of an async function runs synchronously up to its first
         // `await` regardless of that await's duration -- `sendCharacterMessage`
         // yields at its own `runTrigger('input', ...)` call before this
@@ -436,6 +439,7 @@ describe('editinput\'s module selection, Lua write and regex read all resolve th
         // trigger's own await.
         selectedCharID.set(1) // switch to "other", whose chat enables the other module
         const result = await p
+        workHandle.end()
 
         expect(result).toBe(true)
 

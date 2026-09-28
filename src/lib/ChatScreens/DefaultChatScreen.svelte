@@ -8,31 +8,38 @@
     import { type Message } from "../../ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
     import { getCharImage } from "../../ts/characters";
-    import { chatProcessStage, doingChat, sendChat } from "../../ts/process/index.svelte";
+    import { chatProcessStage, doingChat } from "../../ts/process/index.svelte";
     import { sleep } from "../../ts/util";
     import { language } from "../../lang";
-    import { isExpTranslator, translate } from "../../ts/translator/translator";
     import { alertError, alertNormal, alertWait, showHypaV2Alert } from "../../ts/alert";
-    import sendSound from '../../etc/send.mp3'
     import CreatorQuote from "./CreatorQuote.svelte";
     import { stopTTS } from "src/ts/process/tts";
     import MainMenu from '../UI/MainMenu.svelte';
     import AssetInput from './AssetInput.svelte';
     import { aiLawApplies, chatFoldedState, chatFoldedStateMessageIndex, downloadFile } from 'src/ts/globalApi.svelte';
-    import { sendCharacterMessage } from 'src/ts/process/sendCharacterMessage';
     import { v4 } from 'uuid';
-    import { PreUnreroll, Prereroll } from 'src/ts/process/prereroll';
-    import { processMultiCommand } from 'src/ts/process/command';
     import { postChatFile } from 'src/ts/process/files/multisend';
     import { getInlayAsset } from 'src/ts/process/files/inlays';
     import { coldStorageHeader, preLoadChat, retryLegacyColdChatLoad } from 'src/ts/process/coldstorage.svelte';
-    import { isColdChat, matchColdStorageLoadErrorKey } from 'src/ts/process/coldstorageData';
+    import { matchColdStorageLoadErrorKey } from 'src/ts/process/coldstorageData';
     import Chats from './Chats.svelte';
     import Button from '../UI/GUI/Button.svelte';
     import PluginDefinedIcon from '../Others/PluginDefinedIcon.svelte';
     import { getAdditionalChatLoadPages, getInitialChatLoadPages } from 'src/ts/chatLoadPages';
     import { COMPOSER_DRAFT_KIND, hasMessageEditorDrafts, onDraftsChanged, registerDraft, unregisterDraft } from 'src/ts/localDrafts';
     import { chatWindowKey, createChatWindowPolicy, runWithFullWindow } from 'src/ts/chatWindowPolicy';
+    import {
+        send as composerSend,
+        sendContinue as composerSendContinue,
+        reroll as composerReroll,
+        unReroll as composerUnReroll,
+        runAutoMode as composerRunAutoMode,
+        abortChat as composerAbortChat,
+        updateInputTransateMessage as composerUpdateInputTransateMessage,
+        isComposerBusy,
+        isComposerLocked,
+        type ComposerActionsSource
+    } from 'src/ts/process/composerActions.svelte';
 
     const loadPlaygroundMenu = () => import('../Playground/PlaygroundMenu.svelte').then(m => m.default);
     
@@ -242,230 +249,66 @@
         }
     }
 
-    async function send(){
-        return sendMain(false)
-    }
-    async function sendContinue(){
-        return sendMain(true)
-    }
-
-    async function sendMain(continueResponse:boolean) {
-        // CHORE-07 stage 7b: refuse to run against a chat whose first
-        // message is still a live cold-storage pointer -- checked before
-        // processMultiCommand so /cut, /del, /multisend etc. can't mutate a
-        // chat that hasn't finished loading. Deliberately does not clear
-        // messageInput, unlike the empty-command-processed path below.
-        {
-            const guardChar = DBState.db.characters[$selectedCharID]
-            const guardChat = guardChar?.chats?.[guardChar.chatPage]
-            if(isColdChat(guardChat)){
-                alertError(language.errors.coldStorageChatStillLoading)
-                return
-            }
-        }
-
-        let selectedChar = $selectedCharID
-        if($doingChat){
-            return
-        }
-        if(lastCharId !== $selectedCharID){
-            rerolls = []
-            rerollid = -1
-        }
-
-        let cha = DBState.db.characters[selectedChar].chats[DBState.db.characters[selectedChar].chatPage].message
-        let characterMessageHandled = false
-
-        if(messageInput.startsWith('/')){
-            const commandProcessed = await processMultiCommand(messageInput)
-            if(commandProcessed !== false){
-                messageInput = ''
-                return
-            }
-        }
-
-        if(fileInput.length > 0){
-            for(const file of fileInput){
-                messageInput += `{{inlayed::${file}}}`
-            }
-            fileInput = []
-        }
-
-        if(messageInput === ''){
-            if(DBState.db.characters[selectedChar].type !== 'group'){
-                if(cha.length === 0 || cha[cha.length - 1].role !== 'user'){
-                    if(DBState.db.useSayNothing){
-                        cha.push({
-                            role: 'user',
-                            data: '*says nothing*'
-                        })
-                    }
-                }
-            }
-        }
-        else{
-            const char = DBState.db.characters[selectedChar]
-            if(char.type === 'character'){
-                const appended = await sendCharacterMessage(selectedChar, cha, messageInput)
-                if(!appended){
-                    // The origin chat is gone: nothing was appended, so the
-                    // composer keeps its text and the send stops here.
-                    return
-                }
-                characterMessageHandled = true
-            }
-            else{
-                cha.push({
-                    role: 'user',
-                    data: messageInput,
-                    time: Date.now()
-                })
-            }
-        }
-        messageInput = ''
-        messageInputTranslate = ''
-        if(!characterMessageHandled){
-            DBState.db.characters[selectedChar].chats[DBState.db.characters[selectedChar].chatPage].message = cha
-        }
-        rerolls = []
-        await sleep(10)
-        updateInputSizeAll()
-        await sendChatMain(continueResponse)
-
-    }
-
-    async function reroll() {
-        if($doingChat){
-            return
-        }
-        if(lastCharId !== $selectedCharID){
-            rerolls = []
-            rerollid = -1
-        }
-        const genId = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.at(-1)?.generationInfo?.generationId
-        if(genId){
-            const r = Prereroll(genId)
-            if(r){
-                DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.length - 1].data = r
-                return
-            }
-        }
-        if(rerollid < rerolls.length - 1){
-            if(Array.isArray(rerolls[rerollid + 1])){
-                rerollid += 1
-                let rerollData = safeStructuredClone(rerolls[rerollid])
-                let msgs = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message
-                for(let i = 0; i < rerollData.length; i++){
-                    msgs[msgs.length - rerollData.length + i] = rerollData[i]
-                }
-                DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message = msgs
-            }
-            return
-        }
-        if(rerolls.length === 0){
-            rerolls.push(safeStructuredClone([DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.at(-1)]))
-            rerollid = rerolls.length - 1
-        }
-        let cha = safeStructuredClone(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message)
-        if(cha.length === 0 ){
-            return
-        }
-        openMenu = false
-        const saying = cha[cha.length - 1].saying
-        let sayingQu = 2
-        while(cha[cha.length - 1].role !== 'user'){
-            if(cha[cha.length - 1].saying === saying){
-                sayingQu -= 1
-                if(sayingQu === 0){
-                    break
-                }
-            }
-            let msg = cha.pop()
-            if(!msg){
-                return
-            }
-        }
-        DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message = cha
-        await sendChatMain()
-    }
-
-    async function unReroll() {
-        if($doingChat){
-            return
-        }
-        if(lastCharId !== $selectedCharID){
-            rerolls = []
-            rerollid = -1
-        }
-        const genId = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.at(-1)?.generationInfo?.generationId
-        if(genId){
-            const r = PreUnreroll(genId)
-            if(r){
-                DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.length - 1].data = r
-                return
-            }
-        }
-        if(rerollid <= 0){
-            return
-        }
-        if(Array.isArray(rerolls[rerollid - 1])){
-            rerollid -= 1
-            let rerollData = safeStructuredClone(rerolls[rerollid])
-            let msgs = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message
-            for(let i = 0; i < rerollData.length; i++){
-                msgs[msgs.length - rerollData.length + i] = rerollData[i]
-            }
-            DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message = msgs
-        }
-    }
-
     let abortController:null|AbortController = null
 
-    async function sendChatMain(continued:boolean = false) {
-
-        let previousLength = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.length
-        messageInput = ''
-        abortController = new AbortController()
-        try {
-            await sendChat(-1, {
-                signal:abortController.signal,
-                continue:continued
-            })
-            if(previousLength < DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.length){
-                rerolls.push(safeStructuredClone(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message).slice(previousLength))
-                rerollid = rerolls.length - 1
-            }
-        } catch (error) {
-            console.error(error)
-            alertError(error)
-        }
-        lastCharId = $selectedCharID
-        $doingChat = false
-        if(DBState.db.playMessage){
-            const audio = new Audio(sendSound);
-            audio.play().catch(() => {});
-        }
+    // The live view of this component's composer state that
+    // src/ts/process/composerActions.svelte.ts reads and writes through, so
+    // its actions see and mutate exactly what the bound textareas, staged
+    // files and reroll bookkeeping hold here.
+    const composerSource: ComposerActionsSource = {
+        messageInput: {
+            get: () => messageInput,
+            set: (value) => { messageInput = value }
+        },
+        messageInputTranslate: {
+            get: () => messageInputTranslate,
+            set: (value) => { messageInputTranslate = value }
+        },
+        fileInput: {
+            get: () => fileInput,
+            set: (value) => { fileInput = value }
+        },
+        rerolls: {
+            get: () => rerolls,
+            set: (value) => { rerolls = value }
+        },
+        rerollId: {
+            get: () => rerollid,
+            set: (value) => { rerollid = value }
+        },
+        lastCharId: {
+            get: () => lastCharId,
+            set: (value) => { lastCharId = value }
+        },
+        autoMode: {
+            get: () => autoMode,
+            set: (value) => { autoMode = value }
+        },
+        abortController: {
+            get: () => abortController,
+            set: (value) => { abortController = value }
+        },
+        closeMenu: () => { openMenu = false },
+        updateInputSizeAll: () => updateInputSizeAll()
     }
 
+    async function send(){
+        return composerSend(composerSource)
+    }
+    async function sendContinue(){
+        return composerSendContinue(composerSource)
+    }
+    async function reroll() {
+        return composerReroll(composerSource)
+    }
+    async function unReroll() {
+        return composerUnReroll(composerSource)
+    }
     function abortChat(){
-        if(abortController){
-            abortController.abort()
-        }
+        composerAbortChat(composerSource)
     }
-
     async function runAutoMode() {
-        if(autoMode){
-            autoMode = false
-            return
-        }
-        const selectedChar = $selectedCharID
-        autoMode = true
-        while(autoMode){
-            await sendChatMain()
-            if(selectedChar !== $selectedCharID){
-                autoMode = false
-            }
-        }
+        return composerRunAutoMode(composerSource)
     }
 
     let { userIconPortrait, currentUsername, userIcon } = $derived.by(() => {
@@ -520,49 +363,7 @@
     });
 
     async function updateInputTransateMessage(reverse: boolean) {
-        if(!DBState.db.useAutoTranslateInput){
-            return
-        }
-        if(isExpTranslator()){
-            if(!reverse){
-                messageInputTranslate = ''
-                return
-            }
-            if(messageInputTranslate === '') {
-                messageInput = ''
-                return
-            }
-            const lastMessageInputTranslate = messageInputTranslate
-            await sleep(1500)
-            if(lastMessageInputTranslate === messageInputTranslate){
-                translate(reverse ? messageInputTranslate : messageInput, reverse).then((translatedMessage) => {
-                    if(translatedMessage){
-                        if(reverse)
-                            messageInput = translatedMessage
-                        else
-                            messageInputTranslate = translatedMessage
-                    }
-                })
-            }
-            return
-
-        }
-        if(reverse && messageInputTranslate === '') {
-            messageInput = ''
-            return
-        }
-        if(!reverse && messageInput === '') {
-            messageInputTranslate = ''
-            return
-        }
-        translate(reverse ? messageInputTranslate : messageInput, reverse).then((translatedMessage) => {
-            if(translatedMessage){
-                if(reverse)
-                    messageInput = translatedMessage
-                else
-                    messageInputTranslate = translatedMessage
-            }
-        })
+        return composerUpdateInputTransateMessage(composerSource, reverse)
     }
 
     async function screenShot(){
@@ -716,6 +517,7 @@
                 <textarea class="peer text-input-area focus:border-textcolor transition-colors outline-hidden text-textcolor p-2 min-w-0 border border-r-0 bg-transparent rounded-md rounded-r-none input-text text-xl grow ml-4 border-darkborderc resize-none overflow-y-hidden overflow-x-hidden max-w-full placeholder:text-sm"
                           bind:value={messageInput}
                           bind:this={inputEle}
+                          readonly={isComposerLocked()}
                           onkeydown={(e) => {
                         if(e.key.toLocaleLowerCase() === "enter" && !e.isComposing){
                             if(DBState.db.sendWithEnter && (!e.shiftKey)){
@@ -732,6 +534,13 @@
                         }
                     }}
                           onpaste={(e) => {
+                        // A readonly textarea still fires paste; the lock is
+                        // checked here, when the paste starts, so a paste
+                        // that started before the lock still lands its
+                        // result once it resolves.
+                        if(isComposerLocked()){
+                            return
+                        }
                         const items = e.clipboardData?.items
                         if(!items){
                             return
@@ -775,7 +584,7 @@
                 ></textarea>
 
 
-                {#if $doingChat || doingChatInputTranslate}
+                {#if $doingChat || isComposerBusy() || doingChatInputTranslate}
                     <button
                             aria-labelledby="cancel"
                             class="peer-focus:border-textcolor  flex justify-center border-y border-darkborderc items-center text-textcolor p-3 hover:bg-blue-500 hover:text-white transition-colors" onclick={abortChat}
@@ -826,6 +635,7 @@
                     <textarea id = 'messageInputTranslate' class="text-textcolor rounded-md p-2 min-w-0 bg-transparent input-text text-xl grow ml-4 mr-2 border-darkbutton resize-none focus:bg-selected overflow-y-hidden overflow-x-hidden max-w-full"
                               bind:value={messageInputTranslate}
                               bind:this={inputTranslateEle}
+                              readonly={isComposerLocked()}
                               onkeydown={(e) => {
                             if(e.key.toLocaleLowerCase() === "enter" && (!e.shiftKey)){
                                 if(DBState.db.sendWithEnter){
@@ -882,6 +692,9 @@
             {#if toggleStickers}
                 <div class="ml-4 flex flex-wrap">
                     <AssetInput currentCharacter={currentCharacter} onSelect={(additionalAsset)=>{
+                        if(isComposerLocked()){
+                            return
+                        }
                         let fileType = 'img'
                         if(additionalAsset.length > 2 && additionalAsset[2]) {
                             const fileExtension = additionalAsset[2]
@@ -1162,6 +975,9 @@
                     </div>
 
                     <div class="flex items-center cursor-pointer hover:text-green-500 transition-colors" onclick={async () => {
+                        if(isComposerLocked()){
+                            return
+                        }
                         const results = await postChatFile(messageInput)
                         if(!results) return
                         for(const res of results){
