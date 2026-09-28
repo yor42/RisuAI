@@ -492,10 +492,11 @@ bug) is blocked on the maintainer's console output, not scheduled by position.
 
 ## Test suite
 
-**130 files: 1557 passed, 4 skipped, 0 failed** — the check on CHORE-42's final tree (`ce6bc594`).
-`pnpm check` is clean, and `pnpm run build` passes. `cargo check` last ran on the removal stage.
-- Run the suite with `npx vitest run --exclude "**/.claude/**" --exclude "**/node_modules/**"`.
-  Plain `pnpm test` also picks up `.claude/worktrees/**`.
+**142 files: 1758 passed, 4 skipped, 0 failed**, the check on the composer stage's final tree
+(`67f17f1a`, re-run after `7b72b813`). `pnpm check` is clean, and `pnpm run build` passes.
+`cargo check` last ran on the removal stage.
+- Run the suite with plain `pnpm test` or `npx vitest run`. `vitest.config.ts` excludes
+  `.claude/**` (`7b72b813`).
 
 ## How to live-check this app
 
