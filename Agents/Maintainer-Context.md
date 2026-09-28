@@ -2956,3 +2956,91 @@ from that rejection — not a call the maintainer made or was asked to make.
    composer is read-only, whichever chat it shows. Switching chats is not locked.
 2. **Two chats of one character holding the same id share one composer draft.** This is recorded
    as a known limitation, not guarded against.
+
+---
+
+### MC-103 — W2: a busy starter is refused silently; a confirmed delete aborts; Home keeps generating; a gone group member is skipped
+
+- **Tag:** decision
+- **Date:** 2026-09-29
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on four questions the Orchestrator asked
+  after W2's scoping (ledger rows 305-306).
+- **Reasoning:** the recommended options, as offered:
+  - a silent refusal matches `MC-073` (clicking a character during generation is already refused
+    silently);
+  - aborting spends no tokens on a chat that no longer exists;
+  - keeping generation running on Home matches the unlocked switch (`MC-073`, `MC-102` 1);
+  - a member removed from the group mid-send has been removed by the user.
+- **Alternatives rejected:**
+  - a busy starter: queue it, or abort the running generation;
+  - a confirmed delete: let the generation finish and drop its writes;
+  - Home: abort on leaving;
+  - a gone member: stop the group turn with the "cannot find character" error, or keep generating
+    as a blank "Unknown Character".
+- **Related:** MC-073, MC-075, MC-076, MC-078, MC-095, MC-097, MC-102, Report 23.
+
+**What was decided:**
+1. **A starter that finds another send in flight is refused silently.** This covers auto mode,
+   reroll, the hotkey preview, Post File and DevTool. The plugin `sendChat` keeps its current
+   contract of throwing.
+2. **Confirming the delete of a chat, or of its character, while a reply is being generated into
+   it aborts that generation.** A write that still lands on a gone origin is dropped silently
+   (`MC-075` 2).
+3. **Home, or a switch to another character, during a send does not stop it.** The reply finishes
+   into the chat it started in and is saved, and the spurious error alert goes.
+4. **A group member who is gone when their turn comes is skipped.** The group continues with the
+   remaining members, and nothing is generated for the missing one.
+
+**The stage split, as proposed to the maintainer with these questions:**
+- W2a: the send's origin, writes, recursion and one work handle, including the Home case and the
+  `{{setvar}}` writes;
+- W2b: `doingChat` ownership and the other generation starters;
+- W2c: the send's reads (the parser, `@@inject`, lorebook, modules, persona);
+- W2d: the request layer, tool calls and graph memory (CHORE-27);
+- W3: `/` commands, `/multisend` and `sendPofile`;
+- W2e: the delete warning and complete work registration, last.
+
+**Orchestrator defaults, stated with the questions; the maintainer did not object, but did not
+decide them either.** Revisit any of them on request:
+- the delete warning goes on the first confirmation, for trash and permanent delete alike;
+- auto mode still stops on a chat switch;
+- only the send's own requests bind the `request` trigger; the translator, the Playground and the
+  other callers keep following the selection;
+- the model's `risuaccess` tools, called with no `id` during a send, act on the send's chat;
+- a `GLGlobalVariables` write whose subject is gone is dropped;
+- the preview hotkey and DevTool register as work.
+
+**Deferred to their stages' plans:** whether `/multisend` generates after each segment; a
+`loadInternalBackup` mid-work; whether a cancel stops a running `/` command; whether trigger-run
+`/` commands bind to the trigger run's origin.
+
+---
+
+### MC-104 — W2a: a send in a chat whose id is duplicated writes to the chat it was sent in; a cold group member is loaded for their turn
+
+- **Tag:** decision
+- **Date:** 2026-09-29
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on two questions the Orchestrator asked
+  after Gate 1 round 1 of W2a (Report 35; ledger row 307).
+- **Reasoning:**
+  - The object the send started from is known by identity, so writing to it guesses nothing
+    between the two holders. Applying `MC-078` to the whole send would have made Send a silent
+    no-op in that chat until a restart, where HEAD works.
+  - Cold storage is on by default and a group send updates only the group's `lastInteraction`,
+    so a member spoken to only through the group goes cold after 10 days. Skipping them would
+    silence them for good.
+- **Alternatives rejected:**
+  - a duplicated id: refuse with a visible error; stop silently (Report 35 rev 1);
+  - a cold member: stop the group turn with an error naming the member.
+- **Amends:** `MC-078`, for the send only. Other writers keep `MC-078`'s rule.
+- **Related:** MC-075, MC-078, MC-102, MC-103.
+
+**What was decided:**
+1. **A duplicated id during a send.** When the send's chat id, or its character's `chaId`, has
+   more than one holder, the send writes to the holder that is the very object it started from.
+   It gives up (silently, as for a gone chat) only when none of the holders is that object.
+2. **A cold group member** is restored from cold storage when their turn comes, the same way
+   opening them directly restores them, and their turn runs. If the restore fails, the existing
+   "cold storage restore failed" error is shown and the group turn stops.

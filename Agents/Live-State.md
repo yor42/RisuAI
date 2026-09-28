@@ -37,6 +37,7 @@ The branch is `fix/persistence-conflict-platform-hardening`. **It is pushed thro
 - The upstream batch (`MC-101`), not pushed: `3482ef4f`, `73edeb69`, `295c0fa7`, `5064bc4c`,
   `5c85cac7`, `0f38ac8c`, `9213ebc2`, then its records commit on top. See "Upstream batch state"
   below.
+- W2a (Report 35), not pushed: `ec65c200`, then its records commit on top. See "W2 state" below.
 
 ## Parallel sessions (from 2026-09-27)
 
@@ -147,7 +148,7 @@ improvements (`f190d950`, row 248) are merged. `upstream/main` has nothing newer
    each with its records commit. See "Composer stage state" below.
 6b. **The upstream batch (`MC-101`) is done** (ledger rows 301-304). See "Upstream batch state"
    below.
-6c. **Next: W2, then W3.** See "The composer as built" below for what W2 starts from.
+6c. **W2 is in progress.** See "W2 state" below.
 7. **CHORE-35's opt-in stage** (the remaining upstream-infrastructure features: `/proxy2`'s
    static-web default, the transformers CDN, the MCP OAuth helper, `#import=<url>`,
    `getProxyStreamJobBaseUrl`), after W1.
@@ -470,6 +471,34 @@ bug) is blocked on the maintainer's console output, not scheduled by position.
   - A partial `loadoutApplyOptions` object, which only a hand-edited save can hold, hides the
     missing toggles. This is the same upstream.
 
+## W2 state (2026-09-29)
+
+- **Scoping:** ledger rows 305-306 (packets in the session scratchpad, `w2/packet-A.md` and
+  `w2/packet-B.md`). **Decisions:** `MC-103` (busy starters refused silently; a confirmed delete
+  aborts; Home keeps generating; a gone group member is skipped; the split) and `MC-104` (a
+  duplicated id: the send writes to the object it started from; a cold group member is restored).
+- **The split, in order:** W2a (the send's origin, writes, recursion and registration), W2b
+  (`doingChat` ownership and the other starters), W2c (the send's scripts and parses, including
+  the `@@inject` and Lua edit-trigger writes), W2d (the request layer, tools, graph memory,
+  CHORE-27), W3 (`/` commands, `/multisend`, `sendPofile`), W2e (the delete warning and complete
+  registration).
+- **W2a: done, committed as `ec65c200`** (the fix and tests), then its records commit. Report 35 rev 2.6.
+  - Gate 1 passed (rows 307 [REJECT], 308 [EDITORIAL], 311 [EDITORIAL] on the fast-path addendum).
+  - Stream cost measured (rows 309, 314): the verified fast path is required and implemented; an
+    undisturbed stream adds +6 µs per flush at 6x, with no full scan after the first.
+  - Red tests (rows 310, 313), implementation (row 312).
+  - Gate 2: rows 315 [REJECT] (a missing reply ended the send, breaking upstream cards that rebuild
+    the chat with Lua `setFullChat`) and 316 [EDITORIAL], closed by the Orchestrator.
+  - Live check passed (row 317).
+  - Final snapshot: `pnpm test` 150 files, 1895 passed, 4 skipped; `pnpm check` clean; the build
+    passes.
+  - Optional, not taken (Report 35 section 12): skip the image-prompt request when there is no
+    reply; align the non-streaming continue whose target is already missing.
+  - Commit-message check (row 318): [EDITORIAL], applied.
+  - **Next: W2b** (`doingChat` ownership and the other generation starters).
+- **Disclosed for the maintainer:** in a chat with a duplicated id, the send's own writes land
+  (`MC-104` 1) but its trigger runs still write nothing (`MC-078`).
+
 ## Operational notes for this environment
 
 - **Git Bash here fails on heredocs, and on single commands longer than about 230 characters.**
@@ -512,8 +541,7 @@ bug) is blocked on the maintainer's console output, not scheduled by position.
 
 ## Test suite
 
-**145 files: 1778 passed, 4 skipped, 0 failed**, the check on the upstream batch's final tree
-(`9213ebc2`). `pnpm check` is clean, and `pnpm run build` passes.
+**150 files: 1895 passed, 4 skipped, 0 failed**, the check on W2a's final tree (`ec65c200`). `pnpm check` is clean, and `pnpm run build` passes.
 `cargo check` last ran on the removal stage.
 - Run the suite with plain `pnpm test` or `npx vitest run`. `vitest.config.ts` excludes
   `.claude/**` (`7b72b813`).
