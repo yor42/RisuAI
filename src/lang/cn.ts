@@ -1475,6 +1475,7 @@ export const languageChinese = {
     "fetchLogConsent": "插件 {} 正在请求获取日志，这可能会泄露敏感信息。是否允许？",
     "replacerPermissionConsent": "插件 {} 正在请求替换聊天中内容的权限，这可能被用于操纵对话内容。是否允许？",
     "providerPermissionConsent": "插件 {} 正在请求访问提供商（Provider）的权限，这可能允许其发起未经授权的 API 调用。是否允许？",
+    "providerPermissionDenied": "用户拒绝了插件的服务商访问权限。",
     "inlayPermissionConsent": "插件 {} 正在请求访问内嵌内容（Inlay）的权限，这可能允许其读取、写入或编辑内嵌内容。是否允许？",
     "sendChatConsent": "插件 {} 正在请求代表您发送聊天消息的权限，这将触发 AI 回应。是否允许？",
     "pluginV2Warning": "插件 V2 和 V2.1 被认为是不安全的，将在未来版本中停止运作。**请勿使用这些版本的插件。**如果您是该插件的开发者，请尽快更新至 V3。",

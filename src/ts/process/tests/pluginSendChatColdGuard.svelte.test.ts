@@ -9,15 +9,16 @@
  * AFTER the permission prompt and the push have already happened.
  *
  * IMPORTANT:
- *  - The fixture MUST include a matching `db.plugins` entry. Without it,
- *    `getPluginPermission` throws a TypeError at
- *    `DBState.db.plugins.find(...)` (`v3.svelte.ts` ~:606) BEFORE `hasher`,
- *    `alertConfirm` or the push -- which would make the guard test pass
- *    even with the guard deleted, for the wrong reason (a crash, not the
- *    guard). With the entry present, deleting the guard lets the call
- *    proceed through `getPluginPermission` successfully and resolve `true`
- *    instead of rejecting, which is the real behavioural signal this test
- *    needs.
+ *  - Removing the guard lets `sendChat` fall through to
+ *    `getPermission('sendChat')`, push the message onto `chat.message` and
+ *    call `processSendChat`, resolving `true` instead of rejecting -- that
+ *    resolve/reject difference, plus the `alertConfirm`/push/
+ *    `processSendChat` calls it gates, is the behavioural signal the guard
+ *    test below checks for.
+ *  - `getPluginPermission` derives the plugin's identity from the `plugin`
+ *    object passed into `makeRisuaiAPIV3` (its script, hashed), never from a
+ *    `DBState.db.plugins` lookup, so the fixture below carries no
+ *    `db.plugins` entry.
  *  - Assertions read through `DBState.db.characters[0]...` (the reactive
  *    Svelte 5 $state proxy), never through a raw plain-object reference
  *    held separately -- a write made through the proxy does not appear on
@@ -26,14 +27,15 @@
  *  - A CONTROL case below drives a NON-cold chat through the same API and
  *    asserts it DOES reach the permission prompt and DOES push/call
  *    `processSendChat`, proving this harness can observe both when they
- *    happen. The guard and control cases use DIFFERENT plugin names, so
- *    neither run is short-circuited by the module-level
- *    `permissionGivenPlugins`/`permissionDeniedPlugins` caches in
- *    `v3.svelte.ts` (which persist for the lifetime of the test file, since
- *    that module is only evaluated once) -- if both cases shared one plugin
- *    name, whichever ran first would grant permission for the plugin name,
- *    and the second run would take the `permissionGivenPlugins.has(...)`
- *    fast path regardless of test order, silently skipping `alertConfirm`.
+ *    happen. The guard and control cases pass DIFFERENT plugin scripts (not
+ *    only different names) into `makeRisuaiAPIV3`, so neither run is
+ *    short-circuited by the session permission cache in `v3.svelte.ts`,
+ *    which is keyed by the hash of the script plus the permission and
+ *    persists for the lifetime of the test file since that module is only
+ *    evaluated once -- if both cases shared one script, whichever ran first
+ *    would cache the `sendChat` decision for that script hash, and the
+ *    second run would take the cached-decision fast path regardless of test
+ *    order, silently skipping `alertConfirm`.
  *
  * This file drives the REAL `makeRisuaiAPIV3` factory (exported from
  * `v3.svelte.ts` for exactly this purpose, so the guard can be exercised
@@ -46,6 +48,7 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest'
 import { writable } from 'svelte/store'
 import type { Database } from '../../storage/database.svelte'
+import type { RisuPlugin } from '../../plugins/plugins.svelte'
 
 //#region module mocks -- every static import of `v3.svelte.ts` other than
 // `svelte/store`, `uuid`, `src/lang`, `coldstorageData.ts` and
@@ -53,7 +56,10 @@ import type { Database } from '../../storage/database.svelte'
 // the module under test itself.
 
 const alertConfirmMock = vi.hoisted(() => vi.fn(async () => true))
-const hasherMock = vi.hoisted(() => vi.fn(async () => 'hash'))
+// Content-derived, matching the real hasher's determinism: distinct plugin
+// scripts always produce distinct hashes, which is what keeps the guard and
+// control cases below from sharing one permission-cache entry.
+const hasherMock = vi.hoisted(() => vi.fn(async (data: Uint8Array) => `hash:${new TextDecoder().decode(data)}`))
 const processSendChatMock = vi.hoisted(() => vi.fn(async () => {}))
 
 vi.mock('localforage', () => ({
@@ -211,9 +217,19 @@ import { makeRisuaiAPIV3 } from '../../plugins/apiV3/v3.svelte'
 import { DBState, selectedCharID } from '../../stores.svelte'
 import { coldStorageHeader } from '../coldstorageData'
 
-function makePointerChatDb(pluginName: string, coldKey: string): Database {
+function makePlugin(name: string, script: string): RisuPlugin {
     return {
-        plugins: [{ name: pluginName, script: '' }],
+        name,
+        script,
+        arguments: {},
+        realArg: {},
+        customLink: [],
+        argMeta: {},
+    }
+}
+
+function makePointerChatDb(coldKey: string): Database {
+    return {
         characters: [{
             chaId: 'plugin-guard-char',
             name: 'Plugin Guard Character',
@@ -229,9 +245,8 @@ function makePointerChatDb(pluginName: string, coldKey: string): Database {
     } as unknown as Database
 }
 
-function makeNormalChatDb(pluginName: string): Database {
+function makeNormalChatDb(): Database {
     return {
-        plugins: [{ name: pluginName, script: '' }],
         characters: [{
             chaId: 'plugin-control-char',
             name: 'Plugin Control Character',
@@ -255,12 +270,11 @@ describe('CHORE-07: risuai.sendChat refuses a cold chat before the permission pr
     })
 
     test('a cold chat rejects, never prompts for permission, and never pushes the message', async () => {
-        const pluginName = 'guard-test-plugin'
-        const db = makePointerChatDb(pluginName, 'plugin-guard-cold-key')
+        const db = makePointerChatDb('plugin-guard-cold-key')
         DBState.db = db
         selectedCharID.set(0)
 
-        const api = makeRisuaiAPIV3({} as HTMLIFrameElement, { name: pluginName } as never)
+        const api = makeRisuaiAPIV3({} as HTMLIFrameElement, makePlugin('guard-test-plugin', 'cold-guard-script'))
 
         const messageBefore = JSON.parse(JSON.stringify(DBState.db.characters[0].chats[0].message))
 
@@ -273,12 +287,11 @@ describe('CHORE-07: risuai.sendChat refuses a cold chat before the permission pr
     })
 
     test('CONTROL: a non-cold chat DOES reach the permission prompt and DOES push/call processSendChat', async () => {
-        const pluginName = 'control-test-plugin'
-        const db = makeNormalChatDb(pluginName)
+        const db = makeNormalChatDb()
         DBState.db = db
         selectedCharID.set(0)
 
-        const api = makeRisuaiAPIV3({} as HTMLIFrameElement, { name: pluginName } as never)
+        const api = makeRisuaiAPIV3({} as HTMLIFrameElement, makePlugin('control-test-plugin', 'control-script'))
 
         const result = await api.sendChat('a control message')
 

@@ -1523,6 +1523,7 @@ export const languageChineseTraditional = {
     "mainDomAccessConsent": "外掛 {} 正要求存取 Risuai 主介面的 DOM，其中可能包含敏感資訊。要允許嗎？",
     "replacerPermissionConsent": "外掛 {} 正要求替換對話內容的權限，這可能被用來操控對話。要允許嗎？",
     "providerPermissionConsent": "外掛 {} 正要求使用模型供應商功能，這可能讓它發出未經授權的 API 請求。要允許嗎？",
+    "providerPermissionDenied": "使用者拒絕了外掛的模型供應商存取權限。",
     "inlayPermissionConsent": "外掛 {} 正在請求存取內嵌內容的權限，此操作可能允許它讀取、寫入或編輯內嵌內容。是否允許？",
     "sendChatConsent": "外掛 {} 正要求以您的名義送出對話訊息，這會觸發 AI 回應。要允許嗎？",
     "pluginV2Warning": "外掛 V2 與 V2.1 版本被視為不安全，並將於未來版本中停用。**請勿使用此版本的外掛。**若您是外掛開發者，請盡快更新至 V3。",

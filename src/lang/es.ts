@@ -1476,6 +1476,7 @@ export const languageSpanish = {
     "mainDomAccessConsent": "El plugin {} está solicitando acceso al Documento principal, lo que podría exponer información confidencial. ¿Quieres permitir esto?",
     "replacerPermissionConsent": "El plugin {} está solicitando permiso para reemplazar contenido en el chat, lo que podría usarse para manipular la conversación. ¿Quieres permitir esto?",
     "providerPermissionConsent": "El plugin {} está solicitando permiso para acceder al proveedor, lo que podría permitirle realizar llamadas a la API no autorizadas. ¿Quieres permitir esto?",
+    "providerPermissionDenied": "El usuario ha denegado al plugin el permiso para acceder al proveedor.",
     "inlayPermissionConsent": "El plugin {} está solicitando permiso para acceder al inlay, lo que podría permitirle leer, escribir o editar el contenido del inlay. ¿Quieres permitir esto?",
     "sendChatConsent": "El plugin {} está solicitando permiso para enviar mensajes de chat en tu nombre, lo que activará respuestas de la IA. ¿Quieres permitir esto?",
     "pluginV2Warning": "Los plugins V2 y V2.1 se consideran inseguros y dejarán de funcionar en futuras versiones. **Por favor, no uses estas versiones de plugins.** Si eres el desarrollador de este plugin, por favor actualízalo a V3 lo antes posible.",

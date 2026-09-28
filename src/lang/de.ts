@@ -1478,6 +1478,7 @@ export const languageGerman = {
     "hamburgerButtonBottom": "Menüschaltfläche an den unteren Rand der Seitenleiste verschieben",
     "replacerPermissionConsent": "Plugin {} möchte die Berechtigung erhalten, Inhalte im Chat zu ersetzen, was zur Manipulation der Unterhaltung verwendet werden könnte. Möchten Sie dies zulassen?",
     "providerPermissionConsent": "Plugin {} möchte die Berechtigung erhalten, auf den Anbieter zuzugreifen, wodurch es unautorisierte API-Aufrufe tätigen könnte. Möchten Sie dies zulassen?",
+    "providerPermissionDenied": "Der Benutzer hat dem Plugin den Zugriff auf den Anbieter verweigert.",
     "inlayPermissionConsent": "Plugin {} möchte die Berechtigung erhalten, auf das Inlay zuzugreifen, wodurch es den Inlay-Inhalt lesen, schreiben oder bearbeiten könnte. Möchten Sie dies zulassen?",
     "sendChatConsent": "Plugin {} möchte die Berechtigung erhalten, in Ihrem Namen Chat-Nachrichten zu senden, wodurch KI-Antworten ausgelöst werden. Möchten Sie dies zulassen?",
     "pluginV2Warning": "Plugin V2 und V2.1 gelten als unsicher und werden in zukünftigen Versionen nicht mehr funktionieren. **Bitte verwenden Sie diese Plugin-Versionen nicht.** Wenn Sie der Entwickler dieses Plugins sind, aktualisieren Sie es bitte so schnell wie möglich auf V3.",

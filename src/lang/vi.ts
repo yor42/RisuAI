@@ -1474,6 +1474,7 @@ export const languageVietnamese = {
     "getFullDatabaseConsent": "Plugin {} đang yêu cầu truy cập vào toàn bộ cơ sở dữ liệu, điều này có thể làm lộ thông tin nhạy cảm. Bạn có muốn cho phép điều này không?",
     "replacerPermissionConsent": "Plugin {} đang yêu cầu quyền thay thế nội dung trong cuộc trò chuyện, điều này có thể được dùng để thao túng cuộc trò chuyện. Bạn có muốn cho phép điều này không?",
     "providerPermissionConsent": "Plugin {} đang yêu cầu quyền truy cập nhà cung cấp, điều này có thể cho phép nó thực hiện các lệnh gọi API trái phép. Bạn có muốn cho phép điều này không?",
+    "providerPermissionDenied": "Người dùng đã từ chối quyền truy cập nhà cung cấp của plugin.",
     "inlayPermissionConsent": "Plugin {} đang yêu cầu quyền truy cập vào inlay, điều này có thể cho phép nó đọc, ghi hoặc chỉnh sửa nội dung inlay. Bạn có muốn cho phép điều này không?",
     "sendChatConsent": "Plugin {} đang yêu cầu quyền gửi tin nhắn trò chuyện thay mặt bạn, điều này sẽ kích hoạt phản hồi của AI. Bạn có muốn cho phép điều này không?",
     "pluginV2Warning": "Plugin V2 và V2.1 được coi là không an toàn và sẽ ngừng hoạt động trong các phiên bản tương lai. **Vui lòng không sử dụng các phiên bản plugin này.** Nếu bạn là nhà phát triển của plugin này, vui lòng cập nhật lên V3 càng sớm càng tốt.",
