@@ -1708,6 +1708,310 @@ describe('composerActions: the reroll snapshot sendChatMain stores', () => {
     })
 })
 
+//#region the origin handed to generation
+
+/** What `sendChat` receives from a caller that holds an origin. */
+interface HandOffArg extends SendChatArg {
+    origin?: { chaId: string, chatId: string, memberChaId?: string }
+    originHint?: { owner: character | groupChat, chat: Chat }
+}
+
+function handOffOf(callIndex = 0): HandOffArg {
+    return sendChatMock.mock.calls[callIndex][1] as HandOffArg
+}
+
+function textMessage(role: 'user' | 'char', data: string): Message {
+    return { role, data, time: Date.now() } as unknown as Message
+}
+
+/**
+ * The sending character has two chats and a second character has one; the
+ * chats a switch can land on hold four messages, more than the sending chat
+ * holds, so a length read from the wrong chat cannot coincide with the right one.
+ */
+function installSwitchWorld() {
+    const four = () => [1, 2, 3, 4].map((i) => textMessage('user', `other-${i}`))
+    const origin = makeCharacter('c-origin', {
+        chats: [
+            makeChat('c-origin-chat-a'),
+            makeChat('c-origin-chat-b', { message: four() }),
+        ],
+    })
+    const other = makeCharacter('c-other', { chats: [makeChat('c-other-chat', { message: four() })] })
+    installDb([origin, other])
+    return { origin, other }
+}
+
+const screenSwitches: Array<[string, () => void]> = [
+    ['to another chat of the same character', () => { DBState.db.characters[0].chatPage = 1 }],
+    ['to another character', () => { selectedCharID.set(1) }],
+    ['to Home', () => { selectedCharID.set(-1) }],
+]
+
+type SwitchTiming = 'between the take and the hand-off' | 'during generation'
+
+const switchTimings: SwitchTiming[] = ['between the take and the hand-off', 'during generation']
+
+/**
+ * Sends "hello" from the sending chat, with the screen switched either while
+ * the send waits between the take and the hand-off, or inside the generation
+ * itself. The stand-in generation appends two replies to the sending chat.
+ */
+async function sendWithSwitch(timing: SwitchTiming, doSwitch: () => void) {
+    const { origin } = installSwitchWorld()
+    vi.mocked(alertError).mockClear()
+    seedDraft(origin, origin.chats[0], { messageInput: 'hello' })
+    sendChatMock.mockImplementationOnce(async () => {
+        doingChatMock.set(true)
+        origin.chats[0].message.push(textMessage('char', 'reply-1'), textMessage('char', 'reply-2'))
+        if (timing === 'during generation') {
+            doSwitch()
+        }
+        return true
+    })
+    const { source } = makeSource()
+    let error: Error | undefined
+    const capture = (e: unknown) => { error = e instanceof Error ? e : new Error(String(e)) }
+    if (timing === 'between the take and the hand-off') {
+        const delay = interceptSleep(10)
+        const running = send(source).catch(capture)
+        await delay.reached
+        doSwitch()
+        delay.release()
+        await running
+    } else {
+        await send(source).catch(capture)
+    }
+    return { origin, source, error }
+}
+
+describe('composerActions: the origin handed to generation', () => {
+    // A stand-in generation queued by one test must not reach the next.
+    beforeEach(() => { sendChatMock.mockReset() })
+
+    test.each([
+        ['Send', false],
+        ['Continue', true],
+    ] as const)('%s hands generation the chat it started from and the objects it read it through', async (_label, isContinue) => {
+        const char = makeCharacter('c-handoff')
+        installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'hello' })
+
+        const { source } = makeSource()
+        await (isContinue ? sendContinue(source) : send(source))
+
+        expect(sendChatMock).toHaveBeenCalledTimes(1)
+        const arg = handOffOf()
+        expect(arg.origin).toEqual({ chaId: 'c-handoff', chatId: 'c-handoff-chat-0' })
+        expect(arg.originHint?.chat).toBe(DBState.db.characters[0].chats[0])
+        expect(arg.originHint?.owner).toBe(DBState.db.characters[0])
+    })
+
+    test.each([
+        ['Send', false],
+        ['Continue', true],
+    ] as const)('guard: %s hands generation its abort signal and its continue flag', async (_label, isContinue) => {
+        const char = makeCharacter('c-handoff-guard')
+        installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'hello' })
+
+        const { source } = makeSource()
+        await (isContinue ? sendContinue(source) : send(source))
+
+        expect(sendChatMock).toHaveBeenCalledTimes(1)
+        expect(sendChatMock.mock.calls[0][0]).toBe(-1)
+        expect(handOffOf().continue).toBe(isContinue)
+        expect(handOffOf().signal).toBeInstanceOf(AbortSignal)
+    })
+
+    test('a reroll hands generation the chat it started from and the objects it read it through', async () => {
+        const char = makeCharacter('c-reroll-handoff')
+        char.chats[0].message = [textMessage('user', 'q'), textMessage('char', 'old reply')]
+        installDb([char])
+
+        const { source } = makeSource()
+        await reroll(source)
+
+        expect(sendChatMock).toHaveBeenCalledTimes(1)
+        const arg = handOffOf()
+        expect(arg.origin).toEqual({ chaId: 'c-reroll-handoff', chatId: 'c-reroll-handoff-chat-0' })
+        expect(arg.originHint?.chat).toBe(DBState.db.characters[0].chats[0])
+        expect(arg.originHint?.owner).toBe(DBState.db.characters[0])
+    })
+
+    test('auto mode hands every tick the chat it started from and the objects it read it through', async () => {
+        const char = makeCharacter('c-auto-handoff')
+        installDb([char])
+        const { source } = makeSource()
+        sendChatMock
+            .mockImplementationOnce(async () => { doingChatMock.set(true); return true })
+            .mockImplementationOnce(async () => { doingChatMock.set(true); void runAutoMode(source); return true })
+
+        await runAutoMode(source)
+
+        expect(sendChatMock).toHaveBeenCalledTimes(2)
+        for (const tick of [0, 1]) {
+            const arg = handOffOf(tick)
+            expect(arg.origin).toEqual({ chaId: 'c-auto-handoff', chatId: 'c-auto-handoff-chat-0' })
+            expect(arg.originHint?.chat).toBe(DBState.db.characters[0].chats[0])
+            expect(arg.originHint?.owner).toBe(DBState.db.characters[0])
+        }
+    })
+})
+
+describe('composerActions: the origin is registered as being written to for the whole generation', () => {
+    // A stand-in generation queued by one test must not reach the next.
+    beforeEach(() => { sendChatMock.mockReset() })
+
+    test('guard: Send keeps its origin registered during generation and releases it afterwards', async () => {
+        const char = makeCharacter('c-reg-send')
+        installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'hello' })
+        const target = { chaId: 'c-reg-send', chatId: 'c-reg-send-chat-0' }
+        let during: boolean | undefined
+        sendChatMock.mockImplementationOnce(async () => {
+            doingChatMock.set(true)
+            during = isWriting(target)
+            return true
+        })
+
+        const { source } = makeSource()
+        await send(source)
+
+        expect(during).toBe(true)
+        expect(isWriting(target)).toBe(false)
+    })
+
+    test('a reroll keeps its origin registered during generation and releases it afterwards', async () => {
+        const char = makeCharacter('c-reg-reroll')
+        char.chats[0].message = [textMessage('user', 'q'), textMessage('char', 'old reply')]
+        installDb([char])
+        const target = { chaId: 'c-reg-reroll', chatId: 'c-reg-reroll-chat-0' }
+        let during: boolean | undefined
+        sendChatMock.mockImplementationOnce(async () => {
+            doingChatMock.set(true)
+            during = isWriting(target)
+            return true
+        })
+
+        const { source } = makeSource()
+        await reroll(source)
+
+        expect(during).toBe(true)
+        expect(isWriting(target)).toBe(false)
+    })
+
+    test('auto mode keeps its origin registered during generation and releases it when it stops', async () => {
+        const char = makeCharacter('c-reg-auto')
+        installDb([char])
+        const target = { chaId: 'c-reg-auto', chatId: 'c-reg-auto-chat-0' }
+        const { source } = makeSource()
+        let during: boolean | undefined
+        sendChatMock.mockImplementationOnce(async () => {
+            doingChatMock.set(true)
+            during = isWriting(target)
+            void runAutoMode(source)
+            return true
+        })
+
+        await runAutoMode(source)
+
+        expect(during).toBe(true)
+        expect(isWriting(target)).toBe(false)
+    })
+})
+
+describe('composerActions: a switch around a Send', () => {
+    // A stand-in generation queued by one test must not reach the next.
+    beforeEach(() => { sendChatMock.mockReset() })
+
+    describe.each(switchTimings)('%s', (timing) => {
+        test.each(screenSwitches)('generation is handed the chat the Send started from (a switch %s)', async (_label, doSwitch) => {
+            const { origin } = await sendWithSwitch(timing, doSwitch)
+
+            expect(sendChatMock).toHaveBeenCalledTimes(1)
+            const arg = handOffOf()
+            expect(arg.origin).toEqual({ chaId: 'c-origin', chatId: 'c-origin-chat-a' })
+            expect(arg.originHint?.chat).toBe(origin.chats[0])
+            expect(arg.originHint?.owner).toBe(origin)
+        })
+
+        test.each(screenSwitches)('no error is raised and the reroll snapshot is the origin chat\'s new messages (a switch %s)', async (_label, doSwitch) => {
+            const { origin, source, error } = await sendWithSwitch(timing, doSwitch)
+
+            expect(error).toBeUndefined()
+            expect(alertError).not.toHaveBeenCalled()
+            expect(origin.chats[0].message.map((m) => m.data)).toEqual(['hello', 'reply-1', 'reply-2'])
+            expect(source.rerolls.get().length).toBe(1)
+            expect(source.rerollId.get()).toBe(0)
+            expect(source.rerolls.get()[0].map((m) => m.data)).toEqual(['reply-1', 'reply-2'])
+            expect(source.lastCharId.get()).toBe(0)
+        })
+    })
+})
+
+describe('composerActions: a switch around a reroll and around auto mode', () => {
+    // A stand-in generation queued by one test must not reach the next.
+    beforeEach(() => { sendChatMock.mockReset() })
+
+    test.each(screenSwitches)('a reroll followed by a switch %s stores the new reply from the reroll\'s chat and raises no error', async (_label, doSwitch) => {
+        const { origin } = installSwitchWorld()
+        origin.chats[0].message = [textMessage('user', 'q'), textMessage('char', 'old reply')]
+        vi.mocked(alertError).mockClear()
+        sendChatMock.mockImplementationOnce(async () => {
+            doingChatMock.set(true)
+            origin.chats[0].message.push(textMessage('char', 'new reply'))
+            doSwitch()
+            return true
+        })
+
+        const { source } = makeSource()
+        let error: Error | undefined
+        await reroll(source).catch((e: unknown) => { error = e instanceof Error ? e : new Error(String(e)) })
+
+        expect(error).toBeUndefined()
+        expect(alertError).not.toHaveBeenCalled()
+        expect(origin.chats[0].message.map((m) => m.data)).toEqual(['q', 'new reply'])
+        expect(source.rerolls.get().at(-1)?.map((m) => m.data)).toEqual(['new reply'])
+        expect(source.rerollId.get()).toBe(source.rerolls.get().length - 1)
+        expect(source.lastCharId.get()).toBe(0)
+    })
+
+    test('auto mode stops after a switch to another chat of the same character', async () => {
+        const { origin } = installSwitchWorld()
+        const { source } = makeSource()
+        sendChatMock
+            .mockImplementationOnce(async () => { doingChatMock.set(true); origin.chatPage = 1; return true })
+            .mockImplementationOnce(async () => { doingChatMock.set(true); return true })
+            .mockImplementationOnce(async () => { doingChatMock.set(true); void runAutoMode(source); return true })
+
+        await runAutoMode(source)
+
+        expect(sendChatMock).toHaveBeenCalledTimes(1)
+        expect(isAutoModeActive()).toBe(false)
+        expect(isComposerBusy()).toBe(false)
+    })
+
+    test.each([
+        ['to another character', () => { selectedCharID.set(1) }],
+        ['to Home', () => { selectedCharID.set(-1) }],
+    ] as const)('guard: auto mode stops after a switch %s', async (_label, doSwitch) => {
+        installSwitchWorld()
+        const { source } = makeSource()
+        sendChatMock
+            .mockImplementationOnce(async () => { doingChatMock.set(true); doSwitch(); return true })
+            .mockImplementationOnce(async () => { doingChatMock.set(true); return true })
+            .mockImplementationOnce(async () => { doingChatMock.set(true); void runAutoMode(source); return true })
+
+        await runAutoMode(source)
+
+        expect(sendChatMock).toHaveBeenCalledTimes(1)
+        expect(isAutoModeActive()).toBe(false)
+    })
+})
+
+//#endregion
+
 //#region helpers that must be declared after the mocked gate infrastructure above
 
 function interceptSleep(ms: number) {

@@ -1,5 +1,5 @@
 import { get, writable } from "svelte/store";
-import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, changeToPreset, type Message, type StreamingDisplayOptimizationMode } from "../storage/database.svelte";
+import { type character, type groupChat, type MessageGenerationInfo, type Chat, type MessagePresetInfo, changeToPreset, type Message, type StreamingDisplayOptimizationMode } from "../storage/database.svelte";
 import { DBState } from '../stores.svelte';
 import { CharEmotion, selectedCharID } from "../stores.svelte";
 import { ChatTokenizer, tokenize, tokenizeNum } from "../tokenizer";
@@ -34,7 +34,7 @@ import { readImage } from "../globalApi.svelte";
 import { pluginV2 } from "../plugins/plugins.svelte";
 import { isColdChat } from "./coldstorageData";
 import { markCharacterForSave } from "../storage/characterSaveMarks";
-import { beginWork, originStatus, resolveOrigin } from "./chatOrigin";
+import { beginWork, createSendSubject, registerWork, resolveOriginWithHint, type Origin, type OriginContext, type SendSubject, type WorkHandle } from "./chatOrigin";
 
 export interface OpenAIChat{
     role: 'system'|'user'|'assistant'|'function'
@@ -46,14 +46,6 @@ export interface OpenAIChat{
     multimodals?: MultiModal[]
     thoughts?: string[]
     cachePoint?: boolean
-}
-
-function findMessageIndexByChatId(chat: Chat, chatId?: string){
-    if(!chatId){
-        return -1
-    }
-
-    return chat.message.findIndex((message) => message.chatId === chatId)
 }
 
 async function runChatOutputListeners(char: any, chat: any, characterIndex: number, chatIndex: number, messageIndex: number){
@@ -98,6 +90,36 @@ export let requestTokenParts:{[key:string]:requestTokenPart[]} = {}
 export let previewFormated:OpenAIChat[] = []
 export let previewBody:string = ''
 
+/**
+ * Test-only observation of the positions a streamed reply's flush wrote at.
+ * Not part of any plugin-facing surface, and free while no observer is set.
+ */
+export interface StreamFlushUse {
+    origin: Origin
+    hint: SendChatOriginHint
+    replyId: string
+    ownerIndex: number
+    chatIndex: number
+    memberIndex: number | null
+    replyIndex: number
+}
+
+let streamFlushObserver: ((use: StreamFlushUse) => void) | null = null
+
+export function setStreamFlushObserverForTests(observer: ((use: StreamFlushUse) => void) | null): void {
+    streamFlushObserver = observer
+}
+
+/**
+ * The objects a caller read the origin's owner and chat through. They decide
+ * which holder a write goes to when the origin's id has more than one, and are
+ * never written to unless they are a current holder.
+ */
+export interface SendChatOriginHint {
+    owner: character | groupChat
+    chat: Chat
+}
+
 export interface SendChatArg {
     chatAdditonalTokens?:number,
     signal?:AbortSignal,
@@ -105,58 +127,144 @@ export interface SendChatArg {
     usedContinueTokens?:number,
     preview?:boolean
     previewPrompt?:boolean
+    /**
+     * The chat this send writes into, for a caller that already holds one.
+     * Without it, one is captured from the chat on screen when the call starts.
+     */
+    origin?: Origin
+    /** The objects `origin` was read through (see `SendChatOriginHint`). */
+    originHint?: SendChatOriginHint
+    /** Set by the auto-continue a send starts: the id of the reply it continues. */
+    continueMessageId?: string
 }
 
 /**
- * Fork-specific internal API (CHORE-01): a per-call context
- * `sendChatBody` reports its captured index/chaId through, so the thin outer
- * `sendChat` below can mark for save AFTER the body (and any nested
- * auto-continue recursion) has fully settled -- a write made mid-generation to
- * a character the user has since switched away from (hotkeys, Playground and
- * Home buttons all change selection without checking `doingChat`) would
- * otherwise never get marked.
+ * What the outer `sendChat` establishes for one call and hands to
+ * `sendChatBody`: the origin every write of the call is addressed to, the
+ * objects it was read through, and the one subject that resolves it. Nothing
+ * in the body addresses a write by a position taken earlier.
  */
 interface SendChatCallContext {
-    /** The chaId captured right after `sendChatBody` resolves `nowChatroom` (near its top, before generation starts). */
-    chaId?: string
-    /** The `characters[]` index captured at the same point. */
-    index?: number
+    origin: Origin
+    hint: SendChatOriginHint
+    subject: SendSubject
+}
+
+interface SendChatEntry {
+    context: SendChatCallContext
+    handle: WorkHandle
 }
 
 /**
- * Thin outer wrapper (CHORE-01): marks both the chaId captured
- * at generation start AND whatever character now sits at that same index by
- * the time this settles. Two marks, not one, because a permanent delete
- * during generation (`removeChar(..., 'permanent')` in `characters.ts`)
- * splices `db.characters` with no `doingChat` check, so an index-based write
- * inside the body can land on a different character than the one that
- * started the generation -- marking both covers both, and
- * `markCharacterForSave`'s de-duplication makes the common (unchanged) case
- * free. The auto-continue recursion inside `sendChatBody` (its two recursive
- * `sendChat(chatProcessIndex, ...)` calls) calls this outer function, not the
- * body directly, so every recursive level gets its own try/finally.
+ * Applies the refusals that depend on the chat a call writes to, then fixes
+ * that chat for the call. A call that carries an origin reads no selection to
+ * choose its chat or to decide whether to run: its cold guard checks the
+ * origin's chat, and an origin that does not resolve ends the call quietly. A call without one takes the chat on screen, and
+ * nothing selected returns without a side effect. Returns null for every
+ * refusal, and registers nothing for it.
+ */
+function enterSendChat(chatProcessIndex: number, arg: SendChatArg): SendChatEntry | null {
+    let origin: Origin
+    let hint: SendChatOriginHint
+    let owner: character | groupChat
+    let handle: WorkHandle | null = null
+
+    if(arg.origin){
+        const ctx = resolveOriginWithHint(arg.origin, arg.originHint)
+        if(!ctx){
+            doingChat.set(false)
+            return null
+        }
+        if(isColdChat(ctx.chat)){
+            alertError(language.errors.coldStorageChatStillLoading)
+            return null
+        }
+        origin = arg.origin
+        owner = ctx.owner
+        hint = arg.originHint ?? { owner: ctx.owner, chat: ctx.chat }
+    }
+    else{
+        // CHORE-07: refuse to run against a chat whose first message
+        // is still a live cold-storage pointer -- it has not finished loading
+        // (or a load attempt failed and left the pointer in place), so nothing
+        // in this function has real chat data to work with yet.
+        const selected = DBState.db?.characters?.[get(selectedCharID)]
+        const selectedChat = selected?.chats?.[selected.chatPage]
+        if(isColdChat(selectedChat)){
+            alertError(language.errors.coldStorageChatStillLoading)
+            return null
+        }
+        if(!selected || !selectedChat){
+            return null
+        }
+        handle = beginWork(selected, selectedChat)
+        if(!handle){
+            return null
+        }
+        origin = handle.origin
+        owner = selected
+        hint = { owner: selected, chat: selectedChat }
+    }
+
+    if(chatProcessIndex >= 0 && owner.type === 'group' && !origin.memberChaId && owner.characters[chatProcessIndex]){
+        origin = { ...origin, memberChaId: owner.characters[chatProcessIndex] }
+        handle?.end()
+        handle = null
+    }
+    handle ??= registerWork(origin)
+
+    return { context: { origin, hint, subject: createSendSubject(origin, hint) }, handle }
+}
+
+/**
+ * Thin outer wrapper (CHORE-01). Applies the refusals -- a generation already
+ * running, a cold chat still loading, nothing selected, an origin that is
+ * gone -- fixes the origin the call writes into, and registers it as being
+ * written to until the call settles. The recursion inside `sendChatBody`
+ * (group turns, auto-continue, resend) calls this function, not the body, so
+ * every level registers and marks for itself. Once a call has settled, its
+ * origin's owner and member are marked for save whatever the selection has
+ * moved to since: a write made mid-generation to a character other than the
+ * selected one (hotkeys, Playground and Home buttons all change selection
+ * without checking `doingChat`) would otherwise never be saved.
  */
 export async function sendChat(chatProcessIndex = -1, arg: SendChatArg = {}): Promise<boolean> {
-    const ctx: SendChatCallContext = {}
+    chatProcessStage.set(0)
+    if(chatProcessIndex === -1 && get(doingChat)){
+        return false
+    }
+    const entry = enterSendChat(chatProcessIndex, arg)
+    if(!entry){
+        return false
+    }
     try {
-        return await sendChatBody(chatProcessIndex, arg, ctx)
+        return await sendChatBody(chatProcessIndex, arg, entry.context)
     } finally {
-        markCharacterForSave(ctx.chaId)
-        markCharacterForSave(DBState.db?.characters?.[ctx.index]?.chaId)
+        entry.handle.end()
+        markCharacterForSave(entry.context.origin.chaId)
+        markCharacterForSave(entry.context.origin.memberChaId)
     }
 }
 
-async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChatCtx: SendChatCallContext):Promise<boolean> {
+async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx: SendChatCallContext):Promise<boolean> {
 
-    chatProcessStage.set(0)
+    const { origin, hint, subject } = callCtx
     const abortSignal = arg.signal ?? (new AbortController()).signal
     
     // NOTE: `throwError()` can be called before these are populated (e.g. HypaV3 early validation errors).
     // Keep them declared up-front to avoid TDZ ReferenceErrors in production builds.
-    let selectedChar = -1
-    let selectedChat = -1
     let currentChar:character
     let generationInfo:MessageGenerationInfo|undefined = undefined
+
+    // The reply this call writes to: the message it continues, or the one it
+    // appends. It is addressed by its id, never by a position. `replyMessage`
+    // is the object the call tracked: it lets `locateReply` skip the search
+    // while it is still at `replyIndex`, and picks the reply when more than one
+    // message holds the id. A reply that goes missing drops only the writes
+    // addressed to it; the call carries on.
+    let replyId = undefined as string|undefined
+    let replyMessage:Message|undefined = undefined
+    let replyIndex = -1
 
     const stageTimings = {
         stage1Start: 0,
@@ -183,13 +291,107 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
         }
     }
 
+    // Ends the call quietly because its origin is gone: nothing more is
+    // written or generated for it.
+    function endGone():false{
+        doingChat.set(false)
+        return false
+    }
 
-    function runCurrentChatFunction(chat:Chat){
-        chat.message = chat.message.map((v) => {
-            v.data = risuChatParser(v.data, {chara: currentChar, runVar: true})
+    function trackReply(chat:Chat, index:number){
+        const message = chat.message[index]
+        message.chatId ??= v4()
+        replyId = message.chatId
+        replyMessage = message
+        replyIndex = index
+    }
+
+    // The index of the reply in `chat`, or -1 when it is gone (or, with more
+    // than one message holding its id, none of them is the one this call
+    // tracked). The last index found is reused only while that message is still
+    // the tracked object and still carries the id.
+    function locateReply(chat:Chat):number{
+        if(replyId === undefined){
+            return -1
+        }
+        const messages = chat.message
+        if(replyMessage !== undefined && messages[replyIndex] === replyMessage && replyMessage.chatId === replyId){
+            return replyIndex
+        }
+        let found = -1
+        let hinted = -1
+        let holders = 0
+        for(let i = 0; i < messages.length; i++){
+            if(messages[i].chatId === replyId){
+                holders++
+                found = i
+                if(messages[i] === replyMessage){
+                    hinted = i
+                }
+            }
+        }
+        if(holders === 0){
+            return -1
+        }
+        if(holders > 1){
+            if(hinted === -1){
+                return -1
+            }
+            found = hinted
+        }
+        replyIndex = found
+        return found
+    }
+
+    function resolveReply():{ctx:OriginContext, index:number, replyId:string}|null{
+        if(replyId === undefined){
+            return null
+        }
+        const ctx = subject.resolve()
+        if(!ctx){
+            return null
+        }
+        const index = locateReply(ctx.chat)
+        if(index === -1){
+            return null
+        }
+        return {ctx, index, replyId}
+    }
+
+    // The message a continue extends: the reply named by `continueMessageId`,
+    // else the chat's last message.
+    function continuedMessageIndex(chat:Chat):number{
+        if(arg.continueMessageId){
+            replyId = arg.continueMessageId
+            replyMessage = undefined
+            return locateReply(chat)
+        }
+        return chat.message.length - 1
+    }
+
+    // Re-assigns the finished timings onto the reply so its reactive copy sees
+    // them; a missing reply is skipped. False only when the origin is gone.
+    function writeReplyGenerationInfo():boolean{
+        const target = resolveReply()
+        if(!target){
+            return subject.resolve() !== null
+        }
+        if(target.ctx.chat.message[target.index].generationInfo){
+            target.ctx.chat.message[target.index].generationInfo = generationInfo
+        }
+        return true
+    }
+
+    function runCurrentChatFunction():Chat|null{
+        const ctx = subject.resolve()
+        if(!ctx){
+            return null
+        }
+        ctx.chat.message = ctx.chat.message.map((v) => {
+            v.data = risuChatParser(v.data, {chara: currentChar, runVar: true, subject})
             return v
         })
-        return chat
+        return ctx.chat
     }
 
     function reformatContent(data:string){
@@ -206,23 +408,13 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
         }
 
         try{
-            const db = DBState.db
-
-            // Prefer already-resolved selection, but fall back to current store/db pointers.
-            const sc = selectedChar >= 0 ? selectedChar : get(selectedCharID)
-            const charRoom = db.characters?.[sc]
-            if(!charRoom){
-                alertError(error)
-                return
-            }
-            const st = selectedChat >= 0 ? selectedChat : charRoom.chatPage
-            const chatRoom = charRoom.chats?.[st]
-            if(!chatRoom || !Array.isArray(chatRoom.message)){
+            const ctx = subject.resolve()
+            if(!ctx || !Array.isArray(ctx.chat.message)){
                 alertError(error)
                 return
             }
 
-            const messages = chatRoom.message
+            const messages = ctx.chat.message
             const last = messages[messages.length - 1]
             const suffix = `\n\`\`\`risuerror\n${error}\n\`\`\``
 
@@ -252,25 +444,6 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
         }
     }
 
-    let isDoing = get(doingChat)
-
-    if(isDoing){
-        if(chatProcessIndex === -1){
-            return false
-        }
-    }
-
-    // CHORE-07: refuse to run against a chat whose first message
-    // is still a live cold-storage pointer -- it has not finished loading
-    // (or a load attempt failed and left the pointer in place), so nothing
-    // in this function has real chat data to work with yet.
-    const guardChar = DBState.db?.characters?.[get(selectedCharID)]
-    const guardChat = guardChar?.chats?.[guardChar.chatPage]
-    if(isColdChat(guardChat)){
-        alertError(language.errors.coldStorageChatStillLoading)
-        return false
-    }
-
     doingChat.set(true)
 
     if(chatProcessIndex === -1 && DBState.db.presetChain){
@@ -290,16 +463,61 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
         }
     }
 
+    if(origin.memberChaId){
+        // A group turn speaks as the member the origin names, found by id when
+        // the turn comes -- never by a position taken when the turn order was
+        // made. A member who is gone, missing from the group's member list, or
+        // held by two characters has no turn; one in cold storage is restored
+        // first.
+        const memberChaId = origin.memberChaId
+        const turnCtx = subject.resolve()
+        if(!turnCtx){
+            return endGone()
+        }
+        if(turnCtx.owner.type !== 'group' || !turnCtx.owner.characters.includes(memberChaId)){
+            return true
+        }
+        let memberStatus = subject.memberStatus()
+        if(memberStatus === 'gone'){
+            const holder = DBState.db.characters.find((c) => c.chaId === memberChaId) as character | undefined
+            if(holder?.coldstorage){
+                // Loaded on demand: the restore imports `characters.ts` and
+                // `coldstorage.svelte.ts`, which import this module back.
+                const { restoreColdCharacterByChaId } = await import('./coldMemberRestore')
+                if(!(await restoreColdCharacterByChaId(memberChaId))){
+                    const afterRestore = subject.resolve()
+                    if(!afterRestore){
+                        return endGone()
+                    }
+                    // A member deleted, or taken out of the group, while being
+                    // restored has no turn; only a failure for a member who
+                    // still exists stops the group.
+                    if(afterRestore.owner.type !== 'group' || !afterRestore.owner.characters.includes(memberChaId)
+                        || !DBState.db.characters.some((c) => c.chaId === memberChaId)){
+                        return true
+                    }
+                    alertError(language.errors.coldStorageRestoreFailed)
+                    return false
+                }
+                if(!subject.resolve()){
+                    return endGone()
+                }
+                memberStatus = subject.memberStatus()
+            }
+        }
+        if(memberStatus !== 'ok' || !subject.pinMember()){
+            return true
+        }
+    }
+
     DBState.db.statics.messages += 1
-    selectedChar = get(selectedCharID)
-    const nowChatroom = DBState.db.characters[selectedChar]
-    // Reported to the outer sendChat() so it can mark this character for save
-    // even after a selection change mid-generation (CHORE-01).
-    sendChatCtx.index = selectedChar
-    sendChatCtx.chaId = nowChatroom?.chaId
+    const entryCtx = subject.resolve()
+    if(!entryCtx){
+        return endGone()
+    }
+    const nowChatroom = entryCtx.owner
     nowChatroom.lastInteraction = Date.now()
-    selectedChat = nowChatroom.chatPage
-    nowChatroom.chats[nowChatroom.chatPage].message = nowChatroom.chats[nowChatroom.chatPage].message.map((v) => {
+    entryCtx.chat.message = entryCtx.chat.message.map((v) => {
         v.chatId = v.chatId ?? v4()
         return v
     })
@@ -342,7 +560,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
         if(chatProcessIndex === -1){
             const charNames =nowChatroom.characters.map((v) => findCharacterbyIdwithCache(v).name)
 
-            const messages = nowChatroom.chats[nowChatroom.chatPage].message
+            const messages = entryCtx.chat.message
             const lastMessage = messages[messages.length-1]
             let order = nowChatroom.characters.map((v,i) => {
                 return {
@@ -364,7 +582,9 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
             for(let i=0;i<order.length;i++){
                 const r = await sendChat(order[i].index, {
                     chatAdditonalTokens: caculatedChatTokens,
-                    signal: abortSignal
+                    signal: abortSignal,
+                    origin: { ...origin, memberChaId: order[i].id },
+                    originHint: hint
                 })
                 if(!r){
                     return false
@@ -373,11 +593,12 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
             return true
         }
         else{
-            currentChar = findCharacterbyIdwithCache(nowChatroom.characters[chatProcessIndex])
-            if(!currentChar){
-                throwError(`cannot find character: ${nowChatroom.characters[chatProcessIndex]}`)
+            const member = entryCtx.member
+            if(!member){
+                throwError(`cannot find character: ${origin.memberChaId}`)
                 return false
             }
+            currentChar = member
         }
     }
     else{
@@ -386,8 +607,11 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
 
     let chatAdditonalTokens = arg.chatAdditonalTokens ?? caculatedChatTokens
     const tokenizer = new ChatTokenizer(chatAdditonalTokens, DBState.db.aiModel.startsWith('gpt') ? 'noName' : 'name')
-    let currentChat = runCurrentChatFunction(nowChatroom.chats[selectedChat])
-    nowChatroom.chats[selectedChat] = currentChat
+    const parsedEntryChat = runCurrentChatFunction()
+    if(!parsedEntryChat){
+        return endGone()
+    }
+    let currentChat:Chat = parsedEntryChat
     let maxContextTokens = DBState.db.maxContext
 
     chatProcessStage.set(1)
@@ -931,34 +1155,23 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
     
     console.log('Prepared messages for token calculation:', ms)
 
-    let triggerResult: Awaited<ReturnType<typeof runTrigger>>
-    const startTriggerHandle = beginWork(nowChatroom, currentChat, nowChatroom.type === 'group' ? currentChar : undefined)
-    if(startTriggerHandle){
-        try {
-            triggerResult = await runTrigger(currentChar, 'start', {chat: currentChat, origin: startTriggerHandle.origin})
-        } finally {
-            startTriggerHandle.end()
+    const triggerResult = await runTrigger(currentChar, 'start', {chat: currentChat, origin})
+    if(triggerResult){
+        // A trigger run resolves the origin by id alone, so it writes nothing
+        // while the id has two holders. This send goes on with the holder it
+        // started from; it stops when the origin has no holder, or when it has
+        // several and none is the object the send started from.
+        const afterStart = subject.resolve()
+        if(!afterStart){
+            doingChat.set(false)
+            return false
         }
-        if(triggerResult){
-            const originAfter = originStatus(startTriggerHandle.origin)
-            if(originAfter === 'gone'){
-                doingChat.set(false)
-                return false
-            }
-            // An ambiguous origin cannot be resolved to one chat by id --
-            // any write the trigger made before the duplicate appeared has
-            // already landed on the live chat, but this call falls back to
-            // the frozen slot this send started from rather than guessing
-            // which of the two duplicates is the real one.
-            currentChat = originAfter === 'ambiguous'
-                ? nowChatroom.chats[selectedChat]
-                : (resolveOrigin(startTriggerHandle.origin)?.chat ?? currentChat)
-            ms = makeMs(currentChat)
-            currentTokens += triggerResult.tokens
-            if(triggerResult.stopSending){
-                doingChat.set(false)
-                return false
-            }
+        currentChat = afterStart.chat
+        ms = makeMs(currentChat)
+        currentTokens += triggerResult.tokens
+        if(triggerResult.stopSending){
+            doingChat.set(false)
+            return false
         }
     }
 
@@ -1158,10 +1371,12 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
             }
             chats = sp.chats
             currentTokens = sp.currentTokens
-            currentChat.hypaV2Data = sp.memory ?? currentChat.hypaV2Data
-            DBState.db.characters[selectedChar].chats[selectedChat].hypaV2Data = currentChat.hypaV2Data
-
-            currentChat = DBState.db.characters[selectedChar].chats[selectedChat];
+            const memoryCtx = subject.resolve()
+            if(!memoryCtx){
+                return endGone()
+            }
+            memoryCtx.chat.hypaV2Data = sp.memory ?? memoryCtx.chat.hypaV2Data
+            currentChat = memoryCtx.chat
             console.log("[Expected to be updated] chat's HypaV2Data: ", currentChat.hypaV2Data)
         }
         else if(DBState.db.hypaV3){
@@ -1170,8 +1385,10 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
             if(sp.error){
                 // Save new summary
                 if (sp.memory) {
-                    currentChat.hypaV3Data = sp.memory
-                    DBState.db.characters[selectedChar].chats[selectedChat].hypaV3Data = currentChat.hypaV3Data
+                    const errorMemoryCtx = subject.resolve()
+                    if(errorMemoryCtx){
+                        errorMemoryCtx.chat.hypaV3Data = sp.memory
+                    }
                 }
                 console.log(sp)
                 throwError(sp.error)
@@ -1179,10 +1396,12 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
             }
             chats = sp.chats
             currentTokens = sp.currentTokens
-            currentChat.hypaV3Data = sp.memory ?? currentChat.hypaV3Data
-            DBState.db.characters[selectedChar].chats[selectedChat].hypaV3Data = currentChat.hypaV3Data
-    
-            currentChat = DBState.db.characters[selectedChar].chats[selectedChat];
+            const memoryCtx = subject.resolve()
+            if(!memoryCtx){
+                return endGone()
+            }
+            memoryCtx.chat.hypaV3Data = sp.memory ?? memoryCtx.chat.hypaV3Data
+            currentChat = memoryCtx.chat
             console.log("[Expected to be updated] chat's HypaV3Data: ", currentChat.hypaV3Data)
         }
         else{
@@ -1195,10 +1414,13 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
             }
             chats = sp.chats
             currentTokens = sp.currentTokens
-            currentChat.supaMemoryData = sp.memory ?? currentChat.supaMemoryData
-            DBState.db.characters[selectedChar].chats[selectedChat].supaMemoryData = currentChat.supaMemoryData
-            console.log(currentChat.supaMemoryData)
-            currentChat.lastMemory = sp.lastId ?? currentChat.lastMemory;
+            const memoryCtx = subject.resolve()
+            if(!memoryCtx){
+                return endGone()
+            }
+            memoryCtx.chat.supaMemoryData = sp.memory ?? memoryCtx.chat.supaMemoryData
+            console.log(memoryCtx.chat.supaMemoryData)
+            memoryCtx.chat.lastMemory = sp.lastId ?? memoryCtx.chat.lastMemory;
         }
         stageTimings.stage2Duration = Date.now() - stageTimings.stage2Start
         chatProcessStage.set(1)
@@ -1215,7 +1437,10 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
             currentTokens -= await tokenizer.tokenizeChat(chats[0])
             chats.splice(0, 1)
         }
-        currentChat.lastMemory = chats[0].memo
+        const lastMemoryCtx = subject.resolve()
+        if(lastMemoryCtx){
+            lastMemoryCtx.chat.lastMemory = chats[0].memo
+        }
     }
 
     let biases:[string,number][] = DBState.db.bias.concat(currentChar.bias).map((v) => {
@@ -1616,6 +1841,10 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
         return true
     }
 
+    if(!subject.resolve()){
+        return endGone()
+    }
+
     const req = await requestChatData({
         formated: formated,
         biasString: biases,
@@ -1655,15 +1884,27 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
     }
     else if(req.type === 'streaming'){
         const reader = req.result.getReader()
-        let msgIndex = DBState.db.characters[selectedChar].chats[selectedChat].message.length
+        const streamCtx = subject.resolve()
+        if(!streamCtx){
+            void reader.cancel().catch(() => {})
+            return endGone()
+        }
         let prefix = ''
+        // Set once the origin or the reply is gone: no more chunks are written
+        // and the stream is not read further.
+        let replyGone:boolean = false
         if(arg.continue){
-            msgIndex -= 1
-            const outputMessage = DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex]
-            prefix = outputMessage.data
+            const continuedIndex = continuedMessageIndex(streamCtx.chat)
+            if(continuedIndex === -1){
+                replyGone = true
+            }
+            else{
+                trackReply(streamCtx.chat, continuedIndex)
+                prefix = streamCtx.chat.message[continuedIndex].data
+            }
         }
         else{
-            DBState.db.characters[selectedChar].chats[selectedChat].message.push({
+            streamCtx.chat.message.push({
                 role: 'char',
                 data: "",
                 saying: currentChar.chaId,
@@ -1672,12 +1913,12 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
                 promptInfo,
                 chatId: generationId,
             })
+            trackReply(streamCtx.chat, streamCtx.chat.message.length - 1)
         }
-        const outputMessageId = DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex]?.chatId
         const performanceMode: StreamingDisplayOptimizationMode = DBState.db.streamingDisplayOptimizationMode ?? 'off'
-        DBState.db.characters[selectedChar].chats[selectedChat].isStreaming = true
-        DBState.db.characters[selectedChar].chats[selectedChat].activeStreamingDisplayOptimizationMode = performanceMode
-        DBState.db.characters[selectedChar].reloadKeys += 1
+        streamCtx.chat.isStreaming = true
+        streamCtx.chat.activeStreamingDisplayOptimizationMode = performanceMode
+        streamCtx.owner.reloadKeys += 1
         let lastResponseChunk:{[key:string]:string} = {}
         let streamAborted:boolean = abortSignal.aborted
         let receivedStreamingResult = false
@@ -1700,6 +1941,39 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
                 streamingFlushFrame = null
             }
         }
+        // One synchronous statement group: resolve the origin and the reply,
+        // then write. False, with nothing written, when either is gone.
+        const writeReplyData = (data:string, bumpKeys = true):boolean => {
+            const target = resolveReply()
+            if(!target){
+                return false
+            }
+            target.ctx.chat.message[target.index].data = data
+            if(bumpKeys){
+                target.ctx.owner.reloadKeys += 1
+            }
+            if(streamFlushObserver){
+                streamFlushObserver({
+                    origin,
+                    hint,
+                    replyId: target.replyId,
+                    ownerIndex: target.ctx.ownerIndex,
+                    chatIndex: target.ctx.chatIndex,
+                    memberIndex: target.ctx.memberIndex,
+                    replyIndex: target.index,
+                })
+            }
+            return true
+        }
+        const processAndWriteReply = async (text:string, bumpKeys = true):Promise<boolean> => {
+            const before = resolveReply()
+            if(!before){
+                return false
+            }
+            const processed = await processScriptFull(nowChatroom, text, 'editoutput', before.index)
+            emoChanged = processed.emoChanged
+            return writeReplyData(processed.data, bumpKeys)
+        }
         const flushStreamingDisplay = async () => {
             clearStreamingFlushSchedule()
             if(streamingFlushPromise){
@@ -1711,18 +1985,14 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
                     streamingFlushQueued = false
                     const nextResult = pendingStreamingResult
                     pendingStreamingResult = null
-                    if(nextResult === null){
+                    if(nextResult === null || replyGone){
                         continue
                     }
                     if(deferStreamingPostProcessing){
-                        DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex].data = reformatContent(prefix + nextResult)
-                        DBState.db.characters[selectedChar].reloadKeys += 1
+                        replyGone = !writeReplyData(reformatContent(prefix + nextResult))
                         continue
                     }
-                    let result2 = await processScriptFull(nowChatroom, reformatContent(prefix + nextResult), 'editoutput', msgIndex)
-                    DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex].data = result2.data
-                    emoChanged = result2.emoChanged
-                    DBState.db.characters[selectedChar].reloadKeys += 1
+                    replyGone = !(await processAndWriteReply(reformatContent(prefix + nextResult)))
                 } while(streamingFlushQueued || pendingStreamingResult !== null)
             })().finally(() => {
                 streamingFlushPromise = null
@@ -1750,7 +2020,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
         }
         abortSignal.addEventListener('abort', abortReader, { once: true })
         try {
-            while(streamAborted === false){
+            while(streamAborted === false && replyGone === false){
                 let readed: ReadableStreamReadResult<{ [key: string]: string }>
                 try {
                     readed = await reader.read()
@@ -1777,11 +2047,9 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
                         pendingStreamingResult = result
                         scheduleStreamingDisplayFlush()
                     }
-                    else{
-                        let result2 = await processScriptFull(nowChatroom, reformatContent(prefix + result), 'editoutput', msgIndex)
-                        DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex].data = result2.data
-                        emoChanged = result2.emoChanged
-                        DBState.db.characters[selectedChar].reloadKeys += 1
+                    else if(!(await processAndWriteReply(reformatContent(prefix + result)))){
+                        replyGone = true
+                        break
                     }
                 }
                 if(readed.done){
@@ -1803,16 +2071,17 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
                 if(streamingFlushError !== null){
                     throw streamingFlushError
                 }
-                if(deferStreamingPostProcessing && receivedStreamingResult){
-                    let result2 = await processScriptFull(nowChatroom, reformatContent(prefix + result), 'editoutput', msgIndex)
-                    DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex].data = result2.data
-                    emoChanged = result2.emoChanged
+                if(deferStreamingPostProcessing && receivedStreamingResult && !replyGone){
+                    replyGone = !(await processAndWriteReply(reformatContent(prefix + result), false))
                 }
             }
             finally {
-                DBState.db.characters[selectedChar].chats[selectedChat].isStreaming = false
-                DBState.db.characters[selectedChar].chats[selectedChat].activeStreamingDisplayOptimizationMode = undefined
-                DBState.db.characters[selectedChar].reloadKeys += 1
+                const streamEndCtx = subject.resolve()
+                if(streamEndCtx){
+                    streamEndCtx.chat.isStreaming = false
+                    streamEndCtx.chat.activeStreamingDisplayOptimizationMode = undefined
+                    streamEndCtx.owner.reloadKeys += 1
+                }
                 void reader.cancel().catch(() => {})
             }
         }
@@ -1821,44 +2090,46 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
             return false
         }
 
-        addRerolls(generationId, Object.values(lastResponseChunk))
+        if(!subject.resolve()){
+            return endGone()
+        }
 
-        DBState.db.characters[selectedChar].chats[selectedChat] = runCurrentChatFunction(DBState.db.characters[selectedChar].chats[selectedChat])
-        currentChat = DBState.db.characters[selectedChar].chats[selectedChat]
-        const outputTriggerHandle1 = beginWork(nowChatroom, currentChat, nowChatroom.type === 'group' ? currentChar : undefined)
-        let triggerResult: Awaited<ReturnType<typeof runTrigger>>
-        if(outputTriggerHandle1){
-            try {
-                triggerResult = await runTrigger(currentChar, 'output', {chat:currentChat, origin: outputTriggerHandle1.origin})
-            } finally {
-                outputTriggerHandle1.end()
+        // A reply deleted while it streamed leaves nothing to post-process; one
+        // that goes missing later (a trigger rebuilding the chat without ids) does
+        // not stop the steps that follow, which write nothing to it.
+        if(!replyGone && resolveReply()){
+            addRerolls(generationId, Object.values(lastResponseChunk))
+
+            const parsedChat = runCurrentChatFunction()
+            if(!parsedChat){
+                return endGone()
             }
-        }
-        if(triggerResult && triggerResult.sendAIprompt){
-            resendChat = true
-        }
-        currentChat = DBState.db.characters[selectedChar].chats[selectedChat]
-        const inlayMessageIndex = findMessageIndexByChatId(currentChat, outputMessageId)
-        const outputMessage = currentChat.message[inlayMessageIndex]
-        if(outputMessage){
-            const inlayr = runInlayScreen(currentChar, outputMessage.data)
-            outputMessage.data = inlayr.text
-            DBState.db.characters[selectedChar].chats[selectedChat] = currentChat
-            if(inlayr.promise){
-                const t = await inlayr.promise
-                currentChat = DBState.db.characters[selectedChar].chats[selectedChat]
-                const asyncInlayMessageIndex = findMessageIndexByChatId(currentChat, outputMessageId)
-                if(asyncInlayMessageIndex !== -1){
-                    currentChat.message[asyncInlayMessageIndex].data = t
-                    DBState.db.characters[selectedChar].chats[selectedChat] = currentChat
+            currentChat = parsedChat
+            const outputTriggerResult = await runTrigger(currentChar, 'output', {chat:currentChat, origin})
+            if(outputTriggerResult && outputTriggerResult.sendAIprompt){
+                resendChat = true
+            }
+            const inlayTarget = resolveReply()
+            if(inlayTarget){
+                const outputMessage = inlayTarget.ctx.chat.message[inlayTarget.index]
+                const inlayr = runInlayScreen(currentChar, outputMessage.data)
+                outputMessage.data = inlayr.text
+                if(inlayr.promise){
+                    const t = await inlayr.promise
+                    const asyncInlayTarget = resolveReply()
+                    if(asyncInlayTarget){
+                        asyncInlayTarget.ctx.chat.message[asyncInlayTarget.index].data = t
+                    }
                 }
             }
-        }
-        currentChat = DBState.db.characters[selectedChar].chats[selectedChat]
-        const listenerMessageIndex = findMessageIndexByChatId(currentChat, outputMessageId)
-        await runChatOutputListeners(currentChar, currentChat, selectedChar, selectedChat, listenerMessageIndex)
-        if(DBState.db.ttsAutoSpeech){
-            await sayTTS(currentChar, result)
+            const listenerCtx = subject.resolve()
+            if(!listenerCtx){
+                return endGone()
+            }
+            await runChatOutputListeners(currentChar, listenerCtx.chat, listenerCtx.ownerIndex, listenerCtx.chatIndex, locateReply(listenerCtx.chat))
+            if(DBState.db.ttsAutoSpeech){
+                await sayTTS(currentChar, result)
+            }
         }
     }
     else{
@@ -1866,17 +2137,27 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
                     : (req.type === 'multiline') ? req.result
                     : []
         let mrerolls:string[] = []
-        let outputMessageIndex = -1
-        let outputMessageId: string | undefined
         for(let i=0;i<msgs.length;i++){
             let msg = msgs[i]
             let mess = msg[1]
-            let msgIndex = DBState.db.characters[selectedChar].chats[selectedChat].message.length
-            let result2 = await processScriptFull(nowChatroom, reformatContent(mess), 'editoutput', msgIndex)
-            if(i === 0 && arg.continue){
-                msgIndex -= 1
-                let beforeChat = DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex]
-                result2 = await processScriptFull(nowChatroom, reformatContent(beforeChat.data + mess), 'editoutput', msgIndex)
+            const continuing = i === 0 && arg.continue
+            const startCtx = subject.resolve()
+            if(!startCtx){
+                return endGone()
+            }
+            if(continuing){
+                const continuedIndex = continuedMessageIndex(startCtx.chat)
+                if(continuedIndex !== -1){
+                    trackReply(startCtx.chat, continuedIndex)
+                }
+            }
+            let result2 = await processScriptFull(nowChatroom, reformatContent(mess), 'editoutput', startCtx.chat.message.length)
+            if(continuing){
+                const continuedTarget = resolveReply()
+                if(continuedTarget){
+                    const beforeData = continuedTarget.ctx.chat.message[continuedTarget.index].data
+                    result2 = await processScriptFull(nowChatroom, reformatContent(beforeData + mess), 'editoutput', continuedTarget.index)
+                }
             }
             if(DBState.db.removeIncompleteResponse){
                 result2.data = trimUntilPunctuation(result2.data)
@@ -1885,25 +2166,37 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
             const inlayResult = runInlayScreen(currentChar, result)
             result = inlayResult.text
             emoChanged = result2.emoChanged
-            if(i === 0 && arg.continue){
-                DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex] = {
-                    role: 'char',
-                    data: result,
-                    saying: currentChar.chaId,
-                    time: Date.now(),
-                    generationInfo,
-                    promptInfo,
-                    chatId: generationId,
-                }       
-                if(inlayResult.promise){
-                    const p = await inlayResult.promise
-                    DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex].data = p
+            if(continuing){
+                const replaceTarget = resolveReply()
+                if(replaceTarget){
+                    replaceTarget.ctx.chat.message[replaceTarget.index] = {
+                        role: 'char',
+                        data: result,
+                        saying: currentChar.chaId,
+                        time: Date.now(),
+                        generationInfo,
+                        promptInfo,
+                        chatId: generationId,
+                    }
+                    trackReply(replaceTarget.ctx.chat, replaceTarget.index)
+                    if(inlayResult.promise){
+                        const p = await inlayResult.promise
+                        const asyncInlayTarget = resolveReply()
+                        if(asyncInlayTarget){
+                            asyncInlayTarget.ctx.chat.message[asyncInlayTarget.index].data = p
+                        }
+                    }
                 }
-                outputMessageIndex = msgIndex
-                outputMessageId = DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex]?.chatId
+                else if(!subject.resolve()){
+                    return endGone()
+                }
             }
             else if(i===0){
-                DBState.db.characters[selectedChar].chats[selectedChat].message.push({
+                const pushCtx = subject.resolve()
+                if(!pushCtx){
+                    return endGone()
+                }
+                pushCtx.chat.message.push({
                     role: msg[0],
                     data: result,
                     saying: currentChar.chaId,
@@ -1912,19 +2205,23 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
                     promptInfo,
                     chatId: generationId,
                 })
-                const ind = DBState.db.characters[selectedChar].chats[selectedChat].message.length - 1
+                trackReply(pushCtx.chat, pushCtx.chat.message.length - 1)
                 if(inlayResult.promise){
                     const p = await inlayResult.promise
-                    DBState.db.characters[selectedChar].chats[selectedChat].message[ind].data = p
+                    const asyncInlayTarget = resolveReply()
+                    if(asyncInlayTarget){
+                        asyncInlayTarget.ctx.chat.message[asyncInlayTarget.index].data = p
+                    }
                 }
                 mrerolls.push(result)
-                outputMessageIndex = ind
-                outputMessageId = DBState.db.characters[selectedChar].chats[selectedChat].message[ind]?.chatId
             }
             else{
                 mrerolls.push(result)
             }
-            DBState.db.characters[selectedChar].reloadKeys += 1
+            const keysCtx = subject.resolve()
+            if(keysCtx){
+                keysCtx.owner.reloadKeys += 1
+            }
             if(DBState.db.ttsAutoSpeech){
                 await sayTTS(currentChar, result)
             }
@@ -1934,25 +2231,22 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
             addRerolls(generationId, mrerolls)
         }
 
-        DBState.db.characters[selectedChar].chats[selectedChat] = runCurrentChatFunction(DBState.db.characters[selectedChar].chats[selectedChat])
-        currentChat = DBState.db.characters[selectedChar].chats[selectedChat]
-
-        const outputTriggerHandle2 = beginWork(nowChatroom, currentChat, nowChatroom.type === 'group' ? currentChar : undefined)
-        let triggerResult2: Awaited<ReturnType<typeof runTrigger>>
-        if(outputTriggerHandle2){
-            try {
-                triggerResult2 = await runTrigger(currentChar, 'output', {chat:currentChat, origin: outputTriggerHandle2.origin})
-            } finally {
-                outputTriggerHandle2.end()
-            }
+        const parsedChat = runCurrentChatFunction()
+        if(!parsedChat){
+            return endGone()
         }
-        if(triggerResult2 && triggerResult2.sendAIprompt){
+        currentChat = parsedChat
+
+        const outputTriggerResult = await runTrigger(currentChar, 'output', {chat:currentChat, origin})
+        if(outputTriggerResult && outputTriggerResult.sendAIprompt){
             resendChat = true
         }
-        currentChat = DBState.db.characters[selectedChar].chats[selectedChat]
-        if(outputMessageId){
-            outputMessageIndex = findMessageIndexByChatId(currentChat, outputMessageId)
-            await runChatOutputListeners(currentChar, currentChat, selectedChar, selectedChat, outputMessageIndex)
+        if(replyId !== undefined){
+            const listenerCtx = subject.resolve()
+            if(!listenerCtx){
+                return endGone()
+            }
+            await runChatOutputListeners(currentChar, listenerCtx.chat, listenerCtx.ownerIndex, listenerCtx.chatIndex, locateReply(listenerCtx.chat))
         }
     }
 
@@ -1968,13 +2262,24 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
     }
 
     if(needsAutoContinue){
-        doingChat.set(false)
-        return await sendChat(chatProcessIndex, {
-            chatAdditonalTokens: arg.chatAdditonalTokens,
-            continue: true,
-            signal: abortSignal,
-            usedContinueTokens: resultTokens
-        })
+        if(!subject.resolve()){
+            return endGone()
+        }
+        const continueTarget = resolveReply()
+        // A continue extends the chat's last message, so it follows only a
+        // reply that is still the last one.
+        if(continueTarget && continueTarget.index === continueTarget.ctx.chat.message.length - 1){
+            doingChat.set(false)
+            return await sendChat(chatProcessIndex, {
+                chatAdditonalTokens: arg.chatAdditonalTokens,
+                continue: true,
+                signal: abortSignal,
+                usedContinueTokens: resultTokens,
+                origin,
+                originHint: hint,
+                continueMessageId: continueTarget.replyId
+            })
+        }
     }
 
     const igp = risuChatParser(DBState.db.igpPrompt ?? "")
@@ -1986,7 +2291,13 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
             bias: {}
         },'emotion', abortSignal)
 
-        DBState.db.characters[selectedChar].chats[selectedChat].message[DBState.db.characters[selectedChar].chats[selectedChat].message.length - 1].data += rq
+        const igpTarget = resolveReply()
+        if(igpTarget){
+            igpTarget.ctx.chat.message[igpTarget.index].data += rq
+        }
+        else if(!subject.resolve()){
+            return endGone()
+        }
     }
 
     stageTimings.stage3Duration = Date.now() - stageTimings.stage3Start
@@ -1999,22 +2310,23 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
 
     if(resendChat){
         stageTimings.stage4Duration = Date.now() - stageTimings.stage4Start
-        
+
         if(generationInfo.stageTiming) {
             generationInfo.stageTiming.stage1 = stageTimings.stage1Duration
             generationInfo.stageTiming.stage2 = stageTimings.stage2Duration
             generationInfo.stageTiming.stage3 = stageTimings.stage3Duration
             generationInfo.stageTiming.stage4 = stageTimings.stage4Duration
         }
-        
-        const lastMessageIndex = DBState.db.characters[selectedChar].chats[selectedChat].message.length - 1
-        if(lastMessageIndex >= 0 && DBState.db.characters[selectedChar].chats[selectedChat].message[lastMessageIndex].generationInfo) {
-            DBState.db.characters[selectedChar].chats[selectedChat].message[lastMessageIndex].generationInfo = generationInfo
+
+        if(!writeReplyGenerationInfo()){
+            return endGone()
         }
-        
+
         doingChat.set(false)
         return await sendChat(chatProcessIndex, {
-            signal: abortSignal
+            signal: abortSignal,
+            origin,
+            originHint: hint
         })
     }
 
@@ -2245,7 +2557,11 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
                 throwError("Stable diffusion in group chat is not supported")
             }
 
-            const msgs = DBState.db.characters[selectedChar].chats[selectedChat].message
+            const imggenCtx = subject.resolve()
+            if(!imggenCtx){
+                return endGone()
+            }
+            const msgs = imggenCtx.chat.message
             let msgStr = ''
             for(let i = (msgs.length - 1);i>=0;i--){
                 if(msgs[i].role === 'char'){
@@ -2271,9 +2587,8 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, sendChat
         generationInfo.stageTiming.stage4 = stageTimings.stage4Duration
     }
     
-    const lastMessageIndex = DBState.db.characters[selectedChar].chats[selectedChat].message.length - 1
-    if(lastMessageIndex >= 0 && DBState.db.characters[selectedChar].chats[selectedChat].message[lastMessageIndex].generationInfo) {
-        DBState.db.characters[selectedChar].chats[selectedChat].message[lastMessageIndex].generationInfo = generationInfo
+    if(!writeReplyGenerationInfo()){
+        return endGone()
     }
 
     return true

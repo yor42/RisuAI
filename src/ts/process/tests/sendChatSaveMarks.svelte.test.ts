@@ -2,14 +2,14 @@
  * CHORE-01:
  *
  * Generation continuing after a selection change: the outer `sendChat`
- * (`src/ts/process/index.svelte.ts`) captures the generating character's
- * chaId/index at the start, and its `finally` marks BOTH the captured chaId
- * and whatever character now sits at that captured index, AFTER the body
- * (and any nested auto-continue recursion) has fully settled -- so a
- * selection change made WHILE a reply is still streaming (hotkeys,
- * Playground and Home buttons all change selection without checking
- * `doingChat`) doesn't leave the generating character's effect-6 tracking
- * orphaned once the user has moved away from it.
+ * (`src/ts/process/index.svelte.ts`) fixes the origin of the send -- the
+ * generating character's chaId and its chat's id -- at the start, and its
+ * `finally` marks that character for save, AFTER the body (and any nested
+ * auto-continue recursion) has fully settled -- so a selection change made
+ * WHILE a reply is still streaming (hotkeys, Playground and Home buttons all
+ * change selection without checking `doingChat`) doesn't leave the
+ * generating character's effect-6 tracking orphaned once the user has moved
+ * away from it.
  *
  * This test starts a generation on character 0 (selected), switches
  * `selectedCharID` to character 1 WHILE the reply is still streaming (via a
@@ -368,9 +368,9 @@ describe('sendChat — generation after a selection change', () => {
         const result = await sendChat()
         expect(result).toBe(true)
 
-        // The reply landed in character 0 (the one generating), by INDEX --
-        // unaffected by the selection change, since sendChatBody writes via
-        // the captured index, not the current selection.
+        // The reply landed in character 0 (the one generating), addressed by
+        // its origin -- unaffected by the selection change, since
+        // sendChatBody writes through the origin, not the current selection.
         expect(DBState.db.characters[0].chats[0].message[1].data).toBe('Hello World!')
         expect(get(selectedCharID)).toBe(1) // selection really did move
 

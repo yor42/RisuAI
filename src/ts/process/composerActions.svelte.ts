@@ -2,6 +2,7 @@ import { get } from 'svelte/store'
 import { DBState, selectedCharID } from '../stores.svelte'
 import type { Message, character, Chat } from '../storage/database.svelte'
 import { doingChat, sendChat } from './index.svelte'
+import type { SendChatOriginHint } from './index.svelte'
 import { sleep } from '../util'
 import { language } from '../../lang'
 import { alertError } from '../alert'
@@ -11,7 +12,7 @@ import { PreUnreroll, Prereroll } from './prereroll'
 import { processMultiCommand } from './command'
 import { isColdChat } from './coldstorageData'
 import { isExpTranslator, translate } from '../translator/translator'
-import { beginWork, originStatus, writeAt, type WorkHandle } from './chatOrigin'
+import { beginWork, originStatus, resolveOriginWithHint, writeAt, type Origin, type WorkHandle } from './chatOrigin'
 import { markCharacterForSave } from '../storage/characterSaveMarks'
 import { registerDraft, unregisterDraft, COMPOSER_DRAFT_KIND } from '../localDrafts'
 import * as composerDrafts from './composerDrafts.svelte'
@@ -37,6 +38,17 @@ let windowOpen = $state(false)
 let locked = $state(false)
 let autoModeRunning = $state(false)
 let currentGenerationController: AbortController | null = null
+
+/**
+ * The chat a generation writes into, and the objects it was read through.
+ * `sendChatMain` hands both to `sendChat` and reads the chat back through them
+ * afterwards, so a switch of chat, character or Home while the reply is
+ * generated changes neither where the reply goes nor what is stored for reroll.
+ */
+interface GenerationTarget {
+    origin: Origin
+    originHint: SendChatOriginHint
+}
 
 /**
  * The in-flight slot's own draft key. Registered under `COMPOSER_DRAFT_KIND`
@@ -339,7 +351,7 @@ export async function sendMain(source: ComposerActionsSource, continueResponse: 
         // The hand-off: the lock ends the moment before the generation
         // callback is called.
         locked = false
-        await sendChatMain(source, continueResponse, controller)
+        await sendChatMain(source, { origin: workHandle.origin, originHint: { owner: char, chat: startChat } }, continueResponse, controller)
     }
     finally {
         // A finally acts only on its own action: once the busy button has
@@ -381,7 +393,19 @@ export async function reroll(source: ComposerActionsSource): Promise<void> {
         return
     }
     windowOpen = true
+    let workHandle: WorkHandle | null = null
     try {
+        const char = DBState.db.characters[get(selectedCharID)]
+        const chat = char?.chats?.[char.chatPage]
+        if(!char || !chat){
+            return
+        }
+        // The chat the regenerated reply goes to is fixed here, before the
+        // reroll history is read or trimmed.
+        workHandle = beginWork(char, chat)
+        if(!workHandle){
+            return
+        }
         if(source.lastCharId.get() !== get(selectedCharID)){
             source.rerolls.set([])
             source.rerollId.set(-1)
@@ -430,9 +454,10 @@ export async function reroll(source: ComposerActionsSource): Promise<void> {
             }
         }
         DBState.db.characters[get(selectedCharID)].chats[DBState.db.characters[get(selectedCharID)].chatPage].message = cha
-        await sendChatMain(source)
+        await sendChatMain(source, { origin: workHandle.origin, originHint: { owner: char, chat } })
     }
     finally {
+        workHandle?.end()
         windowOpen = false
     }
 }
@@ -476,9 +501,12 @@ export async function unReroll(source: ComposerActionsSource): Promise<void> {
     }
 }
 
-export async function sendChatMain(source: ComposerActionsSource, continued: boolean = false, existingController?: AbortController): Promise<void> {
+export async function sendChatMain(source: ComposerActionsSource, target: GenerationTarget, continued: boolean = false, existingController?: AbortController): Promise<void> {
 
-    let previousLength = DBState.db.characters[get(selectedCharID)].chats[DBState.db.characters[get(selectedCharID)].chatPage].message.length
+    // Every read around the send goes through the target's own chat, never
+    // the selection, which may be another chat, another character or Home by
+    // the time the send is handed over or has finished.
+    const previousLength = resolveOriginWithHint(target.origin, target.originHint)?.chat.message.length ?? 0
     // Only a take empties a record -- generation itself never writes one.
     const controller = existingController ?? new AbortController()
     // Module state, not per instance, so the busy button in any composer
@@ -488,17 +516,23 @@ export async function sendChatMain(source: ComposerActionsSource, continued: boo
     try {
         await sendChat(-1, {
             signal: controller.signal,
-            continue: continued
+            continue: continued,
+            origin: target.origin,
+            originHint: target.originHint
         })
-        if(previousLength < DBState.db.characters[get(selectedCharID)].chats[DBState.db.characters[get(selectedCharID)].chatPage].message.length){
-            source.rerolls.get().push(safeStructuredClone(DBState.db.characters[get(selectedCharID)].chats[DBState.db.characters[get(selectedCharID)].chatPage].message.slice(previousLength)))
+        const finished = resolveOriginWithHint(target.origin, target.originHint)
+        if(finished && previousLength < finished.chat.message.length){
+            source.rerolls.get().push(safeStructuredClone(finished.chat.message.slice(previousLength)))
             source.rerollId.set(source.rerolls.get().length - 1)
         }
     } catch (error) {
         console.error(error)
         alertError(error)
     }
-    source.lastCharId.set(get(selectedCharID))
+    const settledTarget = resolveOriginWithHint(target.origin, target.originHint)
+    if(settledTarget){
+        source.lastCharId.set(settledTarget.ownerIndex)
+    }
     doingChat.set(false)
     if(DBState.db.playMessage){
         const audio = new Audio(sendSound);
@@ -539,6 +573,12 @@ export function abortChat(): void {
     }
 }
 
+/** True while the chat on screen is the one `origin` names. */
+function isShowingChat(origin: Origin): boolean {
+    const shown = DBState.db.characters[get(selectedCharID)]
+    return shown?.chaId === origin.chaId && shown.chats?.[shown.chatPage]?.id === origin.chatId
+}
+
 export async function runAutoMode(source: ComposerActionsSource): Promise<void> {
     // Running state is module-level, so stopping auto mode from any
     // instance -- including one mounted after the loop started -- is never
@@ -550,22 +590,33 @@ export async function runAutoMode(source: ComposerActionsSource): Promise<void> 
     if(windowOpen){
         return
     }
-    const selectedChar = get(selectedCharID)
+    const char = DBState.db.characters[get(selectedCharID)]
+    const chat = char?.chats?.[char.chatPage]
+    if(!char || !chat){
+        return
+    }
+    // Every tick generates into the chat auto mode was started in.
+    const workHandle = beginWork(char, chat)
+    if(!workHandle){
+        return
+    }
+    const target: GenerationTarget = { origin: workHandle.origin, originHint: { owner: char, chat } }
     autoModeRunning = true
     windowOpen = true
     try {
         while(autoModeRunning){
-            await sendChatMain(source)
-            if(selectedChar !== get(selectedCharID)){
+            await sendChatMain(source, target)
+            if(!isShowingChat(target.origin)){
                 autoModeRunning = false
             }
         }
     }
     finally {
-        // Every exit -- the loop's own stop, a switched character, a toggle
-        // from another instance, or a throw from sendChatMain -- leaves
-        // autoModeRunning false, since it is module state and a stuck true
-        // here would survive a remount.
+        // Every exit -- the loop's own stop, a switch to another chat or
+        // character, a toggle from another instance, or a throw from
+        // sendChatMain -- leaves autoModeRunning false, since it is module
+        // state and a stuck true here would survive a remount.
+        workHandle.end()
         autoModeRunning = false
         windowOpen = false
     }

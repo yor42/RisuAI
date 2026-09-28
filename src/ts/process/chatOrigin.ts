@@ -303,11 +303,11 @@ export function readAt(origin: Origin, fn: OriginCallback): boolean {
 }
 
 // A count of full resolutions (actual scans of `characters`), not memo hits.
-// Only `createRunSubject`'s own fills increment this -- `writeAt`, `readAt`,
-// `commitCharacter`, `commitChat` and `beginWork` each resolve at most once
-// per call and are not part of a run's per-stretch cost, so counting them
-// here would mix two different things a caller of these test-only exports
-// might want to measure separately.
+// Only `createRunSubject`'s and `createSendSubject`'s own fills increment
+// this -- `writeAt`, `readAt`, `commitCharacter`, `commitChat` and
+// `beginWork` each resolve at most once per call and are not part of a run's
+// per-stretch cost, so counting them here would mix two different things a
+// caller of these test-only exports might want to measure separately.
 let resolutionCount = 0
 
 export function resolutionCountForTests(): number {
@@ -402,6 +402,310 @@ export function createRunSubject(origin: Origin): RunSubject {
 }
 
 /**
+ * The objects a caller read an origin's owner and chat through. Identity
+ * hints only, never part of an `Origin` and never written to unless they are
+ * a current holder: when an id has more than one holder, the holder that is
+ * the hinted object is the one resolved to (rather than none), so a send in
+ * a chat whose id is duplicated keeps writing to the chat it started from.
+ * With a single holder the hint changes nothing, and a replacement object
+ * holding the same ids is resolved to like any other single holder.
+ */
+export interface OriginHint {
+    owner: character | groupChat
+    chat: Chat
+}
+
+interface MemberResolution {
+    member: character | null
+    memberIndex: number | null
+    status: OriginStatus | null
+}
+
+const NO_MEMBER: MemberResolution = { member: null, memberIndex: null, status: null }
+
+function memberById(memberChaId: string | undefined): MemberResolution {
+    if (!memberChaId) {
+        return NO_MEMBER
+    }
+    const lookup = resolveCharacterByChaId(memberChaId)
+    if (lookup.status === 'ok' && lookup.match) {
+        return { member: lookup.match.character as character, memberIndex: lookup.match.index, status: 'ok' }
+    }
+    return { member: null, memberIndex: null, status: lookup.status }
+}
+
+/**
+ * A full scan like `resolveOriginFull`, except that a duplicated owner or
+ * chat id resolves to the hinted holder instead of to nothing. The holders are
+ * counted here rather than through `resolveCharacterByChaId` and
+ * `resolveChatInOwner`, which warn inside their scans: a tie-break that
+ * succeeds is silent, and only a duplicate with no hinted holder warns,
+ * through `warn`. The member is resolved by `resolveMember`.
+ */
+function resolveOriginWithHintFull(
+    origin: Origin,
+    hint: OriginHint | undefined,
+    warn: (message: string) => void,
+    resolveMember: (characters: Array<character | groupChat>) => MemberResolution,
+): OriginResolution {
+    const characters = DBState.db?.characters
+    if (!Array.isArray(characters)) {
+        return { status: 'gone', ctx: null, memberStatus: null }
+    }
+    let ownerMatch: CharacterMatch | null = null
+    let hintedOwner: CharacterMatch | null = null
+    let ownerHolders = 0
+    for (let i = 0; i < characters.length; i++) {
+        const candidate = characters[i]
+        if (candidate && candidate.chaId === origin.chaId) {
+            ownerHolders++
+            ownerMatch = { index: i, character: candidate }
+            if (hint && candidate === hint.owner) {
+                hintedOwner = ownerMatch
+            }
+        }
+    }
+    if (ownerHolders === 0 || !ownerMatch) {
+        return { status: 'gone', ctx: null, memberStatus: null }
+    }
+    if (ownerHolders > 1) {
+        if (!hintedOwner) {
+            warn(
+                `More than one character holds chaId "${origin.chaId}" and none is the one this write started `
+                + `from. Skipping the write rather than guessing which one is real -- this resolves on its own `
+                + `once the duplicate is gone.`
+            )
+            return { status: 'ambiguous', ctx: null, memberStatus: null }
+        }
+        ownerMatch = hintedOwner
+    }
+    if (ownerMatch.character.coldstorage) {
+        return { status: 'gone', ctx: null, memberStatus: null }
+    }
+    const owner = ownerMatch.character
+    const chats = owner.chats
+    if (!Array.isArray(chats)) {
+        return { status: 'gone', ctx: null, memberStatus: null }
+    }
+    let chatMatch: ChatMatch | null = null
+    let hintedChat: ChatMatch | null = null
+    let chatHolders = 0
+    for (let i = 0; i < chats.length; i++) {
+        const candidate = chats[i]
+        if (candidate && candidate.id === origin.chatId) {
+            chatHolders++
+            chatMatch = { index: i, chat: candidate }
+            if (hint && candidate === hint.chat) {
+                hintedChat = chatMatch
+            }
+        }
+    }
+    if (chatHolders === 0 || !chatMatch) {
+        return { status: 'gone', ctx: null, memberStatus: null }
+    }
+    if (chatHolders > 1) {
+        if (!hintedChat) {
+            warn(
+                `More than one chat holds id "${origin.chatId}" within "${owner.name}" and none is the one this `
+                + `write started from. Skipping the write rather than guessing which one is real -- this resolves `
+                + `on its own once the duplicate is gone.`
+            )
+            return { status: 'ambiguous', ctx: null, memberStatus: null }
+        }
+        chatMatch = hintedChat
+    }
+    const member = resolveMember(characters)
+    return {
+        status: 'ok',
+        ctx: {
+            owner,
+            ownerIndex: ownerMatch.index,
+            chat: chatMatch.chat,
+            chatIndex: chatMatch.index,
+            member: member.member,
+            memberIndex: member.memberIndex,
+        },
+        memberStatus: member.status,
+    }
+}
+
+/**
+ * A full scan of an origin against the live database, resolving a duplicated
+ * owner or chat id to the hinted object (see `OriginHint`). With no hint, or
+ * when no holder is the hinted object, it answers exactly as `resolveOrigin`
+ * does. Nothing is cached, so the result is only good for the synchronous
+ * stretch that asked. Exported for callers that read an origin's chat once
+ * outside a subject, and as the reference a fast-pathed `SendSubject` is
+ * compared with in tests.
+ */
+export function resolveOriginWithHint(origin: Origin, hint?: OriginHint): OriginContext | null {
+    return resolveOriginWithHintFull(origin, hint, (message) => console.warn(message), () => memberById(origin.memberChaId)).ctx
+}
+
+/**
+ * A `RunSubject` for a send: it resolves with the identity tie-break of
+ * `OriginHint`, and -- unlike a run's own subject -- keeps the positions of
+ * its last full resolution across `await`s, reusing them only after checking
+ * afresh, on every call, that the hinted owner and chat are still at those
+ * positions and still carry the origin's ids. That check is what makes a
+ * resolution per streamed chunk cheap: when it holds, a full scan would
+ * return the same holders (the hinted object is one of the id's holders, and
+ * the tie-break picks it whether it is the only one or one of several), and
+ * when it fails the call takes the full scan and refreshes the positions. A
+ * full scan is memoised for one synchronous stretch, like `createRunSubject`.
+ * A duplicate warning is issued at most once per subject.
+ *
+ * A group turn pins its member once (`pinMember`); from then on the member is
+ * re-found by the identity of that object, and only when that object is gone
+ * from `characters` is it resolved by id again.
+ */
+export interface SendSubject extends RunSubject {
+    /**
+     * Fixes the member this subject speaks as to the one live, non-cold
+     * character now holding `origin.memberChaId`. False, with nothing pinned,
+     * when there is no member id or the id has no holder or several.
+     */
+    pinMember(): boolean
+}
+
+export function createSendSubject(origin: Origin, hint?: OriginHint): SendSubject {
+    let warned = false
+    const warnOnce = (message: string): void => {
+        if (!warned) {
+            warned = true
+            console.warn(message)
+        }
+    }
+    let memo: OriginResolution | null = null
+    let pinned: character | null = null
+    let positioned = false
+    let ownerIndex = -1
+    let chatIndex = -1
+    let memberIndex = -1
+
+    function resolveMember(characters: Array<character | groupChat>): MemberResolution {
+        if (!origin.memberChaId) {
+            return NO_MEMBER
+        }
+        if (pinned && pinned.chaId === origin.memberChaId) {
+            let index = characters[memberIndex] === pinned ? memberIndex : characters.indexOf(pinned)
+            if (index !== -1) {
+                memberIndex = index
+                return { member: pinned, memberIndex: index, status: 'ok' }
+            }
+        }
+        return memberById(origin.memberChaId)
+    }
+
+    function resolveFast(characters: Array<character | groupChat>): OriginResolution | null {
+        if (!hint || !positioned) {
+            return null
+        }
+        const owner = hint.owner
+        if (characters[ownerIndex] !== owner || owner.chaId !== origin.chaId) {
+            return null
+        }
+        if (!Array.isArray(owner.chats) || owner.chats[chatIndex] !== hint.chat || hint.chat.id !== origin.chatId) {
+            return null
+        }
+        const member = resolveMember(characters)
+        return {
+            status: 'ok',
+            ctx: { owner, ownerIndex, chat: hint.chat, chatIndex, member: member.member, memberIndex: member.memberIndex },
+            memberStatus: member.status,
+        }
+    }
+
+    function stillAtItsIndices(r: OriginResolution): boolean {
+        if (r.status !== 'ok' || !r.ctx) {
+            return true
+        }
+        const characters = DBState.db?.characters
+        if (!Array.isArray(characters) || characters[r.ctx.ownerIndex] !== r.ctx.owner) {
+            return false
+        }
+        if (!Array.isArray(r.ctx.owner.chats) || r.ctx.owner.chats[r.ctx.chatIndex] !== r.ctx.chat) {
+            return false
+        }
+        if (r.ctx.member !== null && characters[r.ctx.memberIndex] !== r.ctx.member) {
+            return false
+        }
+        return true
+    }
+
+    function ensure(): OriginResolution {
+        const characters = DBState.db?.characters
+        if (Array.isArray(characters)) {
+            const fast = resolveFast(characters)
+            if (fast) {
+                return fast
+            }
+        }
+        if (memo && !stillAtItsIndices(memo)) {
+            memo = null
+        }
+        if (!memo) {
+            const full = resolveOriginWithHintFull(origin, hint, warnOnce, resolveMember)
+            resolutionCount++
+            if (full.status === 'ok' && full.ctx) {
+                positioned = true
+                ownerIndex = full.ctx.ownerIndex
+                chatIndex = full.ctx.chatIndex
+            }
+            memo = full
+            queueMicrotask(() => { memo = null })
+        }
+        return memo
+    }
+
+    return {
+        origin,
+        resolve(): OriginContext | null {
+            return ensure().ctx
+        },
+        status(): OriginStatus {
+            return ensure().status
+        },
+        memberStatus(): OriginStatus | null {
+            return ensure().memberStatus
+        },
+        mark(): void {
+            const r = ensure()
+            if (r.status !== 'ok' || !r.ctx) {
+                return
+            }
+            markCharacterForSave(r.ctx.owner.chaId)
+            if (r.ctx.member) {
+                markCharacterForSave(r.ctx.member.chaId)
+            }
+        },
+        pinMember(): boolean {
+            pinned = null
+            memo = null
+            const characters = DBState.db?.characters
+            if (!origin.memberChaId || !Array.isArray(characters)) {
+                return false
+            }
+            let found: character | null = null
+            let holders = 0
+            for (let i = 0; i < characters.length; i++) {
+                const candidate = characters[i]
+                if (candidate && candidate.chaId === origin.memberChaId) {
+                    holders++
+                    found = candidate as character
+                }
+            }
+            if (holders !== 1 || !found || found.coldstorage) {
+                return false
+            }
+            pinned = found
+            memberIndex = -1
+            return true
+        },
+    }
+}
+
+/**
  * Replaces the owner's or the member's slot in `DBState.db.characters` with
  * `clone`, but only when `clone.chaId` equals that slot's own `chaId` -- a
  * member's clone can never land in the owner's slot, or the reverse. Follows
@@ -489,6 +793,15 @@ function registerOrigin(origin: Origin): WorkHandle {
             }
         },
     }
+}
+
+/**
+ * Registers a unit of work against `origin` exactly as given -- for a caller
+ * that already holds an origin and needs neither the id fill nor the
+ * resolution `beginWork` makes. Registrations are counted like `beginWork`'s.
+ */
+export function registerWork(origin: Origin): WorkHandle {
+    return registerOrigin(origin)
 }
 
 /**

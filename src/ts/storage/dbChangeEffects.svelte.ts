@@ -357,8 +357,8 @@ export function registerDbChangeEffects(opts: DbChangeEffectOptions): void {
                                 // handles malformed data where `message` is not an
                                 // array at all -- the same case guarded against by
                                 // `throwError`'s (inside `sendChatBody` in
-                                // `index.svelte.ts`) `!Array.isArray(chatRoom.message)`
-                                // guard -- and is kept here only for that malformed case,
+                                // `index.svelte.ts`) `!Array.isArray(ctx.chat.message)`
+                                // guard on the resolved chat -- and is kept here only for that malformed case,
                                 // snapshotting `message` as-is without checking its shape.
                                 $state.snapshot(message)
                             }
