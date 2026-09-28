@@ -14,7 +14,7 @@ To try CBS as you read, use the **Syntax** tool in the [[Playground]]. Its **CBS
 
 ## How CBS is evaluated
 
-CBS is parsed by a single scanner that walks the text looking for `{{...}}` (and the block form `{{#...}}...{{/...}}`). The same parser runs whether the text is being shown on screen or sent to the model, but a few functions behave differently depending on which one is happening. For example, `{{comment}}` and `{{file}}` only produce visible markup when the text is being displayed. <!-- src/ts/parser/parser.svelte.ts:1602-1692; src/ts/cbs.ts:972-981,2130-2140 -->
+CBS is parsed by a single scanner that walks the text looking for `{{...}}` (and the block form `{{#...}}...{{/...}}`). The same parser runs whether the text is being shown on screen or sent to the model, but a few functions behave differently depending on which one is happening. For example, `{{comment}}` and `{{file}}` only produce visible markup when the text is being displayed. <!-- src/ts/parser/parser.svelte.ts:1602-1692; src/ts/cbs.ts:2110-2119,964-974 -->
 
 CBS runs in, among other places:
 
@@ -27,7 +27,7 @@ Nested CBS calls (e.g. `{{call::...}}` invoking another parsing pass, or a funct
 
 ## Syntax rules
 
-- **Function name matching is forgiving.** Whitespace, underscores, and hyphens are stripped and the name is lowercased before lookup, so `{{not_equal}}`, `{{NotEqual}}`, and `{{not-equal}}` all resolve to the same function. This is why many functions have aliases that only differ by punctuation. <!-- src/ts/parser/parser.svelte.ts:1119 -->
+- **Function name matching is forgiving.** Whitespace, underscores, and hyphens are stripped and the name is lowercased before lookup, so `{{not_equal}}`, `{{NotEqual}}`, and `{{not-equal}}` all resolve to the same function. This is why many functions have aliases that only differ by punctuation. <!-- src/ts/parser/parser.svelte.ts:1120 -->
 - **Argument separator.** Arguments are normally separated by `::`. The parser checks the first colon in the tag: if the character right after it is also a colon, the whole tag is split on `::`; otherwise it's split on single `:`. In practice, stick to `::` consistently. Mixing `:` and `::` in the same tag does not work the way you'd expect. <!-- src/ts/parser/parser.svelte.ts:1111-1120 -->
 - **`{{? expression}}`** is a special case recognized before the colon-splitting rule above: it requires a literal space after `?` and evaluates as a math expression (identical evaluator to `{{calc}}` — see [[CBS-Functions]]). <!-- src/ts/parser/parser.svelte.ts:1107-1110 -->
 - **Unresolved tags are left alone.** If `{{something}}` doesn't match any registered function (and isn't a recognized block), the literal text `{{something}}` is kept in the output rather than being deleted or erroring. <!-- src/ts/parser/parser.svelte.ts:1835-1838 -->
@@ -53,7 +53,7 @@ Because `{`, `}`, `(`, `)`, `<`, `>`, `:`, and `;` all have syntactic meaning so
 | a literal newline | `{{br}}` / `{{newline}}` |
 | a literal `\n` (backslash-n text, not an actual newline) | `{{cbr}}` / `{{cnl}}` / `{{cnewline}}` (`{{cbr::3}}` does not repeat — it behaves the same as `{{cbr}}` with no argument) |
 
-<!-- src/ts/cbs.ts:1385-1486; src/ts/parser/parser.svelte.ts:122-150; src/ts/parser/tests/cbs/escapes.test.ts:81-108 -->
+<!-- src/ts/cbs.ts:640-647,1374-1475; src/ts/parser/parser.svelte.ts:122-150; src/ts/parser/tests/cbs/escapes.test.ts:81-108 -->
 
 For escaping a whole block of text at once, use the `{{#escape}}...{{/escape}}` block (see [[CBS-Blocks]]) instead of individual escape functions. The placeholders are converted back to real characters wherever RisuAI does its final unescape pass — this happens both when rendering chat markdown for display and when assembling the final message content for the model request, so escaped text is safe to nest inside further CBS without being re-interpreted. <!-- src/ts/parser/parser.svelte.ts:133-150,179; src/ts/process/request/request.ts:218 -->
 
@@ -81,7 +81,7 @@ For escaping a whole block of text at once, use the `{{#escape}}...{{/escape}}` 
 | `{{previouscharchat}}` | `lastcharmessage` | Nearest earlier character message (falls back to the first message/greeting) |
 | `{{previoususerchat}}` | `lastusermessage` | Nearest earlier user message (empty string outside a chat-message context) |
 
-<!-- src/ts/cbs.ts:146-170,172-182,194-211,213-234,237-250,252-265,267-280,282-295,298-305,307-315,317-334,336-352,354-370,372-380,382-390,392-413,436-443,1512-1543 -->
+<!-- src/ts/cbs.ts:174-196,198-208,259-271,273-285,287-299,301-313,316-323,325-333,384-392,394-402,404-424,445-452,335-350,1500-1527,352-366,368-382,220-235,237-256 -->
 
 See [[CBS-Functions]] for the many more chat/message/system accessors (`{{chatindex}}`, `{{role}}`, `{{model}}`, `{{maxcontext}}`, time/date functions, etc.), and [[CBS-Assets]] for anything that displays an image, video, or audio.
 
@@ -91,17 +91,17 @@ CBS has three kinds of variables, all read/written as plain strings:
 
 ### Chat variables — `{{getvar}}` / `{{setvar}}` / `{{addvar}}` / `{{setdefaultvar}}`
 
-Stored per-chat, so they persist with that specific conversation across sessions. `{{getvar::name}}` returns `"null"` (the string) if the variable was never set — unless the character or a preset defines a default value for that name, in which case the default is returned instead. Because chat variables don't re-render older messages automatically, editing the value a prompt reads from a variable may not visibly change already-generated text until the next generation. <!-- src/ts/parser/chatVar.svelte.ts:6-40; src/ts/cbs.ts:792-859 -->
+Stored per-chat, so they persist with that specific conversation across sessions. `{{getvar::name}}` returns `"null"` (the string) if the variable was never set — unless the character or a preset defines a default value for that name, in which case the default is returned instead. Because chat variables don't re-render older messages automatically, editing the value a prompt reads from a variable may not visibly change already-generated text until the next generation. <!-- src/ts/parser/chatVar.svelte.ts:17-59; src/ts/cbs.ts:785-852 -->
 
-Writes (`{{setvar}}`, `{{addvar}}`, `{{setdefaultvar}}`) only take effect while the app is building the outgoing prompt for a generation. Everywhere else (display re-render, etc.) these three are silent no-ops, so a variable-writing tag doesn't fire every time the surrounding text happens to be re-parsed. `{{addvar}}` coerces both sides with `Number(...)`, so adding to a non-numeric variable produces `NaN`. <!-- src/ts/cbs.ts:810-859; src/ts/process/index.svelte.ts:147 -->
+Writes (`{{setvar}}`, `{{addvar}}`, `{{setdefaultvar}}`) only take effect while the app is building the outgoing prompt for a generation. Everywhere else (display re-render, etc.) these three are silent no-ops, so a variable-writing tag doesn't fire every time the surrounding text happens to be re-parsed. `{{addvar}}` coerces both sides with `Number(...)`, so adding to a non-numeric variable produces `NaN`. <!-- src/ts/cbs.ts:803-852; src/ts/process/index.svelte.ts:147 -->
 
 ### Global chat variables — `{{getglobalvar}}` / used via triggers' "set global var" effects
 
-Shared across every character/chat by default. RisuAI also supports **per-chat overrides** of a global variable name, used when a chat has the **Local Toggles** option enabled — in that mode, reading/writing a "global" variable actually reads/writes a copy scoped to that one chat instead of the shared value. Plain `{{getglobalvar::name}}` transparently prefers the chat-local override if one exists, falling back to the shared value. <!-- src/ts/parser/chatVar.svelte.ts:42-87; src/ts/cbs.ts:861-868 -->
+Shared across every character/chat by default. RisuAI also supports **per-chat overrides** of a global variable name, used when a chat has the **Local Toggles** option enabled — in that mode, reading/writing a "global" variable actually reads/writes a copy scoped to that one chat instead of the shared value. Plain `{{getglobalvar::name}}` transparently prefers the chat-local override if one exists, falling back to the shared value. <!-- src/ts/parser/chatVar.svelte.ts:90-126; src/ts/cbs.ts:854-861 -->
 
 ### Temp variables — `{{tempvar}}` / `{{settempvar}}`
 
-Exist only for the duration of one CBS parsing run (and any recursive calls it makes, e.g. via `{{call::}}`); never persisted. Useful for intermediate values inside a `{{#func}}`. `{{return::value}}` immediately ends the current parser run and yields `value` as the whole result of that run — anything else queued in the same run is discarded. <!-- src/ts/cbs.ts:753-790; src/ts/parser/parser.svelte.ts:1661-1665,1835-1848 -->
+Exist only for the duration of one CBS parsing run (and any recursive calls it makes, e.g. via `{{call::}}`); never persisted. Useful for intermediate values inside a `{{#func}}`. `{{return::value}}` immediately ends the current parser run and yields `value` as the whole result of that run — anything else queued in the same run is discarded. <!-- src/ts/cbs.ts:746-783; src/ts/parser/parser.svelte.ts:1661-1665,1835-1848 -->
 
 ### Math-expression variable shortcuts
 
@@ -120,4 +120,4 @@ These still work for backward compatibility with older character cards, but new 
 | `<char>`, `<user>`, `<bot>` | `{{char}}`, `{{user}}`, `{{bot}}` |
 | `{{dice::XdY}}` | `{{roll::XdY}}` (identical behavior; `roll` is the actively maintained name and also has a deterministic sibling `{{rollp}}`) |
 
-<!-- src/ts/cbs.ts:2381-2401,2450-2459; src/ts/parser/parser.svelte.ts:1161-1183 -->
+<!-- src/ts/cbs.ts:2361-2381,2430-2439; src/ts/parser/parser.svelte.ts:1161-1183 -->

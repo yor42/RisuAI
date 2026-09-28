@@ -12,7 +12,7 @@ Scripts can be defined in three scopes, and all three are combined and run toget
 2. **Character scripts** — edited in the character's own config panel.
    <!-- src/lib/SideBars/CharConfig.svelte:689 -->
 3. **Module scripts** — on every currently enabled [[module|Modules]], concatenated in module order.
-   <!-- src/ts/process/modules.ts:476-488 -->
+   <!-- src/ts/process/modules.ts:486-498 -->
 
 For `edittrans` scripts only, the order is preset → module → character instead.
 <!-- src/ts/translator/translator.ts:649 -->

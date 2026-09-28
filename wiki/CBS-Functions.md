@@ -2,7 +2,7 @@
 
 Part of [[Curly-Brased-Syntaxes]]. This page lists every general-purpose CBS function that is not a [[block|CBS Blocks]] and not an [[asset/media|CBS Assets]] function. Unless noted otherwise, arguments are separated by `::` and every function returns a plain string (booleans are the strings `"1"`/`"0"`).
 
-Function names are matched case-insensitively with spaces, underscores and hyphens stripped, so `{{not_equal}}`, `{{NotEqual}}` and `{{not equal}}` all call the same function. <!-- src/ts/parser/parser.svelte.ts:1119 -->
+Function names are matched case-insensitively with spaces, underscores and hyphens stripped, so `{{not_equal}}`, `{{NotEqual}}` and `{{not equal}}` all call the same function. <!-- src/ts/parser/parser.svelte.ts:1120 -->
 
 ## Comparison and logic
 
@@ -19,7 +19,7 @@ Function names are matched case-insensitively with spaces, underscores and hyphe
 | `{{not::a}}` | — | `0` if `a` is `"1"`, else `1` |
 | `{{iserror::a}}` | — | `1` if `a` starts with `error:` (case-insensitive) |
 
-<!-- src/ts/cbs.ts:890-897,899-906,908-915,917-924,926-933,935-942,944-951,953-960,962-969,1938-1945 -->
+<!-- src/ts/cbs.ts:883-890,892-899,901-908,910-917,919-926,928-935,937-944,946-953,955-962,1922-1929 -->
 
 `and`/`or`/`not` here are strict two-value string comparisons against `"1"`, unlike the operator chain inside `{{#when}}` (see [[CBS-Blocks]]), which is more forgiving about truthy values (`"1"` or `"true"`).
 
@@ -46,7 +46,7 @@ Function names are matched case-insensitively with spaces, underscores and hyphe
 | `{{ue::hex}}` | `unicodeencodefromhex` | Same as `{{u}}` (the name is misleading — it also decodes) |
 | `{{tonumber::str}}` | — | Strips everything except digits `0-9` and `.` |
 
-<!-- src/ts/cbs.ts:984-991,993-1000,1002-1009,1011-1018,1020-1027,1029-1036,1038-1045,1047-1054,1056-1063,1075-1082,1084-1091,1093-1100,1159-1168,1768-1775,1777-1784,1786-1793,1795-1802,2121-2128; src/ts/parser/tests/cbs/strings.test.ts:155-168 -->
+<!-- src/ts/cbs.ts:977-984,986-993,995-1002,1004-1011,1013-1020,1022-1029,1031-1038,1040-1047,1049-1056,1068-1075,1077-1084,1086-1093,2101-2108,1752-1759,1761-1768,1770-1777,1779-1786,1150-1159; src/ts/parser/tests/cbs/strings.test.ts:155-168 -->
 
 ## Math
 
@@ -68,7 +68,7 @@ Function names are matched case-insensitively with spaces, underscores and hyphe
 | `{{fromhex::hex}}` | — | Hex string → decimal number |
 | `{{tohex::n}}` | — | Decimal number → hex string |
 
-<!-- src/ts/cbs.ts:801-808,1102-1109,1111-1118,1120-1127,1129-1136,1138-1145,1170-1177,1694-1708,1710-1724,1726-1740,1742-1757,1759-1766,1846-1853,1855-1862,2265-2270; src/ts/parser/parser.svelte.ts:1107-1110 -->
+<!-- src/ts/cbs.ts:794-801,2245-2250,1095-1102,1104-1111,1113-1120,1122-1129,1131-1138,1161-1168,1743-1750,1678-1692,1694-1708,1710-1724,1726-1741,1830-1837,1839-1846; src/ts/parser/parser.svelte.ts:1107-1110 -->
 
 For `min`/`max`/`sum`/`average`: if more than one argument is given, all arguments are treated as the value list; if exactly one argument is given, it is parsed as a JSON array instead.
 
@@ -97,7 +97,7 @@ The expression evaluator (shared by `{{calc}}`, `{{? }}`) supports, in this prec
 | `{{dice::XdY}}` | — | Same computation as `{{roll}}` (kept as a separate, older function) |
 | `{{hash::str}}` | — | Deterministic 7-digit number derived from the string |
 
-<!-- src/ts/cbs.ts:1804-1811,1813-1825,1827-1844,2004-2023,2004-2032,2016-2023,2034-2046,2048-2075,2077-2110 -->
+<!-- src/ts/cbs.ts:1988-2016,2018-2028,1797-1809,2030-2057,2059-2090,1811-1828,1788-1795 -->
 
 ## Time and date
 
@@ -116,7 +116,7 @@ The expression evaluator (shared by `{{calc}}`, `{{? }}`) supports, in this prec
 | `{{idleduration}}` | `idle_duration` | `H:MM:SS` since the chat's last message |
 | `{{messageidleduration}}` | `message_idle_duration` | `H:MM:SS` between the current and the previous **user** message |
 
-<!-- src/ts/cbs.ts:445-467,469-490,492-504,506-514,526-534,536-544,547-602,604-639,1564-1584,1586-1606 -->
+<!-- src/ts/cbs.ts:1570-1590,1548-1568,529-537,539-547,509-517,454-474,476-495,497-507,605-638,550-603 -->
 
 ### Custom format tokens (`{{date::...}}` / `{{time::...}}`)
 
@@ -124,7 +124,7 @@ The expression evaluator (shared by `{{calc}}`, `{{? }}`) supports, in this prec
 
 ## Arrays and dictionaries
 
-Arrays and dictionaries are plain JSON text (`["a","b"]`, `{"k":"v"}`); invalid JSON parses to `[]`/`{}`. <!-- src/ts/cbs.ts:16-23 -->
+Arrays and dictionaries are plain JSON text (`["a","b"]`, `{"k":"v"}`); invalid JSON parses to `[]`/`{}`. <!-- src/ts/cbs.ts:17-24 -->
 
 | Syntax | Aliases | Result |
 |---|---|---|
@@ -145,7 +145,7 @@ Arrays and dictionaries are plain JSON text (`["a","b"]`, `{"k":"v"}`); invalid 
 | `{{all::a::b::...}}` or `{{all::jsonArray}}` | — | `1` if every value is `"1"` |
 | `{{any::a::b::...}}` or `{{any::jsonArray}}` | — | `1` if any value is `"1"` |
 
-<!-- src/ts/cbs.ts:1066-1073,1179-1187,1189-1197,1199-1210,1212-1235,1237-1246,1248-1257,1259-1268,1270-1279,1281-1293,1295-1302,1304-1322,1545-1562,1640-1666,1668-1679,1681-1692 -->
+<!-- src/ts/cbs.ts:1286-1293,1295-1313,1059-1066,1170-1178,1180-1188,1203-1226,1190-1201,1228-1237,1239-1248,1250-1259,1261-1270,1272-1284,1529-1546,1624-1650,1652-1663,1665-1676 -->
 
 ## Variables
 
@@ -162,7 +162,7 @@ See the "Variables" section on [[Curly-Brased-Syntaxes]] for the full explanatio
 | `{{settempvar::name::value}}` | — | Writes a temp variable |
 | `{{return::value}}` | — | Immediately ends the current parser run and yields `value` as the final result |
 
-<!-- src/ts/cbs.ts:753-763,765-776,778-790,792-799,810-824,826-840,842-859,861-868 -->
+<!-- src/ts/cbs.ts:785-792,819-833,803-817,835-852,854-861,746-756,758-769,771-783 -->
 
 ## Formatting helpers
 
@@ -180,7 +180,7 @@ See the "Variables" section on [[Curly-Brased-Syntaxes]] for the full explanatio
 | `{{erase}}` | Deletes back to the previous sentence-ending punctuation (`.`, `!`, `?`, newline) in the text generated so far |
 | `{{declare::name}}` | Marks a flag for `name`. Nothing currently reads it back, so it has no visible effect. |
 
-<!-- src/ts/cbs.ts:870-877,879-887,971-981,2130-2140,2142-2149,2151-2158,2160-2177,2180-2210,2212-2246,2248-2256,2258-2263 -->
+<!-- src/ts/cbs.ts:2122-2129,2131-2138,2140-2157,2110-2119,2238-2243,863-870,872-880,964-974,2160-2190,2192-2226,2228-2236 -->
 
 `{{bkspc}}` and `{{erase}}` only work on text produced earlier in the *same* CBS run (e.g. editing the character's own message during a display/output regex pass) — they cannot reach outside the current parse.
 
@@ -192,7 +192,7 @@ See the "Variables" section on [[Curly-Brased-Syntaxes]] for the full explanatio
 | `{{xordecrypt::base64}}` | `xordecode`, `xord` | Reverses `{{xor}}` |
 | `{{crypt::str[::shift]}}` | `crypto`, `caesar`, `encrypt`, `decrypt` | Caesar-shifts UTF-16 code units by `shift` (default `32768`, which is its own inverse — so the default shift both encrypts and decrypts) |
 
-<!-- src/ts/cbs.ts:1948-1959,1961-1972,1974-1999 -->
+<!-- src/ts/cbs.ts:1932-1943,1945-1956,1958-1983 -->
 
 These are lightweight obfuscation, not real security. Do not rely on them to hide anything from a determined user.
 
@@ -234,9 +234,9 @@ Anyone can paste the string back into the Playground and decode it. This keeps a
 | `{{moduleenabled::namespace}}` | `module_enabled` | `1`/`0` whether a module with that namespace is active |
 | `{{metadata::key}}` | — | See table below |
 
-<!-- src/ts/cbs.ts:650-658,660-668,702-710,712-720,1357-1365,1367-1374,1376-1383,1608-1621,1864-1936 -->
+<!-- src/ts/cbs.ts:649-657,659-667,709-717,699-707,1346-1354,1356-1363,1365-1372,1592-1605,1848-1920 -->
 
-`{{metadata::key}}` keys (case-insensitive): `mobile`, `local` (desktop/Tauri build), `node` (self-hosted Node server), `version`, `majorversion`/`majorver`/`major`, `language`/`locale`/`lang` (app language), `browserlanguage`/`browserlocale`/`browserlang`, `modelshortname`, `modelname`, `modelinternalid`, `modelformat`, `modelprovider`, `modeltokenizer`, `risutype` (`local`/`node`/`web`), `maxcontext`, and the joke key `imateapot` (🫖). An unrecognized key returns `Error: <key> is not a valid metadata key.`. <!-- src/ts/cbs.ts:1864-1936 -->
+`{{metadata::key}}` keys (case-insensitive): `mobile`, `local` (desktop/Tauri build), `node` (self-hosted Node server), `version`, `majorversion`/`majorver`/`major`, `language`/`locale`/`lang` (app language), `browserlanguage`/`browserlocale`/`browserlang`, `modelshortname`, `modelname`, `modelinternalid`, `modelformat`, `modelprovider`, `modeltokenizer`, `risutype` (`local`/`node`/`web`), `maxcontext`, and the joke key `imateapot` (🫖). An unrecognized key returns `Error: <key> is not a valid metadata key.`. <!-- src/ts/cbs.ts:1848-1920 -->
 
 ## Chat/character context
 
@@ -252,6 +252,6 @@ Anyone can paste the string back into the Playground and decode it. This keeps a
 | `{{trigger_id}}` | `triggerid` | Value of the `risu-id` attribute on the element that triggered a manual trigger click; `"null"` if none |
 | `{{hiddenkey::anything}}` | — | Always empty string; used purely so a lorebook/keyword scanner sees the argument text as an activation key without it appearing in the model request |
 
-<!-- src/ts/cbs.ts:184-192,415-422,424-434,670-688,690-700,722-735,737-750,1147-1157,2112-2119 -->
+<!-- src/ts/cbs.ts:426-433,435-443,669-685,687-697,719-730,732-743,1140-1148,210-218,2092-2099 -->
 
 See [[Curly-Brased-Syntaxes]] for character/prompt text accessors (`{{char}}`, `{{description}}`, `{{lorebook}}`, `{{history}}`, etc.) and [[CBS-Blocks]] for `#if`/`#when`/`#each`/etc.

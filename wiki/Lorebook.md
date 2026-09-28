@@ -13,7 +13,7 @@ Three scopes are merged into one list for every scan, in this order: **Character
 - **Chat Lore** — attached to one specific chat only.
   <!-- src/ts/storage/database.svelte.ts:1821 -->
 - **Module Lore** — comes from any enabled [[module|Modules]]; entries from all enabled modules are concatenated in module order.
-  <!-- src/ts/process/modules.ts:430-441 -->
+  <!-- src/ts/process/modules.ts:441-453 -->
 
 The app also has a Global Lorebook settings page, but it cannot be opened from the settings menu, and its entries are never used in chats.
 <!-- src/lib/Setting/Settings.svelte:214-215 -->

@@ -1,6 +1,6 @@
 # Trigger Script
 
-Trigger Scripts are Risu's event/condition/effect system: "when X happens, if Y is true, do Z." They live on a character or on a module, and a module's triggers apply to every character the module is attached to. Group chats only run module triggers, not their own. <!-- src/ts/process/triggers.ts:20-26; src/ts/storage/database.svelte.ts:1366; src/ts/process/modules.ts:25-27, 459-472 -->
+Trigger Scripts are Risu's event/condition/effect system: "when X happens, if Y is true, do Z." They live on a character or on a module, and a module's triggers apply to every character the module is attached to. For the editing hooks (`editRequest`/`editDisplay`/`editInput`/`editOutput`) and the Lua-button path, a group has no triggers of its own — only module-provided triggers run for it. `start`/`output` triggers during generation are an exception: they run against the group's own member character, so that member's own triggers run too, alongside the module's. <!-- src/ts/process/triggers.ts:21-27; src/ts/process/scriptings.ts:1568, 1596; src/ts/process/index.svelte.ts:376; src/ts/process/modules.ts:20-28, 470-484 -->
 
 A trigger script is authored in one of three interchangeable formats — **V1** (legacy, flat list), **V2** (block-based visual scripting), or **Lua** (see [[Lua Scripting]]) — chosen with a switcher in the editor. Switching formats replaces the whole trigger list for that character/module after a confirmation prompt; you cannot mix formats within one character's trigger list. <!-- src/lib/SideBars/Scripts/TriggerList.svelte:23-99 -->
 
@@ -15,7 +15,11 @@ A trigger script is authored in one of three interchangeable formats — **V1** 
   lowLevelAccess?: boolean // set by the runner from the owning character/module, not stored on each entry
 }
 ```
-<!-- src/ts/process/triggers.ts:20-26 -->
+<!-- src/ts/process/triggers.ts:21-27, 1093, 1111-1116 -->
+
+### Which character and chat effects act on
+
+**Fork-specific:** upstream reads the currently selected character/chat for every effect. A `start`/`input`/`output`/`manual` run here instead works against its own **origin** — the chat it was invoked for, and the character that owns that chat — re-resolved on every effect, never a value held from before an `await`. For a group's member trigger, the origin's owner is the group and its member is resolved separately; effects that read or write "the character" (`v2GetCharacterDesc`/`v2SetCharacterDesc`, the Lorebook V2 effects, `v2GetReplaceGlobalNote`/`v2SetReplaceGlobalNote`, and the matching V1 fields) act on that member (falling back to the owner when the run has no member), not the group and not the character selected in the app. Lua bindings called from such a run act on the owner, the group — see [[Lua Scripting]]. A `display`/`request` run has no origin and keeps acting on its caller's own character/chat, unchanged. Changes a running trigger makes are visible immediately, in the live chat, while it is still running; messages sent or edited elsewhere during a trigger's `sleep`/`runLLM`/similar wait are kept, not discarded when the trigger resumes; and a trigger's run stops cleanly, without finishing its remaining effects, if its own chat is deleted or duplicated while it is waiting. <!-- src/ts/process/triggers.ts:1097-1166, 1333-1335, 1427-1429; src/ts/process/chatOrigin.ts:78-157 -->
 
 ## Timings (`type` / trigger mode)
 
@@ -33,19 +37,19 @@ A trigger script is authored in one of three interchangeable formats — **V1** 
 
 ### Execution order
 
-For a given mode, every trigger defined directly on the character runs first, in the order they're listed, followed by every module trigger, in module order. A trigger whose comment doesn't match (for `manual` triggers) or whose type doesn't match the current mode is skipped, except a whole-script Lua trigger, which always runs regardless of type — see the "manual triggers call a same-named Lua function" section on [[Lua Scripting]]. <!-- src/ts/process/triggers.ts:1081-1084, 1235-1248 -->
+For a given mode, every trigger defined directly on the character runs first, in the order they're listed, followed by every module trigger, in module order. A trigger whose comment doesn't match (for `manual` triggers) or whose type doesn't match the current mode is skipped, except a whole-script Lua trigger, which always runs regardless of type — see the "manual triggers call a same-named Lua function" section on [[Lua Scripting]]. <!-- src/ts/process/triggers.ts:1114-1116, 1318-1328 -->
 
-Within one trigger, `conditions` are AND-ed (first failure short-circuits), then `effect` entries run in array order. V2's `indent` field creates block structure (if/else/loop) purely by scanning forward/backward for matching `v2EndIndent`/`v2Loop` markers at runtime — there is no separate parse step. <!-- src/ts/process/triggers.ts:1250-1330, 1722-1802 -->
+Within one trigger, `conditions` are AND-ed (first failure short-circuits), then `effect` entries run in array order. V2's `indent` field creates block structure (if/else/loop) purely by scanning forward/backward for matching `v2EndIndent`/`v2Loop` markers at runtime — there is no separate parse step. <!-- src/ts/process/triggers.ts:1337-1418 -->
 
 ### Recursion
 
-Run Trigger (`runtrigger`/`v2RunTrigger`) can call another trigger, which can call Run Trigger again. Recursion is capped at depth 10, unless the calling trigger has low-level access, in which case there is no depth cap. Note: a low-level trigger that calls itself without a stopping condition can freeze the tab. <!-- src/ts/process/triggers.ts:1406, 1804 -->
+Run Trigger (`runtrigger`/`v2RunTrigger`) can call another trigger, which can call Run Trigger again. Recursion is capped at depth 10, unless the calling trigger has low-level access, in which case there is no depth cap. Note: a low-level trigger that calls itself without a stopping condition can freeze the tab. <!-- src/ts/process/triggers.ts:1501-1502, 1913-1914 -->
 
 ### Variable resolution order
 
-`$name` (V1 `var`/`value` conditions, V2 var-typed fields) resolves in this order: a V2 local variable declared at or above the current indent in the current scope, then the chat's persistent variable store, then the character's default variables, then the preset's default variables, then the literal string `"null"`. Writes go to whichever of the first two already has the key. Otherwise, a new entry is added to the chat's persistent variable store, which also marks the chat as changed and refreshes the display. <!-- src/ts/process/triggers.ts:1108-1232, 2822-2826 --> This is the *same* store Lua's `getChatVar`/`setChatVar` use — see the "chat variables & state" section on [[Lua Scripting]].
+`$name` (V1 `var`/`value` conditions, V2 var-typed fields) resolves in this order: a V2 local variable declared at or above the current indent in the current scope, then the chat's persistent variable store, then the character's default variables, then the preset's default variables, then the literal string `"null"`. Writes go to whichever of the first two already has the key. Otherwise, a new entry is added to the chat's persistent variable store, which also marks the chat as changed and refreshes the display. <!-- src/ts/process/triggers.ts:1260-1311, 2944-2945 --> This is the *same* store Lua's `getChatVar`/`setChatVar` use — see the "chat variables & state" section on [[Lua Scripting]].
 
-In `display`/`request` mode, variable writes go to a temporary, non-persistent store instead of the chat's saved state, so trigger effects that only make sense live (alerts, `showAlert`, `v2GetAlertInput`) do nothing in those modes. <!-- src/ts/process/triggers.ts:1102, 1195-1231, 1444-1446, 2323-2336 -->
+In `display`/`request` mode, variable writes go to a temporary, non-persistent store instead of the chat's saved state, so trigger effects that only make sense live (alerts, `showAlert`, `v2GetAlertInput`) do nothing in those modes. <!-- src/ts/process/triggers.ts:1281-1287, 1024-1037, 1420-1424 -->
 
 ## Conditions
 
@@ -56,7 +60,7 @@ In `display`/`request` mode, variable writes go to a temporary, non-persistent s
 | `chatindex` | `value`, `operator` | compares the current message count against `value` |
 | `exists` | `value`, `type2: 'strict'\|'loose'\|'regex'`, `depth` | searches the joined text of the last `depth` messages for `value` (word match / case-insensitive substring / regex) |
 
-Operators for `var`/`value`/`chatindex`: `= != > < >= <= null true`. `true` passes only if the value is exactly `"true"` or `"1"`; `null` passes only if the value is exactly `"null"`. <!-- src/ts/process/triggers.ts:51-74, 1250-1326 -->
+Operators for `var`/`value`/`chatindex`: `= != > < >= <= null true`. `true` passes only if the value is exactly `"true"` or `"1"`; `null` passes only if the value is exactly `"null"`. <!-- src/ts/process/triggers.ts:47-70, 1338-1394 -->
 
 ## Legacy: V1 effects
 
@@ -80,9 +84,9 @@ V1 is a flat list of `{comment, type, conditions, effect: [oneEffect]}` entries 
 | `runImgGen` | `value`, `negValue`, `inputVar` | generates an image, writes a `{{inlay::id}}` CBS tag (or an error string) into `inputVar` | **low-level** |
 | `triggerlua` | `code` | runs `code` as a Lua script — see [[Lua Scripting]] | mode-dependent, see Lua page |
 
-`runAxLLM` (`value`, `inputVar` — same shape as `runLLM` but against the auxiliary model) is selectable in the V1 editor, but it currently does nothing at runtime. Treat it as non-functional; don't rely on it. <!-- src/ts/process/triggers.ts:164-168; src/lib/SideBars/Scripts/TriggerV1Data.svelte:307-329, 345, 472 -->
+`runAxLLM` (`value`, `inputVar` — same shape as `runLLM` but against the auxiliary model) is selectable in the V1 editor, but it currently does nothing at runtime. Treat it as non-functional; don't rely on it. <!-- src/ts/process/triggers.ts:166; src/lib/SideBars/Scripts/TriggerV1Data.svelte:307-329, 345, 472 -->
 
-`v2StopPromptSending` behaves the same as V1's `stop` effect, even though it's nominally a V2-only effect type. <!-- src/ts/process/triggers.ts:1400-1404 -->
+`v2StopPromptSending` behaves the same as V1's `stop` effect, even though it's nominally a V2-only effect type. <!-- src/ts/process/triggers.ts:1492-1493 -->
 
 ## V2 effects
 
@@ -101,7 +105,7 @@ All effect categories below match the editor's own grouping. Aside from the depr
 | `v2GetRequestStateRole` / `v2SetRequestStateRole` | as above | reads/writes that message's `role` (set only accepts `user`/`assistant`/`system`) |
 | `v2GetRequestStateLength` | `outputVar` | number of messages in the in-flight prompt array |
 
-<!-- src/ts/process/triggers.ts:2361-2444 -->
+<!-- src/ts/process/triggers.ts:2494-2578 -->
 
 ### Control
 
@@ -120,7 +124,7 @@ All effect categories below match the editor's own grouping. Aside from the depr
 | `v2StopTrigger` | — | stops processing the *rest of this trigger's* effects only |
 | `v2Comment` | `value` | no-op annotation |
 
-Long-running loops built with `v2Loop` are throttled automatically: every 100 iterations, the runtime pauses for 1ms to avoid freezing the tab. <!-- src/ts/process/triggers.ts:1777-1783 -->
+Long-running loops built with `v2Loop` are throttled automatically: every 100 iterations, the runtime pauses for 1ms to avoid freezing the tab. <!-- src/ts/process/triggers.ts:1884-1888 -->
 
 ### Chat
 
@@ -153,7 +157,7 @@ Long-running loops built with `v2Loop` are throttled automatically: every 100 it
 | `v2GetAlertInput` | `display`/`displayType`, `outputVar` | text-input dialog, writes the response |
 | `v2GetAlertSelect` | `display`/`displayType`, `value`/`valueType` (`\|`-separated options), `outputVar` | choice dialog, writes the selected option |
 
-### Lorebook V2 (operates on the character's global lorebook, index-addressed)
+### Lorebook V2 (operates on the trigger's own character's global lorebook, index-addressed)
 
 | Effect | Parameters | Behavior |
 |---|---|---|
@@ -166,7 +170,7 @@ Long-running loops built with `v2Loop` are throttled automatically: every 100 it
 | `v2GetLorebookCountNew` | `outputVar` | entry count |
 | `v2SetLorebookAlwaysActive` | `index`/`indexType`, `value: boolean` | toggles always-active on that entry |
 
-All of these persist immediately to the selected character's lorebook data. <!-- src/ts/process/triggers.ts:1979-2607, 2473-2607 -->
+All of these persist immediately to the trigger's own character's lorebook data — the member's, in a group run, per "Which character and chat effects act on" above. <!-- src/ts/process/triggers.ts:2606-2738 -->
 
 ### String
 
@@ -185,10 +189,11 @@ All of these persist immediately to the selected character's lorebook data. <!--
 
 | Effect | Parameters | Behavior |
 |---|---|---|
-| `v2GetCharacterDesc` / `v2SetCharacterDesc` | `outputVar` / `value`/`valueType` | selected character's description |
+| `v2GetCharacterDesc` / `v2SetCharacterDesc` | `outputVar` / `value`/`valueType` | the trigger's own character's description (see "Which character and chat effects act on" above) |
 | `v2GetPersonaDesc` / `v2SetPersonaDesc` | `outputVar` / `value`/`valueType` | active persona prompt (get falls back from the global persona prompt setting to the saved persona's prompt; set writes both) |
-| `v2GetReplaceGlobalNote` / `v2SetReplaceGlobalNote` | `outputVar` / `value`/`valueType` | selected character's "replace global note" field |
+| `v2GetReplaceGlobalNote` / `v2SetReplaceGlobalNote` | `outputVar` / `value`/`valueType` | the trigger's own character's "replace global note" field |
 | `v2GetAuthorNote` / `v2SetAuthorNote` | `outputVar` / `value`/`valueType` | the chat's author's note (set persists to the character's stored chat outside display mode) |
+<!-- src/ts/process/triggers.ts:2246-2286, 2752-2761 -->
 
 ### Array (JSON-encoded string variables)
 
@@ -235,7 +240,7 @@ If the JSON in the variable can't be parsed, most array effects reset it to `"[]
 
 Kept for old scripts; hidden from the "add effect" picker for new ones. <!-- src/lib/SideBars/Scripts/TriggerV2List.svelte:136-144 -->
 
-These are believed non-functional today, except `v2GetLorebookCount`. Global lore entries are stored as objects with named fields (`key`, `content`, `alwaysActive`, and so on), but every other effect in this group tries to access them as if they were numbered list items instead. Because the entries aren't structured that way, lookups by name or index never find a match, and reads/writes into these "slots" touch the wrong field entirely. This looks like logic left over from an older lorebook format. Treat the index-based effects in the Lorebook V2 section above as the supported way to do the same things. <!-- src/ts/process/triggers.ts:1979-2035, 2016-2028; src/ts/storage/database.svelte.ts:1320-1341 -->
+These are believed non-functional today, except `v2GetLorebookCount`. Global lore entries are stored as objects with named fields (`key`, `content`, `alwaysActive`, and so on), but every other effect in this group tries to access them as if they were numbered list items instead. Because the entries aren't structured that way, lookups by name or index never find a match, and reads/writes into these "slots" touch the wrong field entirely. This looks like logic left over from an older lorebook format. Treat the index-based effects in the Lorebook V2 section above as the supported way to do the same things. <!-- src/ts/process/triggers.ts:2109-2166; src/ts/storage/database.svelte.ts:1320-1341 -->
 
 | Effect | Parameters | Behavior |
 |---|---|---|
@@ -248,7 +253,7 @@ These are believed non-functional today, except `v2GetLorebookCount`. Global lor
 
 ## Relation to Lua
 
-A whole-script Lua trigger is just a trigger entry that runs Lua code instead of the block-based effects. It's exempt from the mode-matching rule described above, so its Lua entry points (`onStart`, `onInput`, etc.) decide for themselves which mode they respond to. See [[Lua Scripting]] for the full runtime, permission, and lifecycle documentation. Note that `display`/`request` mode passes never run Lua triggers. <!-- src/ts/process/triggers.ts:1559-1573, 985-1036 -->
+A whole-script Lua trigger is just a trigger entry that runs Lua code instead of the block-based effects. It's exempt from the mode-matching rule described above, so its Lua entry points (`onStart`, `onInput`, etc.) decide for themselves which mode they respond to. See [[Lua Scripting]] for the full runtime, permission, and lifecycle documentation. Note that `display`/`request` mode passes never run Lua triggers. <!-- src/ts/process/triggers.ts:1318-1328, 1024-1037, 1420-1424 -->
 
 ## See also
 

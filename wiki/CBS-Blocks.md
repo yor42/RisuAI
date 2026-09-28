@@ -64,11 +64,11 @@ By default (`{{#when condition}}` with no `keep`/`legacy`), a **truthy** block's
 | `{{#when::keep::condition}}` | Preserves all whitespace exactly as written, including inside `:else` |
 | `{{#when::legacy::condition}}` | Falls back to `{{#if}}`'s whitespace handling (trim start of block, end of block, and start of every line) and **does not support `:else`** |
 
-<!-- src/ts/parser/parser.svelte.ts:1424-1447,1427-1447,1554-1562; src/ts/cbs.ts:2447 -->
+<!-- src/ts/parser/parser.svelte.ts:1424-1447,1427-1447,1554-1562; src/ts/cbs.ts:2383-2421,2423-2428 -->
 
 ### `{{:else}}`
 
-Used only inside `{{#when}}` (not `{{#if}}`/`{{#if_pure}}`, and not with the `legacy` operator). If the block spans one line, `{{:else}}` can appear inline on that line; if the block spans multiple lines, `{{:else}}` must be alone on its own line (no other text before/after it on that line), or it will not be recognized as the separator. <!-- src/ts/parser/parser.svelte.ts:1516-1552; src/ts/cbs.ts:2443-2448 -->
+Used only inside `{{#when}}` (not `{{#if}}`/`{{#if_pure}}`, and not with the `legacy` operator). If the block spans one line, `{{:else}}` can appear inline on that line; if the block spans multiple lines, `{{:else}}` must be alone on its own line (no other text before/after it on that line), or it will not be recognized as the separator. <!-- src/ts/parser/parser.svelte.ts:1516-1552; src/ts/cbs.ts:2423-2428 -->
 
 ```
 {{#when condition}}
@@ -87,7 +87,7 @@ shown when false
 {{#if_pure 1}}...{{/if_pure}}
 ```
 
-Both are truthy only for a literal `1` or `true` right after the space (the check reads the first whitespace-delimited token, so trailing text after that token is ignored, e.g. `{{#if 1 because reasons}}` still renders); anything else drops the block. They exist only because `{{#when}}` didn't support extra operators at the time `{{#if}}` was written, and are now deprecated in favor of `{{#when}}`/`{{#when::keep::...}}`. <!-- src/ts/cbs.ts:2381-2401; src/ts/parser/parser.svelte.ts:1216-1227 -->
+Both are truthy only for a literal `1` or `true` right after the space (the check reads the first whitespace-delimited token, so trailing text after that token is ignored, e.g. `{{#if 1 because reasons}}` still renders); anything else drops the block. They exist only because `{{#when}}` didn't support extra operators at the time `{{#if}}` was written, and are now deprecated in favor of `{{#when}}`/`{{#when::keep::...}}`. <!-- src/ts/cbs.ts:2361-2381; src/ts/parser/parser.svelte.ts:1216-1227 -->
 
 - `{{#if}}`: same whitespace trimming as `{{#when}}`'s default mode (trims block edges and each line's leading whitespace). <!-- src/ts/parser/parser.svelte.ts:1504-1505 -->
 - `{{#if_pure}}`: preserves all whitespace exactly (equivalent to `{{#when::keep::...}}`). <!-- src/ts/parser/parser.svelte.ts:1513-1515 -->
@@ -132,7 +132,7 @@ Default whitespace handling trims the block's outer whitespace and left-trims ea
 {{#puredisplay}}raw {{content}} shown as-is{{/puredisplay}}
 ```
 
-Content inside is emitted completely unparsed (no CBS function inside it is evaluated) after trimming leading/trailing whitespace. `{{#puredisplay}}` additionally re-escapes any `{{`/`}}` in its content (to `\{\{`/`\}\}`) so that a later re-parse of the surrounding text (e.g. by a display/markdown pass) does not accidentally evaluate it either. `{{#pure}}` is the deprecated predecessor kept for backward compatibility; it does not do that re-escaping, so its content can be re-evaluated (and potentially misrendered) if the text is parsed a second time — prefer `{{#puredisplay}}`. <!-- src/ts/cbs.ts:2450-2465; src/ts/parser/parser.svelte.ts:1499-1503,1800-1803; src/ts/parser/tests/cbs/escapes.test.ts:117-134 -->
+Content inside is emitted completely unparsed (no CBS function inside it is evaluated) after trimming leading/trailing whitespace. `{{#puredisplay}}` additionally re-escapes any `{{`/`}}` in its content (to `\{\{`/`\}\}`) so that a later re-parse of the surrounding text (e.g. by a display/markdown pass) does not accidentally evaluate it either. `{{#pure}}` is the deprecated predecessor kept for backward compatibility; it does not do that re-escaping, so its content can be re-evaluated (and potentially misrendered) if the text is parsed a second time — prefer `{{#puredisplay}}`. <!-- src/ts/cbs.ts:2430-2445; src/ts/parser/parser.svelte.ts:1499-1503,1800-1803; src/ts/parser/tests/cbs/escapes.test.ts:117-134 -->
 
 ## `{{#escape}}` — escape literal braces/parens
 
@@ -141,7 +141,7 @@ Content inside is emitted completely unparsed (no CBS function inside it is eval
 {{#escape::keep}}...{{/escape}}
 ```
 
-Converts every `{`, `}`, `(`, `)` inside the block into private-use placeholder characters, so they survive any further CBS parsing as inert text and are converted back to plain `{`/`}`/`(`/`)` only when the final text is unescaped (this happens automatically wherever RisuAI renders the final chat text or assembles the model prompt — see "Escaping and nesting" on [[Curly-Brased-Syntaxes]]). Default mode trims surrounding whitespace; `{{#escape::keep}}` preserves it. <!-- src/ts/cbs.ts:2467-2477; src/ts/parser/parser.svelte.ts:1462-1466,1593-1594; src/ts/parser/tests/cbs/escapes.test.ts:136-152 -->
+Converts every `{`, `}`, `(`, `)` inside the block into private-use placeholder characters, so they survive any further CBS parsing as inert text and are converted back to plain `{`/`}`/`(`/`)` only when the final text is unescaped (this happens automatically wherever RisuAI renders the final chat text or assembles the model prompt — see "Escaping and nesting" on [[Curly-Brased-Syntaxes]]). Default mode trims surrounding whitespace; `{{#escape::keep}}` preserves it. <!-- src/ts/cbs.ts:2447-2457; src/ts/parser/parser.svelte.ts:1462-1466,1593-1594; src/ts/parser/tests/cbs/escapes.test.ts:136-152 -->
 
 ## `{{#code}}` — normalize escaped text
 
@@ -165,5 +165,5 @@ The first line after `{#` up to the first space is treated as the keyword; only 
 
 ## `{{slot}}` and `{{position}}`
 
-- `{{slot::name}}` / `{{slot}}` — a placeholder consumed by whichever construct created it (`{{#each}}`'s loop variable, or a prompt template's content slot); it has no standalone meaning outside those contexts. <!-- src/ts/cbs.ts:2491-2496 -->
-- `{{position::name}}` — declares a named insertion point that other features (e.g. the `@@position <name>` decorator) can target; see [[Prompt-Template]] for how positions are consumed. <!-- src/ts/cbs.ts:2498-2503 -->
+- `{{slot::name}}` / `{{slot}}` — a placeholder consumed by whichever construct created it (`{{#each}}`'s loop variable, or a prompt template's content slot); it has no standalone meaning outside those contexts. <!-- src/ts/cbs.ts:2471-2476 -->
+- `{{position::name}}` — declares a named insertion point that other features (e.g. the `@@position <name>` decorator) can target; see [[Prompt-Template]] for how positions are consumed. <!-- src/ts/cbs.ts:2478-2483 -->

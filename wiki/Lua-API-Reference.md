@@ -1,6 +1,6 @@
 # Lua API Reference
 
-Every function listed here is available as a global inside a Risu Lua script (see [[Lua Scripting]] for lifecycle, permissions, and examples). The **Call it as** column is the name you actually use in Lua. Some entries are wrapped automatically so they decode JSON or wait for a promise to resolve before returning to your script. <!-- src/ts/process/scriptings.ts:1247-1407 -->
+Every function listed here is available as a global inside a Risu Lua script (see [[Lua Scripting]] for lifecycle, permissions, and examples). The **Call it as** column is the name you actually use in Lua. Some entries are wrapped automatically so they decode JSON or wait for a promise to resolve before returning to your script. <!-- src/ts/process/scriptings.ts:1384-1543 -->
 
 Access levels, from the "permission tiers" section on [[Lua Scripting]]:
 - **None** — works in every mode, including `editDisplay`.
@@ -19,7 +19,7 @@ Access levels, from the "permission tiers" section on [[Lua Scripting]]:
 | `getState(id, name)` *(Lua shim)* | name: string | decoded Lua value from a `"__"+name` chat variable | None (delegates to `getChatVar`) |
 | `setState(id, name, value)` *(Lua shim)* | name: string, value: any | — | Safe + EditDisplay (delegates to `setChatVar`) |
 | `setStateChanged(id, name, value)` *(Lua shim)* | name: string, value: any | `true` if changed | Safe + EditDisplay |
-<!-- src/ts/process/scriptings.ts:105-124, 1329-1342 -->
+<!-- src/ts/process/scriptings.ts:231-250, 1466-1479 -->
 
 ## Chat history
 
@@ -38,37 +38,37 @@ Access levels, from the "permission tiers" section on [[Lua Scripting]]:
 | `removeChat(id, index)` | index: number | removes one message | Safe |
 | `addChat(id, role, value)` | role (`'user'` else `'char'`), value: string | appends a message | Safe |
 | `insertChat(id, index, role, value)` | index, role, value | inserts a message at index | Safe |
-| `getCharacterLastMessage(id)` | — | text of the most recent `char`-role message, falling back to the selected character's first message | None |
+| `getCharacterLastMessage(id)` | — | text of the most recent `char`-role message in the call's chat, falling back to that chat's owner's first message. Inside a trigger run or `editInput`, "the call's chat" is the run's own chat, re-read fresh on every call (not held from when the call began); outside a run it's the selected character's chat | None |
 | `getUserLastMessage(id)` | — | text of the most recent `user`-role message, or `''` | None |
 | `getAuthorsNote(id)` | — | the chat's author's note, or `''` | None |
-<!-- src/ts/process/scriptings.ts:162-261, 979-1054, 730-732 -->
+<!-- src/ts/process/scriptings.ts:52-57, 288-404, 882-884, 1149-1192 -->
 
 ## Character & persona
 
 | Call it as | Args | Returns | Access |
 |---|---|---|---|
-| `getName(id)` | — | selected character's name | None |
+| `getName(id)` | — | the call's owner's name. Inside a trigger run or `editInput`, that's the run's own owner (the group itself, in a group call), re-resolved on every call; outside a run it's the selected character's | None |
 | `setName(id, name)` | name: string | throws if not a string | Safe |
-| `getDescription(id)` | — | selected character's description; throws if it's a group | Safe |
-| `setDescription(id, desc)` | desc: string | throws if it's a group; the type check on `desc` is broken (it checks an unrelated outer-scope variable instead of the `desc` parameter), so a non-string `desc` is not rejected and is assigned to the description as-is | Safe |
-| `getCharacterFirstMessage(id)` | — | selected character's first message | None |
+| `getDescription(id)` | — | the call's owner's description, same origin rule as `getName`; throws if the owner is a group | Safe |
+| `setDescription(id, desc)` | desc: string | throws if it's a group; throws `'Invalid data type'` when `desc` is not a string | Safe |
+| `getCharacterFirstMessage(id)` | — | the call's owner's first message, same origin rule as `getName` | None |
 | `setCharacterFirstMessage(id, data)` | data: string | `true`/`false` | Safe |
 | `getPersonaName(id)` | — | active persona's display name | None |
-| `getPersonaDescription(id)` | — | persona prompt, CBS-parsed against the selected character | None |
-| `getBackgroundEmbedding(id)` | — | selected character's background HTML content | Safe |
+| `getPersonaDescription(id)` | — | persona prompt, CBS-parsed against the call's owner: the run's own owner with an origin, the selected character without one | None |
+| `getBackgroundEmbedding(id)` | — | the call's owner's background HTML content, same origin rule as `getName` | Safe |
 | `setBackgroundEmbedding(id, data)` | data: string | `true`/`false` | Safe |
-| `getCharacterImage(id)` *(shim)* | — | `{{inlayed::id}}` CBS tag for the selected character's portrait, or `''` | None |
+| `getCharacterImage(id)` *(shim)* | — | `{{inlayed::id}}` CBS tag for the call's owner's portrait (`''` for a group or a missing image), same origin rule as `getName` | None |
 | `getPersonaImage(id)` *(shim)* | — | `{{inlayed::id}}` CBS tag for the active persona's icon, or `''` | None |
-<!-- src/ts/process/scriptings.ts:651-755, 406-466, 1292-1298 -->
+<!-- src/ts/process/scriptings.ts:65-72, 563-616, 801-908, 1429-1435 -->
 
 ## Lorebook
 
 | Call it as | Args | Returns | Access |
 |---|---|---|---|
 | `getLoreBooks(id, search)` *(shim)* | search: string, matched against a lore entry's comment/title | table array of matching entries (local chat lore + global lore + module lore), content CBS-parsed | None |
-| `upsertLocalLoreBook(id, name, content, options)` | name, content: string; `options: {alwaysActive?, insertOrder?, key?, secondKey?, regex?}` | inserts/replaces a **local (per-chat)** lore entry named `name`; no-op for groups | Safe |
+| `upsertLocalLoreBook(id, name, content, options)` | name, content: string; `options: {alwaysActive?, insertOrder?, key?, secondKey?, regex?}` | inserts/replaces a **local (per-chat)** lore entry named `name` on the call's own chat (the group's own chat, in a group run); no-op when there is no chat to write to, or when the runner is a group and the call is not part of a member's trigger run (for example a group's `editRequest`/`editDisplay`/`editOutput` module script) | Safe |
 | `loadLoreBooks(id, reserve)` *(shim, awaits, low-level)* | reserve: number of tokens to hold back from the model's max context length | table array of `{role, data}` for every currently-active lore entry that fits the remaining budget | Low-level |
-<!-- src/ts/process/scriptings.ts:758-866, 1271-1278 -->
+<!-- src/ts/process/scriptings.ts:911-1037, 1413-1415 -->
 
 ## LLM requests
 
@@ -77,7 +77,7 @@ Access levels, from the "permission tiers" section on [[Lua Scripting]]:
 | `LLM(id, prompt, useMultimodal, options)` *(shim)* | `prompt`: array of `{role, content}` (`system`/`sys`, `user`, `assistant`/`bot`/`char` all normalize); `useMultimodal`: bool, expands `{{inlay\|inlayed\|inlayeddata::x}}` tags into image attachments; `options: {streaming?}` | `{success, result}` using the main model | Low-level |
 | `axLLM(id, prompt, useMultimodal, options)` *(shim)* | same as `LLM` | `{success, result}` using the auxiliary ("otherAx") model slot | Low-level |
 | `simpleLLM(id, prompt)` | prompt: string | `{success, result}` object (no JSON round-trip needed) using the main model, no multimodal support | Low-level |
-<!-- src/ts/process/scriptings.ts:506-649, 868-977, 1280-1290 -->
+<!-- src/ts/process/scriptings.ts:656-766, 767-800, 1038-1148, 1417-1427 -->
 
 ## Media / misc
 
@@ -89,12 +89,12 @@ Access levels, from the "permission tiers" section on [[Lua Scripting]]:
 | `hash(id, value)` | value: string | hex SHA-256 digest | None |
 | `getTokens(id, value)` | value: string | token count | Safe |
 | `sleep(id, time)` | time: milliseconds | resolves `true` after the delay | Safe |
-| `cbs(value)` *(no `id` argument at all)* | value: string | `value` run through the CBS parser against the selected character | None |
+| `cbs(value)` *(no `id` argument at all)* | value: string | `value` run through the CBS parser against the call's owner: the run's own owner with an origin, the selected character without one | None |
 | `log(value)` *(Lua shim)* | any JSON-serializable Lua value | prints it to the browser console | None |
 | `reloadDisplay(id)` | — | bumps the GUI reload counter | Safe |
 | `reloadChat(id, index)` | index: number | bumps the reload counter for one chat message | Safe |
 | `stopChat(id)` | — | marks the current generation to be stopped | Safe |
-<!-- src/ts/process/scriptings.ts:125-404, 468-470, 292-311 -->
+<!-- src/ts/process/scriptings.ts:251, 385-390, 407-420, 441-460, 463-561, 618-655 -->
 
 ## Alerts
 
@@ -105,18 +105,18 @@ Access levels, from the "permission tiers" section on [[Lua Scripting]]:
 | `alertInput(id, value)` | string prompt | the text the user typed | Safe |
 | `alertSelect(id, value)` | `value: string[]` of options | the chosen option | Safe |
 | `alertConfirm(id, value)` | string prompt | `true`/`false` | Safe |
-<!-- src/ts/process/scriptings.ts:131-160 -->
+<!-- src/ts/process/scriptings.ts:257-287 -->
 
 ## Edit-listener registration (Lua-side only)
 
 | Call it as | Args | Notes |
 |---|---|---|
 | `listenEdit(type, func)` | `type` in `'editRequest' \| 'editDisplay' \| 'editInput' \| 'editOutput'`, `func(id, value, meta)` | registers `func` in an internal list; every registered function for the matching type runs in order, threading the value through each; throws for any other `type` |
-<!-- src/ts/process/scriptings.ts:1300-1327 -->
+<!-- src/ts/process/scriptings.ts:1442-1464 -->
 
 ## Not reachable from the current UI
 
-A Python execution backend also exists internally, mirroring this Lua API, but there's currently no way to select it as a script language from the character or module editors. <!-- src/ts/process/scriptings.ts:41-49, 97-104, 1476-1564 -->
+A Python execution backend also exists internally, mirroring this Lua API, but there's currently no way to select it as a script language from the character or module editors. <!-- src/ts/process/scriptings.ts:153-156, 176, 1618-1656 -->
 
 ## See also
 

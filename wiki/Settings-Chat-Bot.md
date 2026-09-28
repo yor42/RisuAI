@@ -257,7 +257,7 @@ A fifth accordion also appears here, titled with the raw internal key "overrides
 | Regex Script | `db.presetRegex` | empty | Preset-scoped regex/replace scripts, run alongside the character's and module's own scripts. This is the regex list actually applied to chats from a preset — unlike the separate, unreachable Global Regex page described on [[Settings]]. |
 | Icon | `db.botPresets[id].image` | none | Uploads an icon for the current preset (resized to 48×48, JPEG). Shown in the preset list and picker. |
 | Presets | — | — | Opens the preset-management modal — see [Presets](#presets) below. |
-<!-- src/lib/Setting/Pages/BotSettings.svelte:622-826; src/ts/process/request/shared.ts:47-77; src/ts/process/modules.ts:413-414; src/ts/process/request/openAI/responses.ts:332; src/ts/process/index.svelte.ts:1215; src/ts/setting/accessibilitySettingsData.ts:207-210 -->
+<!-- src/lib/Setting/Pages/BotSettings.svelte:622-826; src/ts/process/request/shared.ts:47-77; src/ts/process/modules.ts:424-427; src/ts/process/request/openAI/responses.ts:332; src/ts/process/index.svelte.ts:1215; src/ts/setting/accessibilitySettingsData.ts:207-210 -->
 
 ---
 

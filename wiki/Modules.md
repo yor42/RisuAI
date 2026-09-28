@@ -11,7 +11,7 @@ A module can hold:
 - **Background Embedding**: HTML that is added to the chat background.
 - **Custom Toggles**: switches that appear in the chat's side toggles.
 
-<!-- src/ts/process/modules.ts:19-35, 430-508 -->
+<!-- src/ts/process/modules.ts:20-36, 441-518 -->
 
 ## Managing modules
 
@@ -56,13 +56,13 @@ A module is active in a chat if it is enabled in any of these places:
 
 Globally enabled modules are greyed out in the chat's Modules window, because they are already on.
 
-<!-- src/ts/process/modules.ts:398-427; src/lib/Setting/Pages/Module/ModuleChatMenu.svelte:60-120; src/lib/Setting/Pages/BotSettings.svelte:772-773 -->
+<!-- src/ts/process/modules.ts:399-438; src/lib/Setting/Pages/Module/ModuleChatMenu.svelte:60-120; src/lib/Setting/Pages/BotSettings.svelte:772-773 -->
 
 ### Order
 
 When several modules are active, their lorebooks, regex scripts, triggers and toggles are combined in the order the modules were created or imported. This is not the order shown in **Settings → Modules**, which sorts by name, and it is not the order in which you enabled them. A module that is enabled in more than one place is only applied once.
 
-<!-- src/ts/process/modules.ts:374-381; src/lib/Setting/Pages/Module/ModuleSettings.svelte:27-33 -->
+<!-- src/ts/process/modules.ts:375-395; src/lib/Setting/Pages/Module/ModuleSettings.svelte:27-33 -->
 
 ## Fields in detail
 
@@ -75,7 +75,7 @@ An optional identifier that stays the same when a module is re-imported (the mod
 
 See [[CBS Functions]]. If you are not sure what to put, leave it blank.
 
-<!-- src/ts/cbs.ts:1608-1638 -->
+<!-- src/ts/cbs.ts:1592-1622 -->
 
 ### Custom Toggles
 
@@ -94,7 +94,7 @@ key=Text=caption
 
 A line with only `key=Label` is a checkbox. The value is stored as the global chat variable `toggle_<key>`, so scripts and CBS can read it (for example `{{getglobalvar::toggle_key}}`). The toggles of all active modules are shown together with the prompt preset's and the character's own custom toggles.
 
-<!-- src/ts/util.ts:1059-1099; src/ts/process/modules.ts:490-502; src/lib/SideBars/Toggles.svelte:70-130 -->
+<!-- src/ts/util.ts:1059-1099; src/ts/process/modules.ts:500-512; src/lib/SideBars/Toggles.svelte:70-130 -->
 
 ### Hide Icon UI
 
@@ -108,7 +108,7 @@ The Background Embedding of every active module is joined and added to the chat 
 
 Triggers that come from a module run with the module's **Low Level Access** setting, whatever each trigger's own setting says. Low level access unlocks trigger effects that call the AI model or need heavy computing (for example running an LLM, image generation, alerts and similarity checks). When you import a module or a character card that has Low Level Access on, the app asks you to confirm first. Do not enable it unless you need these features.
 
-<!-- src/ts/process/modules.ts:459-474, 306-311; src/ts/process/triggers.ts:1406-1541 -->
+<!-- src/ts/process/modules.ts:470-484, 307-312; src/ts/process/triggers.ts:1406-1541 -->
 
 ## Import and export
 
@@ -128,13 +128,13 @@ Every imported module gets a new internal id, so importing the same file twice g
 
 Converting a character into a module keeps its description, first message, alternate greetings and global note replacement as special lorebook entries, so converting it back to a character restores them.
 
-<!-- src/ts/process/modules.ts:40-355; src/ts/interchangeability.ts -->
+<!-- src/ts/process/modules.ts:38-356; src/ts/interchangeability.ts -->
 
 ## MCP modules
 
 An MCP module holds only the address of an MCP (Model Context Protocol) server. When it is active, the server's tools are made available to the model. MCP modules cannot be edited or exported, so their Download and Edit buttons are disabled.
 
-<!-- src/ts/process/modules.ts:504-508; src/ts/process/mcp/mcp.ts -->
+<!-- src/ts/process/modules.ts:514-518; src/ts/process/mcp/mcp.ts -->
 
 ## Notes
 
