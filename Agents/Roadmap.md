@@ -1259,7 +1259,12 @@ row 142). Traced to source, not fixed. Minor housekeeping only.
   - the Lua writes that followed the selection;
   - the stale Lua engine closures;
   - `lowLevelAccess` being stamped onto trigger definitions.
-- CBS `{{setvar}}` still follows the selection until W1b.
+- **W1b** (Report 34, committed in `22db8dfe`): a trigger's or script's reads (CBS, `#when`,
+  the Lua read bindings, the lorebook scan and its flags, module selection, the `editinput`
+  script) now take its origin, not the selection.
+- Still selection-bound until W2 (`MC-095`): the send's own parses, including `{{setvar}}`, which
+  writes only with `runVar`, and so only in the send (it is inert in a trigger's strings), plus its
+  lorebook call and graph memory.
 
 **Original status (2026-09-24):** found by Gate 1 round 1 of the composer-drafts plan
 (`Agents/Reports/22-composer-drafts-plan.md` sections 2.2 and 8; ledger row 158), Orchestrator

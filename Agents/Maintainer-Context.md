@@ -2565,6 +2565,35 @@ included. Ledger row 202 read them as data.
 
 ---
 
+### MC-095 — The send's own reads, its `{{setvar}}` writes and graph memory are bound in W2, not W1b
+
+- **Tag:** decision
+- **Date:** 2026-09-28
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on a question the Orchestrator asked
+  after W1b's scoping (ledger row 265).
+- **Reasoning:** CBS variable writes happen only inside `sendChatBody` (its `runVar` parse), and
+  the graph-memory tool is reached only from the send's model requests. The send has no origin of
+  its own until W2, so binding them in W1b would mean giving the send a read-only origin early
+  and touching `sendChatBody` twice.
+- **Alternatives rejected:** W1b binds the send's parser calls, `runCurrentChatFunction`, its
+  lorebook call and the six tool-call sites, and W2 later converts the send's writes.
+- **Amends:** `MC-094` 2's W1b list, for `graphmem.ts` and for the send's callers of the parser
+  and `loadLoreBookV3Prompt`.
+- **Related:** MC-094, MC-091, CHORE-25.
+
+**What was decided:**
+1. **W1b builds the mechanism and binds every caller outside the send:** an optional target for the
+   parser, the chat variables, `loadLoreBookV3Prompt` and module selection, used by trigger runs,
+   the Lua bindings and the `editinput` script.
+2. **W2 binds the send:** `sendChatBody`'s parser calls, including the `{{setvar}}` writes, its
+   lorebook call and graph memory's reads and writes, together with the send's own writes, under
+   one origin.
+3. Until W2, `{{setvar}}` in a message and graph memory still follow the selection during a
+   send. Nothing ships between the stages (`MC-011`, `MC-089`).
+
+---
+
 ## Open questions
 
 The three entries below are questions addressed to the maintainer that were still unresolved as of

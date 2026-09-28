@@ -128,10 +128,11 @@ Report 25/28, see above).
 
 **Upstream sync (2026-09-27):** Svelte 5.56.8 (`425080e6`, ledger rows 244-245) and upstream's zh-Hant
 improvements (`f190d950`, row 248) are merged. `upstream/main` has nothing newer as of this date.
-6. **W1: engine binding, in progress.** W1a is committed (`13ed2e75`); W1b is next. `MC-094` split it into W1a and W1b.
+6. **W1: engine binding, done.** W1a is committed (`13ed2e75`), W1b (`22db8dfe`). `MC-094` split it into W1a and W1b.
    - **W1a:** every write a trigger run makes. It closes CHORE-25 and CHORE-26. Its plan will be
      Report 33.
-   - **W1b:** the read side and the parser. It follows W1a.
+   - **W1b:** the read side and the parser. Its plan is Report 34. `MC-095` moves the send's own
+     parser calls, `{{setvar}}` writes, lorebook call and graph memory to W2.
    - After W1: the composer stage (Report 22 rev 3), then W2 and W3.
    See "W1 state" below.
 7. **CHORE-35's opt-in stage** (the remaining upstream-infrastructure features: `/proxy2`'s
@@ -290,6 +291,25 @@ bug) is blocked on the maintainer's console output, not scheduled by position.
   - Roadmap CHORE-27's claim that 8 of the 9 effects write live during a `request` run is false.
     The `request` and `display` allowlists exclude them (ledger row 256). Correct CHORE-27's
     entry with W1a's records.
+
+## W1b state (2026-09-28)
+
+- **Done: committed as `22db8dfe`** (the fix and tests), then the records. Report 34 rev 2.3;
+  ledger rows 265-271; `MC-095` (the send's reads, `{{setvar}}` writes, lorebook call and graph
+  memory go to W2).
+- Gate 1: rows 266 ([REJECT]) and 267 ([EDITORIAL]). Gate 2: rows 268 ([REJECT], tests only) and
+  269 ([EDITORIAL]). Live check: row 270. Commit-message check: row 271.
+- **R3 exceptions** (read-only, recorded in Report 34 section 4):
+  - with no current character or chat, a few tags return a value where HEAD threw;
+  - with no origin, Lua `getLoreBooksMain` reads the call's held chat.
+- **For W2:**
+  - The `GLGlobalVariables` subject branches (`setGlobalChatVar` and the rest) have no caller
+    with a subject yet. With a gone subject, `setGlobalChatVar` writes the database-wide global
+    even when the origin chat had a local override. W2 must decide that.
+  - `@@inject`/`@@repeat_back` need `chatID !== -1`; they belong to the send.
+- **Stale wiki claims:** the `doc-verifier` list went to the Wiki session, at the maintainer's
+  request.
+- **Next:** the composer stage (Report 22 rev 3), then W2 and W3.
 
 ## Operational notes for this environment
 
