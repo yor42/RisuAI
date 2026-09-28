@@ -38,8 +38,12 @@
         updateInputTransateMessage as composerUpdateInputTransateMessage,
         isComposerBusy,
         isComposerLocked,
+        isAutoModeActive,
         type ComposerActionsSource
     } from 'src/ts/process/composerActions.svelte';
+    import { beginWork } from 'src/ts/process/chatOrigin';
+    import * as composerDrafts from 'src/ts/process/composerDrafts.svelte';
+    import type { ComposerDraftKey, ComposerDraftRecord } from 'src/ts/process/composerDrafts.svelte';
 
     const loadPlaygroundMenu = () => import('../Playground/PlaygroundMenu.svelte').then(m => m.default);
     
@@ -49,8 +53,6 @@
         customStyle?: string;
     }
 
-    let messageInput:string = $state('')
-    let messageInputTranslate:string = $state('')
     let openMenu = $state(false)
     let loadPages = $state(getInitialChatLoadPages(DBState.db))
     // Stage A (A-lite) of the chat-list-window plan: bounds loadPages back to
@@ -62,19 +64,99 @@
         initial: () => getInitialChatLoadPages(DBState.db),
         editorsOpen: hasMessageEditorDrafts,
     })
-    let autoMode = $state(false)
     let rerolls:Message[][] = []
     let rerollid = -1
     let lastCharId = -1
     let doingChatInputTranslate = false
     let toggleStickers:boolean = $state(false)
-    let fileInput:string[] = $state([])
     let showNewMessageButton = $state(false)
     let chatsInstance: any = $state()
     let isScrollingToMessage = $state(false)
     let { openModuleList = $bindable(false), openChatList = $bindable(false), customStyle = '' }: Props = $props();
     let currentCharacter = $derived(DBState.db.characters[$selectedCharID])
-    let currentChat = $derived(currentCharacter?.chats[currentCharacter.chatPage]?.message ?? [])
+    let currentChatObj = $derived(currentCharacter?.chats?.[currentCharacter.chatPage])
+    let currentChat = $derived(currentChatObj?.message ?? [])
+
+    // The owner's chaId plus the on-screen chat's own id, read-only (never
+    // fills a missing id -- filling is restricted to an event handler,
+    // below). Null with no chat object on screen, or while either id is
+    // still missing; shownDraft below falls back to the transient backstop
+    // or the shared empty view in that case.
+    let currentDraftKey: ComposerDraftKey | null = $derived(
+        (currentCharacter?.chaId && currentChatObj?.id)
+            ? { chaId: currentCharacter.chaId, chatId: currentChatObj.id }
+            : null
+    )
+
+    // A transient backstop: a record bound to the on-screen chat object by
+    // identity, used only while beginWork refuses to fill that chat's ids
+    // (not expected to be reachable -- the on-screen chat is always read
+    // through DBState, so it is always found there by identity). Never
+    // stored under a key, never shown under another chat, and replaced
+    // outright the moment a different chat object needs it.
+    let fallbackDraftChat: unknown = $state(null)
+    let fallbackDraft: ComposerDraftRecord = $state({ messageInput: '', messageInputTranslate: '', fileInput: [] })
+
+    // Showing a chat never creates or writes its record -- this only reads.
+    // Falls back to the transient record above only while it is already
+    // bound to the exact chat object on screen; otherwise the shared,
+    // frozen empty view.
+    let shownDraft: ComposerDraftRecord = $derived(
+        currentDraftKey
+            ? composerDrafts.peek(currentDraftKey)
+            : (currentChatObj && fallbackDraftChat === currentChatObj ? fallbackDraft : composerDrafts.EMPTY_DRAFT_VIEW)
+    )
+
+    // Protects the on-screen record from the store's own eviction. Plain
+    // bookkeeping, not a record write, so this is never mistaken for a
+    // write to the chat it names.
+    $effect(() => {
+        composerDrafts.setOnScreenKey(currentDraftKey)
+    })
+
+    /**
+     * The key a write from the on-screen composer should target, filling a
+     * missing chaId or chat id on the live objects first. Must only be
+     * called from an event handler (a setter Svelte calls from the `input`
+     * listener, an onclick, an onpaste, or the synchronous start of an
+     * async handler before its first await) -- never from `$derived` or
+     * `$effect`, which must not write to the live database.
+     */
+    function resolveDraftKeyForWrite(): ComposerDraftKey | null {
+        const char = currentCharacter
+        const chat = currentChatObj
+        if(!char || !chat){
+            return null
+        }
+        if(char.chaId && chat.id){
+            return { chaId: char.chaId, chatId: chat.id }
+        }
+        const handle = beginWork(char, chat)
+        if(!handle){
+            return null
+        }
+        const key: ComposerDraftKey = { chaId: handle.origin.chaId, chatId: handle.origin.chatId }
+        handle.end()
+        return key
+    }
+
+    /** Writes to the record named by `key`, or the transient backstop when it is null. */
+    function writeDraftAt(key: ComposerDraftKey | null, update: (record: ComposerDraftRecord) => void): void {
+        if(key){
+            composerDrafts.write(key, update)
+            return
+        }
+        if(fallbackDraftChat !== currentChatObj){
+            fallbackDraftChat = currentChatObj
+            fallbackDraft = { messageInput: '', messageInputTranslate: '', fileInput: [] }
+        }
+        update(fallbackDraft)
+    }
+
+    /** A synchronous, on-screen write: resolves the key fresh each call. */
+    function writeDraft(update: (record: ComposerDraftRecord) => void): void {
+        writeDraftAt(resolveDraftKeyForWrite(), update)
+    }
 
     // Reads the same currentCharacter/chatPage expressions as currentChat
     // above, so the key and the messages can never diverge. This effect's
@@ -157,13 +239,15 @@
         }
     }
 
-    // Driven from `$effect` tracking the input state itself (not the send/clear
-    // handlers), so every exit path is covered. `messageInput`, `messageInputTranslate`,
-    // and `fileInput` are a single combined draft here (unsent message text -- in either
-    // its normal or auto-translate-input form -- and/or a staged attachment).
+    // Registers while the record on screen (not any other stored record) is
+    // non-empty, driven from `$effect` tracking `shownDraft`'s own fields so
+    // every exit path is covered -- its `messageInput`,
+    // `messageInputTranslate` and `fileInput` are a single combined draft
+    // here (unsent message text -- in either its normal or
+    // auto-translate-input form -- and/or a staged attachment).
     const composerDraftKey = v4();
     $effect(() => {
-        if (messageInput !== '' || messageInputTranslate !== '' || fileInput.length > 0) {
+        if (shownDraft.messageInput !== '' || shownDraft.messageInputTranslate !== '' || shownDraft.fileInput.length > 0) {
             registerDraft(composerDraftKey, COMPOSER_DRAFT_KIND);
             return () => unregisterDraft(composerDraftKey);
         }
@@ -249,25 +333,13 @@
         }
     }
 
-    let abortController:null|AbortController = null
-
-    // The live view of this component's composer state that
-    // src/ts/process/composerActions.svelte.ts reads and writes through, so
-    // its actions see and mutate exactly what the bound textareas, staged
-    // files and reroll bookkeeping hold here.
+    // The live view of this component's own composer state that
+    // src/ts/process/composerActions.svelte.ts reads and writes through: the
+    // per-instance reroll history and the menu-close hook. The three
+    // text/file values are reached by key through composerDrafts.svelte.ts, and
+    // auto mode's running state and the current generation's abort
+    // controller are that module's own state, so none of them live here.
     const composerSource: ComposerActionsSource = {
-        messageInput: {
-            get: () => messageInput,
-            set: (value) => { messageInput = value }
-        },
-        messageInputTranslate: {
-            get: () => messageInputTranslate,
-            set: (value) => { messageInputTranslate = value }
-        },
-        fileInput: {
-            get: () => fileInput,
-            set: (value) => { fileInput = value }
-        },
         rerolls: {
             get: () => rerolls,
             set: (value) => { rerolls = value }
@@ -280,16 +352,7 @@
             get: () => lastCharId,
             set: (value) => { lastCharId = value }
         },
-        autoMode: {
-            get: () => autoMode,
-            set: (value) => { autoMode = value }
-        },
-        abortController: {
-            get: () => abortController,
-            set: (value) => { abortController = value }
-        },
         closeMenu: () => { openMenu = false },
-        updateInputSizeAll: () => updateInputSizeAll()
     }
 
     async function send(){
@@ -305,7 +368,7 @@
         return composerUnReroll(composerSource)
     }
     function abortChat(){
-        composerAbortChat(composerSource)
+        composerAbortChat()
     }
     async function runAutoMode() {
         return composerRunAutoMode(composerSource)
@@ -358,12 +421,25 @@
         }
     }
 
-    $effect.pre(() => {
+    // Both textareas are sized to the shown record's text after any write
+    // by anyone (typing, a put-back, a late result, a clear) and after a
+    // record change or a remount -- no writer resizes an instance
+    // itself, since the instance that started an operation may be gone by
+    // the time it resolves. A plain `$effect`, not `$effect.pre`: `.pre`
+    // would run before Svelte applies the bound value to the textarea's DOM
+    // value, and so would measure the old text's scrollHeight.
+    $effect(() => {
+        void shownDraft.messageInput
+        void shownDraft.messageInputTranslate
         updateInputSizeAll()
     });
 
     async function updateInputTransateMessage(reverse: boolean) {
-        return composerUpdateInputTransateMessage(composerSource, reverse)
+        const key = resolveDraftKeyForWrite()
+        if(!key){
+            return
+        }
+        return composerUpdateInputTransateMessage(key, reverse)
     }
 
     async function screenShot(){
@@ -515,7 +591,7 @@
                 {/if}
 
                 <textarea class="peer text-input-area focus:border-textcolor transition-colors outline-hidden text-textcolor p-2 min-w-0 border border-r-0 bg-transparent rounded-md rounded-r-none input-text text-xl grow ml-4 border-darkborderc resize-none overflow-y-hidden overflow-x-hidden max-w-full placeholder:text-sm"
-                          bind:value={messageInput}
+                          bind:value={() => shownDraft.messageInput, (value) => writeDraft((record) => { record.messageInput = value })}
                           bind:this={inputEle}
                           readonly={isComposerLocked()}
                           onkeydown={(e) => {
@@ -555,6 +631,12 @@
                                 }
                                 const file = item.getAsFile()
                                 if(file){
+                                    // The key is captured here, at the
+                                    // start, so the result lands in the chat
+                                    // this paste began in, even when a
+                                    // switch moves a different chat on
+                                    // screen before it resolves.
+                                    const key = resolveDraftKeyForWrite()
                                     const reader = new FileReader()
                                     reader.onload = async (e) => {
                                         const buf = e.target?.result as ArrayBuffer
@@ -564,22 +646,23 @@
                                             data: uint8
                                         })
                                         if(!results) return
-                                        for(const res of results){
-                                            if(res?.type === 'asset'){
-                                                fileInput.push(res.data)
+                                        writeDraftAt(key, (record) => {
+                                            for(const res of results){
+                                                if(res?.type === 'asset'){
+                                                    record.fileInput.push(res.data)
+                                                }
+                                                if(res?.type === 'text'){
+                                                    record.messageInput += `{{file::${res.name}::${res.data}}}`
+                                                }
                                             }
-                                            if(res?.type === 'text'){
-                                                messageInput += `{{file::${res.name}::${res.data}}}`
-                                            }
-                                        }
-                                        updateInputSizeAll()
+                                        })
                                     }
                                     reader.readAsArrayBuffer(file)
                                 }
                             }
                         }
                     }}
-                          oninput={()=>{updateInputSizeAll();updateInputTransateMessage(false)}}
+                          oninput={()=>{updateInputTransateMessage(false)}}
                           style:height={inputHeight}
                 ></textarea>
 
@@ -590,7 +673,7 @@
                             class="peer-focus:border-textcolor  flex justify-center border-y border-darkborderc items-center text-textcolor p-3 hover:bg-blue-500 hover:text-white transition-colors" onclick={abortChat}
                             style:height={inputHeight}
                     >
-                        <div class="loadmove chat-process-stage-{$chatProcessStage}" class:autoload={autoMode}></div>
+                        <div class="loadmove chat-process-stage-{$chatProcessStage}" class:autoload={isAutoModeActive()}></div>
                     </button>
                 {:else}
                     <button
@@ -633,7 +716,7 @@
                         <LanguagesIcon />
                     </label>
                     <textarea id = 'messageInputTranslate' class="text-textcolor rounded-md p-2 min-w-0 bg-transparent input-text text-xl grow ml-4 mr-2 border-darkbutton resize-none focus:bg-selected overflow-y-hidden overflow-x-hidden max-w-full"
-                              bind:value={messageInputTranslate}
+                              bind:value={() => shownDraft.messageInputTranslate, (value) => writeDraft((record) => { record.messageInputTranslate = value })}
                               bind:this={inputTranslateEle}
                               readonly={isComposerLocked()}
                               onkeydown={(e) => {
@@ -648,16 +731,16 @@
                                 e.preventDefault()
                             }
                         }}
-                              oninput={()=>{updateInputSizeAll();updateInputTransateMessage(true)}}
+                              oninput={()=>{updateInputTransateMessage(true)}}
                               placeholder={language.enterMessageForTranslateToEnglish}
                               style:height={inputTranslateHeight}
                     ></textarea>
                 </div>
             {/if}
 
-            {#if fileInput.length > 0}
+            {#if shownDraft.fileInput.length > 0}
                 <div class="flex items-center ml-4 flex-wrap p-2 m-2 border-darkborderc border rounded-md">
-                    {#each fileInput as file, i}
+                    {#each shownDraft.fileInput as file, i}
                         {#await getInlayAsset(file) then inlayAsset}
                             <div class="relative">
                                 {#if inlayAsset.type === 'image'}
@@ -677,8 +760,7 @@
                                     <div class="max-w-24 max-h-24">{file}</div>
                                 {/if}
                                 <button class="absolute -right-1 -top-1 p-1 bg-darkbg text-textcolor rounded-md transition-colors hover:text-draculared focus:text-draculared" onclick={() => {
-                                    fileInput.splice(i, 1)
-                                    updateInputSizeAll()
+                                    writeDraft((record) => { record.fileInput.splice(i, 1) })
                                 }}>
                                     <XIcon size={18} />
                                 </button>
@@ -703,18 +785,19 @@
                             else if(fileExtension === 'mp3' || fileExtension === 'wav')
                                 fileType = 'audio'
                         }
-                        messageInput += `<span class='notranslate' translate='no'>{{${fileType}::${additionalAsset[0]}}}</span> *${additionalAsset[0]} added*`
-                        updateInputSizeAll()
+                        writeDraft((record) => {
+                            record.messageInput += `<span class='notranslate' translate='no'>{{${fileType}::${additionalAsset[0]}}}</span> *${additionalAsset[0]} added*`
+                        })
                     }}/>
                 </div>
             {/if}
 
             {#if DBState.db.useAutoSuggestions}
-                <Suggestion messageInput={(msg)=>messageInput=(
+                <Suggestion messageInput={(msg)=>writeDraft((record) => { record.messageInput = (
                     (DBState.db.subModel === "textgen_webui" || DBState.db.subModel === "mancer" || DBState.db.subModel.startsWith('local_')) && DBState.db.autoSuggestClean
                     ? msg.replace(/ +\(.+?\) *$| - [^"'*]*?$/, '')
                     : msg
-                )} {send}/>
+                ) })} {send}/>
             {/if}
 
             {#if chatPanelStore.length > 0}
@@ -978,17 +1061,23 @@
                         if(isComposerLocked()){
                             return
                         }
-                        const results = await postChatFile(messageInput)
+                        // The key is captured here, at the start, so the
+                        // result lands in the chat this Post File began in,
+                        // even when a switch moves a different chat on
+                        // screen before it resolves.
+                        const key = resolveDraftKeyForWrite()
+                        const results = await postChatFile(composerDrafts.peek(key).messageInput)
                         if(!results) return
-                        for(const res of results){
-                            if(res?.type === 'asset'){
-                                fileInput.push(res.data)
+                        writeDraftAt(key, (record) => {
+                            for(const res of results){
+                                if(res?.type === 'asset'){
+                                    record.fileInput.push(res.data)
+                                }
+                                if(res?.type === 'text'){
+                                    record.messageInput += `{{file::${res.name}::${res.data}}}`
+                                }
                             }
-                            if(res?.type === 'text'){
-                                messageInput += `{{file::${res.name}::${res.data}}}`
-                            }
-                        }
-                        updateInputSizeAll()
+                        })
                     }}>
 
                         <ImagePlusIcon />

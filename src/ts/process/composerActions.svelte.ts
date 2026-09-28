@@ -14,6 +14,8 @@ import { isExpTranslator, translate } from '../translator/translator'
 import { beginWork, originStatus, writeAt, type WorkHandle } from './chatOrigin'
 import { markCharacterForSave } from '../storage/characterSaveMarks'
 import { registerDraft, unregisterDraft, COMPOSER_DRAFT_KIND } from '../localDrafts'
+import * as composerDrafts from './composerDrafts.svelte'
+import type { ComposerDraftKey } from './composerDrafts.svelte'
 import { v4 as uuidv4 } from 'uuid'
 
 /**
@@ -22,39 +24,46 @@ import { v4 as uuidv4 } from 'uuid'
  * from a Send's/Continue's take, or from the start of a reroll, unreroll or
  * auto mode, until that action's generation hand-off returns. `locked` is
  * open only for a Send's/Continue's own span, from the take until the
- * moment before generation starts (or until the values go back). Both are
- * global and survive a remount, so every composer instance sees the same
- * state. `isComposerBusy`/`isComposerLocked` below expose them read-only.
+ * moment before generation starts (or until the values go back).
+ * `autoModeRunning` and `currentGenerationController` are module state too,
+ * so a toggle or an abort click in any mounted composer instance --
+ * including one mounted after the loop or the generation started -- reaches
+ * the one running loop or the one current generation. Every one of these is
+ * global and survives a remount, so every composer instance sees the same
+ * state. `isComposerBusy`/`isComposerLocked`/`isAutoModeActive` below expose
+ * the relevant ones read-only.
  */
 let windowOpen = $state(false)
 let locked = $state(false)
+let autoModeRunning = $state(false)
+let currentGenerationController: AbortController | null = null
 
 /**
  * The in-flight slot's own draft key. Registered under `COMPOSER_DRAFT_KIND`
  * for as long as a Send/Continue holds the composer's taken values, so the
- * multi-tab reload gate sees a draft in flight even though the composer
- * itself reads empty during that span.
+ * multi-tab reload gate sees a draft in flight even though the origin's
+ * per-chat record reads empty during that span.
  */
 const inflightDraftKey = uuidv4()
 
 /**
  * A Send's or Continue's own pre-append span: the taken values, its work
- * handle and abort controller, and the source they came from. `abortChat`
- * sets `settled` to true when the busy button cancels this record before
- * its push; a successful push never sets it, and instead clears `inflight`
- * directly (see `clearInflightIfCurrent`'s call sites in `sendMain`), which
- * is what stops a later `abortChat` call from treating an already-pushed
- * send as still cancelable. `sendMain`'s own `finally` always runs
- * `clearInflightIfCurrent` and ends the work handle -- both are harmless to
- * repeat -- but reads `settled` to decide the rest: when it is true, the
- * busy button already put the values back and closed the window and the
- * lock, so `finally` does not put them back a second time, and does not
- * close a window or a lock a later send may since have opened.
+ * handle and abort controller, and the origin they came from (`workHandle.origin`
+ * is also the key every put-back writes to). `abortChat` sets `settled`
+ * to true when the busy button cancels this record before its push; a
+ * successful push never sets it, and instead clears `inflight` directly (see
+ * `clearInflightIfCurrent`'s call sites in `sendMain`), which is what stops a
+ * later `abortChat` call from treating an already-pushed send as still
+ * cancelable. `sendMain`'s own `finally` always runs `clearInflightIfCurrent`
+ * and ends the work handle -- both are harmless to repeat -- but reads
+ * `settled` to decide the rest: when it is true, the busy button already put
+ * the values back and closed the window and the lock, so `finally` does not
+ * put them back a second time, and does not close a window or a lock a later
+ * send may since have opened.
  */
 interface InflightRecord {
     controller: AbortController
     workHandle: WorkHandle
-    source: ComposerActionsSource
     takenMessageInput: string
     takenMessageInputTranslate: string
     takenFileInput: string[]
@@ -65,7 +74,7 @@ interface InflightRecord {
  * The one Send/Continue currently between its take and its push, or `null`
  * when none is. Cleared the moment that span ends, whichever way -- so a
  * later `abortChat` call (during generation, or with nothing in flight)
- * falls through to aborting whichever controller the source itself holds,
+ * falls through to aborting whichever controller the module itself holds,
  * instead of re-cancelling a send that has already finished with it.
  */
 let inflight: InflightRecord | null = null
@@ -78,15 +87,19 @@ function clearInflightIfCurrent(record: InflightRecord): void {
 
 /**
  * Test-only reset: clears whatever in-flight record a stuck test left
- * behind, and closes the window and the lock, so a timed-out test cannot
- * cascade into every test that runs after it. Never called from production
- * code.
+ * behind, closes the window and the lock, stops auto mode and drops the
+ * current generation controller, and clears every stored composer draft --
+ * so a timed-out test cannot cascade into every test that runs after it.
+ * Never called from production code.
  */
 export function resetComposerActionsForTests(): void {
     inflight = null
     unregisterDraft(inflightDraftKey)
     locked = false
     windowOpen = false
+    autoModeRunning = false
+    currentGenerationController = null
+    composerDrafts.resetComposerDraftsForTests()
 }
 
 /** True while the one-action window is open; the Send button's busy state. */
@@ -99,24 +112,19 @@ export function isComposerLocked(): boolean {
     return locked
 }
 
+/** True while auto mode's loop is running, in every composer instance. */
+export function isAutoModeActive(): boolean {
+    return autoModeRunning
+}
+
 /**
- * The composer's live state, reached through get/set pairs so every read
- * below sees the value the bound textarea, the staged files and the reroll
- * bookkeeping currently hold, including a read that runs after an await.
+ * The composer's live state, reached through get/set pairs. Only the
+ * per-instance reroll history and the menu-close hook remain here: the
+ * three text/file values are reached by key through `composerDrafts.svelte.ts`,
+ * and auto mode's running state and the current generation's abort
+ * controller are this module's own state, not per instance.
  */
 export interface ComposerActionsSource {
-    messageInput: {
-        get(): string
-        set(value: string): void
-    }
-    messageInputTranslate: {
-        get(): string
-        set(value: string): void
-    }
-    fileInput: {
-        get(): string[]
-        set(value: string[]): void
-    }
     rerolls: {
         get(): Message[][]
         set(value: Message[][]): void
@@ -129,16 +137,7 @@ export interface ComposerActionsSource {
         get(): number
         set(value: number): void
     }
-    autoMode: {
-        get(): boolean
-        set(value: boolean): void
-    }
-    abortController: {
-        get(): AbortController | null
-        set(value: AbortController | null): void
-    }
     closeMenu(): void
-    updateInputSizeAll(): void
 }
 
 export async function send(source: ComposerActionsSource): Promise<void> {
@@ -193,18 +192,22 @@ export async function sendMain(source: ComposerActionsSource, continueResponse: 
         return
     }
 
-    // The take: the composer's three values move into the module-level
-    // in-flight slot synchronously, leaving the composer empty; the send's
+    // The take: the origin's per-chat record's three values move into the
+    // module-level in-flight slot synchronously, leaving that record empty
+    // (composerDrafts.take drops an all-empty record at once); the send's
     // own abort controller is created; the window and the lock open.
-    const takenMessageInput = source.messageInput.get()
-    const takenMessageInputTranslate = source.messageInputTranslate.get()
-    const takenFileInput = source.fileInput.get()
-    source.messageInput.set('')
-    source.messageInputTranslate.set('')
-    source.fileInput.set([])
+    const taken = composerDrafts.take(workHandle.origin)
+    const takenMessageInput = taken.messageInput
+    const takenMessageInputTranslate = taken.messageInputTranslate
+    const takenFileInput = taken.fileInput
 
     const controller = new AbortController()
-    source.abortController.set(controller)
+    // Published here, at the take, not only inside sendChatMain's own later
+    // assignment: a busy-button click in the gap between the append and the
+    // hand-off to generation (sendMain's post-append sleep) reaches
+    // abortChat's fallback, which reads this to abort the send's own
+    // controller rather than a stale one left by an earlier generation.
+    currentGenerationController = controller
 
     windowOpen = true
     locked = true
@@ -212,7 +215,6 @@ export async function sendMain(source: ComposerActionsSource, continueResponse: 
     const record: InflightRecord = {
         controller,
         workHandle,
-        source,
         takenMessageInput,
         takenMessageInputTranslate,
         takenFileInput,
@@ -244,10 +246,13 @@ export async function sendMain(source: ComposerActionsSource, continueResponse: 
             }
             if(commandProcessed !== false){
                 // A handled command consumes the text; the staged files and
-                // the translation go back into the composer, in front of
-                // anything a late file result already placed there.
-                source.fileInput.set([...takenFileInput, ...source.fileInput.get()])
-                source.messageInputTranslate.set(takenMessageInputTranslate + source.messageInputTranslate.get())
+                // the translation go back into the origin's record, in front
+                // of anything a late file result already placed there.
+                composerDrafts.putBack(workHandle.origin, {
+                    messageInput: '',
+                    messageInputTranslate: takenMessageInputTranslate,
+                    fileInput: takenFileInput,
+                })
                 outcome = 'commandHandled'
                 clearInflightIfCurrent(record)
                 return
@@ -331,7 +336,6 @@ export async function sendMain(source: ComposerActionsSource, continueResponse: 
         unregisterDraft(inflightDraftKey)
         source.rerolls.set([])
         await sleep(10)
-        source.updateInputSizeAll()
         // The hand-off: the lock ends the moment before the generation
         // callback is called.
         locked = false
@@ -350,13 +354,16 @@ export async function sendMain(source: ComposerActionsSource, continueResponse: 
             unregisterDraft(inflightDraftKey)
             if(outcome === 'refused'){
                 // The taken values, exactly as they were taken (the text
-                // before {{inlayed::}} inlining, and the files), go in
-                // front of whatever a late file result already placed in
-                // the composer.
-                source.messageInput.set(takenMessageInput + source.messageInput.get())
-                source.fileInput.set([...takenFileInput, ...source.fileInput.get()])
-                source.messageInputTranslate.set(takenMessageInputTranslate + source.messageInputTranslate.get())
-                source.updateInputSizeAll()
+                // before {{inlayed::}} inlining, and the files), go back to
+                // the origin's own record by key -- whether or not that
+                // record is on screen, and whichever composer instance, if
+                // any, is mounted -- in front of whatever a late writer
+                // already placed there.
+                composerDrafts.putBack(workHandle.origin, {
+                    messageInput: takenMessageInput,
+                    messageInputTranslate: takenMessageInputTranslate,
+                    fileInput: takenFileInput,
+                })
             }
             locked = false
             windowOpen = false
@@ -472,10 +479,12 @@ export async function unReroll(source: ComposerActionsSource): Promise<void> {
 export async function sendChatMain(source: ComposerActionsSource, continued: boolean = false, existingController?: AbortController): Promise<void> {
 
     let previousLength = DBState.db.characters[get(selectedCharID)].chats[DBState.db.characters[get(selectedCharID)].chatPage].message.length
-    // Only a take empties the composer -- generation itself never writes
-    // messageInput.
+    // Only a take empties a record -- generation itself never writes one.
     const controller = existingController ?? new AbortController()
-    source.abortController.set(controller)
+    // Module state, not per instance, so the busy button in any composer
+    // instance -- including one mounted after generation started -- aborts
+    // this same generation.
+    currentGenerationController = controller
     try {
         await sendChat(-1, {
             signal: controller.signal,
@@ -497,13 +506,14 @@ export async function sendChatMain(source: ComposerActionsSource, continued: boo
     }
 }
 
-export function abortChat(source: ComposerActionsSource): void {
+export function abortChat(): void {
     // While a Send/Continue is still between its take and its push, the
     // busy button cancels it at once here, rather than waiting for its
     // stalled step to resolve and unwind on its own: the window and the
-    // lock close immediately, and the taken values go back to the source
-    // they came from -- which need not be `source` above, since the window
-    // is global and any composer instance's busy button can cancel it.
+    // lock close immediately, and the taken values go back to the origin's
+    // own record by key -- the window is global, so any composer instance's
+    // busy button can cancel it, whichever instance (or none) is showing
+    // that record now.
     if(inflight && !inflight.settled){
         const record = inflight
         record.settled = true
@@ -511,96 +521,114 @@ export function abortChat(source: ComposerActionsSource): void {
         record.controller.abort()
         record.workHandle.end()
         unregisterDraft(inflightDraftKey)
-        record.source.messageInput.set(record.takenMessageInput + record.source.messageInput.get())
-        record.source.fileInput.set([...record.takenFileInput, ...record.source.fileInput.get()])
-        record.source.messageInputTranslate.set(record.takenMessageInputTranslate + record.source.messageInputTranslate.get())
-        record.source.updateInputSizeAll()
+        composerDrafts.putBack(record.workHandle.origin, {
+            messageInput: record.takenMessageInput,
+            messageInputTranslate: record.takenMessageInputTranslate,
+            fileInput: record.takenFileInput,
+        })
         locked = false
         windowOpen = false
         return
     }
-    const controller = source.abortController.get()
-    if(controller){
-        controller.abort()
+    // Abort the module-level generation controller, not a per-instance one
+    // -- so the busy button in any composer instance, including one mounted
+    // after generation started, aborts it. Aborting an already finished (or
+    // already aborted) controller is harmless.
+    if(currentGenerationController){
+        currentGenerationController.abort()
     }
 }
 
 export async function runAutoMode(source: ComposerActionsSource): Promise<void> {
-    // Stopping auto mode is never refused, even while its own loop below
-    // holds the window open.
-    if(source.autoMode.get()){
-        source.autoMode.set(false)
+    // Running state is module-level, so stopping auto mode from any
+    // instance -- including one mounted after the loop started -- is never
+    // refused, even while its own loop below holds the window open.
+    if(autoModeRunning){
+        autoModeRunning = false
         return
     }
     if(windowOpen){
         return
     }
     const selectedChar = get(selectedCharID)
-    source.autoMode.set(true)
+    autoModeRunning = true
     windowOpen = true
     try {
-        while(source.autoMode.get()){
+        while(autoModeRunning){
             await sendChatMain(source)
             if(selectedChar !== get(selectedCharID)){
-                source.autoMode.set(false)
+                autoModeRunning = false
             }
         }
     }
     finally {
+        // Every exit -- the loop's own stop, a switched character, a toggle
+        // from another instance, or a throw from sendChatMain -- leaves
+        // autoModeRunning false, since it is module state and a stuck true
+        // here would survive a remount.
+        autoModeRunning = false
         windowOpen = false
     }
 }
 
-export async function updateInputTransateMessage(source: ComposerActionsSource, reverse: boolean): Promise<void> {
+/**
+ * Both translation directions: captures `key`'s record's source field when
+ * the request starts, and writes the derived field only while that same
+ * record's source field still holds exactly that text when the result
+ * comes back -- whether or not the record is on screen by then, and
+ * regardless of which composer instance, if any, started the call. `key`
+ * is resolved (filling any missing id) by the caller, from an event handler.
+ */
+export async function updateInputTransateMessage(key: ComposerDraftKey, reverse: boolean): Promise<void> {
     if(!DBState.db.useAutoTranslateInput){
         return
     }
     if(isExpTranslator()){
         if(!reverse){
-            source.messageInputTranslate.set('')
+            composerDrafts.write(key, (r) => { r.messageInputTranslate = '' })
             return
         }
-        if(source.messageInputTranslate.get() === '') {
-            source.messageInput.set('')
+        if(composerDrafts.peek(key).messageInputTranslate === '') {
+            composerDrafts.write(key, (r) => { r.messageInput = '' })
             return
         }
-        const lastMessageInputTranslate = source.messageInputTranslate.get()
+        const lastMessageInputTranslate = composerDrafts.peek(key).messageInputTranslate
         await sleep(1500)
-        if(lastMessageInputTranslate === source.messageInputTranslate.get()){
+        if(lastMessageInputTranslate === composerDrafts.peek(key).messageInputTranslate){
             // The derived field is written only while the source field
             // still holds exactly the text that was sent for translation --
             // a result whose source changed while the request was in
             // flight is discarded rather than overwriting newer input.
-            const sourceText = source.messageInputTranslate.get()
+            const sourceText = composerDrafts.peek(key).messageInputTranslate
             translate(sourceText, reverse).then((translatedMessage) => {
-                if(translatedMessage && source.messageInputTranslate.get() === sourceText){
-                    source.messageInput.set(translatedMessage)
+                if(translatedMessage && composerDrafts.peek(key).messageInputTranslate === sourceText){
+                    composerDrafts.write(key, (r) => { r.messageInput = translatedMessage })
                 }
             })
         }
         return
 
     }
-    if(reverse && source.messageInputTranslate.get() === '') {
-        source.messageInput.set('')
+    if(reverse && composerDrafts.peek(key).messageInputTranslate === '') {
+        composerDrafts.write(key, (r) => { r.messageInput = '' })
         return
     }
-    if(!reverse && source.messageInput.get() === '') {
-        source.messageInputTranslate.set('')
+    if(!reverse && composerDrafts.peek(key).messageInput === '') {
+        composerDrafts.write(key, (r) => { r.messageInputTranslate = '' })
         return
     }
-    const sourceText = reverse ? source.messageInputTranslate.get() : source.messageInput.get()
+    const sourceText = reverse ? composerDrafts.peek(key).messageInputTranslate : composerDrafts.peek(key).messageInput
     translate(sourceText, reverse).then((translatedMessage) => {
         if(!translatedMessage){
             return
         }
-        const currentSourceText = reverse ? source.messageInputTranslate.get() : source.messageInput.get()
+        const currentSourceText = reverse ? composerDrafts.peek(key).messageInputTranslate : composerDrafts.peek(key).messageInput
         if(currentSourceText !== sourceText){
             return
         }
         if(reverse)
-            source.messageInput.set(translatedMessage)
+            composerDrafts.write(key, (r) => { r.messageInput = translatedMessage })
         else
-            source.messageInputTranslate.set(translatedMessage)
+            composerDrafts.write(key, (r) => { r.messageInputTranslate = translatedMessage })
     })
 }

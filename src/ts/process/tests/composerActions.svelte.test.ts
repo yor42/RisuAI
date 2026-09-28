@@ -28,6 +28,7 @@ import { writable, get } from 'svelte/store'
 import type { character, groupChat, Chat, Database, Message } from '../../storage/database.svelte'
 import type { triggerscript, triggerEffect } from '../triggers'
 import type { SendChatArg } from '../index.svelte'
+import { alertError } from '../../alert'
 
 //#region module mocks
 
@@ -274,8 +275,12 @@ let abortChat: typeof import('../composerActions.svelte').abortChat
 let updateInputTransateMessage: typeof import('../composerActions.svelte').updateInputTransateMessage
 let isComposerBusy: typeof import('../composerActions.svelte').isComposerBusy
 let isComposerLocked: typeof import('../composerActions.svelte').isComposerLocked
+let isAutoModeActive: typeof import('../composerActions.svelte').isAutoModeActive
 let resetComposerActionsForTests: typeof import('../composerActions.svelte').resetComposerActionsForTests
 type ComposerActionsSource = import('../composerActions.svelte').ComposerActionsSource
+let composerDraftsPeek: typeof import('../composerDrafts.svelte').peek
+let composerDraftsWrite: typeof import('../composerDrafts.svelte').write
+type ComposerDraftKey = import('../composerDrafts.svelte').ComposerDraftKey
 let DBState: { db: any }
 let selectedCharID: ReturnType<typeof writable<number>>
 let isWriting: typeof import('../chatOrigin').isWriting
@@ -298,7 +303,12 @@ beforeAll(async () => {
     updateInputTransateMessage = actions.updateInputTransateMessage
     isComposerBusy = actions.isComposerBusy
     isComposerLocked = actions.isComposerLocked
+    isAutoModeActive = actions.isAutoModeActive
     resetComposerActionsForTests = actions.resetComposerActionsForTests
+
+    const drafts2 = await import('../composerDrafts.svelte')
+    composerDraftsPeek = drafts2.peek
+    composerDraftsWrite = drafts2.write
 
     const stores = await import('../../stores.svelte')
     DBState = stores.DBState as unknown as { db: any }
@@ -383,9 +393,6 @@ function installDb(characters: (character | groupChat)[] = [], overrides: Record
 }
 
 interface SourceInit {
-    messageInput?: string
-    messageInputTranslate?: string
-    fileInput?: string[]
     rerolls?: Message[][]
     rerollId?: number
     lastCharId?: number
@@ -394,33 +401,43 @@ interface SourceInit {
 interface SourceHandle {
     source: ComposerActionsSource
     closeMenuCalls: () => number
-    resizeCalls: () => number
 }
 
 function makeSource(init: SourceInit = {}): SourceHandle {
-    let messageInput = init.messageInput ?? ''
-    let messageInputTranslate = init.messageInputTranslate ?? ''
-    let fileInput = init.fileInput ?? []
     let rerolls = init.rerolls ?? []
     let rerollId = init.rerollId ?? -1
     let lastCharId = init.lastCharId ?? -1
-    let autoMode = false
-    let abortController: AbortController | null = null
     let closeMenuCalls = 0
-    let resizeCalls = 0
     const source: ComposerActionsSource = {
-        messageInput: { get: () => messageInput, set: (v) => { messageInput = v } },
-        messageInputTranslate: { get: () => messageInputTranslate, set: (v) => { messageInputTranslate = v } },
-        fileInput: { get: () => fileInput, set: (v) => { fileInput = v } },
         rerolls: { get: () => rerolls, set: (v) => { rerolls = v } },
         rerollId: { get: () => rerollId, set: (v) => { rerollId = v } },
         lastCharId: { get: () => lastCharId, set: (v) => { lastCharId = v } },
-        autoMode: { get: () => autoMode, set: (v) => { autoMode = v } },
-        abortController: { get: () => abortController, set: (v) => { abortController = v } },
         closeMenu: () => { closeMenuCalls++ },
-        updateInputSizeAll: () => { resizeCalls++ },
     }
-    return { source, closeMenuCalls: () => closeMenuCalls, resizeCalls: () => resizeCalls }
+    return { source, closeMenuCalls: () => closeMenuCalls }
+}
+
+/** The per-chat draft key composerActions.svelte.ts keys records by -- every
+ * fixture chat already carries both ids (`makeCharacter`/`makeChat`), so no
+ * id fill is needed. `chat.id` is typed optional on `Chat` itself; every
+ * caller here passes a fixture chat that was given one. */
+function keyFor(owner: { chaId: string }, chat: { id?: string }): ComposerDraftKey {
+    return { chaId: owner.chaId, chatId: chat.id! }
+}
+
+/** Seeds `owner`/`chat`'s draft record directly -- this suite's stand-in
+ * for text already sitting in the composer before an action runs. */
+function seedDraft(owner: { chaId: string }, chat: { id?: string }, fields: { messageInput?: string, messageInputTranslate?: string, fileInput?: string[] }): void {
+    composerDraftsWrite(keyFor(owner, chat), (record) => {
+        if (fields.messageInput !== undefined) record.messageInput = fields.messageInput
+        if (fields.messageInputTranslate !== undefined) record.messageInputTranslate = fields.messageInputTranslate
+        if (fields.fileInput !== undefined) record.fileInput = fields.fileInput
+    })
+}
+
+/** Reads `owner`/`chat`'s current draft record (the empty view when none is stored). */
+function draftFor(owner: { chaId: string }, chat: { id?: string }) {
+    return composerDraftsPeek(keyFor(owner, chat))
 }
 
 /** A promise the test resolves by hand, standing in for a slow real step. */
@@ -513,10 +530,11 @@ describe('a second composer action while a send is still taking its input', () =
     test('a second Send during the first Send\'s wait does not start a second message or a second generation', async () => {
         const char = makeCharacter('c-double-send')
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'hello' })
         const editinput = installEditinputQueue()
         const first = editinput.nextGate()
 
-        const { source } = makeSource({ messageInput: 'hello' })
+        const { source } = makeSource()
         const p1 = send(source)
         await first.reached
 
@@ -534,10 +552,11 @@ describe('a second composer action while a send is still taking its input', () =
     test('Continue during the first Send\'s wait does not start a second message or a second generation', async () => {
         const char = makeCharacter('c-double-continue')
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'hello' })
         const editinput = installEditinputQueue()
         const first = editinput.nextGate()
 
-        const { source } = makeSource({ messageInput: 'hello' })
+        const { source } = makeSource()
         const p1 = send(source)
         await first.reached
 
@@ -559,8 +578,9 @@ describe('a second composer action while a send is still taking its input', () =
         // wait -- this lands the second Send exactly between the append and
         // `sendChatMain`'s own hand-off to generation.
         const delay = interceptSleep(10)
+        seedDraft(char, char.chats[0], { messageInput: 'hello' })
 
-        const { source } = makeSource({ messageInput: 'hello' })
+        const { source } = makeSource()
         const p1 = send(source)
         await delay.reached
         expect(get(doingChatMock)).toBe(false)
@@ -573,6 +593,29 @@ describe('a second composer action while a send is still taking its input', () =
         expect(sendChatMock).toHaveBeenCalledTimes(1)
     })
 
+    test('guard: a busy-button click after the append but before generation starts aborts that generation', async () => {
+        const char = makeCharacter('c-abort-after-append')
+        installDb([char])
+        // Same post-append `sleep(10)` gap as the test above, but this one
+        // clicks the busy button while parked there instead of sending
+        // again.
+        const delay = interceptSleep(10)
+        seedDraft(char, char.chats[0], { messageInput: 'hello' })
+
+        const { source } = makeSource()
+        const p = send(source)
+        await delay.reached
+
+        abortChat()
+
+        delay.release()
+        await p
+
+        expect(sendChatMock).toHaveBeenCalledTimes(1)
+        const passedArg = sendChatMock.mock.calls[0][1] as SendChatArg
+        expect(passedArg.signal!.aborted).toBe(true)
+    })
+
     test('reroll during another send\'s wait leaves the chat untouched and starts no generation', async () => {
         const char = makeCharacter('c-reroll-race')
         const chat = char.chats[0]
@@ -581,10 +624,11 @@ describe('a second composer action while a send is still taking its input', () =
             { role: 'char', data: 'c0' } as unknown as Message,
         ]
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'hello' })
         const editinput = installEditinputQueue()
         const first = editinput.nextGate()
 
-        const { source } = makeSource({ messageInput: 'hello' })
+        const { source } = makeSource()
         const p = send(source)
         await first.reached
 
@@ -607,11 +651,11 @@ describe('a second composer action while a send is still taking its input', () =
             { role: 'char', data: 'current-reply' } as unknown as Message,
         ]
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'hello' })
         const editinput = installEditinputQueue()
         const first = editinput.nextGate()
 
         const { source } = makeSource({
-            messageInput: 'hello',
             rerolls: [[{ role: 'char', data: 'reply-v0' } as unknown as Message], [{ role: 'char', data: 'reply-v1' } as unknown as Message]],
             rerollId: 1,
             lastCharId: 0,
@@ -630,10 +674,11 @@ describe('a second composer action while a send is still taking its input', () =
     test('starting auto mode during another send\'s wait does not start a generation', async () => {
         const char = makeCharacter('c-automode-race')
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'hello' })
         const editinput = installEditinputQueue()
         const first = editinput.nextGate()
 
-        const { source } = makeSource({ messageInput: 'hello' })
+        const { source } = makeSource()
         const p = send(source)
         await first.reached
 
@@ -655,8 +700,9 @@ describe('a second composer action while a send is still taking its input', () =
         installDb([char])
         const releaseGeneration = gateGeneration()
         const delay = interceptSleep(10)
+        seedDraft(char, char.chats[0], { messageInput: 'hello' })
 
-        const { source } = makeSource({ messageInput: 'hello' })
+        const { source } = makeSource()
         const p = send(source)
         await delay.reached
         delay.release()
@@ -683,8 +729,49 @@ describe('a second composer action while a send is still taking its input', () =
         runAutoMode(source)
         await p
 
-        expect(source.autoMode.get()).toBe(false)
+        expect(isAutoModeActive()).toBe(false)
         expect(sendChatMock).toHaveBeenCalledTimes(1)
+    })
+
+    test('a generation that throws during an auto-mode tick leaves auto mode stopped', async () => {
+        const char = makeCharacter('c-automode-throw')
+        installDb([char])
+
+        // sendChatMain's own catch already handles a thrown/rejected
+        // sendChat call by itself; for that tick's error to reach
+        // runAutoMode's loop, the catch's own recovery step (alertError)
+        // has to fail too -- the same way a real alert failing to render
+        // would leave the original error unhandled.
+        sendChatMock.mockImplementationOnce(async () => {
+            doingChatMock.set(true)
+            try {
+                throw new Error('generation failed')
+            } finally {
+                doingChatMock.set(false)
+            }
+        })
+        vi.mocked(alertError).mockImplementationOnce(() => {
+            throw new Error('alert failed too')
+        })
+
+        const { source } = makeSource()
+        let threw = false
+        try {
+            await runAutoMode(source)
+        } catch {
+            threw = true
+        }
+
+        expect(threw).toBe(true)
+        expect(isAutoModeActive()).toBe(false)
+
+        // Starting auto mode again is not refused: it runs one tick.
+        const p = runAutoMode(source)
+        runAutoMode(source) // stops it after its own current tick
+        await p
+
+        expect(sendChatMock).toHaveBeenCalledTimes(2)
+        expect(isAutoModeActive()).toBe(false)
     })
 })
 
@@ -692,15 +779,19 @@ describe('composerActions: a second source during another send\'s wait', () => {
     test('a Send through a different source (a remounted composer) is refused and takes nothing', async () => {
         const char = makeCharacter('c-second-source')
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'from-a' })
         const editinput = installEditinputQueue()
         const first = editinput.nextGate()
 
-        const { source: sourceA } = makeSource({ messageInput: 'from-a' })
-        const { source: sourceB } = makeSource({ messageInput: 'from-b' })
-
+        const { source: sourceA } = makeSource()
         const p1 = send(sourceA)
         await first.reached
 
+        // A's take already emptied the chat's record; this stands in for a
+        // second composer instance (a remount) with its own text typed into
+        // the same chat while A's send is still in flight.
+        seedDraft(char, char.chats[0], { messageInput: 'from-b' })
+        const { source: sourceB } = makeSource()
         const p2 = send(sourceB)
         await p2
         first.release()
@@ -709,6 +800,8 @@ describe('composerActions: a second source during another send\'s wait', () => {
         const dataList = char.chats[0].message.map((m) => m.data)
         expect(dataList).not.toContain('from-b')
         expect(dataList.length).toBe(1)
+        // The refused second Send took nothing: 'from-b' is still there.
+        expect(draftFor(char, char.chats[0]).messageInput).toBe('from-b')
     })
 })
 
@@ -719,9 +812,10 @@ describe('composerActions: a throw before the message is appended', () => {
             v2('v2Command', { value: '/whatever', valueType: 'value' }),
         ]))
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'hello', fileInput: ['staged.png'] })
         processMultiCommandMock.mockRejectedValueOnce(new Error('input trigger command failed'))
 
-        const { source } = makeSource({ messageInput: 'hello', fileInput: ['staged.png'] })
+        const { source } = makeSource()
         let threw = false
         try {
             await send(source)
@@ -735,8 +829,8 @@ describe('composerActions: a throw before the message is appended', () => {
         // A throw before the append puts back exactly what was taken: the
         // text as typed, with no `{{inlayed::}}` markers, and every staged
         // file, and neither the window nor the lock stays open past it.
-        expect(source.messageInput.get()).toBe('hello')
-        expect(source.fileInput.get()).toEqual(['staged.png'])
+        expect(draftFor(char, char.chats[0]).messageInput).toBe('hello')
+        expect(draftFor(char, char.chats[0]).fileInput).toEqual(['staged.png'])
         expect(isComposerBusy()).toBe(false)
         expect(isComposerLocked()).toBe(false)
     })
@@ -744,11 +838,12 @@ describe('composerActions: a throw before the message is appended', () => {
     test('a plugin editinput hook that rejects puts the text back un-inlined and the staged files back', async () => {
         const char = makeCharacter('c-hook-throw')
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'hi', fileInput: ['staged2.png'] })
         pluginV2Mock.editinput.add(async () => {
             throw new Error('plugin refused the input')
         })
 
-        const { source } = makeSource({ messageInput: 'hi', fileInput: ['staged2.png'] })
+        const { source } = makeSource()
         let threw = false
         try {
             await send(source)
@@ -759,8 +854,8 @@ describe('composerActions: a throw before the message is appended', () => {
         expect(threw).toBe(true)
         expect(char.chats[0].message.length).toBe(0)
         expect(isWriting({ chaId: char.chaId, chatId: char.chats[0].id })).toBe(false)
-        expect(source.messageInput.get()).toBe('hi')
-        expect(source.fileInput.get()).toEqual(['staged2.png'])
+        expect(draftFor(char, char.chats[0]).messageInput).toBe('hi')
+        expect(draftFor(char, char.chats[0]).fileInput).toEqual(['staged2.png'])
         expect(isComposerBusy()).toBe(false)
         expect(isComposerLocked()).toBe(false)
     })
@@ -768,9 +863,10 @@ describe('composerActions: a throw before the message is appended', () => {
     test('guard: a slash command that throws leaves the text and the staged files exactly as typed', async () => {
         const char = makeCharacter('c-command-throw')
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: '/dangerous', fileInput: ['staged3.png'] })
         processMultiCommandMock.mockRejectedValueOnce(new Error('command failed'))
 
-        const { source } = makeSource({ messageInput: '/dangerous', fileInput: ['staged3.png'] })
+        const { source } = makeSource()
         let threw = false
         try {
             await send(source)
@@ -780,8 +876,8 @@ describe('composerActions: a throw before the message is appended', () => {
 
         expect(threw).toBe(true)
         expect(char.chats[0].message.length).toBe(0)
-        expect(source.fileInput.get()).toEqual(['staged3.png'])
-        expect(source.messageInput.get()).toBe('/dangerous')
+        expect(draftFor(char, char.chats[0]).fileInput).toEqual(['staged3.png'])
+        expect(draftFor(char, char.chats[0]).messageInput).toBe('/dangerous')
     })
 })
 
@@ -792,11 +888,12 @@ describe('composerActions: an origin that is gone by the time the append would r
         char.chats.push(a2)
         installDb([char])
         const originChat = char.chats[0]
+        seedDraft(char, originChat, { messageInput: 'hello' })
 
         const editinput = installEditinputQueue()
         const first = editinput.nextGate()
 
-        const { source } = makeSource({ messageInput: 'hello' })
+        const { source } = makeSource()
         const p = send(source)
         await first.reached
 
@@ -807,7 +904,9 @@ describe('composerActions: an origin that is gone by the time the append would r
 
         expect(a2.message.length).toBe(0)
         expect(originChat.message.length).toBe(0)
-        expect(source.messageInput.get()).toBe('hello')
+        // The put-back writes to the origin's own record by key, which still
+        // identifies it even after the chat has been removed from the array.
+        expect(draftFor(char, originChat).messageInput).toBe('hello')
         expect(isComposerBusy()).toBe(false)
         expect(isComposerLocked()).toBe(false)
     })
@@ -818,11 +917,12 @@ describe('composerActions: an origin that is gone by the time the append would r
         char.chats.push(a2)
         installDb([char])
         const originChat = char.chats[0]
+        seedDraft(char, originChat, { messageInput: 'hello', fileInput: ['keep.png'] })
 
         const editinput = installEditinputQueue()
         const first = editinput.nextGate()
 
-        const { source } = makeSource({ messageInput: 'hello', fileInput: ['keep.png'] })
+        const { source } = makeSource()
         const p = send(source)
         await first.reached
 
@@ -835,8 +935,8 @@ describe('composerActions: an origin that is gone by the time the append would r
         expect(originChat.message.length).toBe(0)
         // A gone origin puts back exactly what was taken: the text as
         // typed, with no `{{inlayed::}}` markers, and every staged file.
-        expect(source.messageInput.get()).toBe('hello')
-        expect(source.fileInput.get()).toEqual(['keep.png'])
+        expect(draftFor(char, originChat).messageInput).toBe('hello')
+        expect(draftFor(char, originChat).fileInput).toEqual(['keep.png'])
         expect(isComposerBusy()).toBe(false)
         expect(isComposerLocked()).toBe(false)
     })
@@ -847,9 +947,10 @@ describe('composerActions: an origin that is gone by the time the append would r
         const chatB = makeChat('g-gone-origin-b', { message: [{ role: 'user', data: 'existing-b' }] })
         group.chats.push(chatB)
         installDb([group])
+        seedDraft(group, chatA, { messageInput: '/slow text' })
 
         const command = gateNextCommand(false)
-        const { source } = makeSource({ messageInput: '/slow text' })
+        const { source } = makeSource()
         const p = send(source)
         await command.reached
 
@@ -869,18 +970,19 @@ describe('composerActions: a handled slash command', () => {
     test('guard: a handled command consumes the text and leaves the staged files and translation untouched', async () => {
         const char = makeCharacter('c-handled-command')
         installDb([char])
-        processMultiCommandMock.mockResolvedValueOnce('ok')
-
-        const { source } = makeSource({
+        seedDraft(char, char.chats[0], {
             messageInput: '/known',
             fileInput: ['staged.png'],
             messageInputTranslate: 'translated-text',
         })
+        processMultiCommandMock.mockResolvedValueOnce('ok')
+
+        const { source } = makeSource()
         await send(source)
 
-        expect(source.messageInput.get()).toBe('')
-        expect(source.fileInput.get()).toEqual(['staged.png'])
-        expect(source.messageInputTranslate.get()).toBe('translated-text')
+        expect(draftFor(char, char.chats[0]).messageInput).toBe('')
+        expect(draftFor(char, char.chats[0]).fileInput).toEqual(['staged.png'])
+        expect(draftFor(char, char.chats[0]).messageInputTranslate).toBe('translated-text')
         expect(char.chats[0].message.length).toBe(0)
         expect(isComposerBusy()).toBe(false)
         expect(isComposerLocked()).toBe(false)
@@ -891,28 +993,29 @@ describe('composerActions: cancelling before generation', () => {
     test('the busy button cancels a stalled send before it appends, at once', async () => {
         const char = makeCharacter('c-cancel-noop')
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'stuck-text' })
         const editinput = installEditinputQueue()
         const first = editinput.nextGate()
 
-        const { source } = makeSource({ messageInput: 'stuck-text' })
+        const { source } = makeSource()
         const p = send(source)
         await first.reached
 
-        abortChat(source)
+        abortChat()
 
         // The cancel is synchronous: the window and the lock close, and the
         // composer holds the taken text back, before the stalled trigger has
         // even been released, let alone resolved.
         expect(isComposerBusy()).toBe(false)
         expect(isComposerLocked()).toBe(false)
-        expect(source.messageInput.get()).toBe('stuck-text')
+        expect(draftFor(char, char.chats[0]).messageInput).toBe('stuck-text')
 
         first.release()
         await p
 
         expect(char.chats[0].message.some((m) => m.data === 'stuck-text')).toBe(false)
         expect(sendChatMock).toHaveBeenCalledTimes(0)
-        expect(source.messageInput.get()).toBe('stuck-text')
+        expect(draftFor(char, char.chats[0]).messageInput).toBe('stuck-text')
         expect(isComposerBusy()).toBe(false)
         expect(isComposerLocked()).toBe(false)
     })
@@ -920,17 +1023,18 @@ describe('composerActions: cancelling before generation', () => {
     test('a new send after cancelling a stalled one is not disturbed once the old one later resolves', async () => {
         const char = makeCharacter('c-cancel-then-new')
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'old-text' })
         const editinput = installEditinputQueue()
         const first = editinput.nextGate()
 
-        const { source } = makeSource({ messageInput: 'old-text' })
+        const { source } = makeSource()
         const p1 = send(source)
         await first.reached
 
-        abortChat(source)
+        abortChat()
 
         const second = editinput.nextGate()
-        source.messageInput.set('new-text')
+        seedDraft(char, char.chats[0], { messageInput: 'new-text' })
         const p2 = send(source)
         await second.reached
         second.release()
@@ -946,18 +1050,19 @@ describe('composerActions: cancelling before generation', () => {
     test('cancelling A does not disturb B, even when A\'s stalled trigger settles while B is in flight; cancelling B is then just as immediate', async () => {
         const char = makeCharacter('c-cancel-a-then-b')
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'text-a' })
         const editinput = installEditinputQueue()
         const gateA = editinput.nextGate()
 
-        const { source } = makeSource({ messageInput: 'text-a' })
+        const { source } = makeSource()
         const pA = send(source)
         await gateA.reached
 
-        abortChat(source) // cancels A
+        abortChat() // cancels A
         expect(isComposerBusy()).toBe(false)
         expect(isComposerLocked()).toBe(false)
 
-        source.messageInput.set('text-b')
+        seedDraft(char, char.chats[0], { messageInput: 'text-b' })
         const gateB = editinput.nextGate()
         const pB = send(source)
         await gateB.reached
@@ -970,10 +1075,10 @@ describe('composerActions: cancelling before generation', () => {
         expect(isComposerBusy()).toBe(true)
         expect(isComposerLocked()).toBe(true)
 
-        abortChat(source) // cancels B
+        abortChat() // cancels B
         expect(isComposerBusy()).toBe(false)
         expect(isComposerLocked()).toBe(false)
-        expect(source.messageInput.get()).toBe('text-b')
+        expect(draftFor(char, char.chats[0]).messageInput).toBe('text-b')
 
         gateB.release()
         await pB
@@ -986,10 +1091,11 @@ describe('composerActions: liveness while a send is taking the composer', () => 
     test('a draft is registered while a send is in flight, with the composer emptied for it', async () => {
         const char = makeCharacter('c-liveness')
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'hello' })
         const editinput = installEditinputQueue()
         const first = editinput.nextGate()
 
-        const { source } = makeSource({ messageInput: 'hello' })
+        const { source } = makeSource()
         expect(hasLocalDrafts()).toBe(false)
 
         const p = send(source)
@@ -1019,9 +1125,10 @@ describe('composerActions: the write-back after an unhandled slash command\'s wa
         const chatB = makeChat('g-writeback-b', { message: [{ role: 'user', data: 'existing-b' }] })
         group.chats.push(chatB)
         installDb([group])
+        seedDraft(group, chatA, { messageInput: '/slow text' })
 
         const command = gateNextCommand(false)
-        const { source } = makeSource({ messageInput: '/slow text' })
+        const { source } = makeSource()
         const p = send(source)
         await command.reached
 
@@ -1042,14 +1149,17 @@ describe('composerActions: the write-back after an unhandled slash command\'s wa
         const chatB = makeChat('c-writeback-empty-b', { message: [{ role: 'user', data: 'existing-b' }] })
         char.chats.push(chatB)
         installDb([char], { useSayNothing: true })
+        seedDraft(char, chatA, { messageInput: '/slow text' })
 
         const command = gateNextCommand(false)
-        const { source } = makeSource({ messageInput: '/slow text' })
+        const { source } = makeSource()
         const p = send(source)
         await command.reached
 
         char.chatPage = 1 // switch to chatB, same owner, during the wait
-        source.messageInput.set('') // the composer reads empty by the time the write-back runs
+        // The take already cleared the origin's record synchronously, so it
+        // reads empty here without any further action.
+        expect(draftFor(char, chatA).messageInput).toBe('')
 
         command.release()
         await p
@@ -1064,9 +1174,10 @@ describe('composerActions: an ambiguous origin', () => {
         const group = makeGroup('g-ambiguous')
         const originChat = group.chats[0]
         installDb([group])
+        seedDraft(group, originChat, { messageInput: '/slow text' })
 
         const command = gateNextCommand(false)
-        const { source } = makeSource({ messageInput: '/slow text' })
+        const { source } = makeSource()
         const p = send(source)
         await command.reached
 
@@ -1090,9 +1201,10 @@ describe('composerActions: a frozen character index across a slow command\'s wai
         const charOther = makeCharacter('c-frozen-other')
         installDb([charLow, charOrigin, charOther])
         selectedCharID.set(1) // charOrigin
+        seedDraft(charOrigin, charOrigin.chats[0], { messageInput: '/slow frozen-index-text' })
 
         const command = gateNextCommand(false)
-        const { source } = makeSource({ messageInput: '/slow frozen-index-text' })
+        const { source } = makeSource()
         const p = send(source)
         await command.reached
 
@@ -1120,23 +1232,25 @@ describe('composerActions: reroll and auto mode must not clear a typed draft', (
             { role: 'char', data: 'c0' } as unknown as Message,
         ]
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'typed-draft' })
 
-        const { source } = makeSource({ messageInput: 'typed-draft' })
+        const { source } = makeSource()
         await reroll(source)
 
-        expect(source.messageInput.get()).toBe('typed-draft')
+        expect(draftFor(char, char.chats[0]).messageInput).toBe('typed-draft')
     })
 
     test('one auto-mode tick leaves a typed draft in place', async () => {
         const char = makeCharacter('c-automode-keeps-draft')
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'typed-draft' })
 
-        const { source } = makeSource({ messageInput: 'typed-draft' })
+        const { source } = makeSource()
         const p = runAutoMode(source)
         runAutoMode(source)
         await p
 
-        expect(source.messageInput.get()).toBe('typed-draft')
+        expect(draftFor(char, char.chats[0]).messageInput).toBe('typed-draft')
     })
 })
 
@@ -1144,10 +1258,11 @@ describe('composerActions: the busy and lock flags across a send\'s lifecycle', 
     test('the busy flag is set from the take until generation returns', async () => {
         const char = makeCharacter('c-busy-spec')
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'hello' })
         const editinput = installEditinputQueue()
         const first = editinput.nextGate()
 
-        const { source } = makeSource({ messageInput: 'hello' })
+        const { source } = makeSource()
         expect(isComposerBusy()).toBe(false)
 
         const p = send(source)
@@ -1162,10 +1277,11 @@ describe('composerActions: the busy and lock flags across a send\'s lifecycle', 
     test('the lock flag is set from the take until the hand-off, module-wide', async () => {
         const char = makeCharacter('c-lock-spec')
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'hello' })
         const editinput = installEditinputQueue()
         const first = editinput.nextGate()
 
-        const { source: sourceA } = makeSource({ messageInput: 'hello' })
+        const { source: sourceA } = makeSource()
         makeSource() // a second, unrelated source instance, standing in for a remount
 
         expect(isComposerLocked()).toBe(false)
@@ -1181,10 +1297,11 @@ describe('composerActions: the busy and lock flags across a send\'s lifecycle', 
     test('the lock ends at the hand-off while the busy state continues through generation', async () => {
         const char = makeCharacter('c-lock-vs-busy')
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'hello' })
         const releaseGeneration = gateGeneration()
         const delay = interceptSleep(10)
 
-        const { source } = makeSource({ messageInput: 'hello' })
+        const { source } = makeSource()
         const p = send(source)
         await delay.reached
         delay.release()
@@ -1207,37 +1324,41 @@ describe('composerActions: results that arrive while a send is taking the compos
     test('a late text result from a file operation stays in the composer after a successful send', async () => {
         const char = makeCharacter('c-late-text')
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'hello' })
         const editinput = installEditinputQueue()
         const first = editinput.nextGate()
 
-        const { source } = makeSource({ messageInput: 'hello' })
+        const { source } = makeSource()
         const p = send(source)
         await first.reached
 
-        source.messageInput.set(source.messageInput.get() + '{{file::late.txt::data}}')
+        // Stands in for a late writer (a paste/Post File result) landing in
+        // the origin's record, which the take already emptied.
+        composerDraftsWrite(keyFor(char, char.chats[0]), (record) => { record.messageInput += '{{file::late.txt::data}}' })
 
         first.release()
         await p
 
         // A text result from an operation that started before Send lands in
         // the composer even when it resolves during the send's own wait.
-        expect(source.messageInput.get()).toContain('{{file::late.txt::data}}')
+        expect(draftFor(char, char.chats[0]).messageInput).toContain('{{file::late.txt::data}}')
     })
 
     test('guard: a cancelled send puts the taken text back in front of a late text result, never behind it', async () => {
         const char = makeCharacter('c-late-text-then-cancel')
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'taken-text' })
         const editinput = installEditinputQueue()
         const first = editinput.nextGate()
 
-        const { source } = makeSource({ messageInput: 'taken-text' })
+        const { source } = makeSource()
         const p = send(source)
         await first.reached
 
-        source.messageInput.set(source.messageInput.get() + '-late-result')
-        abortChat(source)
+        composerDraftsWrite(keyFor(char, char.chats[0]), (record) => { record.messageInput += '-late-result' })
+        abortChat()
 
-        expect(source.messageInput.get()).toBe('taken-text-late-result')
+        expect(draftFor(char, char.chats[0]).messageInput).toBe('taken-text-late-result')
 
         first.release()
         await p
@@ -1246,19 +1367,20 @@ describe('composerActions: results that arrive while a send is taking the compos
     test('guard: a late asset staged during the wait is still staged after the send', async () => {
         const char = makeCharacter('c-late-asset')
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'hello' })
         const editinput = installEditinputQueue()
         const first = editinput.nextGate()
 
-        const { source } = makeSource({ messageInput: 'hello' })
+        const { source } = makeSource()
         const p = send(source)
         await first.reached
 
-        source.fileInput.set([...source.fileInput.get(), 'late-asset.png'])
+        composerDraftsWrite(keyFor(char, char.chats[0]), (record) => { record.fileInput = [...record.fileInput, 'late-asset.png'] })
 
         first.release()
         await p
 
-        expect(source.fileInput.get()).toContain('late-asset.png')
+        expect(draftFor(char, char.chats[0]).fileInput).toContain('late-asset.png')
     })
 })
 
@@ -1267,20 +1389,22 @@ describe('composerActions: the exp-translator debounce', () => {
         isExpTranslatorMock.mockReturnValue(true)
         const char = makeCharacter('c-translate-guard')
         installDb([char], { useAutoTranslateInput: true })
+        const chat = char.chats[0]
+        seedDraft(char, chat, { messageInputTranslate: 'draft-in-translate-field' })
 
         const delay = interceptSleep(1500)
-        const { source } = makeSource({ messageInputTranslate: 'draft-in-translate-field' })
+        const key = keyFor(char, chat)
 
-        const p = updateInputTransateMessage(source, true)
+        const p = updateInputTransateMessage(key, true)
         await delay.reached
 
         // The source field changes before the debounce elapses.
-        source.messageInputTranslate.set('changed-before-debounce-elapsed')
+        composerDraftsWrite(key, (record) => { record.messageInputTranslate = 'changed-before-debounce-elapsed' })
         delay.release()
         await p
 
         expect(translateMock).not.toHaveBeenCalled()
-        expect(source.messageInput.get()).toBe('')
+        expect(draftFor(char, chat).messageInput).toBe('')
     })
 })
 
@@ -1288,12 +1412,14 @@ describe('composerActions: a translation in flight when Send takes the composer'
     test('a non-exp translation resolving during the wait is discarded, so cancelling puts back exactly the taken values with no duplicate', async () => {
         const char = makeCharacter('c-translate-nonexp-cancel')
         installDb([char], { useAutoTranslateInput: true })
+        const chat = char.chats[0]
+        seedDraft(char, chat, { messageInput: 'hello', messageInputTranslate: 'old-tr' })
 
         const translateGate = makeGate()
         translateMock.mockImplementationOnce(() => translateGate.gate.then(() => 'fresh-tr'))
 
-        const { source } = makeSource({ messageInput: 'hello', messageInputTranslate: 'old-tr' })
-        await updateInputTransateMessage(source, true) // issues the translate() call; it does not resolve yet
+        const { source } = makeSource()
+        await updateInputTransateMessage(keyFor(char, chat), true) // issues the translate() call; it does not resolve yet
 
         const editinput = installEditinputQueue()
         const first = editinput.nextGate()
@@ -1303,10 +1429,10 @@ describe('composerActions: a translation in flight when Send takes the composer'
         translateGate.release()
         await new Promise((res) => setTimeout(res, 0))
 
-        abortChat(source)
+        abortChat()
 
-        expect(source.messageInput.get()).toBe('hello')
-        expect(source.messageInputTranslate.get()).toBe('old-tr')
+        expect(draftFor(char, chat).messageInput).toBe('hello')
+        expect(draftFor(char, chat).messageInputTranslate).toBe('old-tr')
 
         first.release()
         await p
@@ -1315,27 +1441,29 @@ describe('composerActions: a translation in flight when Send takes the composer'
     test('guard: a non-exp translation resolving after the cancel writes the fresh translation, with no duplicate', async () => {
         const char = makeCharacter('c-translate-nonexp-after-cancel')
         installDb([char], { useAutoTranslateInput: true })
+        const chat = char.chats[0]
+        seedDraft(char, chat, { messageInput: 'hello', messageInputTranslate: 'old-tr' })
 
         const translateGate = makeGate()
         translateMock.mockImplementationOnce(() => translateGate.gate.then(() => 'fresh-tr'))
 
-        const { source } = makeSource({ messageInput: 'hello', messageInputTranslate: 'old-tr' })
-        await updateInputTransateMessage(source, true)
+        const { source } = makeSource()
+        await updateInputTransateMessage(keyFor(char, chat), true)
 
         const editinput = installEditinputQueue()
         const first = editinput.nextGate()
         const p = send(source)
         await first.reached
 
-        abortChat(source)
-        expect(source.messageInput.get()).toBe('hello')
-        expect(source.messageInputTranslate.get()).toBe('old-tr')
+        abortChat()
+        expect(draftFor(char, chat).messageInput).toBe('hello')
+        expect(draftFor(char, chat).messageInputTranslate).toBe('old-tr')
 
         translateGate.release()
         await new Promise((res) => setTimeout(res, 0))
 
-        expect(source.messageInput.get()).toBe('fresh-tr')
-        expect(source.messageInputTranslate.get()).toBe('old-tr')
+        expect(draftFor(char, chat).messageInput).toBe('fresh-tr')
+        expect(draftFor(char, chat).messageInputTranslate).toBe('old-tr')
 
         first.release()
         await p
@@ -1345,13 +1473,15 @@ describe('composerActions: a translation in flight when Send takes the composer'
         isExpTranslatorMock.mockReturnValue(true)
         const char = makeCharacter('c-translate-exp-cancel')
         installDb([char], { useAutoTranslateInput: true })
+        const chat = char.chats[0]
+        seedDraft(char, chat, { messageInput: 'hello', messageInputTranslate: 'old-tr' })
 
         const delay = interceptSleep(1500)
         const translateGate = makeGate()
         translateMock.mockImplementationOnce(() => translateGate.gate.then(() => 'fresh-tr'))
 
-        const { source } = makeSource({ messageInput: 'hello', messageInputTranslate: 'old-tr' })
-        const translatePromise = updateInputTransateMessage(source, true)
+        const { source } = makeSource()
+        const translatePromise = updateInputTransateMessage(keyFor(char, chat), true)
         await delay.reached
         delay.release()
         await translatePromise // the debounce has now issued the translate() call
@@ -1364,10 +1494,10 @@ describe('composerActions: a translation in flight when Send takes the composer'
         translateGate.release()
         await new Promise((res) => setTimeout(res, 0))
 
-        abortChat(source)
+        abortChat()
 
-        expect(source.messageInput.get()).toBe('hello')
-        expect(source.messageInputTranslate.get()).toBe('old-tr')
+        expect(draftFor(char, chat).messageInput).toBe('hello')
+        expect(draftFor(char, chat).messageInputTranslate).toBe('old-tr')
 
         first.release()
         await p
@@ -1377,13 +1507,15 @@ describe('composerActions: a translation in flight when Send takes the composer'
         isExpTranslatorMock.mockReturnValue(true)
         const char = makeCharacter('c-translate-exp-after-cancel')
         installDb([char], { useAutoTranslateInput: true })
+        const chat = char.chats[0]
+        seedDraft(char, chat, { messageInput: 'hello', messageInputTranslate: 'old-tr' })
 
         const delay = interceptSleep(1500)
         const translateGate = makeGate()
         translateMock.mockImplementationOnce(() => translateGate.gate.then(() => 'fresh-tr'))
 
-        const { source } = makeSource({ messageInput: 'hello', messageInputTranslate: 'old-tr' })
-        const translatePromise = updateInputTransateMessage(source, true)
+        const { source } = makeSource()
+        const translatePromise = updateInputTransateMessage(keyFor(char, chat), true)
         await delay.reached
         delay.release()
         await translatePromise
@@ -1393,15 +1525,15 @@ describe('composerActions: a translation in flight when Send takes the composer'
         const p = send(source)
         await first.reached
 
-        abortChat(source)
-        expect(source.messageInput.get()).toBe('hello')
-        expect(source.messageInputTranslate.get()).toBe('old-tr')
+        abortChat()
+        expect(draftFor(char, chat).messageInput).toBe('hello')
+        expect(draftFor(char, chat).messageInputTranslate).toBe('old-tr')
 
         translateGate.release()
         await new Promise((res) => setTimeout(res, 0))
 
-        expect(source.messageInput.get()).toBe('fresh-tr')
-        expect(source.messageInputTranslate.get()).toBe('old-tr')
+        expect(draftFor(char, chat).messageInput).toBe('fresh-tr')
+        expect(draftFor(char, chat).messageInputTranslate).toBe('old-tr')
 
         first.release()
         await p
@@ -1410,14 +1542,16 @@ describe('composerActions: a translation in flight when Send takes the composer'
     test('a forward translation into the translate field resolving during the wait is discarded, so cancelling puts back exactly the taken values with no duplicate', async () => {
         const char = makeCharacter('c-translate-forward-cancel')
         installDb([char], { useAutoTranslateInput: true })
+        const chat = char.chats[0]
+        seedDraft(char, chat, { messageInput: 'hello', messageInputTranslate: 'old-tr' })
 
         const translateGate = makeGate()
         translateMock.mockImplementationOnce(() => translateGate.gate.then(() => 'fresh-tr'))
 
-        const { source } = makeSource({ messageInput: 'hello', messageInputTranslate: 'old-tr' })
+        const { source } = makeSource()
         // Forward: messageInput is the source field, deriving into
         // messageInputTranslate; issues the translate() call, not yet resolved.
-        await updateInputTransateMessage(source, false)
+        await updateInputTransateMessage(keyFor(char, chat), false)
 
         const editinput = installEditinputQueue()
         const first = editinput.nextGate()
@@ -1427,10 +1561,10 @@ describe('composerActions: a translation in flight when Send takes the composer'
         translateGate.release()
         await new Promise((res) => setTimeout(res, 0))
 
-        abortChat(source)
+        abortChat()
 
-        expect(source.messageInput.get()).toBe('hello')
-        expect(source.messageInputTranslate.get()).toBe('old-tr')
+        expect(draftFor(char, chat).messageInput).toBe('hello')
+        expect(draftFor(char, chat).messageInputTranslate).toBe('old-tr')
 
         first.release()
         await p
@@ -1441,13 +1575,14 @@ describe('composerActions: no switch, the ordinary path', () => {
     test('guard: the message is appended, the composer empties, and generation runs once', async () => {
         const char = makeCharacter('c-ordinary')
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'hello' })
 
-        const { source } = makeSource({ messageInput: 'hello' })
+        const { source } = makeSource()
         await send(source)
 
         expect(char.chats[0].message.map((m) => m.data)).toEqual(['hello'])
-        expect(source.messageInput.get()).toBe('')
-        expect(source.fileInput.get()).toEqual([])
+        expect(draftFor(char, char.chats[0]).messageInput).toBe('')
+        expect(draftFor(char, char.chats[0]).fileInput).toEqual([])
         expect(sendChatMock).toHaveBeenCalledTimes(1)
         expect(get(doingChatMock)).toBe(false)
     })
@@ -1458,46 +1593,54 @@ describe('composerActions: refused actions change nothing', () => {
         const char = makeCharacter('c-cold-chat')
         char.chats[0].message = [{ role: 'user', data: `${coldStorageHeader}pointer` } as unknown as Message]
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'hello' })
 
-        const { source } = makeSource({ messageInput: 'hello' })
+        const { source } = makeSource()
         await send(source)
 
         expect(char.chats[0].message.length).toBe(1)
-        expect(source.messageInput.get()).toBe('hello')
+        expect(draftFor(char, char.chats[0]).messageInput).toBe('hello')
         expect(sendChatMock).not.toHaveBeenCalled()
     })
 
     test('guard: doingChat already set refuses the send and keeps the typed text', async () => {
         const char = makeCharacter('c-doingchat-set')
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'hello' })
         doingChatMock.set(true)
 
-        const { source } = makeSource({ messageInput: 'hello' })
+        const { source } = makeSource()
         await send(source)
 
         expect(char.chats[0].message.length).toBe(0)
-        expect(source.messageInput.get()).toBe('hello')
+        expect(draftFor(char, char.chats[0]).messageInput).toBe('hello')
         expect(sendChatMock).not.toHaveBeenCalled()
     })
 
     test('an open window still refuses a second Send from another source without touching its own fields', async () => {
         const char = makeCharacter('c-open-window')
         installDb([char])
+        seedDraft(char, char.chats[0], { messageInput: 'from-a' })
         const editinput = installEditinputQueue()
         const first = editinput.nextGate()
 
-        const { source: sourceA } = makeSource({ messageInput: 'from-a' })
-        const sourceBHandle = makeSource({ messageInput: 'from-b', fileInput: ['b.png'] })
+        const { source: sourceA } = makeSource()
+        const sourceBHandle = makeSource()
 
         const p1 = send(sourceA)
         await first.reached
+
+        // A's take already emptied the chat's record; this stands in for a
+        // second composer instance (a remount) with its own text and staged
+        // file, typed into the same chat while A's send is still in flight.
+        seedDraft(char, char.chats[0], { messageInput: 'from-b', fileInput: ['b.png'] })
 
         const p2 = send(sourceBHandle.source)
         await p2
 
         expect(sourceBHandle.closeMenuCalls()).toBe(0)
-        expect(sourceBHandle.resizeCalls()).toBe(0)
-        expect(sourceBHandle.source.fileInput.get()).toEqual(['b.png'])
+        expect(draftFor(char, char.chats[0]).messageInput).toBe('from-b')
+        expect(draftFor(char, char.chats[0]).fileInput).toEqual(['b.png'])
 
         first.release()
         await p1
