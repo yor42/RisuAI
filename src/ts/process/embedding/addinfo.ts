@@ -16,7 +16,7 @@ export async function additionalInformations(char: character,chats:Chat,){
 
             if(!name){
                 if(chat.role === 'user'){
-                    name = getUserName()
+                    name = getUserName(chats)
                 }
                 else{
                     name = char.name

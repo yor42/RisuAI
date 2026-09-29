@@ -8,6 +8,7 @@ import {
 } from "./hypamemoryv2";
 import { type DisplayMode as ModalDisplayMode } from "src/lib/Others/HypaV3Modal/types";
 import { parseChatML } from "src/ts/parser/chatML";
+import type { RunSubject } from "../chatOrigin";
 import {
     type Chat,
     type character,
@@ -121,7 +122,8 @@ export async function hypaMemoryV3(
     maxContextTokens: number,
     room: Chat,
     char: character | groupChat,
-    tokenizer: ChatTokenizer
+    tokenizer: ChatTokenizer,
+    subject?: RunSubject
 ): Promise<HypaV3Result> {
     const settings = getCurrentHypaV3Preset().settings;
 
@@ -135,7 +137,8 @@ export async function hypaMemoryV3(
                 maxContextTokens,
                 room,
                 char,
-                tokenizer
+                tokenizer,
+                subject
             );
         }
 
@@ -145,7 +148,8 @@ export async function hypaMemoryV3(
             maxContextTokens,
             room,
             char,
-            tokenizer
+            tokenizer,
+            subject
         );
     } catch (error) {
         if (error instanceof Error) {
@@ -179,7 +183,8 @@ async function hypaMemoryV3MainExp(
     maxContextTokens: number,
     room: Chat,
     char: character | groupChat,
-    tokenizer: ChatTokenizer
+    tokenizer: ChatTokenizer,
+    subject: RunSubject | undefined
 ): Promise<HypaV3Result> {
     const db = getDatabase();
     const settings = getCurrentHypaV3Preset().settings;
@@ -402,7 +407,7 @@ async function hypaMemoryV3MainExp(
         };
 
         const summarizationTasks = toSummarizeArray.map(
-            (item) => () => summarize(item)
+            (item) => () => summarizeForSubject(item, false, subject)
         );
 
         // Start of performance measurement: summarize
@@ -958,7 +963,8 @@ async function hypaMemoryV3Main(
     maxContextTokens: number,
     room: Chat,
     char: character | groupChat,
-    tokenizer: ChatTokenizer
+    tokenizer: ChatTokenizer,
+    subject: RunSubject | undefined
 ): Promise<HypaV3Result> {
     const db = getDatabase();
     const settings = getCurrentHypaV3Preset().settings;
@@ -1148,7 +1154,7 @@ async function hypaMemoryV3Main(
             );
 
             try {
-                const summarizeResult = await summarize(toSummarize);
+                const summarizeResult = await summarizeForSubject(toSummarize, false, subject);
 
                 data.summaries.push({
                     text: summarizeResult,
@@ -1381,7 +1387,7 @@ async function hypaMemoryV3Main(
                 );
 
                 try {
-                    const summarizeResult = await summarize(recentChats);
+                    const summarizeResult = await summarizeForSubject(recentChats, false, subject);
 
                     queries.push(summarizeResult);
                 } catch (error) {
@@ -1678,7 +1684,17 @@ function sanitizeSummaryContent(content: string): string {
     return content.replace(inlayTokenRegex, "[Image]");
 }
 
-export async function summarize(oaiMessages: OpenAIChat[], isResummarize: boolean = false): Promise<string> {
+/**
+ * Summarizes `oaiMessages` as the chat `subject` stands for. Called with no
+ * subject it parses the summarization prompt as the selected chat, which is what
+ * the HypaV3 modal relies on; a memory pass must go through the internal
+ * summarizer, which requires the subject.
+ */
+export async function summarize(oaiMessages: OpenAIChat[], isResummarize: boolean = false, subject?: RunSubject): Promise<string> {
+    return await summarizeForSubject(oaiMessages, isResummarize, subject);
+}
+
+async function summarizeForSubject(oaiMessages: OpenAIChat[], isResummarize: boolean, subject: RunSubject | undefined): Promise<string> {
     const db = getDatabase();
     const settings = getCurrentHypaV3Preset().settings;
 
@@ -1693,7 +1709,8 @@ export async function summarize(oaiMessages: OpenAIChat[], isResummarize: boolea
             : settings.summarizationPrompt;
 
     const formated: OpenAIChat[] = parseChatML(
-        summarizationPrompt.replaceAll("{{slot}}", strMessages)
+        summarizationPrompt.replaceAll("{{slot}}", strMessages),
+        subject
     ) ?? [
             {
                 role: "user",

@@ -9,7 +9,7 @@
     import ModelList from '../UI/ModelList.svelte';
     import { get } from 'svelte/store';
     import SettingRenderer from '../Setting/SettingRenderer.svelte';
-    import { checkPersonaBinded, getUserName } from 'src/ts/util';
+    import { checkPersonaBinded, getUserName, livePersona } from 'src/ts/util';
     import { v4 } from 'uuid';
     let configPage:'list'|'add'|'addSettingsSubmenu' = $state('list')
     let search = $state('')
@@ -17,7 +17,7 @@
     let bindedPersona = $derived.by(() => {
 
         DBState.db.characters[$selectedCharID].chatPage
-        return checkPersonaBinded()
+        return livePersona(checkPersonaBinded())
     })
 
     let personaName = $derived.by(() => {

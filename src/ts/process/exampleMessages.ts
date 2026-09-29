@@ -1,8 +1,10 @@
 import type { OpenAIChat } from "./index.svelte";
 import type { character } from "../storage/database.svelte";
+import type { RunSubject } from "./chatOrigin";
 import { risuChatParser } from "./scripts";
 
-export function exampleMessage(char:character, userName:string):OpenAIChat[]{
+/** Parses the character's example dialogue as the chat `subject` stands for; with no subject, as the selected chat. */
+export function exampleMessage(char:character, subject?:RunSubject):OpenAIChat[]{
     if(char.exampleMessage === ''){
         return []
     }
@@ -58,7 +60,7 @@ export function exampleMessage(char:character, userName:string):OpenAIChat[]{
     result = result.map((r) => {
         return {
             role: r.role,
-            content: risuChatParser(r.content, {chara: char}),
+            content: risuChatParser(r.content, {chara: char, subject}),
             name: r.name,
             memo: r.memo
         }

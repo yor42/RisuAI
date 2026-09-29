@@ -6,6 +6,7 @@ import {
     type groupChat,
 } from "src/ts/storage/database.svelte";
 import type { OpenAIChat } from "../index.svelte";
+import type { RunSubject } from "../chatOrigin";
 import type { ChatTokenizer } from "src/ts/tokenizer";
 import { requestChatData } from "../request/request";
 import { HypaProcesser } from "./hypamemory";
@@ -37,7 +38,8 @@ export interface SerializableHypaV2Data extends Omit<HypaV2Data, 'mainChunks'> {
 }
 
 async function summary(
-    stringlizedChat: string
+    stringlizedChat: string,
+    subject: RunSubject | undefined
 ): Promise<{ success: boolean; data: string }> {
     const db = getDatabase();
     console.log("Summarizing");
@@ -109,7 +111,8 @@ async function summary(
         }
     } else {
         let parsedPrompt = parseChatML(
-            supaPrompt.replaceAll("{{slot}}", stringlizedChat)
+            supaPrompt.replaceAll("{{slot}}", stringlizedChat),
+            subject
         );
 
         const promptbody: OpenAIChat[] = (parsedPrompt ?? [
@@ -338,7 +341,8 @@ export async function hypaMemoryV2(
     maxContextTokens: number,
     room: Chat,
     char: character | groupChat,
-    tokenizer: ChatTokenizer
+    tokenizer: ChatTokenizer,
+    subject?: RunSubject
 ): Promise<{
     currentTokens: number;
     chats: OpenAIChat[];
@@ -491,7 +495,7 @@ export async function hypaMemoryV2(
             .join("\n");
 
         // Summarize the accumulated chunk
-        const summaryData = await summary(stringlizedChat);
+        const summaryData = await summary(stringlizedChat, subject);
 
         if (!summaryData.success) {
             console.log("Summarization failed:", summaryData.data);

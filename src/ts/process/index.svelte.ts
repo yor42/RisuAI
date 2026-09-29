@@ -7,7 +7,7 @@ import { language } from "../../lang";
 import { alertError, alertToast } from "../alert";
 import { parseChatML } from "../parser/chatML";
 import { loadLoreBookV3Prompt } from "./lorebook.svelte";
-import { findCharacterbyId, getAuthorNoteDefaultText, getPersonaPrompt, getUserName, isLastCharPunctuation, trimUntilPunctuation, parseToggleSyntax, prebuiltAssetCommand } from "../util";
+import { findCharacterbyId, getAuthorNoteDefaultText, getPersonaPrompt, isLastCharPunctuation, trimUntilPunctuation, parseToggleSyntax, prebuiltAssetCommand } from "../util";
 import { requestChatData } from "./request/request";
 import { stableDiff } from "./stableDiff";
 import { processScript, processScriptFull, risuChatParser, type MessageLocator, type MessageRef } from "./scripts";
@@ -633,7 +633,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
     }[] = []
     if(DBState.db.promptInfoInsideChat){
         initialPresetNameForPromptInfo = DBState.db.botPresets[DBState.db.botPresetsId]?.name ?? ''
-        initialPromptTogglesForPromptInfo = parseToggleSyntax(DBState.db.customPromptTemplateToggle + getModuleToggles())
+        initialPromptTogglesForPromptInfo = parseToggleSyntax(DBState.db.customPromptTemplateToggle + getModuleToggles(subject))
             .flatMap(toggle => {
                 const raw = DBState.db.globalChatVariables[`toggle_${toggle.key}`]
                 if (toggle.type === 'select' || toggle.type === 'text') {
@@ -826,13 +826,13 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
             return chatObjects;
         }
 
-        unformated.main.push(...formatPrompt(risuChatParser(mainp + ((DBState.db.additionalPrompt === '' || (!DBState.db.promptPreprocess)) ? '' : `\n${DBState.db.additionalPrompt}`), {chara: currentChar})))
+        unformated.main.push(...formatPrompt(risuChatParser(mainp + ((DBState.db.additionalPrompt === '' || (!DBState.db.promptPreprocess)) ? '' : `\n${DBState.db.additionalPrompt}`), {chara: currentChar, subject})))
     
         if(DBState.db.jailbreakToggle){
-            unformated.jailbreak.push(...formatPrompt(risuChatParser(DBState.db.jailbreak, {chara: currentChar})))
+            unformated.jailbreak.push(...formatPrompt(risuChatParser(DBState.db.jailbreak, {chara: currentChar, subject})))
         }
     
-        unformated.globalNote.push(...formatPrompt(risuChatParser(currentChar.replaceGlobalNote?.replaceAll('{{original}}', DBState.db.globalNote) || DBState.db.globalNote, {chara:currentChar})))
+        unformated.globalNote.push(...formatPrompt(risuChatParser(currentChar.replaceGlobalNote?.replaceAll('{{original}}', DBState.db.globalNote) || DBState.db.globalNote, {chara: currentChar, subject})))
     }
 
     let baseDescriptionPrompt:OpenAIChat|null = null
@@ -842,13 +842,13 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
     if(currentChat.note){
         unformated.authorNote.push({
             role: 'system',
-            content: risuChatParser(currentChat.note, {chara: currentChar})
+            content: risuChatParser(currentChat.note, {chara: currentChar, subject})
         })
     }
     else if(getAuthorNoteDefaultText() !== ''){
         unformated.authorNote.push({
             role: 'system',
-            content: risuChatParser(getAuthorNoteDefaultText(), {chara: currentChar})
+            content: risuChatParser(getAuthorNoteDefaultText(), {chara: currentChar, subject})
         })
     }
 
@@ -860,20 +860,20 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
     }
 
     {
-        let description = risuChatParser((DBState.db.promptPreprocess ? DBState.db.descriptionPrefix: '') + currentChar.desc, {chara: currentChar})
+        let description = risuChatParser((DBState.db.promptPreprocess ? DBState.db.descriptionPrefix: '') + currentChar.desc, {chara: currentChar, subject})
 
         const additionalInfo = await additionalInformations(currentChar, currentChat)
 
         if(additionalInfo){
-            description += '\n\n' + risuChatParser(additionalInfo, {chara:currentChar})
+            description += '\n\n' + risuChatParser(additionalInfo, {chara: currentChar, subject})
         }
 
         if(currentChar.personality){
-            description += risuChatParser("\n\nDescription of {{char}}: " + currentChar.personality, {chara: currentChar})
+            description += risuChatParser("\n\nDescription of {{char}}: " + currentChar.personality, {chara: currentChar, subject})
         }
 
         if(currentChar.scenario){
-            description += risuChatParser("\n\nCircumstances and context of the dialogue: " + currentChar.scenario, {chara: currentChar})
+            description += risuChatParser("\n\nCircumstances and context of the dialogue: " + currentChar.scenario, {chara: currentChar, subject})
         }
 
         baseDescriptionPrompt = {
@@ -930,7 +930,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
     for(const lorebook of normalActives){
         unformated.lorebook.push({
             role: lorebook.role,
-            content: risuChatParser(resolvePosition(lorebook.prompt), {chara: currentChar})
+            content: risuChatParser(resolvePosition(lorebook.prompt), {chara: currentChar, subject})
         })
     }
 
@@ -941,7 +941,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
     for(const lorebook of descActives){
         const c = {
             role: lorebook.role,
-            content: risuChatParser(resolvePosition(lorebook.prompt), {chara: currentChar})
+            content: risuChatParser(resolvePosition(lorebook.prompt), {chara: currentChar, subject})
         }
         if(lorebook.pos === 'before_desc'){
             beforeDescriptionPrompts.unshift(c)
@@ -953,10 +953,14 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
         }
     }
 
-    if(DBState.db.personaPrompt){
+    // The block exists when the send's own chat's persona has a prompt: one
+    // resolution and one read give both the gate and the text. A gone subject
+    // reads the global persona, never the selection's.
+    const personaPromptText = getPersonaPrompt(subject.resolve()?.chat ?? null)
+    if(personaPromptText){
         unformated.personaPrompt.push({
             role: 'system',
-            content: risuChatParser(getPersonaPrompt(), {chara: currentChar})
+            content: risuChatParser(personaPromptText, {chara: currentChar, subject})
         })
     }
     
@@ -981,7 +985,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
     for(const lorebook of postEverythingLorebooks){
         unformated.postEverything.push({
             role: lorebook.role,
-            content: risuChatParser(resolvePosition(lorebook.prompt), {chara: currentChar})
+            content: risuChatParser(resolvePosition(lorebook.prompt), {chara: currentChar, subject})
         })
     }
 
@@ -1002,7 +1006,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
     for(const lorebook of postEverythingAssistantLorebooks){
         unformated.postEverything.push({
             role: lorebook.role,
-            content: risuChatParser(resolvePosition(lorebook.prompt), {chara: currentChar})
+            content: risuChatParser(resolvePosition(lorebook.prompt), {chara: currentChar, subject})
         })
     }
 
@@ -1086,7 +1090,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
                     applyPromptBlockRole(pmt, card.role2)
                     if(card.innerFormat && pmt.length > 0){
                         for(let i=0;i<pmt.length;i++){
-                            pmt[i].content = risuChatParser(positionParser(card.innerFormat,card.type), {chara: currentChar}).replace('{{slot}}', pmt[i].content)
+                            pmt[i].content = risuChatParser(positionParser(card.innerFormat,card.type), {chara: currentChar, subject}).replace('{{slot}}', pmt[i].content)
                         }
                     }
 
@@ -1097,7 +1101,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
                     let pmt = getDescriptionPrompts(card.role2)
                     if(card.innerFormat && pmt.length > 0){
                         for(let i=0;i<pmt.length;i++){
-                            pmt[i].content = risuChatParser(positionParser(card.innerFormat,card.type), {chara: currentChar}).replace('{{slot}}', pmt[i].content)
+                            pmt[i].content = risuChatParser(positionParser(card.innerFormat,card.type), {chara: currentChar, subject}).replace('{{slot}}', pmt[i].content)
                         }
                     }
 
@@ -1109,7 +1113,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
                     applyPromptBlockRole(pmt, card.role2)
                     if(card.innerFormat && pmt.length > 0){
                         for(let i=0;i<pmt.length;i++){
-                            pmt[i].content = risuChatParser(positionParser(card.innerFormat,card.type), {chara: currentChar}).replace('{{slot}}', pmt[i].content || card.defaultText || '')
+                            pmt[i].content = risuChatParser(positionParser(card.innerFormat,card.type), {chara: currentChar, subject}).replace('{{slot}}', pmt[i].content || card.defaultText || '')
                         }
                     }
 
@@ -1151,13 +1155,13 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
                         if(currentChar.prebuiltAssetCommand && !card.text.includes('{{//@customimageinstruction}}')){
                             content += prebuiltAssetCommand
                         }
-                        content = (risuChatParser(content, {chara: currentChar, role: card.role}))
+                        content = (risuChatParser(content, {chara: currentChar, role: card.role, subject}))
                     }
                     else if(card.type2 === 'main'){
-                        content = (risuChatParser(content, {chara: currentChar, role: card.role}))
+                        content = (risuChatParser(content, {chara: currentChar, role: card.role, subject}))
                     }
                     else{
-                        content = risuChatParser(content, {chara: currentChar, role: card.role})
+                        content = risuChatParser(content, {chara: currentChar, role: card.role, subject})
                     }
 
                     const prompt:OpenAIChat ={
@@ -1169,7 +1173,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
                     break
                 }
                 case 'chatML':{
-                    let prompts = parseChatML(card.text)
+                    let prompts = parseChatML(card.text, subject)
                     await tokenizeChatArray(prompts)
                     break
                 }
@@ -1224,7 +1228,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
         }
     }
     
-    const examples = exampleMessage(currentChar, getUserName())
+    const examples = exampleMessage(currentChar, subject)
 
     for(const example of examples){
         currentTokens += await tokenizer.tokenizeChat(example)
@@ -1272,7 +1276,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
         const chat:OpenAIChat = {
             role: 'assistant',
             content: await (processScript(nowChatroom,
-                risuChatParser(firstMsg, {chara: currentChar}),
+                risuChatParser(firstMsg, {chara: currentChar, subject}),
             'editprocess', {}, undefined, subject))
         }
 
@@ -1316,7 +1320,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
     // index in the chat, found again by identity should the chat shift.
     const messageLocator = createMessageLocator()
     for(const msg of ms){
-        let formatedChat = (await processScriptFull(nowChatroom,risuChatParser(msg.data, {chara: currentChar, role: msg.role}), 'editprocess', index, {
+        let formatedChat = (await processScriptFull(nowChatroom,risuChatParser(msg.data, {chara: currentChar, role: msg.role, subject}), 'editprocess', index, {
             chatRole: msg.role,
         }, undefined, subject, {message: msg, index: msChatIndexes[index], locator: messageLocator})).data
         let name = ''
@@ -1327,9 +1331,6 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
             else{
                 name = `${currentChar.name}`
             }
-        }
-        else if(msg.role === 'user'){
-            name = `${getUserName()}`
         }
         if(!msg.chatId){
             msg.chatId = v4()
@@ -1403,7 +1404,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
             (usingPromptTemplate && DBState.db.promptSettings.sendName)
         ){
             const form = DBState.db.groupTemplate || `<{{char}}\'s Message>\n{{slot}}\n</{{char}}\'s Message>`
-            formatedChat = risuChatParser(form, {chara: findCharacterbyIdwithCache(msg.saying).name}).replace('{{slot}}', formatedChat)
+            formatedChat = risuChatParser(form, {chara: findCharacterbyIdwithCache(msg.saying).name, subject}).replace('{{slot}}', formatedChat)
             switch(DBState.db.groupOtherBotRole){
                 case 'user':
                 case 'assistant':
@@ -1426,7 +1427,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
 
         const assetPromises:Promise<void>[] = []
         formatedChat = formatedChat.replace(/\{\{asset_?prompt::(.+?)\}\}/gmsiu, (match, p1) => {
-            const moduleAssets = getModuleAssets()
+            const moduleAssets = getModuleAssets(subject)
             const assets = (currentChar.additionalAssets ?? []).concat(moduleAssets)
             const asset = assets.find(v => {
                 return v[0] === p1
@@ -1477,7 +1478,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
     for(const depthPrompt of depthPrompts){
         const chat:OpenAIChat = {
             role: depthPrompt.role,
-            content: risuChatParser(resolvePosition(depthPrompt.prompt), {chara: currentChar})
+            content: risuChatParser(resolvePosition(depthPrompt.prompt), {chara: currentChar, subject})
         }
         currentTokens += await tokenizer.tokenizeChat(chat)
     }
@@ -1506,7 +1507,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
         }
         else if(DBState.db.hypav2){
             console.log("Current chat's hypaV2 Data: ", currentChat.hypaV2Data)
-            const sp = await hypaMemoryV2(chats, currentTokens, maxContextTokens, currentChat, nowChatroom, tokenizer)
+            const sp = await hypaMemoryV2(chats, currentTokens, maxContextTokens, currentChat, nowChatroom, tokenizer, subject)
             if(sp.error){
                 console.log(sp)
                 throwError(sp.error)
@@ -1524,7 +1525,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
         }
         else if(DBState.db.hypaV3){
             console.log("Current chat's hypaV3 Data: ", currentChat.hypaV3Data)
-            const sp = await hypaMemoryV3(chats, currentTokens, maxContextTokens, currentChat, nowChatroom, tokenizer)
+            const sp = await hypaMemoryV3(chats, currentTokens, maxContextTokens, currentChat, nowChatroom, tokenizer, subject)
             if(sp.error){
                 // Save new summary
                 if (sp.memory) {
@@ -1550,7 +1551,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
         else{
             const sp = await supaMemory(chats, currentTokens, maxContextTokens, currentChat, nowChatroom, tokenizer, {
                 asHyper: DBState.db.hypaMemory
-            })
+            }, subject)
             if(sp.error){
                 throwError(sp.error)
                 return false
@@ -1591,7 +1592,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
     }
 
     let biases:[string,number][] = DBState.db.bias.concat(currentChar.bias).map((v) => {
-        return [risuChatParser(v[0].replaceAll("\\n","\n").replaceAll("\\r","\r").replaceAll("\\\\","\\"), {chara: currentChar}),v[1]]
+        return [risuChatParser(v[0].replaceAll("\\n","\n").replaceAll("\\r","\r").replaceAll("\\\\","\\"), {chara: currentChar, subject}),v[1]]
     })
 
     let memories:OpenAIChat[] = []
@@ -1625,7 +1626,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
     for(const depthPrompt of depthPrompts){
         const chat:OpenAIChat = {
             role: depthPrompt.role,
-            content: risuChatParser(resolvePosition(depthPrompt.prompt), {chara: currentChar})
+            content: risuChatParser(resolvePosition(depthPrompt.prompt), {chara: currentChar, subject})
         }
         const depth = depthPrompt.pos === 'depth' ? (depthPrompt.depth) : (unformated.chats.length - depthPrompt.depth)
         unformated.chats.splice(depth,0,chat)
@@ -1701,7 +1702,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
         }
         promptBody.push({
             role: role,
-            content: risuChatParser(fmt),
+            content: risuChatParser(fmt, {subject}),
         })
     }
 
@@ -1715,7 +1716,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
                     applyPromptBlockRole(pmt, card.role2)
                     if(card.innerFormat && pmt.length > 0){
                         for(let i=0;i<pmt.length;i++){
-                            pmt[i].content = risuChatParser(positionParser(card.innerFormat,card.type), {chara: currentChar}).replace('{{slot}}', pmt[i].content)
+                            pmt[i].content = risuChatParser(positionParser(card.innerFormat,card.type), {chara: currentChar, subject}).replace('{{slot}}', pmt[i].content)
 
                             if(DBState.db.promptInfoInsideChat && DBState.db.promptTextInfoInsideChat){
                                 pushPromptInfoBody(pmt[i].role, card.innerFormat, promptBodyformatedForChatStore)
@@ -1730,7 +1731,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
                     let pmt = getDescriptionPrompts(card.role2)
                     if(card.innerFormat && pmt.length > 0){
                         for(let i=0;i<pmt.length;i++){
-                            pmt[i].content = risuChatParser(positionParser(card.innerFormat,card.type), {chara: currentChar}).replace('{{slot}}', pmt[i].content)
+                            pmt[i].content = risuChatParser(positionParser(card.innerFormat,card.type), {chara: currentChar, subject}).replace('{{slot}}', pmt[i].content)
                             
                             if(DBState.db.promptInfoInsideChat && DBState.db.promptTextInfoInsideChat){
                                 pushPromptInfoBody(pmt[i].role, card.innerFormat, promptBodyformatedForChatStore)
@@ -1746,7 +1747,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
                     applyPromptBlockRole(pmt, card.role2)
                     if(card.innerFormat && pmt.length > 0){
                         for(let i=0;i<pmt.length;i++){
-                            pmt[i].content = risuChatParser(positionParser(card.innerFormat,card.type), {chara: currentChar}).replace('{{slot}}', pmt[i].content || card.defaultText || '')
+                            pmt[i].content = risuChatParser(positionParser(card.innerFormat,card.type), {chara: currentChar, subject}).replace('{{slot}}', pmt[i].content || card.defaultText || '')
                             
                             if(DBState.db.promptInfoInsideChat && DBState.db.promptTextInfoInsideChat){
                                 pushPromptInfoBody(pmt[i].role, card.innerFormat, promptBodyformatedForChatStore)
@@ -1791,13 +1792,13 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
                         if(currentChar.prebuiltAssetCommand && !card.text.includes('{{//@customimageinstruction}}')){
                             content += prebuiltAssetCommand
                         }
-                        content = (risuChatParser(content, {chara: currentChar, role: card.role}))
+                        content = (risuChatParser(content, {chara: currentChar, role: card.role, subject}))
                     }
                     else if(card.type2 === 'main'){
-                        content = (risuChatParser(content, {chara: currentChar, role: card.role}))
+                        content = (risuChatParser(content, {chara: currentChar, role: card.role, subject}))
                     }
                     else{
-                        content = risuChatParser(content, {chara: currentChar, role: card.role})
+                        content = risuChatParser(content, {chara: currentChar, role: card.role, subject})
                     }
 
                     const prompt:OpenAIChat ={
@@ -1813,7 +1814,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
                     break
                 }
                 case 'chatML':{
-                    let prompts = parseChatML(card.text)
+                    let prompts = parseChatML(card.text, subject)
                     pushPrompts(prompts)
                     break
                 }
@@ -1868,7 +1869,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
                     applyPromptBlockRole(pmt, card.role2)
                     if(card.innerFormat && pmt.length > 0){
                         for(let i=0;i<pmt.length;i++){
-                            pmt[i].content = risuChatParser(card.innerFormat, {chara: currentChar}).replace('{{slot}}', pmt[i].content)
+                            pmt[i].content = risuChatParser(card.innerFormat, {chara: currentChar, subject}).replace('{{slot}}', pmt[i].content)
 
                             if(DBState.db.promptInfoInsideChat && DBState.db.promptTextInfoInsideChat){
                                 pushPromptInfoBody(pmt[i].role, card.innerFormat, promptBodyformatedForChatStore)
@@ -1923,7 +1924,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
         const depthPrompt = currentChar.depth_prompt
         formated.splice(formated.length - depthPrompt.depth, 0, {
             role: 'system',
-            content: risuChatParser(depthPrompt.prompt, {chara: currentChar})
+            content: risuChatParser(depthPrompt.prompt, {chara: currentChar, subject})
         })
     }
 
@@ -2435,10 +2436,10 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
         }
     }
 
-    const igp = risuChatParser(DBState.db.igpPrompt ?? "")
+    const igp = risuChatParser(DBState.db.igpPrompt ?? "", {subject})
 
     if(igp){
-        const igpFormated = parseChatML(igp)
+        const igpFormated = parseChatML(igp, subject)
         const rq = await requestChatData({
             formated: igpFormated,
             bias: {}

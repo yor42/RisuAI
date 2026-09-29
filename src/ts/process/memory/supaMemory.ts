@@ -8,6 +8,7 @@ import { globalFetch } from "src/ts/globalApi.svelte";
 import { runSummarizer } from "../transformers";
 import { parseChatML } from "src/ts/parser/chatML";
 import { getUserName } from "src/ts/util";
+import type { RunSubject } from "../chatOrigin";
 
 export async function supaMemory(
         chats:OpenAIChat[],
@@ -16,7 +17,8 @@ export async function supaMemory(
         room:Chat,
         char:character|groupChat,
         tokenizer:ChatTokenizer,
-        arg:{asHyper?:boolean} = {}
+        arg:{asHyper?:boolean} = {},
+        subject?:RunSubject
     ): Promise<{ currentTokens: number; chats: OpenAIChat[]; error?:string; memory?:string;lastId?:string}>{
     const db = getDatabase()
 
@@ -253,7 +255,7 @@ export async function supaMemory(
                 }
             }
             else {
-                let parsedPrompt = parseChatML(supaPrompt.replaceAll('{{slot}}', stringlizedChat))
+                let parsedPrompt = parseChatML(supaPrompt.replaceAll('{{slot}}', stringlizedChat), subject)
                 const promptbody:OpenAIChat[] = parsedPrompt ?? [
                     {
                         role: "user",
@@ -331,7 +333,7 @@ export async function supaMemory(
                 if((chunkSize + tokens) > maxChunkSize){
                     if(stringlizedChat === ''){
                         if(cont.role !== 'function' && cont.role !== 'system'){
-                            stringlizedChat += `${cont.role === 'assistant' ? char.type === 'group' ? '' : char.name : getUserName()}: ${cont.content}\n\n`
+                            stringlizedChat += `${cont.role === 'assistant' ? char.type === 'group' ? '' : char.name : getUserName(room)}: ${cont.content}\n\n`
                             spiceLen += 1
                             currentTokens -= tokens
                             chunkSize += tokens
@@ -340,7 +342,7 @@ export async function supaMemory(
                     lastId = cont.memo
                     break
                 }
-                stringlizedChat += `${cont.role === 'assistant' ? char.type === 'group' ? '' : char.name : getUserName()}: ${cont.content}\n\n`
+                stringlizedChat += `${cont.role === 'assistant' ? char.type === 'group' ? '' : char.name : getUserName(room)}: ${cont.content}\n\n`
                 spiceLen += 1
                 currentTokens -= tokens
                 chunkSize += tokens

@@ -1,5 +1,5 @@
 import { get, writable, type Writable } from "svelte/store"
-import type { Chat, Database, Message } from "./storage/database.svelte"
+import type { Chat, Database, Message, RisuPersona } from "./storage/database.svelte"
 import { getDatabase } from "./storage/database.svelte"
 import { DBState, selectedCharID } from "./stores.svelte"
 import {open} from '@tauri-apps/plugin-dialog'
@@ -122,6 +122,12 @@ export const replacePlaceholders = (msg:string, name:string) => {
 // -- never falls back to the selection, so a gone or ambiguous target reads
 // as no persona bound (the global persona) rather than leaking the
 // selection's own binding.
+//
+// Returns the persona's saved entry in `db.personas`. For the currently
+// selected persona that entry lags the editing buffer (`db.username`, ...);
+// a caller that wants the persona as it reads now goes through
+// `livePersona`. Callers that need only the entry's `id` or `embeddedModule`
+// may use the entry as it is.
 export function checkPersonaBinded(chat?: Chat | null){
     try {
         let db = DBState.db
@@ -146,8 +152,40 @@ export function checkPersonaBinded(chat?: Chat | null){
     }
 }
 
+/**
+ * The persona `entry` as it reads now. The selected persona is edited in a
+ * buffer (`db.username`, `db.userIcon`, `db.personaPrompt`, `db.userNote`) that
+ * is copied into its entry in `db.personas` only when Persona settings saves it
+ * (`saveUserPersona`) or sets a new avatar, so the entry can lag the buffer.
+ * For the entry at `db.selectedPersona` (by identity or id) the name, icon,
+ * prompt and note are the buffer's, each falling back to the entry's when the
+ * buffer field is undefined. Every other field (`id`, `embeddedModule`,
+ * `largePortrait`) is the entry's. Any other persona, and any persona while
+ * `db.selectedPersona` is out of range, is returned as it is.
+ */
+export function livePersona(entry: RisuPersona | null | undefined): RisuPersona | null {
+    if(!entry){
+        return null
+    }
+    const db = getDatabase()
+    const selected = db.personas?.[db.selectedPersona]
+    if(!selected){
+        return entry
+    }
+    if(selected !== entry && (selected.id === undefined || selected.id !== entry.id)){
+        return entry
+    }
+    return {
+        ...entry,
+        name: db.username ?? entry.name,
+        icon: db.userIcon ?? entry.icon,
+        personaPrompt: db.personaPrompt ?? entry.personaPrompt,
+        note: db.userNote ?? entry.note,
+    }
+}
+
 export function getUserName(chat?: Chat | null){
-    const bindedPersona = checkPersonaBinded(chat)
+    const bindedPersona = livePersona(checkPersonaBinded(chat))
     if(bindedPersona){
         return bindedPersona.name
     }
@@ -156,7 +194,7 @@ export function getUserName(chat?: Chat | null){
 }
 
 export function getUserIcon(chat?: Chat | null){
-    const bindedPersona = checkPersonaBinded(chat)
+    const bindedPersona = livePersona(checkPersonaBinded(chat))
     if(bindedPersona){
         return bindedPersona.icon
     }
@@ -165,7 +203,7 @@ export function getUserIcon(chat?: Chat | null){
 }
 
 export function getPersonaPrompt(chat?: Chat | null){
-    const bindedPersona = checkPersonaBinded(chat)
+    const bindedPersona = livePersona(checkPersonaBinded(chat))
     if(bindedPersona){
         return bindedPersona.personaPrompt
     }

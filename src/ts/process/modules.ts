@@ -497,8 +497,8 @@ export function getModuleRegexScripts(subject?: RunSubject) {
     return customscripts
 }
 
-export function getModuleToggles() {
-    const modules = getModules()
+export function getModuleToggles(subject?: RunSubject) {
+    const modules = getModules(subject)
     let costomModuleToggles: string = ''
     for (const module of modules) {
         if(!module){

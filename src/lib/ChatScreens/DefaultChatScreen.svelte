@@ -9,7 +9,7 @@
     import { DBState } from 'src/ts/stores.svelte';
     import { getCharImage } from "../../ts/characters";
     import { chatProcessStage, doingChat } from "../../ts/process/index.svelte";
-    import { sleep } from "../../ts/util";
+    import { livePersona, sleep } from "../../ts/util";
     import { language } from "../../lang";
     import { alertError, alertNormal, alertWait, showHypaV2Alert } from "../../ts/alert";
     import CreatorQuote from "./CreatorQuote.svelte";
@@ -378,7 +378,7 @@
         const bindedPersona = DBState?.db?.characters?.[$selectedCharID]?.chats?.[DBState?.db?.characters?.[$selectedCharID]?.chatPage]?.bindedPersona
 
         if(bindedPersona){
-            const persona = DBState.db.personas.find((p) => p.id === bindedPersona)
+            const persona = livePersona(DBState.db.personas.find((p) => p.id === bindedPersona))
             if(persona){
                 return {
                     currentUsername: persona.name,
