@@ -510,8 +510,24 @@ bug) is blocked on the maintainer's console output, not scheduled by position.
     passes.
   - Commit-message check (row 333): [EDITORIAL], applied. **Committed as `ac8cb3da`** at the
     maintainer's request.
-  - **Next: W2b-previews** (the preview's notice and Cancel button, stale previews, a body that
-    is not JSON, the group preview; `MC-105` 3, `MC-106` 3).
+  - W2b-previews follows (the preview's notice and Cancel button, stale previews, a body that is
+    not JSON, the group preview; `MC-105` 3, `MC-106` 3).
+- **W2b-previews: Gate 1 passed** (Report 38 rev 5.1; ledger rows 334-340). Decision `MC-108`
+  (five items). Five rounds:
+  - rounds 1-3 [REJECT];
+  - a `senior-advisor` escalation (row 338): the pending-result race was on the read side of the
+    alert store, so blocking alerts now capture their answer from the subscriber (D9, an `MC-091`
+    amendment fixing a lost-answer bug that predates this item);
+  - round 4 [REJECT] from a fresh reviewer on bounded plan defects;
+  - round 5 [EDITORIAL], applied.
+  - Seams, red tests (46 reproducers, 20 guards), the fix, the translation and the acceptance
+    tests: rows 341-342. Gate 2: rows 343 [EDITORIAL] and 344 [APPROVE]. Live check passed (row
+    345), with one defect (an empty member name) fixed test-first and approved (row 346).
+  - Final snapshot: `pnpm test` 160 files, 2212 passed, 4 skipped; `pnpm check` clean; the build
+    passes. Commit-message check (row 347): [EDITORIAL], applied. Not committed yet.
+  - Flagged to the maintainer as a separate task: Escape on a blocking alert leaves it unanswered
+    (upstream).
+  - Next: W2c (the send's scripts and parses).
 - **Disclosed for the maintainer:** in a chat with a duplicated id, the send's own writes land
   (`MC-104` 1) but its trigger runs still write nothing (`MC-078`).
 
@@ -557,7 +573,7 @@ bug) is blocked on the maintainer's console output, not scheduled by position.
 
 ## Test suite
 
-**155 files: 1974 passed, 4 skipped, 0 failed**, the check on W2b-core's final tree (`ac8cb3da`). `pnpm check` is clean, and `pnpm run build` passes.
+**160 files: 2212 passed, 4 skipped, 0 failed**, the check on W2b-previews' final tree (uncommitted). `pnpm check` is clean, and `pnpm run build` passes.
 `cargo check` last ran on the removal stage.
 - Run the suite with plain `pnpm test` or `npx vitest run`. `vitest.config.ts` excludes
   `.claude/**` (`7b72b813`).

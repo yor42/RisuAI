@@ -3138,3 +3138,48 @@ decide them either.** Revisit any of them on request:
    was posted stays in the chat, and the command text is not put back.
 2. **`MC-106` 1 applies wherever the command line runs**: a trigger's `command` effect running
    `/multisend a|||b` posts both segments, each with a reply (upstream posts only `a`).
+
+---
+
+### MC-108 — W2b-previews: Cancel stops at the next stage; Escape cancels; a group preview names its member; keys are masked; a result waits for another alert
+
+- **Tag:** decision
+- **Date:** 2026-09-29
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on four questions the Orchestrator asked
+  after W2b-previews' scoping (ledger row 334), and on a fifth after Gate 1 round 1 (Report 38;
+  ledger row 335), which found that the plan's own default for it dropped a successful preview.
+- **Reasoning:**
+  - In a preview, the send's abort reaches only the final request. The start trigger and memory
+    summarisation (which can make its own LLM requests) run to their end after a Cancel, and the
+    busy flag stays held until then.
+  - No "Loading..." notice can be closed with Escape today.
+  - Without "order by order", a group's next speaker is a random draw, and the draw can find nobody
+    who would speak.
+  - The preview displays the whole request, headers and URL included, so API keys are shown.
+  - A start trigger, Lua or a plugin can show an alert while a preview runs. It is still up when a
+    successful preview finishes.
+- **Alternatives rejected:**
+  - Cancel: dismiss only, with the work running on in the background; or passing the abort into
+    memory summarisation and triggers now (a shared contract that W2d, the request layer, owns);
+  - Escape: ignored, as for every other wait notice;
+  - group: no member name, and close silently when nobody would speak;
+  - keys: shown as upstream shows them;
+  - another alert up at the end: replace it with the preview (upstream), or drop the preview.
+- **Amends:** `MC-106` 3 (what "stops the preview" means). Refines `MC-105` 3.
+- **Related:** MC-105, MC-106.
+
+**What was decided:**
+1. **Cancel closes the notice at once and discards the result.** The send also checks for an abort
+   at its stage boundaries (around the start trigger, before memory summarisation and before the
+   request), and stops at the next one. This applies to the busy button on a normal send too.
+   Passing the abort into memory summarisation and triggers stays W2d's.
+2. **Escape on a preview's notice does what its Cancel button does.** Other wait notices are
+   unchanged.
+3. **A group preview names the member it previews.** When nobody would speak, a short message says
+   so (one new UI string, translated).
+4. **The displayed preview masks API keys** in auth headers and in the URL's key parameters. The
+   request itself is unchanged.
+5. **A successful preview that finishes while another alert is up waits for it.** The other alert
+   stays; the preview shows once it is closed. Starting another preview in the meantime drops the
+   pending one.
