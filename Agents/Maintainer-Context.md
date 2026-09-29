@@ -3586,3 +3586,66 @@ decided):**
 3. with `fallbackModels` set for a mode, the attempts are the list's entries only and the primary
    model is never tried. Whether that is intended is not established; W2d-b's scoping checks
    upstream and the settings text first, and a product question goes to the maintainer.
+
+---
+
+### MC-123 — Fallback models: the selected model is tried first, then the list
+
+- **Tag:** decision
+- **Date:** 2026-09-30
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose "Main first, then list" on a question the Orchestrator asked
+  during W2d-b's scoping (ledger row 417; scratchpad `w2d/packet-b.md` Q-3).
+- **Reasoning:** none stated beyond the choice. The Orchestrator's case: the settings section is
+  named "Fallback Model", and "Fallback When Blank Response" advances to the next model.
+- **Alternatives rejected:** keep upstream's behaviour (the list replaces the selected model) and
+  add a help text.
+- **Related:** MC-011, MC-122.
+
+**What was decided:** when a mode has a fallback list, a request tries the model selected for that
+mode first, then each list entry in order. With no list, only the selected model is tried, as
+today. Upstream tries the list only; an upstream user who filled the list as their real choice
+will see the selected model tried first. This fork accepts that difference.
+
+**Also decided (same day, "Move on like any model"):** a failed plugin-provider attempt (after its
+retries) moves on to the next model, as any other failed attempt does. Upstream ends the request
+there, whichever position the plugin model holds; with the selected model tried first, a plugin
+model as the main choice would otherwise never reach the list. Rejected: keep upstream's stop.
+
+---
+
+### MC-124 — W2d-b fixes Claude's JSON-schema extraction
+
+- **Tag:** decision
+- **Date:** 2026-09-30
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose "Fold into W2d-b" on a question the Orchestrator asked during
+  W2d-b's scoping (ledger row 417; packet RP-4).
+- **Reasoning:** none stated beyond the choice; W2d-b edits the same extraction code.
+- **Alternatives rejected:** a Roadmap chore.
+- **Related:** MC-091, MC-122.
+
+**What was decided:** on Claude models, extraction with a JSON schema uses the extraction path, as
+every other provider does; today it is handed the schema text and the reply comes back empty
+(upstream has the same bug). W2d-b fixes it, with a red test.
+
+---
+
+### MC-125 — An MCP tool server outlives a character switch by a few minutes of idleness
+
+- **Tag:** decision
+- **Date:** 2026-09-30
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose "A few minutes" on a question the Orchestrator asked during
+  W2d-b's scoping (ledger row 417; packet Q-1, "Design D").
+- **Reasoning:** none stated beyond the choice. The Orchestrator's case: a request bound to its own
+  chat may still be calling a server after the user switches character, and switching back and
+  forth should not respawn local tool processes.
+- **Alternatives rejected:** hold a server exactly while a request uses it and shut it down at once
+  (release hooks in every streaming tool loop; switching back respawns local processes).
+- **Related:** MC-095, MC-103, MC-121.
+
+**What was decided:** an MCP client is not shut down while a call to it is in flight, nor while it
+was used within the last few minutes; after that, the next tool activity shuts down any client the
+current selection and the current request do not use. A local (`stdio:`) tool process may linger
+that long after its character is left.

@@ -13,8 +13,8 @@ STATUS block and its ledger rows.
 - **Authority.** Where this file and a Report, `Agents/Roadmap.md` or `Agents/Maintainer-Context.md`
   differ, they win. Sources are cited by name, not by line: the code moves.
 - **Checked against** the source, the Roadmap, the Reports' STATUS blocks and `git log` at HEAD
-  `1d6fa16b` (2026-09-29); the W2c section is updated through W2c-c (`d27a1ee4`), the W2d-b section
-  through W2d-a (`4c34172c`, 2026-09-30).
+  `1d6fa16b` (2026-09-29); the W2c section is updated through W2c-c (`d27a1ee4`), the W2d section
+  through W2d-b (`efd417b9`, 2026-09-30).
 
 ## After W2c (the send's prompt)
 
@@ -52,38 +52,42 @@ STATUS block and its ledger rows.
   maintainer did not object to. No caller passes a subject to `setGlobalChatVar` at HEAD (only
   `Toggles.svelte` calls it, with none), so that default is unimplemented but unreachable.
 
-## W2d-b (the tool path, graph memory, `risuaccess`, `aiaccess`)
+## After W2d (the request layer and its tools)
 
-- **W2d-a is done** (`4c34172c`, Report 44; CHORE-27 closed). What it leaves for W2d-b:
-  - `requestChatData`'s argument carries an optional `subject` (a `RunSubject`; a send passes its
-    `SendSubject`, a trigger run its own). It reaches every provider unchanged and is never cloned;
-    it must never be forwarded to a plugin provider or a plugin MCP callback, which cross the plugin
-    bridge (`registerMCP`'s `callTool(toolName, content)` stays two-argument).
-  - Tools still follow the selection: `arg.tools ?? getTools()`, `getModuleMcps()`,
-    `initializeMCPs()`/`callMCPTool()` and the six `callTool` sites in `anthropic.ts`, `google.ts`,
-    `openAI/requests.ts` and `openAI/responses.ts`. The requestOrigin tests mock the tool path.
-- **Scope** (`MC-095`, `MC-103`, `MC-121`, `MC-122`; scoping packet `w2d/packet.md` sections 2 (Q5 to
-  Q8), 4, 5 and 6):
-  - the tool list and call routing from the request's subject; `initializeMCPs`'s cleanup destroys
-    every client outside the current module set, so a subject-bound initialisation must not destroy
-    another in-flight request's clients (packet L-1, Q-F);
-  - graph memory's reads and writes through the subject (`getChatVar`/`setChatVar(…, subject)`),
-    and its first write, which throws in a chat with no `graphmem_graph` (`'null'` parses to
-    `null`); what the model is told when a bound write is dropped (packet Q-E);
-  - `risuaccess` tools called with no `id` act on the subject's character and chat (`MC-103`'s
-    default); an explicit `id` keeps its meaning (packet Q-C);
-  - `aiaccess`'s nested request carries the subject (packet Q-B);
-  - `templates/jsonSchema.ts`: `convertInterfaceToSchema` and `extractJSON` parse the schema and
-    extraction text with no subject, so CBS there reads the selection (W2d-a Gate 2, ledger row
-    413);
-  - `MC-122`'s three bugs: the image-prompt `data += rq`, NovelList's `NaN`, and the fallback
-    models never trying the primary model (intent to be checked first).
-- **Harness:** the four `src/ts/process/tests/requestOrigin*.svelte.test.ts` files load the real
-  request layer with the network mocked; `mcp/risuaccess/tests/characterSaveMarks.test.ts` drives
-  the real `RisuAccessClient` but its `stores.svelte` mock has no `selectedCharID`.
-- **Live check** (W2d-a, ledger row 415): the build strips `console.*`; a probe provider registered
-  through `__pluginApis__.addProvider` and a `beforeRequest` replacer as the switch window show the
-  real prompt with no network.
+- **W2d is done:** W2d-a `4c34172c` (Report 44; CHORE-27 closed), W2d-b `efd417b9` (Report 45). A
+  request with a subject runs its `request` trigger, names its prompt, gets its tools, routes its
+  tool calls and parses its JSON schema from its own chat; graph memory, `risuaccess` with no `id`
+  and `aiaccess` act on it. Callers with no subject keep the selection.
+- **The subject never crosses the plugin bridge.** A client's `callTool` gets it as a third argument
+  (`{subject}`); `CustomPluginMCPClient` forwards exactly `(toolName, args)`, and plugin providers
+  never see it. A new internal MCP client that reads chat state must take the third argument.
+- **The MCP registry** (`src/ts/process/mcp/mcp.ts`): one client per URL, created single-flight;
+  swept only when unused by the selection and the current activity, not in flight, and idle for
+  `MCP_IDLE_GUARD_MS` (5 minutes, `MC-125`). Every listing, metadata read and name lookup works on its
+  own activity's URL list; nothing may walk the whole registry. `internal:risuai` is call-only by a
+  per-URL list, not a second map.
+- **Left open by W2d-b (Report 45 section 3), none scheduled:**
+  - `risuaccess` writes with an explicit `id` hold the object chosen before the confirm prompt; a
+    character replaced or removed during the prompt takes a detached write (packet L-9).
+  - One unknown `internal:` URL, or a `stdio:` URL outside Tauri, rejects the whole request:
+    `getTools()` sits outside `requestChatData`'s retry `try` (packet K1, K2; the same upstream).
+  - A tool call over a custom transport whose send fails never settles and pins its client (packet
+    H1); a real `stdio:` child was never run.
+  - Claude's streaming path does no JSON extraction at all (`MC-124` fixed the non-streaming
+    branches only).
+  - `extractJSON` with a dotted path returns the parent object; `openAI/requests.ts` also hands it
+    already-parsed objects at a few sites.
+  - A request with no subject and a `{{char}}` schema still rejects when nothing is selected (the
+    translator, IrisModal).
+  - The Anthropic tool loop calls a name the request never listed (no `arg.tools` check), so
+    `internal:risuai` is name-callable on Claude models; kept as is.
+  - A plugin's re-registered MCP keeps its old client for the linger period.
+  - A subject-bound tool call whose chat is gone still acts on external servers (`internal:fs`,
+    http); `MC-075` 2 covers writes to the origin only. Not decided.
+- **Live check method** (ledger row 426): a local OpenAI-compatible probe server (scratchpad
+  `w2d/live-b/probe-server.cjs`, 127.0.0.1:6011, CORS open) as the "Custom API" model shows the real
+  request, including tools, and can hold a tool call or fail on demand; Echo as the auxiliary model.
+  The fallback list is reached in the legacy GUI's prompt-template page.
 
 ## W3 (`/` commands, `/multisend`, `sendPofile`)
 

@@ -16,7 +16,7 @@ treat it as a log or history.
 ## Branch and commit state
 
 The branch is `fix/persistence-conflict-platform-hardening`. **It is pushed through `ae19db8d`
-(`origin` is at that commit). HEAD is W2d-a's records commit, the one after `4c34172c`, 42 commits
+(`origin` is at that commit). HEAD is W2d-b's records commit, the one after `efd417b9`, 44 commits
 ahead, and nothing after `ae19db8d` is pushed.** Push only at the maintainer's request. They
 relayed on 2026-09-29, through the Escape session, that they expect to ask once W2 is complete.
 
@@ -38,7 +38,8 @@ records commit where there is one):
 - **The merge** of W2c-a into Escape on alerts stage 2: `1d6fa16b`.
 - **W2c-b:** `9d493c79`, records `dd41a43d` (which also holds the records clean-up).
 - **W2c-c:** `d27a1ee4`, records `1e8c64f1`.
-- **W2d-a:** `4c34172c`, records the commit after it.
+- **W2d-a:** `4c34172c`, records `86c1e806`.
+- **W2d-b:** `efd417b9`, records the commit after it.
 
 **The working tree is clean** apart from `Agents/Reports/37-chat-html-css-security-surface.md`
 (untracked), which belongs to another session (probably "Q&A"; its header says read-only Q&A). Never
@@ -54,8 +55,11 @@ Several sessions work **in this same checkout**:
   committed, and is idle. It took Report 39, `MC-109` and ledger rows 348-354, then Report 41,
   `MC-115` and rows 375-381.
 - **"Q&A"** is read-only. It handed over the heap measurement (ledger row 383).
+- **"Fix Fullscreen setting error on web build"** (started 2026-09-30 from a chip this session
+  offered) works in **its own worktree**, not this checkout: ticking Fullscreen on the web build
+  alerts because `changeFullscreen` in `src/ts/util.ts` reads a null Tauri window (ledger row 426).
 
-**Next free numbers:** `MC-123`, Report 45, and ledger row 417.
+**Next free numbers:** `MC-126`, Report 46, and ledger row 428.
 Check the ledger's last row before taking one. `MC-114` and ledger rows 371-374 were reserved for
 W2c-a and left unused; nobody should fill them.
 
@@ -66,30 +70,27 @@ W2c-a and left unused; nobody should fill them.
 
 ## Current work
 
-### Resume here (hand-off, 2026-09-30)
+### Resume here (hand-off, 2026-09-30, after W2d-b)
 
-1. **Next: W2d-b**, the second half of W2d, which the maintainer asked to start ("Start working on
-   W2d"). It binds the tool path, graph memory, `risuaccess` with no `id` and `aiaccess` to the
-   request's subject, and folds in the three bugs of `MC-122` and the JSON-schema parse. Start from
-   `Agents/Carry-Forward.md`'s W2d-b section, then: an `investigator` scoping (the packet
-   `w2d/packet.md` already covers most of it), the plan (Report 45), Gate 1, red tests, the fix,
-   Gate 2, a live check, the commit-message check. Commit only when asked.
-   - **Lesson from W2d-a's Gate 1** (ledger row 408): execute every planned test row at HEAD before
-     Gate 1 accepts it. Three rounds were spent on rows that were red only by reading.
-2. **Push:** the maintainer expects to ask once W2 is complete (W2d-b, W3 and W2e remain).
-3. **The Chrome tab** from W2d-a's live check (localhost:6001) may still be open behind its
-   leave-site prompt; the maintainer was asked to close it. The server is stopped and `save/` is
+1. **Next: W3** (`/` commands, `/multisend`, `sendPofile`), per `MC-103`'s order. Start from
+   `Agents/Carry-Forward.md`'s W3 section, then: an `investigator` scoping, the plan (Report 46),
+   Gate 1 with every test row executed at HEAD first (the lesson of ledger row 408, which W2d-b
+   followed: rows 417, 418 and 420), red tests, the fix, Gate 2, a live check, the commit-message
+   check. Ask the maintainer before starting; commit only when asked.
+2. **Push:** the maintainer expects to ask once W2 is complete (W3 and W2e remain).
+3. **The Chrome tab** from W2d-b's live check (localhost:6001) may still be open behind its
+   leave-site prompt; the maintainer was asked to close it. Both servers are stopped and `save/` is
    restored and hash-verified.
 
-### W2d-a: done (committed as `4c34172c`, records the commit after it)
+### W2d-b: done (committed as `efd417b9`, records the commit after it)
 
-- **Plan:** Report 44 rev 4.1; decisions `MC-121` (trigger-run model calls follow their run),
-  `MC-122` (three bugs to W2d-b); ledger rows 404-416.
-- **Gate 1:** rounds 1-3 [REJECT], escalated to `senior-advisor` (row 408: a gate-scope mismatch,
-  not a design defect), every row executed at HEAD (row 409), round 4 [EDITORIAL]. **Gate 2:**
-  [APPROVE], three optional findings taken and verified. **Live check passed** (row 415);
-  **commit-message check** (row 416). Drafts in the session scratchpad (`w2d/commit-msg.txt`,
-  `w2d/commit-records.txt`).
+- **Plan:** Report 45 rev 2.2; decisions `MC-123` (the selected model first, then the fallback list;
+  plugin failures move on), `MC-124` (Claude extraction), `MC-125` (an idle MCP client lingers a few
+  minutes); ledger rows 417-427.
+- **Gate 1:** round 1 [REJECT] (the registry lifecycle underspecified), round 2 [EDITORIAL].
+  **Gate 2:** round 1 [REJECT], test-only (two survivors: the in-flight guard and the live-object
+  write); remediation [APPROVE]. **Live check passed** (row 426, with a local OpenAI-compatible probe
+  server, scratchpad `w2d/live-b/probe-server.cjs`). **Commit-message check** (row 427).
 - **Committed** at the maintainer's request. Not pushed.
 
 ### The heap measurement (ledger row 383): done
@@ -103,14 +104,13 @@ Placement of the W2 stages is `MC-103`'s split (W2a, W2b, W2c, W2d, W3, W2e, in 
 Roadmap has no stage entries for W2c to W3; it carries the tickets below, checked on 2026-09-29
 against the entries for CHORE-27, 35, 40, 41, 43 and 45.
 
-1. **W2d-b**, next: the tool path, graph memory, `risuaccess`, `aiaccess`, the JSON-schema parse and
-   `MC-122`'s three bugs. W2d-a (`4c34172c`) closed CHORE-27.
-2. **W3:** `/` commands, `/multisend`, `sendPofile`.
-3. **W2e:** the delete warning and complete registration.
-4. **The memory footprint** (`MC-119`): the savings being worked out in the Q&A session, from the
+1. **W3**, next: `/` commands, `/multisend`, `sendPofile`. W2d is done (W2d-a `4c34172c` closed
+   CHORE-27; W2d-b `efd417b9`).
+2. **W2e:** the delete warning and complete registration.
+3. **The memory footprint** (`MC-119`): the savings being worked out in the Q&A session, from the
    heap measurement (ledger row 383). CHORE-45 is decided after it.
-5. **The wiki's composer and send batch** (Wiki session; waits for W2).
-6. **CHORE-35's opt-in stage:** the remaining upstream-infrastructure features (`/proxy2`'s
+4. **The wiki's composer and send batch** (Wiki session; waits for W2).
+5. **CHORE-35's opt-in stage:** the remaining upstream-infrastructure features (`/proxy2`'s
    static-web default, the transformers CDN, the Lua docs link, the MCP OAuth helper,
    `#import=<url>`, `getProxyStreamJobBaseUrl`). Roadmap: "scheduled after W1", `MC-092`. W1 is done. It is
    sequenced here after W2 by this file, not by the Roadmap.
@@ -170,7 +170,8 @@ dispatches; `Agents/Carry-Forward.md` holds what a stage left for later ones. Ea
 | Escape on alerts, stage 2 | 41 | `c0b323b0` | `d848ecdf` | 375-381 |
 | W2c-b, prompt parses, persona and summaries | 42 | `9d493c79` | `dd41a43d` | 382, 384-392 |
 | W2c-c, the prompt's index tags and hidden messages | 43 | `d27a1ee4` | `1e8c64f1` | 393-403 |
-| W2d-a, the `request` trigger and the prompt's names (CHORE-27) | 44 | `4c34172c` | the commit after it | 404-416 |
+| W2d-a, the `request` trigger and the prompt's names (CHORE-27) | 44 | `4c34172c` | `86c1e806` | 404-416 |
+| W2d-b, the tool path, graph memory, `risuaccess`, `aiaccess`, four request bugs | 45 | `efd417b9` | the commit after it | 417-427 |
 
 Escape on alerts stage 2 and W2c-a were merged as `1d6fa16b`.
 
@@ -218,10 +219,8 @@ Escape on alerts stage 2 and W2c-a were merged as `1d6fa16b`.
 
 ## Test suite
 
-- **W2d-a's tree before its one-guard remediation:** 182 files, 2,950 passed, 4 skipped, 0 failed
-  (ledger row 412); `pnpm check` clean, the build passes. After the remediation the four
-  `requestOrigin*` files pass 123/123 and `pnpm check` is clean (row 414); the full suite was not
-  re-run for that test-only change.
+- **W2d-b's final tree (`efd417b9`):** 187 files, 3,066 passed, 4 skipped, 0 failed (ledger rows
+  425-426); `pnpm check` clean, the build passes.
 - `cargo check` last ran on the removal stage.
 - Run the suite with plain `pnpm test` or `npx vitest run`. `vitest.config.ts` excludes
   `.claude/**` (`7b72b813`).
