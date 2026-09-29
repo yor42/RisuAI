@@ -755,6 +755,17 @@ describe.each(previewEntries)('$name: a result that finishes while another alert
         expect(shown().msg).toContain('test-model')
     })
 
+    test('Escape on the alert the result waits behind closes that alert, and the result shows at once', async () => {
+        fakeSend({ returns: true, body: REQUEST_BODY, during: () => { alertNormal('The start trigger says hi') } })
+        await entry.run()
+        expect(shown().type, 'the alert at the end of the run').toBe('normal')
+
+        await keydownHandler(escapeKey())
+
+        expect(shown().type, 'the alert right after Escape').toBe('markdown')
+        expect(shown().msg).toContain('test-model')
+    })
+
     test('the result is shown once, and a later alert that closes does not show it again', async () => {
         fakeSend({ returns: true, body: REQUEST_BODY, during: () => { alertNormal('The start trigger says hi') } })
         await entry.run()
@@ -771,12 +782,12 @@ describe.each(previewEntries)('$name: a result that finishes while another alert
 })
 
 describe('a newer preview run, and a refused attempt, while a result is pending', () => {
-    /** Runs a preview whose result waits behind a start trigger's alert, then presses Escape so the alert becomes a toast. */
+    /** Runs a preview whose result waits behind a start trigger's alert, then covers that alert with a toast. */
     async function pendingBehindToast(): Promise<void> {
         fakeSend({ returns: true, body: EARLIER_BODY, during: () => { alertNormal('The start trigger says hi') } })
         await keydownHandler(ctrlU())
         expect(shown().type, 'the alert the result waits behind').toBe('normal')
-        await keydownHandler(escapeKey())
+        alertToast('Alert Closed')
         expect(shown()).toMatchObject({ type: 'toast', msg: 'Alert Closed' })
     }
 

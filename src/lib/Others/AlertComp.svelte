@@ -399,6 +399,11 @@
                         {/if}
                     {/each}
                 </div>
+                <div class="flex w-full">
+                    <Button styled="outlined" className="mt-4 grow" onclick={() => {
+                        alertStore.set({type: 'none', msg: ''})
+                    }}>{language.cancel}</Button>
+                </div>
             {:else if $alertStore.type === 'requestdata'}
                 {#if aiLawApplies()}
                 <div>

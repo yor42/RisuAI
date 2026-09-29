@@ -521,7 +521,7 @@ describe('loadData(): a stale account-sync profile does not boot silently (I6)',
     }
 
     for (const branch of branches) {
-        test(`install branch "${branch}": an error alert, Escape's toast, and Enter's "yes" each re-post the notice instead of resolving it`, async () => {
+        test(`install branch "${branch}": an error alert, a toast, and Enter's "yes" each re-post the notice instead of resolving it`, async () => {
             localStorage.setItem('accountst', 'able')
             localStorage.setItem('dosync', 'sync')
             localStorage.setItem('fallbackRisuToken', JSON.stringify({ token: 'stale' }))
@@ -532,11 +532,10 @@ describe('loadData(): a stale account-sync profile does not boot silently (I6)',
 
             await loadData()
 
-            // Simulates a foreign alert, then hotkey.ts's real Escape write
-            // (`alertToast('Alert Closed')`) and Enter write
-            // (`{type:'none', msg:'yes'}`) verbatim, checking each in turn:
-            // only the notice's own OK may resolve it, so every other write
-            // must be followed by the notice reappearing.
+            // Simulates a foreign alert, then a foreign toast and hotkey.ts's
+            // real Enter write (`{type:'none', msg:'yes'}`) verbatim, checking
+            // each in turn: only the notice's own OK may resolve it, so every
+            // other write must be followed by the notice reappearing.
             alertStore.set({ type: 'error', msg: 'unrelated error' })
             expect(get(alertStore).type).toBe('staleAccountNotice')
 

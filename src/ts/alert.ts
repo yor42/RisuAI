@@ -150,7 +150,7 @@ export const STALE_ACCOUNT_NOTICE_ACK = 'stale-account-notice-acknowledged'
 /**
  * Posts the stale-RisuAccount-profile notice (I6) and keeps it in front of
  * any other alert until the user's own OK acknowledges it: whatever the
- * store holds while waiting -- an unrelated alert, Escape's toast, a generic
+ * store holds while waiting -- an unrelated alert, a toast, a generic
  * 'yes', or anything else -- re-posts the notice instead of resolving. Once
  * the ack is seen, `settled` makes every later store write a no-op for this
  * subscription, including one delivered synchronously inside the same

@@ -1,5 +1,6 @@
 import { get } from "svelte/store"
-import { alertSelect, alertToast, doingAlert, alertRequestLogs } from "./alert"
+import { alertSelect, alertToast, alertClear, doingAlert, alertRequestLogs } from "./alert"
+import { escapeActionFor } from "./alertEscape"
 import { changeToPreset as changeToPreset2, getDatabase  } from "./storage/database.svelte"
 import { alertStore, DBState, loadoutModalStore, MobileGUIStack, MobileSideBar, openPersonaList, openPresetList, OpenRealmStore, PlaygroundStore, QuickSettings, SafeModeStore, selectedCharID, settingsOpen } from "./stores.svelte"
 import { language } from "src/lang"
@@ -264,8 +265,16 @@ export function initHotkey(){
             }
         }
         if(ev.key === 'Escape'){
-            if(doingAlert()){
-                alertToast('Alert Closed')
+            // A prompt waiting for an answer is never answered by Escape, and
+            // nothing behind it reacts to the key either.
+            const escapeAction = escapeActionFor(get(alertStore).type)
+            if(escapeAction === 'ignore'){
+                ev.preventDefault()
+                ev.stopPropagation()
+                return
+            }
+            if(escapeAction === 'close'){
+                alertClear()
             }
             if(get(settingsOpen)){
                 settingsOpen.set(false)
