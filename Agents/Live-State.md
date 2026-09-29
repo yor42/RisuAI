@@ -16,9 +16,9 @@ treat it as a log or history.
 ## Branch and commit state
 
 The branch is `fix/persistence-conflict-platform-hardening`. **It is pushed through `ae19db8d`
-(`origin` is at that commit). HEAD is `1d6fa16b`, 36 commits ahead, and nothing after `ae19db8d` is
-pushed.** Push only at the maintainer's request. They relayed on 2026-09-29, through the Escape
-session, that they expect to ask once W2 is complete.
+(`origin` is at that commit). HEAD is W2c-c's records commit, the one after `d27a1ee4`, 40 commits
+ahead, and nothing after `ae19db8d` is pushed.** Push only at the maintainer's request. They
+relayed on 2026-09-29, through the Escape session, that they expect to ask once W2 is complete.
 
 The unpushed commits, by stage (`git log --oneline ae19db8d..HEAD`; fix commit first, then its
 records commit where there is one):
@@ -36,23 +36,12 @@ records commit where there is one):
 - **W2c-a:** `79c6e35e`, records `4576d07e`.
 - **Escape on alerts, stage 2:** `c0b323b0`, records `d848ecdf`.
 - **The merge** of W2c-a into Escape on alerts stage 2: `1d6fa16b`.
+- **W2c-b:** `9d493c79`, records `dd41a43d` (which also holds the records clean-up).
+- **W2c-c:** `d27a1ee4`, records the commit after it.
 
-**Uncommitted in the working tree:**
-- **W2c-b's implementation:** 11 modified production files (`index.svelte.ts`, `chatML.ts`,
-  `modules.ts`, `exampleMessages.ts`, `addinfo.ts`, `supaMemory.ts`, `hypav2.ts`, `hypav3.ts`,
-  `util.ts`, `DefaultChatScreen.svelte`, `CustomSidebar.svelte`) and five untracked tests, all under
-  `src/`:
-  - `src/ts/process/tests/sendChatPromptReads.svelte.test.ts`
-  - `src/ts/process/tests/sendChatPromptReadsProxied.svelte.test.ts`
-  - `src/ts/process/tests/sendChatPromptCorpus.svelte.test.ts`
-  - `src/ts/process/tests/memorySummarizerSubject.svelte.test.ts`
-  - `src/ts/util.livePersona.svelte.test.ts`
-- **W2c-b's records:** ledger rows 382-392, `MC-116` and `MC-117` in `Maintainer-Context.md`,
-  Report 42, and the clean-up files (this file, `Carry-Forward.md`, `README.md`, `Phase2-Handoff.md`,
-  the ledger's new reading, and the STATUS-line corrections in Reports 23, 24, 26, 30, 31 and 38-41
-  and in Roadmap CHORE-28).
-
-`Agents/Reports/37-chat-html-css-security-surface.md` (untracked) belongs to another session.
+**The working tree is clean** apart from `Agents/Reports/37-chat-html-css-security-surface.md`
+(untracked), which belongs to another session (probably "Q&A"; its header says read-only Q&A). Never
+stage it.
 
 ## Parallel sessions (2026-09-29)
 
@@ -65,7 +54,7 @@ Several sessions work **in this same checkout**:
   `MC-115` and rows 375-381.
 - **"Q&A"** is read-only. It handed over the heap measurement (ledger row 383).
 
-**Next free numbers:** `MC-118`, Report 43, and ledger row 393.
+**Next free numbers:** `MC-121`, Report 44, and ledger row 404.
 Check the ledger's last row before taking one. `MC-114` and ledger rows 371-374 were reserved for
 W2c-a and left unused; nobody should fill them.
 
@@ -76,35 +65,36 @@ W2c-a and left unused; nobody should fill them.
 
 ## Current work
 
-### W2c-b: the send's prompt parses and helpers read the send's chat
+### Resume here (hand-off, 2026-09-29)
 
-- **Plan:** Report 42 rev 2.1; decisions `MC-116` (the persona block is gated on the send's own
-  chat's persona) and `MC-117` (a chat bound to the selected persona reads its live values); ledger
-  rows 382-392.
-- **Gate 1 passed:** round 1 [REJECT] on the test plan (row 384); round 2 [EDITORIAL], applied
-  (row 385).
-- **Red tests** (row 386): 138 reproducers red at HEAD, 44 guards green.
-- **Implemented, uncommitted** (row 387). The pre-gate checks pass: `pnpm test` 177 files, 2676
-  passed, 4 skipped; `pnpm check` clean; the build passes.
-- **Gate 2 passed:** round 1 [REJECT] on tests only (row 389); the tests remediated; round 2
-  [APPROVE] (row 390).
-- **Live check passed** (row 391). **Commit-message check** (row 392): [EDITORIAL], applied; the
-  drafts are in the session scratchpad (`w2cb/commit-msg.txt`, `w2cb/commit-records.txt`).
-- **Now:** waiting for the maintainer's request to commit. W2c-b is read-only apart from two values
-  stored on the reply (`promptToggles`, `promptText`).
+1. **Next: W2d**, only on the maintainer's go-ahead: the request layer, the model's tools and graph
+   memory, and CHORE-27 (`MC-103`, `MC-095`). Start from `Agents/Carry-Forward.md`'s W2d section,
+   then the usual path: an `investigator` scoping, the plan (Report 44), Gate 1, red tests, the
+   fix, Gate 2, a live check, the commit-message check. Commit only when asked.
+2. **Push:** the maintainer expects to ask once W2 is complete (W2d, W3 and W2e remain).
+3. **The Chrome tab** from W2c-c's live check (localhost:6001) may still be open behind its
+   leave-site prompt; the maintainer was asked to close it. The server is stopped and `save/` is
+   restored and hash-verified.
+4. **Disclosed to the maintainer with W2c-c, no action pending:** Report 43 section 8 (the
+   additional-info query follows `MC-118` 3; typed tags stay expanded at input; tags the model
+   writes are expanded by the reply's pass; a mid-send delete shifts where a walk-back tag starts;
+   new message objects swapped in mid-send make the later walk-back and history tags read every
+   message as sent, as upstream, while the request is unaffected). No objection so far.
 
-### Next: W2c-c
+### W2c-c: done (committed as `d27a1ee4`, records the commit after it)
 
-`MC-113`: the prompt's index tags and hidden-message rule get their own stage, from a complete
-inventory of the parses that build the prompt. Its starting evidence is listed in
-`Agents/Carry-Forward.md`.
+- **Plan:** Report 43 rev 3.1; decisions `MC-111`, `MC-112`, `MC-113`, `MC-118`, `MC-120`; ledger
+  rows 393-403. `MC-119` puts CHORE-45 after the memory-footprint stage.
+- **Gate 1:** rounds 1 and 2 [REJECT], round 3 [EDITORIAL]. **Gate 2:** round 1 [REJECT], the
+  remediation (tests first), round 2 [EDITORIAL]. **Live check passed** (row 402);
+  **commit-message check** (row 403). Drafts in the session scratchpad (`w2cc/commit-msg.txt`,
+  `w2cc/commit-records.txt`).
+- **Committed** at the maintainer's request. Not pushed.
 
-### The heap measurement (ledger row 383)
+### The heap measurement (ledger row 383): done
 
-Still running as of this writing, in a pinned worktree on synthetic data (the maintainer's
-generator), a web build in headless Chrome over CDP. It measures the heap cost of `DBState.db` on a large profile: raw data, Svelte
-proxy and signal overhead, assets, and the save encoder's copies. The report is due in the session
-scratchpad at `heap/report.md`. It is a separate line of work from W2c.
+Report in the session scratchpad, `heap/report.md`; summary sent to the Q&A session. It feeds the
+memory-footprint stage after W2e (`MC-119`).
 
 ## Work order
 
@@ -112,15 +102,15 @@ Placement of the W2 stages is `MC-103`'s split (W2a, W2b, W2c, W2d, W3, W2e, in 
 Roadmap has no stage entries for W2c to W3; it carries the tickets below, checked on 2026-09-29
 against the entries for CHORE-27, 35, 40, 41, 43 and 45.
 
-1. **W2c-b** (Gate 2 and the live check passed; awaiting commit).
-2. **W2c-c** (`MC-113`).
-3. **W2d:** the request layer, tools, graph memory, CHORE-27. Roadmap CHORE-27 says "closed by
+1. **W2d**, next: the request layer, tools, graph memory, CHORE-27. Roadmap CHORE-27 says "closed by
    writer stage W2 (`MC-076`)", corrected on 2026-09-27; `request.ts` still reads
    `getCurrentCharacter()` and `getCurrentChat()`.
-4. **W3:** `/` commands, `/multisend`, `sendPofile`.
-5. **W2e:** the delete warning and complete registration.
-6. **The wiki's composer and send batch** (Wiki session; waits for W2).
-7. **CHORE-35's opt-in stage:** the remaining upstream-infrastructure features (`/proxy2`'s
+2. **W3:** `/` commands, `/multisend`, `sendPofile`.
+3. **W2e:** the delete warning and complete registration.
+4. **The memory footprint** (`MC-119`): the savings being worked out in the Q&A session, from the
+   heap measurement (ledger row 383). CHORE-45 is decided after it.
+5. **The wiki's composer and send batch** (Wiki session; waits for W2).
+6. **CHORE-35's opt-in stage:** the remaining upstream-infrastructure features (`/proxy2`'s
    static-web default, the transformers CDN, the Lua docs link, the MCP OAuth helper,
    `#import=<url>`, `getProxyStreamJobBaseUrl`). Roadmap: "scheduled after W1", `MC-092`. W1 is done. It is
    sequenced here after W2 by this file, not by the Roadmap.
@@ -129,8 +119,8 @@ Not placed in the sequence:
 - **CHORE-40** (the copy button's URL fetch): open, Roadmap gives no position.
 - **CHORE-41** (the edit-button bug): blocked on the maintainer's console output.
 - **CHORE-43** (unreroll can write one chat's reply into another) and **CHORE-45** (the script cache
-  misses every lookup on a repeat send in a long chat): both filed and not scheduled. CHORE-45 is
-  revisited with W2c-c.
+  misses every lookup on a repeat send in a long chat): both filed and not scheduled. CHORE-45 waits
+  for the memory-footprint work (`MC-119`).
 
 `MC-089`: nothing ships until every open ticket clears.
 
@@ -178,8 +168,10 @@ dispatches; `Agents/Carry-Forward.md` holds what a stage left for later ones. Ea
 | Escape on alerts, stage 1 | 39 | `6631f5e0` | `9dee3ea9` | 348-354 |
 | W2c-a, scripts, Lua edit triggers and lorebook | 40 | `79c6e35e` | `4576d07e` | 355-370 |
 | Escape on alerts, stage 2 | 41 | `c0b323b0` | `d848ecdf` | 375-381 |
+| W2c-b, prompt parses, persona and summaries | 42 | `9d493c79` | `dd41a43d` | 382, 384-392 |
+| W2c-c, the prompt's index tags and hidden messages | 43 | `d27a1ee4` | the commit after it | 393-403 |
 
-The last two stages were merged as `1d6fa16b`.
+Escape on alerts stage 2 and W2c-a were merged as `1d6fa16b`.
 
 ## Operational notes for this environment
 
@@ -225,10 +217,8 @@ The last two stages were merged as `1d6fa16b`.
 
 ## Test suite
 
-- **The committed tree `1d6fa16b`:** 172 files, 2486 passed, 4 skipped, 0 failed. The Orchestrator
-  ran it this session; it is recorded here only. `pnpm check` was clean and the build passed.
-- **The current working tree (W2c-b, uncommitted):** 177 files, 2696 passed, 4 skipped (ledger rows
-  389-390). `pnpm check` is clean and the build passes.
+- **W2c-c's final tree (`d27a1ee4`):** 178 files, 2,828 passed, 4 skipped, 0 failed (ledger rows
+  400-401). `pnpm check` is clean and the build passes.
 - `cargo check` last ran on the removal stage.
 - Run the suite with plain `pnpm test` or `npx vitest run`. `vitest.config.ts` excludes
   `.claude/**` (`7b72b813`).

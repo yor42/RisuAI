@@ -3441,3 +3441,99 @@ decide them either.** Revisit any of them on request:
    name, icon and note, as Persona settings shows them now), in the send and on screen. A chat
    bound to any other persona, and a chat with no bound persona, read what they read before.
 
+---
+
+### MC-118 — W2c-c: a message's own tags, the history tags and the lore scan follow `MC-111` and `MC-112`
+
+- **Tag:** decision
+- **Date:** 2026-09-29
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on three questions the Orchestrator asked
+  after W2c-c's inventory of the parses that build the prompt (ledger row 393).
+- **Reasoning:** the inventory found three places, not named by `MC-111` or `MC-112`, where a wrong
+  index or hidden text reaches the prompt. Upstream is the same in all three.
+  - When a send starts, every message's own tags are expanded at index -1 and the result is saved
+    into the chat. This is the only place `{{setvar}}`, `{{addvar}}` and `{{setdefaultvar}}` run.
+  - The chat-history tags return disabled and pre-reset messages. Every branched chat ends with a
+    disabled "branched from" comment, which `{{lastmessage}}` returns until a new message is added.
+  - The lorebook's keyword scan reads disabled messages, so hidden text can activate lore entries.
+- **Alternatives rejected:**
+  - the send-start expansion: leave hidden messages unexpanded (their `{{setvar}}` not run) until
+    they are sent; or keep upstream's -1 and open a chore;
+  - the history tags: make `{{lastmessageid}}` and the chat-length tags count sent messages too; or
+    keep upstream and open a chore;
+  - the lore scan: keep upstream and open a chore.
+- **Extends:** `MC-111`, `MC-112`.
+- **Related:** MC-111, MC-112, MC-113.
+
+**What was decided:**
+1. **When a send starts, each message's own tags are expanded at that message's own position**, and
+   their look-backs skip hidden messages (`MC-111` 2, `MC-112` 2). Disabled and pre-reset messages
+   are still expanded, and their `{{setvar}}`, `{{addvar}}` and `{{setdefaultvar}}` still run, as
+   upstream. The result is still saved into the chat.
+2. **While the prompt is built, the text-returning history tags skip hidden messages:**
+   `{{history}}`, `{{userhistory}}`, `{{charhistory}}`, `{{lastmessage}}` and
+   `{{previouschatlog::n}}`, with their aliases. `{{previouschatlog::n}}` returns nothing for a
+   hidden message, and `{{history}}` includes the first message only if it was sent.
+   `{{lastmessageid}}` and the chat-length tags keep upstream's counts.
+3. **The lorebook's keyword scan, and its scan depth, consider only messages sent to the model.**
+   The decorators that count turns (`activate_only_after`, `activate_only_every`) keep counting the
+   whole chat.
+
+**Orchestrator defaults stated to the maintainer with these questions, not objected to (not
+decided):**
+- the token-count copy of every prompt parse follows the copy that is sent;
+- `{{messageidleduration}}` keeps its "no user message found" strings; it has no first-message
+  fallback for `MC-112` 2 to apply;
+- side requests are out of scope: the memory summarizers, the image-prompt (`igp`) request and a
+  trigger's LLM call;
+- the first message keeps index -1;
+- Lua `getChat*` and the trigger `v2Get*` functions keep reading the whole chat, since cards do
+  their own arithmetic on those positions.
+
+---
+
+### MC-119 — The memory-footprint work comes after W2e, and CHORE-45 waits for it
+
+- **Tag:** decision
+- **Date:** 2026-09-29
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, on W2c-c's plan (Report 43) leaving CHORE-45 out: "we are currently
+  theorizing potential memory savings on Q&A sessions. after W2e, I think we should focus on these
+  memory footprint before deciding on chore-45."
+- **Reasoning:** a fix for CHORE-45 needs a cache sizing decision, and the heap measurement (ledger
+  row 383) shows memory is the scarce resource. The memory savings being worked out in the Q&A
+  session may change what the cache can afford.
+- **Alternatives rejected:** none offered; stated unprompted.
+- **Related:** MC-113.
+
+**What was decided:**
+1. **After W2e, the next focus is the application's memory footprint**, from the savings being
+   worked out in the Q&A session.
+2. **CHORE-45 is decided after that work**, not in W2c-c.
+
+---
+
+### MC-120 — W2c-c: a trigger's system-prompt text follows `MC-112`; other trigger and Lua parses do not
+
+- **Tag:** decision
+- **Date:** 2026-09-29
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on a question the Orchestrator asked after
+  W2c-c's Gate 1 round 1 (Report 43; ledger row 394), which found that Report 43 rev 1 left every
+  trigger and Lua parse reading the whole chat while `MC-112` 3 covers every parse that builds the
+  prompt.
+- **Reasoning:** the start trigger's system-prompt effects add their parsed text to the prompt, so a
+  walk-back or history tag in them can still put a hidden message there. Other trigger and Lua
+  parses feed variables and logic the card's author controls, as the Lua and trigger chat functions
+  do (`MC-118`'s defaults).
+- **Alternatives rejected:** every parse in the send's start trigger and `editRequest` Lua skips
+  hidden messages, including values written to variables; none does (a known gap).
+- **Extends:** `MC-112` 3, `MC-118`.
+- **Related:** MC-111, MC-112, MC-113, MC-118.
+
+**What was decided:**
+1. **When the send's start trigger runs, the text of its system-prompt effects (`systemprompt`,
+   `v2SystemPrompt`) is parsed under the prompt rule:** walk-backs and history tags skip hidden
+   messages.
+2. **Every other trigger parse, and Lua's `cbs()`, keep reading the whole chat.**

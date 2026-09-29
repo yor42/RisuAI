@@ -13,27 +13,31 @@ STATUS block and its ledger rows.
 - **Authority.** Where this file and a Report, `Agents/Roadmap.md` or `Agents/Maintainer-Context.md`
   differ, they win. Sources are cited by name, not by line: the code moves.
 - **Checked against** the source, the Roadmap, the Reports' STATUS blocks and `git log` at HEAD
-  `1d6fa16b` (2026-09-29). W2c-b, uncommitted at that time, is noted where it matters.
+  `1d6fa16b` (2026-09-29); the W2c section is updated through W2c-c (`d27a1ee4`).
 
-## W2c-b and W2c-c (the send's prompt)
+## After W2c (the send's prompt)
 
-- **W2c-b** passed Gate 2 and its live check and awaits commit (Report 42 rev 2.2; `MC-116`,
-  `MC-117`; ledger rows 382-392). It changes no index tag, look-back over hidden messages or
-  script-cache use in the prompt pass: those are W2c-c's (`MC-113`).
-- **W2c-c** (`MC-113`) delivers `MC-111` and `MC-112`: the prompt's index tags describe the message
-  being processed; every look-back while the prompt is built skips hidden messages; the script cache
-  is made sound for it.
-  - Its plan starts from a complete inventory of every parse that builds the prompt.
-  - Its starting evidence is Report 40 section 12 (Gate 1 rounds 2-4) and ledger rows 358-362,
-    including the `senior-advisor` escalation (row 360: the cache keys on content, not on the chat
-    state its outputs read; cache only what the key determines) and the measurement (row 361:
-    bypassing the cache costs about 50 ms per 1,000 messages; measured on an i9-13900KF under node,
-    a dev build, unproxied `$state`, 998 messages and 8 `editprocess` scripts, so best-case
-    hardware).
-  - The prompt pass's `@@inject`/`@@repeat_back` addressing was fixed in W2c-a (`MC-110` 3). Only
-    the index tags remain.
-  - **CHORE-45** (Roadmap): the script cache holds 1,000 entries and misses every lookup on a repeat
-    send in a long chat. Revisit it with W2c-c.
+- **W2c is done:** W2c-a `79c6e35e` (Report 40), W2c-b `9d493c79` (Report 42), W2c-c `d27a1ee4`
+  (Report 43). The send's prompt reads its own chat; its index tags describe their message; nothing
+  that builds it reads a hidden message.
+- **W2c-c's `promptView`** (a parser option, never read from `cbsConditions`) marks every parse that
+  builds the prompt; `splitSentMessages` in `src/ts/cbs.ts` is the one definition of "sent", shared
+  with `makeMs`. A new prompt parse must carry the marker; the completeness test in
+  `sendChatPromptReads.svelte.test.ts` catches a missing one only among parses made from
+  `index.svelte.ts`, `exampleMessages`, `parseChatML` and `supaMemory`: its parser spy does not see
+  parses inside `scripts.ts`, `lorebook.svelte.ts`, `triggers.ts` or `scriptings.ts` (probably
+  the import cycle; not tested), which behaviour tests cover instead.
+- **W2c-c leaves, the same as upstream (Report 43 section 8):** messages deleted during the prompt
+  build shift where a walk-back tag starts by the number removed before it (hidden messages are
+  never taken); a plugin or V3 call that swaps in new message objects mid-send makes the walk-back
+  and history tags parsed after it read every message as sent, while the request is unaffected.
+  Three stale-view mutants survive because identity-based hidden-ness makes a stale view correct
+  for every shift; they matter only when a start trigger removes the reset while keeping the
+  messages before it, or inserts one before the reset, and the optional tests that kill them
+  (Gate 2 round 2, T5 and T6) were not added.
+- **CHORE-45** (Roadmap): the script cache's 1,000-entry capacity. W2c-c decides only which
+  prompt-pass results may be cached; the capacity is decided after the memory-footprint stage that
+  follows W2e (`MC-119`).
 - **The group member names in the prompt read `findCharacterbyIdwithCache`, and no later stage owns
   them.** The prompt's group member names, the preview heading and the `msg.saying` comparison read
   it: a per-send cache over `findCharacterbyId`. It returns a blank "Unknown Character" for a gone

@@ -1680,8 +1680,9 @@ amendment; live-checked, ledger row 299). Present at `688b13e8` as well.
   10-15x slower.
 - **Not a fix on its own:** an LRU refresh does not help a cyclic scan longer than the capacity.
   A likely shape is a capacity that follows the chat's length, or a separate cache per pass.
-- **Related:** W2c-c (`MC-113`) decides how the prompt pass uses the cache at all; revisit this
-  with it.
+- **Related:** W2c-c (`MC-113`, Report 43) decides which prompt-pass results may be cached and
+  leaves the capacity alone. This chore is decided after the memory-footprint work that follows
+  W2e (`MC-119`).
 
 ## Sequencing Summary
 
