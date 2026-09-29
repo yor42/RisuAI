@@ -1,6 +1,7 @@
 //Although these are TECHNICALLY not MCPs, but for the users, we will stick to that name
 
 import type { MCPTool, RPCToolCallContent } from "./mcplib";
+import type { RunSubject } from "../chatOrigin";
 
 //template for MCPClient-like classes that can be used in the MCP system
 //Original MCPClient is located in src/ts/process/mcp/mcplib.ts
@@ -41,7 +42,8 @@ export class MCPClientLike {
         return [];
     }
 
-    async callTool(toolName: string, args: any): Promise<RPCToolCallContent[]> {
+    // `ctx.subject` is the request the call belongs to; only the clients that read or write a chat use it.
+    async callTool(toolName: string, args: any, ctx?: { subject?: RunSubject }): Promise<RPCToolCallContent[]> {
         return [{
             type: 'text',
             text: `Tool ${toolName} not implemented`

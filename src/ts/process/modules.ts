@@ -511,8 +511,8 @@ export function getModuleToggles(subject?: RunSubject) {
     return costomModuleToggles
 }
 
-export function getModuleMcps() {
-    const modules = getModules()
+export function getModuleMcps(subject?: RunSubject) {
+    const modules = getModules(subject)
 
     return modules.map((v) => v.mcp?.url).filter((v) => v)
 }

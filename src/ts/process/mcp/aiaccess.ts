@@ -3,6 +3,7 @@
 import { requestChatData } from "../request/request";
 import { MCPClientLike } from "./internalmcp";
 import type { MCPTool, RPCToolCallContent } from "./mcplib";
+import type { RunSubject } from "../chatOrigin";
 
 export class AIAccessClient extends MCPClientLike {
     private directoryHandle: FileSystemDirectoryHandle | null = null;
@@ -50,7 +51,7 @@ export class AIAccessClient extends MCPClientLike {
         }]
     }
 
-    async callTool(methodName: string, args: any): Promise<RPCToolCallContent[]> {
+    async callTool(methodName: string, args: any, ctx?: { subject?: RunSubject }): Promise<RPCToolCallContent[]> {
         if (methodName === 'runLLM') {
             const { model, messages } = args;
             if (!model || !messages || !Array.isArray(messages)) {
@@ -64,7 +65,8 @@ export class AIAccessClient extends MCPClientLike {
                     role: msg.role,
                     content: msg.content
                 })),
-                bias: {}
+                bias: {},
+                subject: ctx?.subject
             }, model === 'lite' ? 'otherAx' : 'model')
 
             return [{

@@ -551,7 +551,7 @@ export async function requestClaude(arg:RequestDataArgumentExtended):Promise<req
         if(arg.extractJson && db.jsonSchemaEnabled){
             return {
                 type: 'success',
-                result: extractJSON(resText, db.jsonSchema)
+                result: extractJSON(resText, arg.extractJson, {subject: arg.subject})
             }
         }
         return {
@@ -1118,7 +1118,8 @@ async function requestClaudeHTTP(replacerURL:string, headers:{[key:string]:strin
             }
 
             if(content.type === 'tool_use'){
-                const used = await callTool(content.name, content.input)
+                const listed = arg.tools?.find((t) => t.name === content.name)
+                const used = await callTool(content.name, content.input, {subject: arg.subject, mcpURL: listed?.mcpURL})
                 const r:Claude3ToolResponseBlock = {
                     type: 'tool_result',
                     tool_use_id: content.id,
@@ -1208,7 +1209,7 @@ async function requestClaudeHTTP(replacerURL:string, headers:{[key:string]:strin
     if(arg.extractJson && db.jsonSchemaEnabled){
         return {
             type: 'success',
-            result: arg.additionalOutput + extractJSON(resText, db.jsonSchema)
+            result: arg.additionalOutput + extractJSON(resText, arg.extractJson, {subject: arg.subject})
         }
     }
     return {

@@ -2,12 +2,23 @@ import { getChatVar, setChatVar } from "src/ts/parser/chatVar.svelte";
 import { MCPClientLike } from "./internalmcp";
 import type { MCPTool, RPCToolCallContent } from "./mcplib";
 import { HypaProcesser } from "../memory/hypamemory";
+import type { RunSubject } from "../chatOrigin";
 
 type GraphIndex = {
     name: string;
     summary: string;
     connections: string[];
 };
+
+// A chat with no stored graph, or one that is not a list, has an empty graph.
+function readGraph(subject?: RunSubject): GraphIndex[] {
+    try {
+        const graph = JSON.parse(getChatVar("graphmem_graph", subject));
+        return Array.isArray(graph) ? graph as GraphIndex[] : [];
+    } catch (error) {
+        return [];
+    }
+}
 
 export class GraphMemClient extends MCPClientLike {
     constructor() {
@@ -66,14 +77,14 @@ export class GraphMemClient extends MCPClientLike {
         }];
     }
 
-    async callTool(toolName: string, args: any): Promise<RPCToolCallContent[]> {
+    async callTool(toolName: string, args: any, ctx?: { subject?: RunSubject }): Promise<RPCToolCallContent[]> {
         try {
             switch (toolName) {
                 case "writeMemory": {
-                    return await this.handleWriteMemory(args);
+                    return await this.handleWriteMemory(args, ctx?.subject);
                 }
                 case "readMemory": {
-                    return await this.handleReadMemory(args);
+                    return await this.handleReadMemory(args, ctx?.subject);
                 }
                 default:
                     return [{ type: 'text', text: `Unknown tool: ${toolName}` }];
@@ -84,7 +95,7 @@ export class GraphMemClient extends MCPClientLike {
         }
     }
 
-    private async handleWriteMemory(args: any): Promise<RPCToolCallContent[]> {
+    private async handleWriteMemory(args: any, subject?: RunSubject): Promise<RPCToolCallContent[]> {
         
         const {
             name,
@@ -96,19 +107,21 @@ export class GraphMemClient extends MCPClientLike {
             connections: string[];
         } = args;
         
-        let graph: GraphIndex[] = []
+        // A subject that resolves to nothing must store nothing: its owner or chat is gone, or ambiguous (an id held
+        // twice, unless the subject is a send and one holder is the object the send started from).
+        if(subject && !subject.resolve()){
+            return [{ type: 'text', text: 'Error: The chat this memory belongs to could not be found; the memory entry was not saved.' }];
+        }
 
-        try {
-            graph = JSON.parse(getChatVar("graphmem_graph")) as GraphIndex[];
-        } catch (error) {}
+        const graph = readGraph(subject);
 
         graph.push({ name, summary, connections });
 
-        setChatVar("graphmem_graph", JSON.stringify(graph));
+        setChatVar("graphmem_graph", JSON.stringify(graph), subject);
         return [{ type: 'text', text: `Memory entry "${name}" written successfully.` }];
     }
 
-    private async handleReadMemory(args: any): Promise<RPCToolCallContent[]> {
+    private async handleReadMemory(args: any, subject?: RunSubject): Promise<RPCToolCallContent[]> {
         const {
             query,
             search_depth = 2,
@@ -118,11 +131,7 @@ export class GraphMemClient extends MCPClientLike {
             threshold?: number;
         } = args;
 
-        let graph: GraphIndex[] = []
-
-        try {
-            graph = JSON.parse(getChatVar("graphmem_graph")) as GraphIndex[];
-        } catch (error) {}
+        const graph = readGraph(subject);
 
         if(!Array.isArray(query) || query.length === 0){
             return [{ type: 'text', text: `Query must be a non-empty array of strings.` }];

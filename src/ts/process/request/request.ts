@@ -49,7 +49,8 @@ interface requestDataArgument{
     previewBody?:boolean
     staticModel?: string
     escape?:boolean
-    tools?: MCPTool[]
+    // `mcpURL` names the client that listed the tool; a caller's own list may leave it out.
+    tools?: (MCPTool & { mcpURL?: string })[]
     rememberToolUsage?: boolean
     blockPlugins?:boolean
     // Never cloned and never handed to a plugin: the plugin provider builds its own argument.
@@ -208,8 +209,9 @@ function normalizeOllamaStreamResponse(response: Response): Response {
 export async function requestChatData(arg:requestDataArgument, model:ModelModeExtended, abortSignal:AbortSignal=null):Promise<requestDataResponse> {
     const db = getDatabase()
     const fallBackModels:string[] = safeStructuredClone(db?.fallbackModels?.[model] ?? [])
-    const tools = arg.tools ?? (await getTools())
-    fallBackModels.push('')
+    const tools = arg.tools ?? (await getTools(arg.subject))
+    // The selected model is attempt 0 (the blank name); the list follows it.
+    fallBackModels.unshift('')
     let da:requestDataResponse
 
     if(arg.escape){
@@ -337,12 +339,17 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
                 }
             }
     
-            if(da.type !== 'fail' || da.noRetry){
+            if(da.type !== 'fail' || (da.noRetry && fallbackIndex === fallBackModels.length-1)){
                 const usedModel = fallBackModels[fallbackIndex] || da.model
                 return usedModel ? {
                     ...da,
                     model: usedModel
                 } : da
+            }
+
+            if(da.noRetry){
+                // The provider asked not to be retried: the next model, if any, is next.
+                break
             }
     
             if(da.failByServerError){
@@ -354,8 +361,7 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
             
             trys += 1
             if(trys > db.requestRetrys){
-                const isPluginModel = da.model === 'custom' || da.model?.startsWith('pluginmodel:::')
-                if(fallbackIndex === fallBackModels.length-1 || isPluginModel){
+                if(fallbackIndex === fallBackModels.length-1){
                     return da
                 }
                 break

@@ -364,7 +364,7 @@ async function buildResponsesBody(arg:RequestDataArgumentExtended):Promise<Recor
         body.text ??= {}
         body.text.format = {
             type: 'json_schema',
-            ...getOpenAIJSONSchema(arg.schema)
+            ...getOpenAIJSONSchema(arg.schema, {subject: arg.subject})
         }
     }
 
@@ -449,7 +449,7 @@ function extractResponsesText(data:any, arg:RequestDataArgumentExtended):string{
         result = `<Thoughts>\n\n${thoughts.join('\n\n')}\n\n</Thoughts>\n${result}`
     }
     if(arg.extractJson && (db.jsonSchemaEnabled || arg.schema)){
-        return extractJSON(result, arg.extractJson)
+        return extractJSON(result, arg.extractJson, {subject: arg.subject})
     }
 
     return result
@@ -488,7 +488,7 @@ async function appendResponsesToolOutputs(body:any, calls:ResponseFunctionCallIt
                 output = 'No tool found with name: ' + toolCall.name
             }
             else{
-                const used = (await callTool(tool.name, parsed)).filter((m) => m.type === 'text')
+                const used = (await callTool(tool.name, parsed, {subject: arg.subject, mcpURL: tool.mcpURL})).filter((m) => m.type === 'text')
                 if(used.length > 0){
                     output = used[0].text
                     if(arg.rememberToolUsage){
@@ -606,7 +606,7 @@ function getResponsesTranStream(arg:RequestDataArgumentExtended):TransformStream
             result = `<Thoughts>\n\n${reasoning}\n\n</Thoughts>\n${result}`
         }
         if(arg.extractJson && (db.jsonSchemaEnabled || arg.schema)){
-            result = extractJSON(result, arg.extractJson)
+            result = extractJSON(result, arg.extractJson, {subject: arg.subject})
         }
         const chunk:Record<string,string> = { "0": error || result }
         if(Object.keys(calls).length > 0){

@@ -1,13 +1,14 @@
 import { risuChatParser } from "src/ts/parser/parser.svelte"
 import { getDatabase } from "src/ts/storage/database.svelte"
 import { jsonOutputTrimmer } from "src/ts/util"
+import type { RunSubject } from "../chatOrigin"
 
-export function convertInterfaceToSchema(int:string){
+export function convertInterfaceToSchema(int:string, options?:{subject?:RunSubject}){
     if(!int.startsWith('interface ') && !int.startsWith('export interface ')){
         return JSON.parse(int)
     }
 
-    int = risuChatParser(int)
+    int = risuChatParser(int, {subject: options?.subject})
 
     type SchemaProp = {
         "type": "array"|"string"|"number"|"boolean",
@@ -121,16 +122,16 @@ export function convertInterfaceToSchema(int:string){
     return schema
 }
 
-export function getOpenAIJSONSchema(schema?:string){
+export function getOpenAIJSONSchema(schema?:string, options?:{subject?:RunSubject}){
     const db = getDatabase()
     return {
         "name": "format",
         "strict": db.strictJsonSchema,
-        "schema": convertInterfaceToSchema(schema ?? db.jsonSchema)
+        "schema": convertInterfaceToSchema(schema ?? db.jsonSchema, options)
     }
 }
 
-export function getGeneralJSONSchema(schema?:string, excludes:string[] = []){
+export function getGeneralJSONSchema(schema?:string, excludes:string[] = [], options?:{subject?:RunSubject}){
     const db = getDatabase()
 
     function process(data:any){
@@ -146,11 +147,11 @@ export function getGeneralJSONSchema(schema?:string, excludes:string[] = []){
         return data
     }
 
-    const d = convertInterfaceToSchema(schema ?? db.jsonSchema)
+    const d = convertInterfaceToSchema(schema ?? db.jsonSchema, options)
     return process(d)
 }
 
-export function extractJSON(data:string, format:string){
+export function extractJSON(data:string, format:string, options?:{subject?:RunSubject}){
     const extract = (data:any, format:string) => {
         try {
             if(data === undefined || data === null){
@@ -167,11 +168,11 @@ export function extractJSON(data:string, format:string){
                 return `${current ?? ''}`
             }
             else if(typeof current === 'object'){
-                return extractJSON(current, fp.slice(1).join('.'))
+                return extractJSON(current, fp.slice(1).join('.'), options)
             }
             else if(Array.isArray(current)){
                 const index = parseInt(fp[1])
-                return extractJSON(current[index], fp.slice(1).join('.'))
+                return extractJSON(current[index], fp.slice(1).join('.'), options)
             }
             else{
                 return `${current ?? ''}`
@@ -181,7 +182,7 @@ export function extractJSON(data:string, format:string){
         }
     }
     try {
-        format = risuChatParser(format)
+        format = risuChatParser(format, {subject: options?.subject})
         data = data.trim()
         if(data.startsWith('{')){
             return extract(JSON.parse(jsonOutputTrimmer(data)), format)

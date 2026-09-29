@@ -524,7 +524,7 @@ export async function requestGoogleCloudVertex(arg:RequestDataArgumentExtended):
     
     if(db.jsonSchemaEnabled || arg.schema){
         body.generation_config.response_mime_type = "application/json"
-        body.generation_config.response_schema = getGeneralJSONSchema(arg.schema, ['$schema','additionalProperties'])
+        body.generation_config.response_schema = getGeneralJSONSchema(arg.schema, ['$schema','additionalProperties'], {subject: arg.subject})
         console.log(body.generation_config.response_schema)
     }    
     
@@ -617,7 +617,7 @@ async function requestGoogle(url:string, body:any, headers:{[key:string]:string}
     const processTextResponse = (rDatas: {text: string, thought?: boolean}[]) => {
         if(arg.extractJson && (db.jsonSchemaEnabled || arg.schema)){
             for(let i=0;i<rDatas.length;i++){
-                const extracted = extractJSON(rDatas[i].text, arg.extractJson)
+                const extracted = extractJSON(rDatas[i].text, arg.extractJson, {subject: arg.subject})
                 rDatas[i].text = extracted
             }
         }
@@ -844,7 +844,7 @@ async function requestGoogle(url:string, body:any, headers:{[key:string]:string}
             
             const tool = tools.find((t) => t.name === functionName)
             if(tool){
-                const result = (await callTool(tool.name, functionArgs)).filter((r) => {
+                const result = (await callTool(tool.name, functionArgs, {subject: arg.subject, mcpURL: tool.mcpURL})).filter((r) => {
                     return r.type === 'text'
                 })
                 if(result.length === 0){
@@ -1087,7 +1087,7 @@ function wrapToolStream(
                 value = initStreamState(value)
 
                 if(arg.extractJson && (db.jsonSchemaEnabled || arg.schema)){
-                    value["0"] = extractJSON(value["0"], arg.extractJson)
+                    value["0"] = extractJSON(value["0"], arg.extractJson, {subject: arg.subject})
                 }
 
                 let content = value["0"]
@@ -1158,7 +1158,7 @@ function wrapToolStream(
                             const functionArgs = call.args
                             const tool = tools.find((t) => t.name === functionName)
                             if(tool){
-                                const result = (await callTool(tool.name, functionArgs)).filter((r) => {
+                                const result = (await callTool(tool.name, functionArgs, {subject: arg.subject, mcpURL: tool.mcpURL})).filter((r) => {
                                     return r.type === 'text'
                                 })
                                 if(result.length === 0){

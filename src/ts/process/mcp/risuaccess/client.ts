@@ -4,6 +4,7 @@ import { CharacterHandler } from './characters'
 import { ChatHandler } from './chats'
 import { ModuleHandler } from './modules'
 import { markCharacterForSave } from '../../../storage/characterSaveMarks'
+import type { RunSubject } from '../../chatOrigin'
 
 export class RisuAccessClient extends MCPClientLike {
   private handlers: MCPToolHandler[]
@@ -82,7 +83,7 @@ backgroundEmbedding is an HTML string mainly for custom styling. It can, and mos
     return tools
   }
 
-  async callTool(toolName: string, args: any): Promise<RPCToolCallContent[]> {
+  async callTool(toolName: string, args: any, callCtx?: { subject?: RunSubject }): Promise<RPCToolCallContent[]> {
     // Fork-specific internal API (CHORE-01): per-call context,
     // not a module-level one, so overlapping calls touching different
     // characters can't clear each other's marks. Marking must happen AFTER
@@ -90,7 +91,7 @@ backgroundEmbedding is an HTML string mainly for custom styling. It can, and mos
     // every mutating handler's write follows an awaited promptAccess(), so a
     // save could otherwise encode the pre-mutation state and the trim would
     // then drop the id.
-    const ctx: MCPToolCallContext = { touched: new Set() }
+    const ctx: MCPToolCallContext = { touched: new Set(), subject: callCtx?.subject }
     try {
       for (const handler of this.handlers) {
         const result = await handler.handle(toolName, args, ctx)

@@ -2462,7 +2462,9 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
 
         const igpTarget = resolveReply()
         if(igpTarget){
-            igpTarget.ctx.chat.message[igpTarget.index].data += rq
+            if(rq.type === 'success'){
+                igpTarget.ctx.chat.message[igpTarget.index].data += rq.result
+            }
         }
         else if(!subject.resolve()){
             return endGone()

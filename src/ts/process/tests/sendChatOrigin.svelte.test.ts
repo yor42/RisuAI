@@ -1475,7 +1475,7 @@ describe('an output trigger that rebuilds the chat without message ids', () => {
         } else {
             mockReply('Hello there.')
         }
-        requestChatDataMock.mockResolvedValueOnce('IGP-TEXT')
+        requestChatDataMock.mockResolvedValueOnce({ type: 'success', result: 'IGP-TEXT' })
 
         const result = await settled(() => sendChat())
 
@@ -1511,7 +1511,7 @@ describe('the tail writes of a send go to the reply, not to the last message', (
         } else {
             mockReply('Hello there.')
         }
-        requestChatDataMock.mockResolvedValueOnce('IGP-TEXT')
+        requestChatDataMock.mockResolvedValueOnce({ type: 'success', result: 'IGP-TEXT' })
 
         const result = await settled(() => sendChat())
 
@@ -1522,6 +1522,38 @@ describe('the tail writes of a send go to the reply, not to the last message', (
         expect(chat.message[1].data).toBe('Hello there.IGP-TEXT')
         expect(chat.message[1].generationInfo?.generationId).toBe(chat.message[1].chatId)
         expect(chat.message[1].generationInfo?.stageTiming?.stage4).toEqual(expect.any(Number))
+    })
+})
+
+describe('the image-prompt request\'s result', () => {
+    test('the text of a successful image-prompt request is appended to the reply', async () => {
+        installDb(
+            [makeCharacter('char-0', [makeChat('chat-origin', [msg('user', 'Hi')])])],
+            { igpPrompt: 'describe the scene' },
+        )
+        selectedCharID.set(0)
+        mockReply('Hello there.')
+        requestChatDataMock.mockResolvedValueOnce({ type: 'success', result: 'IGP-TEXT' })
+
+        const result = await settled(() => sendChat())
+
+        expect(result).toBe(true)
+        expect(chatById('char-0', 'chat-origin').message[1].data).toBe('Hello there.IGP-TEXT')
+    })
+
+    test('a failed image-prompt request appends nothing to the reply', async () => {
+        installDb(
+            [makeCharacter('char-0', [makeChat('chat-origin', [msg('user', 'Hi')])])],
+            { igpPrompt: 'describe the scene' },
+        )
+        selectedCharID.set(0)
+        mockReply('Hello there.')
+        requestChatDataMock.mockResolvedValueOnce({ type: 'fail', result: 'request failed' })
+
+        const result = await settled(() => sendChat())
+
+        expect(result).toBe(true)
+        expect(chatById('char-0', 'chat-origin').message[1].data).toBe('Hello there.')
     })
 })
 

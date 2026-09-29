@@ -405,7 +405,7 @@ export async function requestOpenAI(arg:RequestDataArgumentExtended):Promise<req
     if((db.jsonSchemaEnabled || arg.schema) && !arg.modelInfo.flags.includes(LLMFlags.noStructuredOutput)){
         body.response_format = {
             "type": "json_schema",
-            "json_schema": getOpenAIJSONSchema(arg.schema)
+            "json_schema": getOpenAIJSONSchema(arg.schema, {subject: arg.subject})
         }
     }
 
@@ -689,7 +689,7 @@ export async function requestHTTPOpenAI(
             if(arg.extractJson && (db.jsonSchemaEnabled || arg.schema)){
                 try {
                     const parsed = JSON.parse(text)
-                    const extracted = extractJSON(parsed, arg.extractJson)
+                    const extracted = extractJSON(parsed, arg.extractJson, {subject: arg.subject})
                     return extracted
                 } catch (error) {
                     console.log(error)
@@ -699,7 +699,7 @@ export async function requestHTTPOpenAI(
             return text
         }
         if(arg.extractJson && (db.jsonSchemaEnabled || arg.schema)){
-            return extractJSON(dat.choices[0].message.content, arg.extractJson)
+            return extractJSON(dat.choices[0].message.content, arg.extractJson, {subject: arg.subject})
         }
         const msg:OpenAIChatFull = (dat.choices[0].message)
         let result = msg.content ?? ''
@@ -776,7 +776,7 @@ export async function requestHTTPOpenAI(
                             }
                             else{
                                 const parsed = functionArgs
-                                const x = (await callTool(tool.name, parsed)).filter(m => m.type === 'text')
+                                const x = (await callTool(tool.name, parsed, {subject: arg.subject, mcpURL: tool.mcpURL})).filter(m => m.type === 'text')
                                 if(x.length > 0){
                                     messages.push({
                                         role: 'tool',
@@ -852,7 +852,7 @@ export async function requestHTTPOpenAI(
                 if(arg.extractJson && (db.jsonSchemaEnabled || arg.schema)){
                     
                     const c = dat.choices.map((v:{message:{content:string}}) => {
-                        const extracted = extractJSON(v.message.content ?? '', arg.extractJson)
+                        const extracted = extractJSON(v.message.content ?? '', arg.extractJson, {subject: arg.subject})
                         return ["char", extracted]
                     })
                     
@@ -1013,7 +1013,7 @@ function getTranStream(arg:RequestDataArgumentExtended):TransformStream<Uint8Arr
                                 }
                                 if(arg.extractJson && (db.jsonSchemaEnabled || arg.schema)){
                                     for(const key in readed){
-                                        const extracted = extractJSON(readed[key], arg.extractJson)
+                                        const extracted = extractJSON(readed[key], arg.extractJson, {subject: arg.subject})
                                         JSONreaded[key] = extracted
                                     }
                                     console.log(JSONreaded)
@@ -1110,7 +1110,7 @@ function getTranStream(arg:RequestDataArgumentExtended):TransformStream<Uint8Arr
                 }
                 if(arg.extractJson && (db.jsonSchemaEnabled || arg.schema)){
                     for(const key in readed){
-                        const extracted = extractJSON(readed[key], arg.extractJson)
+                        const extracted = extractJSON(readed[key], arg.extractJson, {subject: arg.subject})
                         JSONreaded[key] = extracted
                     }
                     console.log(JSONreaded)
@@ -1222,7 +1222,7 @@ function wrapToolStream(
                                     }
                                     else{
                                         const parsed = functionArgs
-                                        const x = (await callTool(tool.name, parsed)).filter(m => m.type === 'text')
+                                        const x = (await callTool(tool.name, parsed, {subject: arg.subject, mcpURL: tool.mcpURL})).filter(m => m.type === 'text')
                                         if(x.length > 0){
                                             messages.push({
                                                 role: 'tool',

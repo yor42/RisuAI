@@ -1,6 +1,7 @@
 import { v4 } from "uuid"
 import { fetchNative, openURL } from "../../globalApi.svelte"
 import { alertInput } from "../../alert";
+import type { RunSubject } from "../chatOrigin";
 
 export type MCPPrompt = {
     name: string;              // Unique identifier for the prompt
@@ -83,6 +84,8 @@ export type RPCToolCallContent = RPCToolCallTextContent | RPCToolCallImageAudioC
  */
 export interface MCPToolCallContext {
     touched: Set<string>
+    // The request the tool call belongs to; a handler with no `id` argument acts on its owner and chat.
+    subject?: RunSubject
 }
 
 export abstract class MCPToolHandler {
