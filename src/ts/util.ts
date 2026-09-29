@@ -280,6 +280,9 @@ function readFileAsUint8Array(file: File) {
 }
 
 export async function changeFullscreen(){
+    if(!appWindow){
+        return
+    }
     const db = getDatabase()
     const isFull = await appWindow.isFullscreen()
     if(db.fullScreen && (!isFull)){
