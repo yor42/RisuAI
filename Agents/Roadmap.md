@@ -244,6 +244,12 @@ This phase is the load-bearing one: it's what Phase 4 (Android) is gated behind,
      sidebar; dragging into and out of folders is inconsistent. The first is a possible persistence
      defect and is triaged before the rest. Deferred by the maintainer until the composer stage and
      `updateInlayScreen` are fixed.
+   - **The custom sidebar's settings picker ignores platform conditions** (ledger row 428; deferred
+     by the maintainer to a sidebar rework). `CustomSidebarConfig.svelte` and `CustomSidebar.svelte`
+     list settings through `getFullSettingsData` (`src/ts/setting/utils.ts`), which does not apply an
+     item's `condition`. So an item can be added on a platform its condition excludes and renders
+     as an empty slot: Fullscreen outside Tauri, or the `!isNodeServer && !isTauri` item in
+     `advancedSettingsData.ts` on Node and Tauri. No crash.
    - Related bug: CHORE-18 (creator notes overflow in the list view).
    **Add real virtual scrolling to the chat message list** (`DefaultChatScreen.svelte`), keeping the existing incremental-load-on-scroll-up behavior for fetching history but unmounting off-screen messages so peak DOM/component count is bounded. This is the most Android-relevant fix in the whole roadmap. *(Report 01, recommendation 4 — Medium-High effort.)*
 

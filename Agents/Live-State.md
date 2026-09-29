@@ -16,8 +16,8 @@ treat it as a log or history.
 ## Branch and commit state
 
 The branch is `fix/persistence-conflict-platform-hardening`. **It is pushed through `ae19db8d`
-(`origin` is at that commit). HEAD is W2d-b's records commit, the one after `efd417b9`, 44 commits
-ahead, and nothing after `ae19db8d` is pushed.** Push only at the maintainer's request. They
+(`origin` is at that commit). HEAD is the Fullscreen fix's records commit, the one after `51e923eb`, 46
+commits ahead, and nothing after `ae19db8d` is pushed.** Push only at the maintainer's request. They
 relayed on 2026-09-29, through the Escape session, that they expect to ask once W2 is complete.
 
 The unpushed commits, by stage (`git log --oneline ae19db8d..HEAD`; fix commit first, then its
@@ -56,10 +56,11 @@ Several sessions work **in this same checkout**:
   `MC-115` and rows 375-381.
 - **"Q&A"** is read-only. It handed over the heap measurement (ledger row 383).
 - **"Fix Fullscreen setting error on web build"** (started 2026-09-30 from a chip this session
-  offered) works in **its own worktree**, not this checkout: ticking Fullscreen on the web build
-  alerts because `changeFullscreen` in `src/ts/util.ts` reads a null Tauri window (ledger row 426).
+  offered) worked in its own worktree. Its fix was cherry-picked here as `51e923eb` (ledger row
+  428); its worktree's `node_modules` is a junction to this checkout's, so remove the junction
+  alone (`cmd /c rmdir`) before deleting that worktree.
 
-**Next free numbers:** `MC-126`, Report 46, and ledger row 428.
+**Next free numbers:** `MC-126`, Report 46, and ledger row 429.
 Check the ledger's last row before taking one. `MC-114` and ledger rows 371-374 were reserved for
 W2c-a and left unused; nobody should fill them.
 
