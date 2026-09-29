@@ -440,7 +440,7 @@ export async function requestOpenAI(arg:RequestDataArgumentExtended):Promise<req
 
         if(db.useInstructPrompt){
             delete body.messages
-            const prompt = applyChatTemplate(formated)
+            const prompt = applyChatTemplate(formated, { subject: arg.subject })
             body.prompt = prompt
         }
     }

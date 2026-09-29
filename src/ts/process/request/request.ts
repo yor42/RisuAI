@@ -12,10 +12,11 @@ import { getTools } from "../mcp/mcp";
 import type { MCPTool } from "../mcp/mcplib";
 import { NovelAIBadWordIds, stringlizeNAIChat } from "../models/nai";
 import { OobaParams } from "../prompt";
-import { getStopStrings, stringlizeAINChat, unstringlizeAIN, unstringlizeChat } from "../stringlize";
+import { getRequestCharName, getStopStrings, stringlizeAINChat, unstringlizeAIN, unstringlizeChat } from "../stringlize";
 import { applyChatTemplate } from "../templates/chatTemplate";
 import { runTransformers } from "../transformers";
 import { runTrigger } from "../triggers";
+import { createRunSubject, type RunSubject } from "../chatOrigin";
 import { requestClaude } from './anthropic';
 import { requestGoogleCloudVertex } from './google';
 import { requestOpenAI, requestOpenAILegacyInstruct, requestOpenAIResponseAPI } from "./openAI/requests";
@@ -51,6 +52,8 @@ interface requestDataArgument{
     tools?: MCPTool[]
     rememberToolUsage?: boolean
     blockPlugins?:boolean
+    // Never cloned and never handed to a plugin: the plugin provider builds its own argument.
+    subject?: RunSubject
 }
 
 export interface RequestDataArgumentExtended extends requestDataArgument{
@@ -243,15 +246,37 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
             }
             
             try{
-                const currentChar = getCurrentCharacter()
-                if(currentChar?.type !== 'group'){
-                    const perf = performance.now()
-                    const d = await runTrigger(currentChar, 'request', {
-                        chat: getCurrentChat(),
-                        displayMode: true,
-                        displayData: JSON.stringify(arg.formated)
+                const perf = performance.now()
+                let d:Awaited<ReturnType<typeof runTrigger>> = null
+                if(arg.subject){
+                    // The owner is resolved and the run started in one synchronous
+                    // stretch. A gone or duplicated origin, and a group, run nothing.
+                    const target = createRunSubject({
+                        chaId: arg.subject.origin.chaId,
+                        chatId: arg.subject.origin.chatId,
                     })
-        
+                    const ctx = target.resolve()
+                    if(ctx && ctx.owner.type !== 'group'){
+                        d = await runTrigger(ctx.owner, 'request', {
+                            chat: ctx.chat,
+                            displayMode: true,
+                            displayData: JSON.stringify(arg.formated),
+                            origin: target.origin,
+                        })
+                    }
+                }
+                else{
+                    const currentChar = getCurrentCharacter()
+                    if(currentChar?.type !== 'group'){
+                        d = await runTrigger(currentChar, 'request', {
+                            chat: getCurrentChat(),
+                            displayMode: true,
+                            displayData: JSON.stringify(arg.formated)
+                        })
+                    }
+                }
+
+                if(d){
                     const got = JSON.parse(d.displayData)
                     if(!got || !Array.isArray(got)){
                         throw new Error('Invalid return')
@@ -543,8 +568,8 @@ async function requestNovelAI(arg:RequestDataArgumentExtended):Promise<requestDa
     const temperature = arg.temperature
     const maxTokens = arg.maxTokens
     const biasString = arg.biasString
-    const currentChar = getCurrentCharacter()
-    const prompt = stringlizeNAIChat(formated, currentChar?.name ?? '', arg.continue)
+    const charName = getRequestCharName(arg.subject)
+    const prompt = stringlizeNAIChat(formated, charName, arg.continue, arg.subject)
     const abortSignal = arg.abortSignal
     let logit_bias_exp:{
         sequence: number[], bias: number, ensure_sequence_finish: false, generate_once: true
@@ -643,7 +668,7 @@ async function requestNovelAI(arg:RequestDataArgumentExtended):Promise<requestDa
     }
     return {
         type: "success",
-        result: unstringlizeChat(da.data.output, formated, currentChar?.name ?? '')
+        result: unstringlizeChat(da.data.output, formated, charName, arg.subject)
     }
 }
 
@@ -652,17 +677,17 @@ async function requestOobaLegacy(arg:RequestDataArgumentExtended):Promise<reques
     const db = getDatabase()
     const aiModel = arg.aiModel
     const maxTokens = arg.maxTokens
-    const currentChar = getCurrentCharacter()
+    const charName = getRequestCharName(arg.subject)
     const useStreaming = arg.useStreaming
     const abortSignal = arg.abortSignal
     let streamUrl = db.textgenWebUIStreamURL.replace(/\/api.*/, "/api/v1/stream")
     let blockingUrl = db.textgenWebUIBlockingURL.replace(/\/api.*/, "/api/v1/generate")
     let bodyTemplate:{[key:string]:any} = {}
-    const prompt = applyChatTemplate(formated)
+    const prompt = applyChatTemplate(formated, { subject: arg.subject })
     let stopStrings = getStopStrings(false)
     if(db.localStopStrings){
         stopStrings = db.localStopStrings.map((v) => {
-            return risuChatParser(v.replace(/\\n/g, "\n"))
+            return risuChatParser(v.replace(/\\n/g, "\n"), { subject: arg.subject })
         })
     }
 
@@ -769,7 +794,7 @@ async function requestOobaLegacy(arg:RequestDataArgumentExtended):Promise<reques
 
             return {
                 type: 'success',
-                result: unstringlizeChat(result, formated, currentChar?.name ?? '')
+                result: unstringlizeChat(result, formated, charName, arg.subject)
             }
         } catch (error) {                    
             return {
@@ -792,11 +817,11 @@ async function requestOoba(arg:RequestDataArgumentExtended):Promise<requestDataR
     const aiModel = arg.aiModel
     const maxTokens = arg.maxTokens
     const temperature = arg.temperature
-    const prompt = applyChatTemplate(formated)
+    const prompt = applyChatTemplate(formated, { subject: arg.subject })
     let stopStrings = getStopStrings(false)
     if(db.localStopStrings){
         stopStrings = db.localStopStrings.map((v) => {
-            return risuChatParser(v.replace(/\\n/g, "\n"))
+            return risuChatParser(v.replace(/\\n/g, "\n"), { subject: arg.subject })
         })
     }
     let bodyTemplate:Record<string, any> = {
@@ -968,7 +993,7 @@ async function requestKobold(arg:RequestDataArgumentExtended):Promise<requestDat
     const maxTokens = arg.maxTokens
     const abortSignal = arg.abortSignal
 
-    const prompt = applyChatTemplate(formated)
+    const prompt = applyChatTemplate(formated, { subject: arg.subject })
     const url = new URL(db.koboldURL)
     if(url.pathname.length < 3){
         url.pathname = 'api/v1/generate'
@@ -1038,7 +1063,7 @@ async function requestNovelList(arg:RequestDataArgumentExtended):Promise<request
     const maxTokens = arg.maxTokens
     const temperature = arg.temperature
     const biasString = arg.biasString
-    const currentChar = getCurrentCharacter()
+    const charName = getRequestCharName(arg.subject)
     const aiModel = arg.aiModel
     const auth_key = db.novellistAPI;
     const api_server_url = 'https://api.tringpt.com/';
@@ -1056,7 +1081,7 @@ async function requestNovelList(arg:RequestDataArgumentExtended):Promise<request
     };
     
     let send_body: Record<string, any> = {
-        text: stringlizeAINChat(formated, currentChar?.name ?? '', arg.continue),
+        text: stringlizeAINChat(formated, charName, arg.continue, arg.subject),
         length: maxTokens,
         temperature: temperature,
         top_p: db.ainconfig.top_p,
@@ -1108,7 +1133,7 @@ async function requestNovelList(arg:RequestDataArgumentExtended):Promise<request
     }
 
     const result = response.data.data[0];
-    const unstr = unstringlizeAIN(result, formated, currentChar?.name ?? '')
+    const unstr = unstringlizeAIN(result, formated, charName, arg.subject)
     return {
         'type': 'multiline',
         'result': unstr
@@ -1197,7 +1222,7 @@ async function requestOllama(arg:RequestDataArgumentExtended):Promise<requestDat
         const result = formatThinkingOutput(response.message?.thinking ?? '', response.message?.content ?? '')
         return {
             type: 'success',
-            result: unstringlizeChat(result, formated, arg.currentChar?.name ?? ''),
+            result: unstringlizeChat(result, formated, arg.currentChar?.name ?? '', arg.subject),
             model: arg.aiModel
         }
     }
@@ -1361,7 +1386,7 @@ async function requestHorde(arg:RequestDataArgumentExtended):Promise<requestData
     const formated = arg.formated
     const db = getDatabase()
     const aiModel = arg.aiModel
-    const currentChar = getCurrentCharacter()
+    const charName = getRequestCharName(arg.subject)
     const abortSignal = arg.abortSignal
 
     if(arg.previewBody){
@@ -1373,7 +1398,7 @@ async function requestHorde(arg:RequestDataArgumentExtended):Promise<requestData
         }
     }
 
-    const prompt = applyChatTemplate(formated)
+    const prompt = applyChatTemplate(formated, { subject: arg.subject })
 
     const realModel = aiModel.split(":::")[1]
 
@@ -1454,7 +1479,7 @@ async function requestHorde(arg:RequestDataArgumentExtended):Promise<requestData
             if(generations && generations.length > 0){
                 return {
                     type: "success",
-                    result: unstringlizeChat(generations[0].text ?? '', formated, currentChar?.name ?? '')
+                    result: unstringlizeChat(generations[0].text ?? '', formated, charName, arg.subject)
                 }
             }
             return {
@@ -1470,11 +1495,11 @@ async function requestWebLLM(arg:RequestDataArgumentExtended):Promise<requestDat
     const formated = arg.formated
     const db = getDatabase()
     const aiModel = arg.aiModel
-    const currentChar = getCurrentCharacter()
+    const charName = getRequestCharName(arg.subject)
     const maxTokens = arg.maxTokens
     const temperature = arg.temperature
     const realModel = aiModel.split(":::")[1]
-    const prompt = applyChatTemplate(formated)
+    const prompt = applyChatTemplate(formated, { subject: arg.subject })
 
     if(arg.previewBody){
         return {
@@ -1498,7 +1523,7 @@ async function requestWebLLM(arg:RequestDataArgumentExtended):Promise<requestDat
     const v = await runTransformers(prompt, realModel, finalParams)
     return {
         type: 'success',
-        result: unstringlizeChat((v.generated_text as string) ?? '', formated, currentChar?.name ?? '')
+        result: unstringlizeChat((v.generated_text as string) ?? '', formated, charName, arg.subject)
     }
 }
 

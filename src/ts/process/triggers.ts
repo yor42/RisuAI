@@ -1058,9 +1058,10 @@ async function collectStreamingText(stream: ReadableStream<{ [key: string]: stri
 }
 
 // A non-display run has no snapshot to commit: every effect writes straight
-// through its own origin, so it must be given one. A display or request run
-// keeps reading and writing the objects its own caller passed it and so
-// carries no origin.
+// through its own origin, so it must be given one. A display run from the chat
+// screen keeps reading and writing the objects its own caller passed it and so
+// carries no origin; a request run made for a send or a trigger-run model call
+// carries one, so that everything it reads follows that chat.
 type RunTriggerLiveArg = {
     chat: Chat
     recursiveCount?: number
@@ -1084,7 +1085,7 @@ type RunTriggerDisplayArg = {
     displayMode: true
     displayData?: string
     tempVars?: Record<string, string>
-    origin?: undefined
+    origin?: Origin
     promptFirstSent?: undefined
 }
 // `promptFirstSent` is set only on the run the send makes for its start
@@ -1109,8 +1110,8 @@ export async function runTrigger(char:character,mode:triggerMode, arg: RunTrigge
     // reference held since before an `await`. Every case below that awaits
     // and then reads or writes `char`/`chat`/`runner` calls `refreshSubject`
     // again first, since the memo behind it does not survive that `await`.
-    // A display or request run has no origin and keeps reading/writing its
-    // caller's `char`/`chat` directly, unchanged.
+    // A display run with no origin keeps reading/writing its caller's
+    // `char`/`chat` directly, unchanged.
     const subject = arg.origin ? createRunSubject(arg.origin) : null
 
     // A run never writes back onto a trigger definition: every entry
@@ -1177,7 +1178,8 @@ export async function runTrigger(char:character,mode:triggerMode, arg: RunTrigge
     }
 
     // Marks the origin's owner -- and its member, whenever it resolved --
-    // for save. A display or request run has no subject and marks nothing.
+    // for save. A display or request run writes only run-local variables and
+    // so marks nothing.
     function markWrite(): void {
         subject?.mark()
     }
@@ -1608,6 +1610,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg: RunTrigge
                         bias: {},
                         useStreaming: false,
                         noMultiGen: true,
+                        subject: subject ?? undefined,
                     }, 'model')
 
                     if(result.type === 'fail' || result.type === 'streaming' || result.type === 'multiline'){
@@ -2063,6 +2066,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg: RunTrigge
                         bias: {},
                         useStreaming: effect.streaming ?? false,
                         noMultiGen: true,
+                        subject: subject ?? undefined,
                     }, effect.model)
                     if(!refreshSubject()){
                         break triggerLoop

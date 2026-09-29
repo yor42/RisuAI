@@ -1,9 +1,28 @@
 import type { OpenAIChat } from "./index.svelte";
-import { getDatabase } from "../storage/database.svelte";
+import { getCurrentCharacter, getDatabase } from "../storage/database.svelte";
 import { getUserName } from "../util";
+import type { RunSubject } from "./chatOrigin";
 
 export function multiChatReplacer(){
 
+}
+
+// With a subject, the names a request formats its prompt with come from the
+// subject's chat and never from the selection, whether or not the subject
+// still resolves. Without one they follow the selection.
+export function getRequestCharName(subject?: RunSubject): string {
+    if(subject){
+        return subject.resolve()?.owner.name ?? ''
+    }
+    return getCurrentCharacter()?.name ?? ''
+}
+
+export function getRequestUserName(subject?: RunSubject): string {
+    if(subject){
+        // `null` reads as no bound persona; `undefined` would read the selection's.
+        return getUserName(subject.resolve()?.chat ?? null)
+    }
+    return getUserName()
 }
 
 export function stringlizeChat(formated:OpenAIChat[], char:string, continued:boolean){
@@ -39,7 +58,7 @@ function appendWhitespace(prefix:string, seperator:string=" ") {
     }
     return prefix
 }
-export function stringlizeChatOba(formated:OpenAIChat[], characterName:string, suggesting:boolean, continued:boolean){
+export function stringlizeChatOba(formated:OpenAIChat[], characterName:string, suggesting:boolean, continued:boolean, subject?:RunSubject){
     const db = getDatabase()
     let resultString:string[] = []
     let { systemPrefix, userPrefix, assistantPrefix, seperator } = db.ooba.formating;
@@ -57,7 +76,7 @@ export function stringlizeChatOba(formated:OpenAIChat[], characterName:string, s
         let name = form.name
         if(form.role === 'user'){
             prefix = appendWhitespace(suggesting ? assistantPrefix : userPrefix, seperator)
-            name ??= `${getUserName()}`
+            name ??= `${getRequestUserName(subject)}`
             name += ': '
         }
         else if(form.role === 'assistant'){
@@ -80,7 +99,7 @@ export function stringlizeChatOba(formated:OpenAIChat[], characterName:string, s
     if(!continued){
         if(db.ooba.formating.useName){
             if (suggesting){
-                resultString.push(appendWhitespace(assistantPrefix, seperator) + `${getUserName()}:\n` + db.autoSuggestPrefix)
+                resultString.push(appendWhitespace(assistantPrefix, seperator) + `${getRequestUserName(subject)}:\n` + db.autoSuggestPrefix)
             } else {
                 resultString.push(assistantPrefix + `${characterName}:`)
             }
@@ -133,10 +152,10 @@ export function getStopStrings(suggesting:boolean=false){
     return [...new Set(stopStrings)]
 }
 
-export function unstringlizeChat(text:string, formated:OpenAIChat[], char:string = ''){
+export function unstringlizeChat(text:string, formated:OpenAIChat[], char:string = '', subject?:RunSubject){
     let minIndex = -1
 
-    const chunks = getUnstringlizerChunks(formated, char).chunks
+    const chunks = getUnstringlizerChunks(formated, char, 'normal', subject).chunks
 
 
     for(const chunk of chunks){
@@ -156,10 +175,11 @@ export function unstringlizeChat(text:string, formated:OpenAIChat[], char:string
     return text
 }
 
-export function getUnstringlizerChunks(formated:OpenAIChat[], char:string, mode:'ain'|'normal' = 'normal'){
+export function getUnstringlizerChunks(formated:OpenAIChat[], char:string, mode:'ain'|'normal' = 'normal', subject?:RunSubject){
     let chunks:string[] = ["system note:", "system:","system note：", "system："]
     let charNames:string[] = []
     const db = getDatabase()
+    const userName = getRequestUserName(subject)
     if(char){
         charNames.push(char)
         if(mode === 'ain'){
@@ -173,17 +193,17 @@ export function getUnstringlizerChunks(formated:OpenAIChat[], char:string, mode:
             chunks.push(`${char}： `) 
         }
     }
-    if(getUserName()){
-        charNames.push(getUserName())
+    if(userName){
+        charNames.push(userName)
         if(mode === 'ain'){
-            chunks.push(`${getUserName()} `)
-            chunks.push(`${getUserName()}　`)
+            chunks.push(`${userName} `)
+            chunks.push(`${userName}　`)
         }
         else{
-            chunks.push(`${getUserName()}:`)
-            chunks.push(`${getUserName()}：`)
-            chunks.push(`${getUserName()}: `)
-            chunks.push(`${getUserName()}： `) 
+            chunks.push(`${userName}:`)
+            chunks.push(`${userName}：`)
+            chunks.push(`${userName}: `)
+            chunks.push(`${userName}： `) 
         }
     }
 
@@ -209,7 +229,7 @@ export function getUnstringlizerChunks(formated:OpenAIChat[], char:string, mode:
     return {chunks,extChunk:charNames.concat(chunks)}
 }
 
-export function stringlizeAINChat(formated:OpenAIChat[], char:string, continued: boolean){
+export function stringlizeAINChat(formated:OpenAIChat[], char:string, continued: boolean, subject?:RunSubject){
     let resultString:string[] = []
     const db = getDatabase()
 
@@ -223,7 +243,7 @@ export function stringlizeAINChat(formated:OpenAIChat[], char:string, continued:
             resultString.push(form.content)
         }
         else if(form.role === 'user'){
-            resultString.push(...formatToAIN(getUserName(), form.content))
+            resultString.push(...formatToAIN(getRequestUserName(subject), form.content))
         }
         else if(form.name || form.role === 'assistant'){
             resultString.push(...formatToAIN(form.name ?? char, form.content))
@@ -289,10 +309,11 @@ function extractAINOutputStrings(inputString:string, characters:string[]) {
     return results;
 }
 
-export function unstringlizeAIN(data:string,formated:OpenAIChat[], char:string = ''){
+export function unstringlizeAIN(data:string,formated:OpenAIChat[], char:string = '', subject?:RunSubject){
 
     const db = getDatabase()
-    const chunksResult = getUnstringlizerChunks(formated, char ,'ain')
+    const userName = getRequestUserName(subject)
+    const chunksResult = getUnstringlizerChunks(formated, char ,'ain', subject)
     const chunks = chunksResult.chunks
     let result:['char'|'user',string][] = []
     data = `${char} 「` + data
@@ -315,7 +336,7 @@ export function unstringlizeAIN(data:string,formated:OpenAIChat[], char:string =
             }
         }
         else{
-            const role = (cont.character.trim() ===  getUserName() ? 'user' : 'char')
+            const role = (cont.character.trim() ===  userName ? 'user' : 'char')
             result.push([
                 role,
                 `「${cont.content}」`

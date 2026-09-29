@@ -1,7 +1,8 @@
 import { Template } from '@huggingface/jinja';
 import type { OpenAIChat } from '../index.svelte';
-import { getCurrentCharacter, getDatabase } from 'src/ts/storage/database.svelte';
-import { getUserName } from 'src/ts/util';
+import { getDatabase } from 'src/ts/storage/database.svelte';
+import type { RunSubject } from '../chatOrigin';
+import { getRequestCharName, getRequestUserName } from '../stringlize';
 
 export const chatTemplates = {
     'llama3': "{% set bos_token = '<|begin_of_text|>' %}{% set loop_messages = messages %}{% for message in loop_messages %}{% set content = '<|start_header_id|>' + message['role'] + '<|end_header_id|>\n\n'+ message['content'] | trim + '<|eot_id|>' %}{% if loop.index0 == 0 %}{% set content = bos_token + content %}{% endif %}{{ content }}{% endfor %}{{ '<|start_header_id|>assistant<|end_header_id|>\n\n' }}",
@@ -27,9 +28,9 @@ export const templateEffect = {
 export const applyChatTemplate = (messages:OpenAIChat[], arg:{
     type?: string
     custom?: string
+    subject?: RunSubject
 } = {}) => {
     const db = getDatabase()
-    const currentChar = getCurrentCharacter()
     const type = arg.type ?? db.instructChatTemplate
     if(!type){
         throw new Error('Template type is not set')
@@ -94,8 +95,8 @@ export const applyChatTemplate = (messages:OpenAIChat[], arg:{
     return template.render({
         "messages": formatedMessages,
         "add_generation_prompt": true,
-        "risu_char": currentChar.name,
-        "risu_user": getUserName(),
+        "risu_char": getRequestCharName(arg.subject),
+        "risu_user": getRequestUserName(arg.subject),
         "eos_token": "",
         "bos_token": "",
     })

@@ -6,10 +6,11 @@ import { fetchNative, globalFetch, readImage } from "../globalApi.svelte"
 import { CharEmotion } from "../stores.svelte"
 import type { OpenAIChat } from "./index.svelte"
 import { processZip } from "./processzip"
+import type { RunSubject } from "./chatOrigin"
 import { language } from "src/lang"
 import random from "lodash/random"
 
-export async function stableDiff(currentChar:character,prompt:string){
+export async function stableDiff(currentChar:character,prompt:string,subject?:RunSubject){
     let db = getDatabase()
 
     if(db.sdProvider === ''){
@@ -44,7 +45,8 @@ export async function stableDiff(currentChar:character,prompt:string){
         maxTokens: 300,
         bias: {},
         useStreaming: false,
-        noMultiGen: true
+        noMultiGen: true,
+        subject,
     }, 'submodel')
 
 

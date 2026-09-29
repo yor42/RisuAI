@@ -1732,6 +1732,7 @@ async function summarizeForSubject(oaiMessages: OpenAIChat[], isResummarize: boo
                 bias: {},
                 useStreaming: false,
                 noMultiGen: true,
+                subject,
             },
             "memory"
         );

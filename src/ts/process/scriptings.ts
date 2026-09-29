@@ -728,6 +728,7 @@ export async function runScripted(code:string, arg:{
                     useStreaming: options.streaming === true,
                     forceStreaming: options.streaming === true,
                     noMultiGen: true,
+                    subject: ScriptingEngineState.subject ?? undefined,
                 }, 'model')
 
                 if(result.type === 'fail'){
@@ -776,6 +777,7 @@ export async function runScripted(code:string, arg:{
                     bias: {},
                     useStreaming: false,
                     noMultiGen: true,
+                    subject: ScriptingEngineState.subject ?? undefined,
                 }, 'model')
 
                 if(result.type === 'fail'){
@@ -1118,6 +1120,7 @@ export async function runScripted(code:string, arg:{
                     useStreaming: options.streaming === true,
                     forceStreaming: options.streaming === true,
                     noMultiGen: true,
+                    subject: ScriptingEngineState.subject ?? undefined,
                 }, mode as 'emotion' | 'memory' | 'otherAx' | 'submodel' | 'translate')
 
                 if(result.type === 'fail'){

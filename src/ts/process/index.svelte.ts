@@ -2024,6 +2024,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
         previewBody: arg.previewPrompt,
         escape: nowChatroom.type === 'character' && nowChatroom.escapeOutput,
         rememberToolUsage: DBState.db.rememberToolUsage,
+        subject,
     }, 'model', abortSignal)
 
     console.log(req)
@@ -2455,7 +2456,8 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
         const igpFormated = parseChatML(igp, subject)
         const rq = await requestChatData({
             formated: igpFormated,
-            bias: {}
+            bias: {},
+            subject,
         },'emotion', abortSignal)
 
         const igpTarget = resolveReply()
@@ -2655,6 +2657,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
                 bias: emobias,
                 currentChar: currentChar,
                 maxTokens: 30,
+                subject,
             }, 'emotion', abortSignal)
 
             if(rq.type === 'fail'){
@@ -2740,7 +2743,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
             }
 
 
-            await stableDiff(currentChar, msgStr)
+            await stableDiff(currentChar, msgStr, subject)
         }
     }
 

@@ -270,7 +270,8 @@ export async function supaMemory(
                     formated: promptbody,
                     bias: {},
                     useStreaming: false,
-                    noMultiGen: true
+                    noMultiGen: true,
+                    subject,
                 }, 'memory')
                 if(da.type === 'fail' || da.type === 'streaming' || da.type === 'multiline'){
                     return {
