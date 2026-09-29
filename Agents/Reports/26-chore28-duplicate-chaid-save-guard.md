@@ -1,6 +1,7 @@
 # CHORE-28 — The save keeps the last good block of a `chaId` held by two characters
 
-**STATUS:** implemented, gated; awaiting commit
+**STATUS:** done. Committed as `2420d717` (2026-09-25); Gate 2 round 3 approved with findings, fix-up
+approved (rows 181-184); records `21668b28`.
 
 **Status:** plan rev 3, 2026-09-25. Implemented; Gate 2 round 3 approved with findings and the
 fix-up review approved (section 10, ledger rows 181 to 184).

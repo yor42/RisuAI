@@ -1,6 +1,8 @@
 # Removal stage — Google Drive backup, dead code, `risuaiAccountCached`, the Patreon list
 
-**STATUS:** plan rev 3.2, 2026-09-27.
+**STATUS:** done. Committed 2026-09-27 as `2af8d4fe`, `a9c29ba7` and `237ebba1`; Gate 2 round 3
+[APPROVE] (row 239); live check row 240; commit messages row 241; records `e8500372`. Plan rev 3.2,
+2026-09-27.
 - **Gate 1 passed:** round 4 [APPROVE], ledger row 236.
 - **Implemented.**
 - **Gate 2 round 1 (`opus-reviewer`, ledger row 237): [REJECT].** Two MAJOR findings, both

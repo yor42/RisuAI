@@ -4,7 +4,8 @@
 362), with a `senior-advisor` escalation (row 360) and a measurement (row 361) between rounds 3 and
 4. After round 4 the maintainer split the prompt's index tags and hidden-message rule (`MC-111`,
 `MC-112`) into their own stage, W2c-c (`MC-113`); rev 5 is W2c-a without them. Round 5 [EDITORIAL]
-(row 363), applied in rev 5.1. **Gate 2 passed; live check passed.** Section 12 is the gate record.
+(row 363), applied in rev 5.1. **Gate 2 passed; live check passed.** Committed as `79c6e35e`, records `4576d07e`. Section 12 is the
+gate record.
 
 W2c binds the send's own reads to the chat the send started in. W2a (`ec65c200`, Report 35) gave
 the send one origin and bound every write its own code makes. W1b (Report 34) built the target

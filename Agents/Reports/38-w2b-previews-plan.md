@@ -3,7 +3,8 @@
 **STATUS:** plan rev 5.1, 2026-09-29. **Gate 1 passed; Gate 2 passed; live check passed** (one
 defect found and fixed test-first). Gate 1: rounds 1-3 [REJECT], then a `senior-advisor`
 escalation; round 4 (a fresh reviewer) [REJECT] on four bounded plan defects; round 5
-[EDITORIAL], applied in rev 5.1. Section 9 is the gate record.
+[EDITORIAL], applied in rev 5.1. Committed as `8f93d095`, records `5e4a2bfd`. Section 9 is the gate
+record.
 
 W2b-previews is the last part of W2b. W2b-core (`ac8cb3da`, Report 36) made an outermost `sendChat`
 a unit that owns the busy flag and one abort controller. This stage fixes the two prompt previews

@@ -1326,7 +1326,7 @@ in source; upstream `main` has the same code. Closed by writer stage W2 (`MC-076
 
 ### CHORE-28 — Two characters sharing one `chaId` lose one of them at the next save
 
-**Status (2026-09-25): fixed, in the working tree, awaiting commit.** Plan and gate record:
+**Status (2026-09-25): fixed, committed as `2420d717`** (records `21668b28`). Plan and gate record:
 Report 26 (rev 3; ledger rows 178 to 184).
 - While a `chaId` has two or more holders, its block is kept as last saved.
 - Never-saved duplicates write the first holder once (`MC-082`).

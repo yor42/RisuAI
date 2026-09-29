@@ -1,6 +1,6 @@
 # CHORE-39 — OPFS migration: no lockout, no partial read, one migrator
 
-**STATUS:** **done, committed as `37898465`** (2026-09-26). Gate 2 round 1 rejected the
+**STATUS:** **done, committed as `37898465`** (2026-09-27, +0900 local time). Gate 2 round 1 rejected the
 implementation (ledger row 229: the lock winner did not re-read the flag); round 2 closed it as
 [EDITORIAL] (row 230). The live check passed (row 231). Plan rev 2.1; Gate 1 as below.
 

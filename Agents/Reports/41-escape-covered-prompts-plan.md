@@ -1,6 +1,8 @@
 # Report 41 — Escape on alerts, stage 2: prompts covered by another alert: plan (rev 2.1)
 
-Date: 2026-09-29. Status: plan; Gate 1 passed at round 2 ([EDITORIAL], applied in rev 2.1). This item builds on stage 1
+Date: 2026-09-29. Status: plan; Gate 1 passed at round 2 ([EDITORIAL], applied in rev 2.1). Gate 2
+[APPROVE] (ledger row 379; optional items row 380); commit-message check [EDITORIAL], applied (row
+381). Committed as `c0b323b0`, records `d848ecdf`. This item builds on stage 1
 (Report 39, `6631f5e0`, records `9dee3ea9`). Decisions: `MC-115` (this stage), `MC-109`, `MC-108` 5.
 Ledger row 375 is the investigation; its packet is in the Orchestrator's scratchpad
 (`stage2/packet.md`). Rows 376 and 377 are Gate 1 rounds 1 and 2.

@@ -1,6 +1,8 @@
 # W0 — Identity: every chat has a stable id; the origin module
 
-**STATUS:** open
+**STATUS:** done. Committed as `d7505e2f` (2026-09-25) after Gate 1 rounds 1-4 (rows 165-167 and 170,
+escalation row 168) and Gate 2 rounds 1-4 (rows 171, 172, 176, 177); records `b50c8974`. No live-check
+row is recorded for W0.
 
 **Status:** plan rev 4.2, 2026-09-24. Rev 4.2 drops id inheritance on install (ID-4) after Gate 2
 rounds 1 and 2 rejected it; see section 12.

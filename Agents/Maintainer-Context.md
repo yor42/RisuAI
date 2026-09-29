@@ -3395,3 +3395,49 @@ decide them either.** Revisit any of them on request:
    at once, as today.
 5. **Identical permission requests from one plugin that are in flight together share one prompt
    and its answer.**
+
+---
+
+### MC-116 — W2c-b: the send's persona block is gated on the chat's own persona
+
+- **Tag:** decision
+- **Date:** 2026-09-29
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on a question the Orchestrator asked
+  after W2c-b's inventory (ledger row 382).
+- **Reasoning:** the send adds the persona block only when `db.personaPrompt`, the selected
+  persona's prompt, is non-empty, but the block's content is the persona bound to the chat. So a
+  chat bound to a persona with a prompt sends none while the selected persona's prompt is empty,
+  and a chat bound to a persona with an empty prompt sends an empty block (in a template, the
+  persona card's bare format). Upstream has the same check (`upstream/main`, `ca1345fc`).
+- **Alternatives rejected:** keep upstream's check and bind only the content (a chore).
+- **Related:** MC-110, MC-011.
+
+**What was decided:**
+1. **The send adds the persona block when the persona of the send's own chat has a prompt:** the
+   bound persona's, or the selected persona's when the chat has none bound. A chat with no bound
+   persona sends what it does upstream.
+
+---
+
+### MC-117 — A chat bound to the selected persona reads the persona as it is being edited
+
+- **Tag:** decision
+- **Date:** 2026-09-29
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on a question the Orchestrator asked
+  after W2c-b's Gate 1 round 1 (Report 42; ledger row 384).
+- **Reasoning:** the selected persona is edited in a buffer (`db.username`, `db.userIcon`,
+  `db.personaPrompt`, `db.userNote`) that is copied into its saved entry only when Persona
+  settings switches, reorders or deletes a persona, or sets a new avatar. A chat bound to that persona reads the saved entry, so edits do not
+  reach it until then. Under `MC-116`, clearing that persona's prompt would also keep sending the
+  old saved text. Upstream reads the saved entry too.
+- **Alternatives rejected:** keep the saved copy, and record the staleness as a chore.
+- **Extends:** `MC-116`.
+- **Related:** MC-116.
+
+**What was decided:**
+1. **A chat bound to the currently selected persona reads that persona's live values** (prompt,
+   name, icon and note, as Persona settings shows them now), in the send and on screen. A chat
+   bound to any other persona, and a chat with no bound persona, read what they read before.
+

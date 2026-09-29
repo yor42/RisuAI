@@ -101,8 +101,9 @@ run only** — `Legal.svelte:6-8` forbids setting it automatically.
 ## Current session state
 
 Moved to `Agents/Live-State.md`, which is rewritten fresh each session rather than appended to.
-**Read it first after a context compaction.** This file (`Phase2-Handoff.md`) holds only durable
-doctrine and constraints that outlive any one session.
+**Read it first after a context compaction.** What finished stages leave for later ones is in
+`Agents/Carry-Forward.md`. This file (`Phase2-Handoff.md`) holds only durable doctrine and
+constraints that outlive any one session.
 
 ## What is next — the maintainer chooses
 
@@ -164,11 +165,34 @@ Every expensive error in this campaign got past a green test suite.
    gate. Check arithmetic before briefing.
 5. **Classify tests by purpose (AGENTS.md section 4):** a regression reproducer is written against
    the unfixed code and shown to fail first on the intended defect; compatibility guards are kept
-   and labelled.
+   and labelled. **A remediation test is a reproducer only if it fails against the pre-change
+   base.** At the composer stage's S2 a test that failed only against the change's own first
+   implementation was called a reproducer; the commit-message check ran it against the base and
+   found it was a guard.
 6. **Count, do not estimate.** Cite the command that produced a count, not just the number.
 7. **Check an agent's `tools:` line before a brief promises it a tool.**
 8. **Brief investigators so that disproof is an acceptable result.** The trash reproduction was
    useful because the agent was told a clean disproof was welcome.
+9. **When a plan keeps failing on rules for one edge case, ask whether a product constraint removes
+   the case.** Gate 1 rejected the composer stage's S1 plan six times in a row; each time the
+   rejected rule had been added only to merge text typed during a wait. The fix was a constraint put
+   to the maintainer (the `MC-100` lock), not more rules.
+10. **Test titles state the required behaviour, never the defect.** Five S1 titles had to be renamed.
+    Weak assertions (`toContain` where exact equality was meant) let two reds pass against the
+    defect.
+11. **Live checks in Chrome:**
+    - prove a remount by tagging the element (a textarea, say) and checking that the tag is gone;
+    - auto mode is offered only in group chats;
+    - the plugin `getDatabase` proxy only writes `allowedDbKeys`, so set the model in Settings (Echo
+      is under "For Developer", behind "show unrecommended settings");
+    - a click meant to land during a wait must be in the **same** `browser_batch` as the action that
+      starts the wait, because the latency between tool calls is seconds;
+    - the window must be visible (see `Agents/Live-State.md`, "How to live-check this app").
+12. **Do not trust an agent's claims about the tree, and give an index-free check.** A coder ran
+    `git add -N` and a bare `git reset` to read line endings. A test writer said all its files were
+    LF and three were CRLF. A test writer made and deleted a probe file inside `src/ts/process/`.
+    Tell agents to check line endings with `git ls-files --eol` or a byte count, and to keep every
+    scratch file in the scratchpad.
 
 ## Agent tiers — all exercised now
 

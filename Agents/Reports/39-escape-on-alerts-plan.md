@@ -1,6 +1,8 @@
 # Report 39 — Escape on alerts: plan (rev 3.1)
 
-Date: 2026-09-29. Status: plan; Gate 1 passed at round 3 ([EDITORIAL], applied in rev 3.1). This item builds on W2b-previews,
+Date: 2026-09-29. Status: plan; Gate 1 passed at round 3 ([EDITORIAL], applied in rev 3.1). Gate 2
+[APPROVE] with no findings (ledger row 353); commit-message check [EDITORIAL], applied (row 354).
+Committed as `6631f5e0`, records `9dee3ea9`. This item builds on W2b-previews,
 committed as `8f93d095`, with its records in `5e4a2bfd`. Implementation starts only once the
 worktree is on `5e4a2bfd`. Ledger rows 348 onward (investigation 348, Gate 1 round 1 349).
 

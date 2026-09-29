@@ -28,7 +28,11 @@ architecture. A ledger kept to justify a decision already made is worthless.
 available: elapsed time, token categories, dispatch count, review rounds (and their outcome
 tokens), full-suite executions, substantive findings, and later reopenings or escaped defects.
 Compare only items of similar risk and complexity; no savings target, and no claim of proven safety
-from a small sample.
+from a small sample. That window has passed: 17 items with their own commit have been
+recorded since row 217, which wrote MC-091 up as Report 29 (CHORE-33 28C, CHORE-39, the removal stage,
+the upstream sync, CHORE-42, W1a, W1b, the composer stage's S0, S1 and S2, the upstream batch, W2a, W2b-core,
+W2b-previews, Escape on alerts stages 1 and 2, and W2c-a). Whether the pilot stands is the
+maintainer's call; this note does not evaluate it.
 
 | # | Date | Question | Tier(s) | Tokens | Escalated? | Outcome |
 |---|---|---|---|---|---|---|
@@ -483,10 +487,305 @@ from a small sample.
 | 379 | 2026-09-29 | Escape on alerts stage 2, Gate 2: falsify the implementation | `adversarial-reviewer` (fresh) | ~240k, 73 tool uses | n/a (gate) | **[APPROVE]**, no blocking findings. Suite and check re-run (166 files, 2409 passed, 4 skipped; check clean). `AlertComp`'s markup is byte-identical to HEAD's apart from the store-to-snippet-argument rename. Probes with the real consent prompts and the real component passed. 44 load-time mutants: 35 killed. The 9 survivors were test gaps or equivalents, not defects: the prev/next-character block, the held prompt's hiding, `inert` and consent case, a `wait` with Cancel treated as closeless, the runner closing its own notice, sharing keyed by plugin name, plus one equivalent and one masked by the consent's re-post. Optional: a monotonic clock for the guard; a comment on `isPromptType`; the test reset in two older suites. |
 | 380 | 2026-09-29 | Escape on alerts stage 2: Gate 2's optional items | `sonnet-coder` (guard clock, comment), `test-warrior` (tests) | ~36k + ~107k | No | The guard reads `performance.now()`, and `isPromptType` says it follows the Escape table. 19 tests were added, and each named survivor is now killed through the reviewer's harness. Final snapshot, re-run by the Orchestrator: `pnpm test` 166 files, 2428 passed, 4 skipped; `pnpm check` clean; `pnpm run build` passes; the history-word grep over the diff and the new files has no hits. |
 | 381 | 2026-09-29 | Escape on alerts stage 2 commit-message fact-check (drafts in the scratchpad, `stage2/commit-fix.txt` and `stage2/commit-docs.txt`) | `adversarial-reviewer` (the Gate 2 reviewer, reused) | ~60k, 20 tool uses | n/a (gate) | **[EDITORIAL], applied.** Every behavioural claim and number was verified against source, `upstream/main` (ca1345fc), `red.json` and the final logs. The 102 reds were grouped by file (69 + 22 + 2 + 6 + 3), and the message's groups accounted for 98; the other 4 are now named (the 400 ms guard, and Escape over a notice or a preview). Corrected: the double-remove wording (a second confirm, not two removals); J6a's effect (not left behind the notice, rather than "cannot wait forever"); the preview's wait (only behind another alert or a waiting prompt); scroll position dropped as untested. Also: two test assertion messages now say "not inert"; row 379 says one equivalent and one masked mutant; Report 41 gets its Gate 2 record. |
+| 382 | 2026-09-29 | W2c-b scoping at `1d6fa16b`: every selection read the send still makes in its prompt parses and helpers; which change output with no switch; the persona gate; cost; harness (packet in the session scratchpad, `w2cb/packet.md`) | `investigator` | ~295k, 104 tool uses | no | **Missed site found:** `parseChatML` (`chatML.ts:55`) parses with no chara or subject, reached from the send three times (a chatML template card, the igp prompt) and from the supaMemory, hypav2 and hypav3 summarizer prompts. Still 36 unbound `risuChatParser` lines in `index`. A corpus differential (815 tags x chatID x chara, character and group sends, a real `SendSubject`) found **no output change absent a switch**. Persisted wrong results: `promptInfo.promptToggles` and `promptText` on the reply. Corrected: the persona gate (`db.personaPrompt`) does not follow the selection, only the content does; supaMemory's wrong label reaches the summarizer's input, not the stored summary; `triggers.ts` has no local parse wrapper. Cost: 14+M unbound parses per send (26+M with a template), 0 full resolutions in a 20,000-parse micro-benchmark with the subject. The persona gate went to the maintainer: `MC-116`. |
+| 383 | 2026-09-29 | Heap cost of `DBState.db` on a large profile: raw data vs Svelte proxy/signal overhead vs assets vs save-encoder copies (handed over by the optimization Q&A session; synthetic data from the maintainer's generator, web build in a pinned worktree, headless Chrome over CDP) | `perf-analyzer` | pending | no | Dispatched. Report in the session scratchpad, `heap/report.md`. |
+| 384 | 2026-09-29 | W2c-b Gate 1 round 1: Report 42 rev 1 | `adversarial-reviewer` (fresh) | ~205k, 68 tool uses | n/a (gate) | **[REJECT], on the test plan; the design held.** Counts, bare-call greps and the upstream gate re-verified; the completeness sweep found no missed site. Findings: (1) the corpus-differential guard is flaky as specified: a double run does not filter `{{random}}` (5 of 6 reruns failed); (2) the plain empty-prompt persona case is green at HEAD (an empty system message is skipped), so it is a guard, not a reproducer; (3) hypav2/hypav3 are not reachable by the send harness, and hypav3 has three `summarize` calls in two internal functions, so an optional parameter missed at one hop fails silently; (4) R7 and completeness rest on a grep; a behavioural parser spy is needed; (5) a chat bound to the selected persona reads its saved copy, stale while it is edited, and under `MC-116` clearing its prompt would keep sending the old text; to the maintainer: `MC-117`; (6) R3's wording vs the two helpers that keep their passed chat; (7) `getChatVar`'s `scriptstate ??=` on the resolved chat. |
+| 385 | 2026-09-29 | W2c-b Gate 1 round 2: Report 42 rev 2 | `adversarial-reviewer` (the round-1 reviewer, reused) | ~110k, 14 tool uses | n/a (gate) | **[EDITORIAL], applied in rev 2.1; Gate 1 passed.** Round 1's findings closed. Executed: hypav3's `summarize` and hypav2's `summary` reached with small node fixtures (memory-level tests feasible); the corpus's only nondeterminism is `Math.random` and `Date`. `MC-117` design held: every bound-persona reader enumerated, none writes through or compares the returned object. Corrections: hypav3's exported `summarize` kept optional made its three internal calls unchecked (an internal summarizer with a required subject); R2's `MC-116` exceptions must name a persona other than the selected one and the buffer's state; `MC-116` fixtures likewise; `RisuPersona` has no `modules` field. The Orchestrator also relabelled rev 2's `MC-117` cleared-prompt reproducer as a guard (HEAD's gate is the buffer, so it sends no block either). |
+| 386 | 2026-09-29 | W2c-b red tests (Report 42 section 5) | `test-warrior` | ~361k, 153 tool uses | no | **138 reproducers red at HEAD, 44 guards green, 6 acceptance tests as `test.todo`.** Five new suites: `sendChatPromptReads` (node; 124 red), `memorySummarizerSubject` (10 red), `util.livePersona` (4 red), `sendChatPromptCorpus` (3 guards; `Math.random` counter and frozen clock; 10 of 10 reruns green), `sendChatPromptReadsProxied` (R5 guards). Orchestrator re-ran four of the files: 138 failed, 40 passed, 6 todo, every failure an `AssertionError`. Full suite at HEAD: 138 failed (exactly the reproducers), 2530 passed, 4 skipped; `pnpm check` clean. **Harness artifact caught by the Orchestrator:** the proxied suite passed raw fixtures to `beginWork`, so the hint never matched the proxies and every resolve was a full scan; its reported "10 + M full resolutions at HEAD" and the R5 bound built on it were wrong. Remediated (objects read back through `DBState`): HEAD makes 1 full resolution per send at 1, 10 and 30 messages; the bound is 1. Not written, with reasons: the tokenizing-pass chatML parse and the second igp parse (completeness guard only), gone-subject plain-prompt sites (the send ends first), the template memory card. |
+| 387 | 2026-09-29 | W2c-b implementation (Report 42 rev 2.1) | `sonnet-coder` (~155k), then `test-warrior` (the red-test writer, reused, fixture fix) | ~155k + ~10k | no | **Done; pre-gate snapshot green.** 11 production files: `index.svelte.ts` (the 36 parses and three `parseChatML` calls carry the send's subject; `grep -vc subject` = 0; no `chara` added), `chatML.ts`, `modules.ts` (`getModuleToggles(subject?)`), `exampleMessages.ts`, `addinfo.ts`, `supaMemory.ts`, `hypav2.ts`, `hypav3.ts` (internal `summarizeForSubject`, required subject at every internal hop; exported `summarize` wraps it), `util.ts` (`livePersona`, `MC-117`), `DefaultChatScreen.svelte`, and `CustomSidebar.svelte`. **Scope amendment (`MC-091`, Orchestrator's diff review):** the sidebar showed a bound persona's name and note through the raw `checkPersonaBinded`, which the plan let stay raw, so it would have stayed stale under `MC-117`; it now goes through `livePersona`. The coder stopped on 14 red tests in `memorySummarizerSubject` and diagnosed the fixture (chat A bound to the selected persona, which `MC-117` turns into a buffer read); the Orchestrator confirmed it, the test writer added a third, selected persona: against HEAD's production files 12 red (wrong persona or chat) and 5 guards green; against the fix 17 of 17. Six `test.todo` acceptance tests converted. Pre-gate (Orchestrator): `pnpm test` 177 files, 2676 passed, 4 skipped; `pnpm check` clean; `pnpm run build` passes; history-word grep clean. |
+| 388 | 2026-09-29 | Records clean-up at the maintainer's request: Live-State cut to current state, `Carry-Forward.md` created, process lessons into Phase2-Handoff, README, and a new reading of this ledger at row 385 | `doc-writer` (~289k), then `doc-verifier` (~230k) | ~519k | n/a (documentation) | **Verifier: 7 blocking corrections** (about 75 claims, 46 verified): row 190's error misattributed in the reading; a composer-state bullet copied from before W2b-core (`windowOpen` moved to `generationOwnership.svelte.ts`); next free row and the W2c-b state stale within the hour; README heading; row 192's `deep-investigator` use is a 1.3 trigger, not a verify stage; the no-token-figure count (58, not 53); and the W1b `findCharacterbyIdwithCache` hand-off dropped as closed while five prompt-name reads remain unowned. Also found stale STATUS headlines in Reports 23, 24, 26, 31 and 38-41 and in Roadmap CHORE-28, and two dropped W0 rules (`beginWork` takes objects read back through `DBState`; resolve once per synchronous batch), the first of which row 386's harness broke. Remediation dispatched to the writer. **Second verifier pass (~45k): every blocking item closed**; five residuals (a contradicting phrase about row 192, W2c-b's state stale after row 389, a missing script output line, an unhedged inference, Report 23's list missing the composer stage) fixed by the Orchestrator. |
+| 389 | 2026-09-29 | W2c-b Gate 2 round 1 (Report 42 rev 2.1; the pre-gate snapshot of row 387) | `adversarial-reviewer` (fresh) | ~212k, 93 tool uses | n/a (gate) | **[REJECT], on tests only; no behavioural defect in the production diff.** Executed: `pnpm test` 177 files, 2676 passed, 4 skipped; `pnpm check` clean; the five new files 190 passed; against HEAD's 11 production files (served by a scratch config) 146 fail and 44 pass, every passer a `guard:` and every failure a non-guard (6 of them `livePersona is not a function` in converted acceptance tests; the behavioural `MC-117` reproducers exist beside them); the corpus guard 6 reruns green. About 80 mutants (one drop-subject mutant per `index` parse, plus 44 targeted) killed. Survivors became findings: F1 the persona block's `?? null` (R3) has no test; F2 the completeness guard never reaches the author-note default-text parse (every fixture sets a note) or the memory card's `innerFormat` (no memory card); F3 hypav3's similarity-step summarizer site is never reached (probe), while the test's comment says it is, and a `.catch` hides why; F4 the HypaV3 modal's `summarize(…, true)` is unguarded; F5 `??` vs `||` for the live name, icon and note is unpinned; F6 supaMemory's single-oversized-chat label is untested; F7 a screen test title overclaims; F8 mixed line endings in `sendChatPromptReads`. Held: 37 of 37 index parses carry the subject; the `chara` mutants are killed by the option-key guard; `MC-116`/`MC-117` edge cases; `$derived` tracking; R5 at 1 full resolution (node and proxied); comments; compatibility. Disclosure to carry into the commit message: Lua bindings and the screen's other helper callers also see the live persona for a chat bound to the selected persona. Remediation to the test writer (reused). |
+| 390 | 2026-09-29 | W2c-b Gate 2 remediation (tests only) and round 2 | `test-warrior` (the red-test writer, reused, ~97k), then `adversarial-reviewer` (the round-1 reviewer, reused, ~45k) | ~142k | n/a (gate) | **[APPROVE]. Gate 2 passed.** The writer closed F1-F8 and the optional items: the gone-subject persona block asserted; two new sends (empty chat note with the author-note default text; a memory card) added to the reproducers and the completeness recordings; hypav3's `HypaProcesser` mock completed so the similarity-step site is reached, every hiding `.catch` removed; guards for `summarize(…, true)` and for `''` in the live name, icon and note; supaMemory's oversized-chat label; one title; LF throughout. Reviewer, executed: the production diff byte-identical to round 1's; the five files 210 of 210; `pnpm test` 177 files, 2696 passed, 4 skipped; `pnpm check` clean; against HEAD's 11 production files 160 fail and 50 pass, every passer a `guard:` (7 failures are the missing `livePersona` export in acceptance tests); all 37 drop-subject mutants and every round-1 survivor killed, except `live_id_only` (equivalent for reachable inputs) and the two component-wiring reverts (`CustomSidebar`, `DefaultChatScreen`; covered through the shared rule only, accepted at Gate 1). Two editorial nits (a duplicated region marker, a region label citing plan ids) applied by the Orchestrator; the file re-run, 163 of 163. Disclosure list for the commit message: `MC-117` reaches the Lua bridge, `{{user}}`/`{{persona}}`, the chat screen, bookmarks, chat exports, and the request layer's user-name reads (Report 42 section 7). |
+| 391 | 2026-09-29 | W2c-b live check (production build with the legal flag, `pnpm run runserver` on port 6001, Claude in Chrome; `save/` backed up and hashed first) | Orchestrator | in-session | n/a | **Passed.** Seeded one character (Alice; description and first message `…[{{char}}/{{user}}]`) whose chat was bound to the selected persona (saved name "User", buffer name "dev"). (1) `MC-117` on screen: the first message rendered `FIRST[Alice/dev]` from the buffer; renaming the buffer to "EditedName" in Persona settings re-rendered it at once while the saved entry stayed "User". (2) The prompt, read through the Ctrl+U preview with an OpenAI model and no key (the OpenAI builder returns the body for a preview before any fetch; the Echo preview shows only its fixed reply): `DESC[Alice/EditedName]` and a persona block `PP-LIVE[Alice]` from the buffer while the saved prompt was empty (HEAD would send an empty block); after clearing the buffer's prompt, no persona block. (3) `MC-116`: with the chat bound to persona 0 (saved prompt `PP-ZERO[{{char}}]`) and a new, selected persona with an empty prompt, the block `PP-ZERO[Alice]` is sent (HEAD drops it). (4) `DefaultChatScreen`'s own lookup: after an Echo send, the user message was labelled "EditedName"; renaming the reselected persona's buffer to "LiveName" relabelled it while the saved entry stayed "EditedName". Not exercised: `CustomSidebar.svelte` (a custom sidebar item, not shown by default); a stale selection at prompt time (needs a slow stage before the prompt; covered by the node and proxied suites). Model set to Echo before any send; back to Echo at the end. Afterwards: server stopped by PID, two app-made backups moved out to the scratchpad (`w2cb/live/created-by-check`), `save/` restored and verified by hash. The tab close hung on the leave-site guard, by design; the server was already down. |
+| 392 | 2026-09-29 | W2c-b commit-message check (drafts in the session scratchpad, `w2cb/commit-msg.txt` and `commit-records.txt`) | `adversarial-reviewer` (the Gate 2 reviewer, reused) | ~60k | n/a (gate) | **[EDITORIAL], applied.** Re-executed: the production diff unchanged; 210 of 210 on the fix; 160 red and 50 guards against HEAD; the reach list of `MC-117` checked caller by caller; upstream's persona gate confirmed. Corrected: the acceptance tests failing only on the missing `livePersona` export are seven direct tests, and the note field has no behavioural reproducer; hypav3's `summarize` gains an optional parameter; when the persona buffer is copied into its entry (switch, reorder, delete, or a new avatar; also corrected in `MC-117`, Report 42 and `livePersona`'s doc comment); the IGP request named as such; the two label sites keep their chat object when the chat is gone; the carries-its-subject check is a reproducer, not a guard; at most one full resolution. Records: Report 42 lacked the round-2, live-check and message-check entries; row 388 lacked the second verifier pass; README's count and band would be stale once Report 42 is tracked; Report 23's STATUS names stages, not commits. |
 
-## Reading of the log so far (n=1 — not a conclusion)
+## Reading of the log
 
-Run 1 is the only data point and it predates the split, so it cannot settle anything. Two
+### Reading at row 385 (2026-09-29)
+
+Every figure below is counted from the rows of this file by the script at the end of this
+section, unless it says "by hand". **The reading is as of row 385:** the script ignores later
+rows, and the figures stay as they are when rows are added. Where the rows are inconsistent or silent, the text says so
+rather than estimating. This is a reading of a log kept by the people running the campaign, not a
+controlled comparison.
+
+**What the log is.** 381 rows. Numbers run 1 to 385; 371-374 were reserved and never used. Every
+row has the seven columns of the schema.
+
+**Rows by tier.** A row can name several agents, so the first count adds up to more than 381.
+- **Named in the tier column:**
+  - reviewers 202 (`opus-reviewer` 154, `adversarial-reviewer` 48);
+  - `investigator` 57;
+  - `perf-analyzer` 12;
+  - `senior-advisor` 12;
+  - `code-searcher` 10;
+  - `deep-investigator` 6;
+  - other 111 rows, which name (these overlap) `test-warrior` 53, `sonnet-coder` 43, Orchestrator-run
+    checks 39, `doc-verifier` 5, `translator` 5, `doc-writer` 2 and the pre-split
+    `opus-investigator` 1.
+- **First-named agent only, each row once** (adds to 381): reviewers 193, other 104,
+  `investigator` 57, `perf-analyzer` 12, `senior-advisor` 12, `code-searcher` 2,
+  `deep-investigator` 1.
+- `code-searcher` is named in 10 rows but is the first-named agent in 2: it is mostly a survey
+  inside an `investigator` row.
+
+**Escalations to `deep-investigator`: 2 on the AGENTS.md 1.3 triggers (rows 14 and 192).**
+- 54 `investigator` rows do not name `deep-investigator`: 51 say "No", 2 say "Read-only" and 1 says
+  "Requested" (row 253). The other three (173, 174, 192) are workflow rows: 173 and 174
+  use `deep-investigator` as a built-in verify stage; 192 dispatched it on two contradictions the
+  critic found.
+- The one requested escalation (row 253, a design fork, not a fact dispute) was routed to
+  `senior-advisor` (row 255) instead. That escalation changed the design: W-2 was replaced by W-2′.
+- `deep-investigator` appears in 6 rows: 14, 173, 174, 176, 177, 192.
+  - **Row 14** escalated from Reports 01 and 01-deepdive (static reports, not an `investigator`
+    row) at the maintainer's request, and **it changed the conclusion**.
+  - **Row 192** dispatched it on two contradictions that its critic found, which is a 1.3 trigger.
+    It **confirmed** Invariant 6.
+  - **Rows 173 and 174** are the by-design verify stages. They record no change.
+  - **Rows 176 and 177** record that the verify stage was not triggered.
+- So for "`investigator` questions that escalated to `deep-investigator`": 1 (row 192), and it did
+  not change the conclusion. Counting row 14, which did not start from an `investigator` row, there
+  are 2 trigger-based uses of the tier, and 1 of the 2 changed the conclusion. The 2 by-design
+  verifications record no change.
+- **The "Escalated?" column cannot be summed.** 28 cells start with "Yes". By hand, 15 of those
+  mean "ran it" (live checks, a measurement probe, a vitest run), 9 are escalations (`deep-investigator`
+  row 14 and `senior-advisor` rows 97, 133, 161, 168, 175, 216, 323, 338), 1 points to another row
+  (215) and 3 are workflow rows (173 and 174 verify stages; 192 contradiction checks). 13 more cells start with other text such as "Probes in
+  scratch" or "Ran `pnpm test`".
+
+**`senior-advisor`: 12 rows** (71, 97, 133, 161, 168, 175, 216, 255, 274, 323, 338, 360). By hand,
+from the rows' own questions:
+- **The three-[REJECT] rule or its "stuck in a loop" form: 8.** Row 97 (after five rejected
+  designs), 133 (three consecutive Gate 2 rejections), 168, 274, 323, 338 and 360 (three Gate 1
+  rejections each), and 216 (three rounds of leaks in one piece of logic; the rows show two
+  [REJECT] verdicts and an interrupted third round).
+- **Other: 4.** Row 71 (a strategy recommendation for CHORE-17, not an escalation), 161 (the writer
+  rework direction, an `MC-073` escalation the maintainer approved), 175 (the scope, migration
+  guarantee and timing of the RisuAccount removal, escalation authorised by the maintainer) and 255
+  (whether W1 could keep W-2, raised by the `investigator` in row 253).
+- **Changed the direction, in the rows' own words:** rows 97, 133, 216, 255, 323 and 338 (6). The
+  other six give a root cause or a direction and do not say whether it overturned the plan.
+- **Against the architecture:** 5 of the 8 rule-triggered escalations (133, 274, 323, 338, 360) were
+  followed by further [REJECT] rounds on the same gate: 133 by 3 rounds and a final-check row (141),
+  274 by 3, 323 by 3, 338 by 1 and 360 by 1. The escalation fixed
+  direction, not the gate. The reviewers' own descriptions of those rounds: wording only (133),
+  rules added to handle text typed during a wait, until the maintainer's lock removed the case (274;
+  Report 22), definitions and scenarios (323; Report 36), bounded plan defects (338), and the
+  `MC-111`/`MC-112` work that the maintainer then split out (360).
+
+**Gate outcomes** (script section 3; the gates are listed by hand in the script, and a check that
+every reject row belongs to a listed gate found none left over; row 76, a commit-message check, is
+left out). Only gates with at least one
+[REJECT] row are listed, so this gives no rate: gates that passed first time are not counted.
+- **Plan gates with at least one [REJECT]: 24. With three or more: 7.** Report 19's chat window
+  (5), Report 22's composer (6), Report 24's W0 (3), Report 28's CHORE-33 (3), Report 36's W2b-core
+  (6), Report 38's W2b-previews (4) and Report 40's W2c-a (4).
+- **Code gates with at least one [REJECT]: 28. With three or more: 2.** CHORE-01 Stage 1 (3) and
+  durable drafts (7).
+- Counted as verdict tokens, consecutive or not. Caveats: rows before the 2026-09-26 taxonomy use
+  "REJECT" for wording-only findings too (CHORE-01 Stage 1's third and durable drafts' rounds 4-6
+  and final check are wording only). CHORE-33's Gate 1 count includes a wording-only fix-up review
+  (row 196), so its substantive count is 2. CHORE-33 28C's Gate 2 has two [REJECT] verdicts and an
+  interrupted third round, so it is not in the count; it was escalated (row 216).
+
+**Token cost by tier.** From single-agent, non-workflow rows whose token cell starts with a figure.
+Cells that say "more", "cumulative" or "combined" are left out and reported apart. 58 rows give no
+figure (51 of them "n/a" or "not given"). Medians are of what the rows state, which is not one consistent quantity.
+- `investigator`: n=38, 55.5k to 343k, median 152k (rows 110 and 355).
+- `adversarial-reviewer`: n=38, 45k to 276k, median 132k (rows 351 and 376).
+- `opus-reviewer`: n=96, 12k to 321k, median 141k (rows 347 and 261).
+- `perf-analyzer`: n=8, 45k to 426k, median 156k (rows 314 and 80).
+- `senior-advisor`: n=10, 94k to 213k, median 114k (rows 338 and 175).
+- `sonnet-coder`: n=15, 20k to 444k, median 160k. `test-warrior`: n=19, 90k to 408k, median 195k.
+- One data point each: `deep-investigator` 161k (row 14), `code-searcher` 73k (row 190).
+- Reused reviewers report the increment ("~Nk more"): 27 rows, 10k to 155k, median 30k.
+- Workflow rows (18) give totals from 124k (row 197) to 2.18M (row 192).
+- The `deep-investigator` tier has one row, so this log cannot compare its cost with the
+  `investigator` tier's.
+
+**Failures traced to bad investigation.** No row records a wrong investigation reaching a commit.
+Rows do record investigator-tier errors caught before use (found by a keyword search of the
+`investigator`, `code-searcher` and workflow rows, then read; the search can miss some):
+- row 19 (one wrong claim), 21 (two errors, one turning a "neutralised" finding into a live
+  asset-deletion hypothesis), 157 (missed a second loss, found by the Orchestrator reading
+  `sendMain`), 178 (a wrong claim about a test), 190 (`code-searcher`: four headline counts overcounted its own listings; separately, a Git Bash
+  path rewrite made `/kei` appear to have no matches, missed by the agent and by the Orchestrator's
+  re-run, and corrected by row 192), 192 (two packet errors caught) and 202 (a
+  lens's rating overstated);
+- **row 185 is the serious one:** the packet called `sendMain` nonexistent and "refuted" a citation
+  in `MC-074` that was right. That wrong "correction" was recorded, and Gate 1 round 1 of the plan
+  caught it (row 186, MAJOR-1);
+- row 1 (the pre-split Opus investigation) understated two things.
+- Every one was caught by the Orchestrator's verification or a gate reviewer, none by
+  `deep-investigator`.
+
+**What this argues against the current architecture.**
+- The Opus investigation tier is close to unused: two trigger-based uses in 381 rows. The log cannot
+  say whether that is because mid-tier packets are good enough or because the escalation bar is too
+  high, since the checking was done by the Orchestrator and by gate reviewers. The
+  "escalations that changed the conclusion" metric stands at 1 of 2 (row 14 changed it; row 192
+  confirmed).
+- The cost is in review, not investigation: reviewers are named in 202 of 381 rows, and 154 of those
+  name `opus-reviewer`.
+- Nine gates took three or more [REJECT] rounds, and 5 of 8 rule-triggered `senior-advisor`
+  escalations did not end the gate's rejections.
+- 8 rows record errors: 7 `investigator` or workflow rows (of 57) and 1 `code-searcher` row (of 10
+  that name it). All were caught by manual verification, so the Orchestrator's standing
+  verification duty (AGENTS.md 1.3) is load-bearing: row 185 shows what passes without it.
+- Rows are not comparable: the "Escalated?" column is used for several meanings, reused reviewers
+  log increments, 58 rows give no token figure, and older gate rows use a different verdict vocabulary.
+  The log cannot produce a clean escalation rate.
+
+**What it supports.** The three-[REJECT] rule has been applied: every gate that reached three
+substantive [REJECT] rounds in a row since row 165 was escalated before a fourth (rows 168, 274,
+323, 338, 360), at 94k to 129k tokens each. The rows say six of the 12 `senior-advisor` calls changed the
+direction.
+
+**The script.** Run as `node ledger-reading.mjs Agents/Investigation-Ledger.md`. The gate lists in
+section 3 and the tier grouping are judgements made by hand; the counts follow from them.
+
+```js
+// Counts the figures in "Reading at row 385" from Agents/Investigation-Ledger.md.
+// Run: node ledger-reading.mjs <path to Investigation-Ledger.md>
+import fs from 'node:fs'
+const text = fs.readFileSync(process.argv[2], 'utf8').replace(/\r\n/g, '\n')
+const rows = text.split('\n').filter(l => /^\| \d+ \| /.test(l)).map(l => {
+  const c = l.split(' | ')   // every log row has exactly 7 cells
+  return { n: +c[0].slice(2), tier: c[3], tok: c[4], esc: c[5], out: c[6].replace(/\*\*/g, '') }
+}).filter(r => r.n <= 385)   // the reading is "as of row 385"; later rows do not change its figures
+const byN = new Map(rows.map(r => [r.n, r]))
+const AG = /(deep-investigator|opus-investigator|investigator|code-searcher|perf-analyzer|adversarial-reviewer|opus-reviewer|senior-advisor|sonnet-coder|test-warrior|doc-writer|doc-verifier|translator|code-reader|Orchestrator)/g
+const agents = s => [...new Set([...s.matchAll(AG)].map(m => m[1]))]
+const tierOf = a => ({ 'adversarial-reviewer': 'reviewers', 'opus-reviewer': 'reviewers', investigator: 'investigator',
+  'deep-investigator': 'deep-investigator', 'code-searcher': 'code-searcher', 'perf-analyzer': 'perf-analyzer',
+  'senior-advisor': 'senior-advisor' }[a] || 'other')
+
+// 1. Rows by tier. A row that names several agents counts once in each tier it names.
+const named = {}, primary = {}
+for (const r of rows) {
+  const ag = agents(r.tier)
+  for (const t of new Set(ag.map(tierOf))) named[t] = (named[t] || 0) + 1
+  const p = tierOf(ag[0] || 'Orchestrator'); primary[p] = (primary[p] || 0) + 1
+}
+console.log('rows', rows.length, '| named in tier:', JSON.stringify(named), '| first-named only:', JSON.stringify(primary))
+
+// 2. Token ranges: single-agent, non-workflow rows whose token cell starts with "~N k|M".
+//    Cells saying "more", "cumulative" or "combined" are reused-reviewer increments; reported separately.
+const kTok = s => { const m = s.match(/^~?\s*([\d.,]+)\s*([kM])\b/); return m ? parseFloat(m[1].replace(/,/g, '')) * (m[2] === 'M' ? 1000 : 1) : null }
+const groups = {}, incr = []
+for (const r of rows) {
+  const ag = agents(r.tier), k = kTok(r.tok)
+  if (/Workflow/i.test(r.tier) || ag.length !== 1 || k == null || /\+/.test(r.tok.split(',')[0])) continue
+  if (/more|cumulative|combined|first run|follow-up/i.test(r.tok)) { if (/more/.test(r.tok)) incr.push(k); continue }
+  ;(groups[ag[0]] ||= []).push([r.n, k])
+}
+const med = a => { const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2 }
+for (const [a, v] of Object.entries(groups)) {
+  const ks = v.map(x => x[1]); const lo = v.find(x => x[1] === Math.min(...ks)), hi = v.find(x => x[1] === Math.max(...ks))
+  console.log(`tokens ${a}: n=${v.length} min ${lo[1]}k (row ${lo[0]}) median ${med(ks)}k max ${hi[1]}k (row ${hi[0]})`)
+}
+const noFigure = rows.filter(r => !/[\d.,]+\s*[kM]\b/.test(r.tok))
+console.log(`rows with no token figure: ${noFigure.length} (${noFigure.filter(r => /^(n\/a|not given)/i.test(r.tok)).length} of them "n/a" or "not given")`)
+console.log(`reused-reviewer increments ("~Nk more"): n=${incr.length} min ${Math.min(...incr)}k median ${med(incr)}k max ${Math.max(...incr)}k`)
+
+// 3. Gate rounds. Each gate is listed by hand (its rows, in order); a row counts as a reject when its
+//    outcome text names REJECT in its first 90 characters. Row 158 (rounds 1 and 2 in one row) counts twice.
+//    Row 76 is a commit-message check, not a gate, and is left out.
+const G = {
+  plan: {
+    'Report 10 Stage B draft copy': [4, 6], 'Report 17 CHORE-01': [63], 'Report 19 chat window': [92, 93, 94, 95, 96, 98],
+    'Report 19 s9 defer the bump': [105, 106], 'Home stage 2': [111, 112], 'Home stage 3': [116, 117],
+    'Report 22 composer': [158, 273, 275, 276, 277, 280], 'Report 24 W0': [165, 166, 167, 170],
+    'Report 26 CHORE-28': [179, 180], 'Report 27 CHORE-34': [186, 187], 'Report 28 CHORE-33': [193, 194, 195, 196, 197],
+    'Report 30 CHORE-39': [226, 227], 'Report 31 removal': [233, 234, 235, 236], 'Report 32 CHORE-42': [243, 246, 247],
+    'Report 33 W1a': [258, 259, 260], 'Report 34 W1b': [266, 267], 'Report 22 S2': [292, 293],
+    'Report 35 W2a': [307, 308, 311], 'Report 36 W2b-core': [320, 321, 322, 324, 325, 326, 327],
+    'Report 38 W2b-previews': [335, 336, 337, 339, 340], 'Report 39 Escape 1': [349, 350, 351],
+    'Report 40 W2c-a': [357, 358, 359, 362, 363], 'Report 41 Escape 2': [376, 377], 'Report 42 W2c-b': [384, 385],
+  },
+  code: {
+    'Stage B partition': [11], 'CHORE-07 7a': [29, 33, 34], 'CHORE-07 7b': [40], 'CHORE-07 7c-1': [42], 'AV-3': [50],
+    'AV-4': [57, 58], 'CHORE-01 Stage 1': [64, 67, 68], 'CHORE-01 Stage 2': [73, 74, 75], 'CHORE-17': [83, 84, 85],
+    'Home stage 2': [113], 'Home stage 3': [118, 119], 'Durable drafts': [128, 130, 132, 136, 137, 139, 140, 141],
+    'W0': [171, 172, 176, 177], 'CHORE-28': [181, 182, 183, 184], 'CHORE-34': [188, 189], 'CHORE-33 28A': [198, 199],
+    'CHORE-33 28B': [203, 204], 'CHORE-33 28C': [213, 214, 215, 220, 222], 'CHORE-39': [229, 230],
+    'Removal stage': [237, 238, 239], 'CHORE-42': [249, 250], 'W1a': [261, 262], 'W1b': [268, 269],
+    'Composer S1': [284, 286, 288], 'Composer S2': [297, 298], 'W2a': [315, 316], 'W2b-core': [330, 331],
+    'W2c-a': [367, 368],
+  },
+}
+const isReject = r => /REJECT/.test(r.out.slice(0, 90)) && !/^Interrupted/.test(r.out)
+const override = { 158: 2, 181: 1 }   // 181: the evidence lens rejected while the data-safety lens approved
+const covered = new Set([76])
+for (const kind of ['plan', 'code']) {
+  const list = Object.entries(G[kind]).map(([name, ns]) => {
+    ns.forEach(n => covered.add(n))
+    const rej = ns.reduce((a, n) => a + (override[n] ?? (isReject(byN.get(n)) ? 1 : 0)), 0)
+    return { name, rej, rounds: ns.length }
+  })
+  const three = list.filter(g => g.rej >= 3)
+  console.log(`${kind} gates with at least one reject: ${list.filter(g => g.rej > 0).length}; with 3 or more: ${three.length}`)
+  three.forEach(g => console.log(`   ${g.name}: ${g.rej} rejects in ${g.rounds} rows`))
+}
+const uncovered = rows.filter(r => isReject(r) && !covered.has(r.n)).map(r => r.n)
+console.log('reject rows not in any listed gate:', uncovered.join(',') || 'none')
+
+// 4. Escalations named in the rows
+const sa = rows.filter(r => /senior-advisor/.test(r.tier)).map(r => r.n)
+console.log('senior-advisor rows:', sa.join(','))
+const deep = rows.filter(r => /deep-investigator/.test(r.tier)).map(r => r.n)
+console.log('deep-investigator rows:', deep.join(','))
+
+// 5. The "Escalated?" column: investigator-tier rows by what the cell says, and rows whose cell starts "Yes"
+const invRows = rows.filter(r => /`investigator`/.test(r.tier) && !/deep-investigator/.test(r.tier))
+const cell = r => /^\W*no\b/i.test(r.esc) ? 'No' : /^n\/a/i.test(r.esc) ? 'n/a' : r.esc.replace(/\*\*/g, '').slice(0, 40)
+const cls = {}; invRows.forEach(r => (cls[cell(r)] ||= []).push(r.n))
+console.log('investigator rows (plain, no workflow):', invRows.length, JSON.stringify(Object.fromEntries(Object.entries(cls).map(([k, v]) => [k, v.length]))))
+console.log('rows whose Escalated? cell starts with Yes:', rows.filter(r => /^\W*yes/i.test(r.esc)).length)
+```
+
+Its output on 2026-09-29:
+
+```
+rows 381 | named in tier: {"other":111,"reviewers":202,"investigator":57,"perf-analyzer":12,"deep-investigator":6,"code-searcher":10,"senior-advisor":12} | first-named only: {"other":104,"reviewers":193,"investigator":57,"perf-analyzer":12,"deep-investigator":1,"senior-advisor":12,"code-searcher":2}
+tokens opus-investigator: n=1 min 99.8k (row 1) median 99.8k max 99.8k (row 1)
+tokens adversarial-reviewer: n=38 min 45k (row 351) median 132.2k max 276k (row 376)
+tokens opus-reviewer: n=96 min 12k (row 347) median 141k max 321k (row 261)
+tokens investigator: n=38 min 55.5k (row 110) median 152k max 343k (row 355)
+tokens test-warrior: n=19 min 90k (row 313) median 194.6k max 408k (row 310)
+tokens deep-investigator: n=1 min 161.3k (row 14) median 161.3k max 161.3k (row 14)
+tokens perf-analyzer: n=8 min 45k (row 314) median 155.65k max 426k (row 80)
+tokens sonnet-coder: n=15 min 20k (row 120) median 160k max 444k (row 295)
+tokens senior-advisor: n=10 min 94k (row 338) median 113.9k max 213k (row 175)
+tokens doc-verifier: n=2 min 119k (row 103) median 151k max 183k (row 224)
+tokens translator: n=2 min 42.2k (row 127) median 83.45k max 124.7k (row 114)
+tokens code-searcher: n=1 min 73.3k (row 190) median 73.3k max 73.3k (row 190)
+rows with no token figure: 58 (51 of them "n/a" or "not given")
+reused-reviewer increments ("~Nk more"): n=27 min 10k median 30k max 155k
+plan gates with at least one reject: 24; with 3 or more: 7
+   Report 19 chat window: 5 rejects in 6 rows
+   Report 22 composer: 6 rejects in 6 rows
+   Report 24 W0: 3 rejects in 4 rows
+   Report 28 CHORE-33: 3 rejects in 5 rows
+   Report 36 W2b-core: 6 rejects in 7 rows
+   Report 38 W2b-previews: 4 rejects in 5 rows
+   Report 40 W2c-a: 4 rejects in 5 rows
+code gates with at least one reject: 28; with 3 or more: 2
+   CHORE-01 Stage 1: 3 rejects in 3 rows
+   Durable drafts: 7 rejects in 8 rows
+reject rows not in any listed gate: none
+senior-advisor rows: 71,97,133,161,168,175,216,255,274,323,338,360
+deep-investigator rows: 14,173,174,176,177,192
+investigator rows (plain, no workflow): 54 {"No":51,"Read-only (git show for pre-7b and upstr":1,"Read-only":1,"Requested (a design fork, not a fact dis":1}
+rows whose Escalated? cell starts with Yes: 28
+```
+
+### Early observations (n=1)
+
+Written when the log had one row. Still valid. Its closing advice not to conclude on the escalation
+rate is superseded by the reading above, which counts the post-split rows.
+
+Run 1 is the only data point and it predates the split, so it cannot settle anything. Three
 observations that motivated the split, recorded while they are fresh:
 
 1. **The valuable output was concentrated, and thinner than it first appeared.** Of the two

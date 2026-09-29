@@ -3,7 +3,7 @@
 You are a fresh session (human or subagent) that just opened this repo's `Agents/`
 directory. This file plus `Agents/Phase2-Handoff.md` and `Agents/Maintainer-Context.md`
 should tell you where everything is, what each document is authoritative for, and what
-order to read them in — without opening all 32 reports.
+order to read them in — without opening all 52 reports.
 
 This is an index, not a summary. If you need the campaign's actual findings, follow the
 pointers below into the documents that hold them.
@@ -39,6 +39,10 @@ is the order of authority.
 - **[`Live-State.md`](Live-State.md)** — what is in flight right now: branch state, the stage
   being built, what remains in it, and the test baseline. **Rewritten each session rather than
   appended to**, so it is never a history. Read it first after a context compaction.
+- **[`Carry-Forward.md`](Carry-Forward.md)** — what finished stages leave for later ones: durable
+  facts a later stage relies on and hand-offs still open, organised by the stage that needs them.
+  Items are deleted when a later stage closes them, so it is never a history either. Live-State
+  links to it.
 - **[`Reports/`](Reports/)** — per-investigation and per-stage detail: the actual file:line
   evidence, designs, and rationale behind Roadmap items. See the band descriptions
   below.
@@ -69,18 +73,20 @@ a given piece of work by matching its topic/phase name, not by guessing a filena
 2. **[`Live-State.md`](Live-State.md)** — what is in flight right now. Read this first after a
    context compaction. It is the current-state entry point: current work, accepted evidence and
    open questions, so you need not read the archives to start.
-3. **[`Phase2-Handoff.md`](Phase2-Handoff.md)** — durable doctrine: the lessons and traps to know
+3. **[`Carry-Forward.md`](Carry-Forward.md)** — the facts and open hand-offs the stage you are about
+   to touch inherits from finished stages. Read the section for your stage.
+4. **[`Phase2-Handoff.md`](Phase2-Handoff.md)** — durable doctrine: the lessons and traps to know
    before touching an effect, a measurement, or a review.
-4. **[`Roadmap.md`](Roadmap.md)** — full phase/item scope, sequencing, and status. This is the map of
+5. **[`Roadmap.md`](Roadmap.md)** — full phase/item scope, sequencing, and status. This is the map of
    the whole campaign.
-5. **[`Investigation-Ledger.md`](Investigation-Ledger.md)** — only once you need to know what a specific
+6. **[`Investigation-Ledger.md`](Investigation-Ledger.md)** — only once you need to know what a specific
    investigation or gate cost and returned, or to check the escalation-rate numbers the
    ledger exists to produce.
-6. **`Reports/<N>`** — open the specific report(s) the Roadmap or handoff cites, for
+7. **`Reports/<N>`** — open the specific report(s) the Roadmap or handoff cites, for
    file:line detail on the item you're touching.
-7. **`CodexReviews/<matching dir>`** — only if you need to see why a design was
+8. **`CodexReviews/<matching dir>`** — only if you need to see why a design was
    rejected or amended in review, not for new guidance.
-8. **[`Summary.md`](Summary.md)**, **`Maybe-Later.md`**, **`Tools/`** — as needed; none of these are
+9. **[`Summary.md`](Summary.md)**, **`Maybe-Later.md`**, **`Tools/`** — as needed; none of these are
    required reading for ordinary work.
 
 ## Where do I look for X
@@ -89,6 +95,7 @@ a given piece of work by matching its topic/phase name, not by guessing a filena
 |---|---|
 | What did the maintainer decide about X? | `Maintainer-Context.md` — it is authoritative for this |
 | What is being worked on right now? | `Live-State.md` |
+| What does a finished stage leave for the next one (facts to rely on, open hand-offs)? | `Carry-Forward.md`, then the finished stage's `Reports/<N>` |
 | Why was this designed this way, not some other way? | The relevant `Reports/<N>` file, then `CodexReviews/<matching dir>` for the review trail that shaped it |
 | What is the current state of stage/phase N? | `Roadmap.md` |
 | What was already investigated and refuted? | `Reports/21-deferral-re-review.md` (re-tested "pre-existing" deferrals), the relevant `Reports/<N>` for a specific claim, `Investigation-Ledger.md` for confirmed-vs-refuted verdicts on dispatched work |
@@ -98,9 +105,10 @@ a given piece of work by matching its topic/phase name, not by guessing a filena
 | What did investigation rounds 1-2 originally find, before later corrections? | `Summary.md` (historical — verify against `Roadmap.md` for anything since superseded) |
 | Is a subsystem bug reference (modules, TTS, playground, etc.) real or just a hunch? | The relevant `Reports/99-*.md` — check its per-entry Status line; nothing there has necessarily been reproduced |
 
-## Reports/ — the three bands
+## Reports/ — the four bands
 
-`Reports/` has 32 files in three numbered bands. Reports are read for detail once the
+`Reports/` has 52 tracked files (2026-09-29, with Report 42; count with `git ls-files Agents/Reports | wc -l`) in
+four numbered bands. Reports are read for detail once the
 Roadmap or handoff has pointed you at a specific one; you don't need to read the whole
 directory.
 
@@ -113,6 +121,9 @@ directory.
 - **09-21 — stage plans (13 files).** Design and implementation plans for individual
   Roadmap items, in the order they were written. Some describe what shipped; at least
   one describes a design that was **retired, not shipped** — see the convention below.
+- **22-42 — later stage plans and gate records (20 tracked files).** The same kind of document,
+  continuing the numbering: plans with a STATUS block that records the gates, plus strategy records
+  (Reports 23 and 25) and the workflow-pilot proposal (Report 29).
 - **99-\* — subsystem bug references (7 files).** Hand-off lists of suspected bugs found
   incidentally (e.g. while writing a wiki page), one file per subsystem
   (`99-character-display`, `99-long-term-memory`, `99-modules`, `99-playground`,

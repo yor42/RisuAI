@@ -2,8 +2,10 @@
 
 **STATUS:** open
 
-**Status:** strategy, 2026-09-24. Maintainer-approved (`MC-073` to `MC-076`). No stage is planned
-yet; each stage gets its own plan and gates (`opus-reviewer`, since every stage touches
+**Status:** strategy, 2026-09-24. Maintainer-approved (`MC-073` to `MC-076`). Stages done: W0 (Report 24), W1a (Report 33),
+W1b (Report 34), the composer stage (Report 22), W2a (Report 35), W2b-core (Report 36), W2b-previews (Report 38) and W2c-a (Report
+40); `Agents/Live-State.md` has the table with commits and ledger rows. The rest are in progress or
+not started. Each stage gets its own plan and gates (`opus-reviewer`, since every stage touches
 persistence).
 
 **Evidence:** ledger rows 159 (writer surface), 160 (HaejeokRisuai comparison), 161
