@@ -11,12 +11,12 @@ treat it as a log or history.
 
 ## Session date
 
-2026-09-29.
+2026-09-30.
 
 ## Branch and commit state
 
 The branch is `fix/persistence-conflict-platform-hardening`. **It is pushed through `ae19db8d`
-(`origin` is at that commit). HEAD is W2c-c's records commit, the one after `d27a1ee4`, 40 commits
+(`origin` is at that commit). HEAD is W2d-a's records commit, the one after `4c34172c`, 42 commits
 ahead, and nothing after `ae19db8d` is pushed.** Push only at the maintainer's request. They
 relayed on 2026-09-29, through the Escape session, that they expect to ask once W2 is complete.
 
@@ -37,7 +37,8 @@ records commit where there is one):
 - **Escape on alerts, stage 2:** `c0b323b0`, records `d848ecdf`.
 - **The merge** of W2c-a into Escape on alerts stage 2: `1d6fa16b`.
 - **W2c-b:** `9d493c79`, records `dd41a43d` (which also holds the records clean-up).
-- **W2c-c:** `d27a1ee4`, records the commit after it.
+- **W2c-c:** `d27a1ee4`, records `1e8c64f1`.
+- **W2d-a:** `4c34172c`, records the commit after it.
 
 **The working tree is clean** apart from `Agents/Reports/37-chat-html-css-security-surface.md`
 (untracked), which belongs to another session (probably "Q&A"; its header says read-only Q&A). Never
@@ -54,7 +55,7 @@ Several sessions work **in this same checkout**:
   `MC-115` and rows 375-381.
 - **"Q&A"** is read-only. It handed over the heap measurement (ledger row 383).
 
-**Next free numbers:** `MC-121`, Report 44, and ledger row 404.
+**Next free numbers:** `MC-123`, Report 45, and ledger row 417.
 Check the ledger's last row before taking one. `MC-114` and ledger rows 371-374 were reserved for
 W2c-a and left unused; nobody should fill them.
 
@@ -65,30 +66,30 @@ W2c-a and left unused; nobody should fill them.
 
 ## Current work
 
-### Resume here (hand-off, 2026-09-29)
+### Resume here (hand-off, 2026-09-30)
 
-1. **Next: W2d**, only on the maintainer's go-ahead: the request layer, the model's tools and graph
-   memory, and CHORE-27 (`MC-103`, `MC-095`). Start from `Agents/Carry-Forward.md`'s W2d section,
-   then the usual path: an `investigator` scoping, the plan (Report 44), Gate 1, red tests, the
-   fix, Gate 2, a live check, the commit-message check. Commit only when asked.
-2. **Push:** the maintainer expects to ask once W2 is complete (W2d, W3 and W2e remain).
-3. **The Chrome tab** from W2c-c's live check (localhost:6001) may still be open behind its
+1. **Next: W2d-b**, the second half of W2d, which the maintainer asked to start ("Start working on
+   W2d"). It binds the tool path, graph memory, `risuaccess` with no `id` and `aiaccess` to the
+   request's subject, and folds in the three bugs of `MC-122` and the JSON-schema parse. Start from
+   `Agents/Carry-Forward.md`'s W2d-b section, then: an `investigator` scoping (the packet
+   `w2d/packet.md` already covers most of it), the plan (Report 45), Gate 1, red tests, the fix,
+   Gate 2, a live check, the commit-message check. Commit only when asked.
+   - **Lesson from W2d-a's Gate 1** (ledger row 408): execute every planned test row at HEAD before
+     Gate 1 accepts it. Three rounds were spent on rows that were red only by reading.
+2. **Push:** the maintainer expects to ask once W2 is complete (W2d-b, W3 and W2e remain).
+3. **The Chrome tab** from W2d-a's live check (localhost:6001) may still be open behind its
    leave-site prompt; the maintainer was asked to close it. The server is stopped and `save/` is
    restored and hash-verified.
-4. **Disclosed to the maintainer with W2c-c, no action pending:** Report 43 section 8 (the
-   additional-info query follows `MC-118` 3; typed tags stay expanded at input; tags the model
-   writes are expanded by the reply's pass; a mid-send delete shifts where a walk-back tag starts;
-   new message objects swapped in mid-send make the later walk-back and history tags read every
-   message as sent, as upstream, while the request is unaffected). No objection so far.
 
-### W2c-c: done (committed as `d27a1ee4`, records the commit after it)
+### W2d-a: done (committed as `4c34172c`, records the commit after it)
 
-- **Plan:** Report 43 rev 3.1; decisions `MC-111`, `MC-112`, `MC-113`, `MC-118`, `MC-120`; ledger
-  rows 393-403. `MC-119` puts CHORE-45 after the memory-footprint stage.
-- **Gate 1:** rounds 1 and 2 [REJECT], round 3 [EDITORIAL]. **Gate 2:** round 1 [REJECT], the
-  remediation (tests first), round 2 [EDITORIAL]. **Live check passed** (row 402);
-  **commit-message check** (row 403). Drafts in the session scratchpad (`w2cc/commit-msg.txt`,
-  `w2cc/commit-records.txt`).
+- **Plan:** Report 44 rev 4.1; decisions `MC-121` (trigger-run model calls follow their run),
+  `MC-122` (three bugs to W2d-b); ledger rows 404-416.
+- **Gate 1:** rounds 1-3 [REJECT], escalated to `senior-advisor` (row 408: a gate-scope mismatch,
+  not a design defect), every row executed at HEAD (row 409), round 4 [EDITORIAL]. **Gate 2:**
+  [APPROVE], three optional findings taken and verified. **Live check passed** (row 415);
+  **commit-message check** (row 416). Drafts in the session scratchpad (`w2d/commit-msg.txt`,
+  `w2d/commit-records.txt`).
 - **Committed** at the maintainer's request. Not pushed.
 
 ### The heap measurement (ledger row 383): done
@@ -102,9 +103,8 @@ Placement of the W2 stages is `MC-103`'s split (W2a, W2b, W2c, W2d, W3, W2e, in 
 Roadmap has no stage entries for W2c to W3; it carries the tickets below, checked on 2026-09-29
 against the entries for CHORE-27, 35, 40, 41, 43 and 45.
 
-1. **W2d**, next: the request layer, tools, graph memory, CHORE-27. Roadmap CHORE-27 says "closed by
-   writer stage W2 (`MC-076`)", corrected on 2026-09-27; `request.ts` still reads
-   `getCurrentCharacter()` and `getCurrentChat()`.
+1. **W2d-b**, next: the tool path, graph memory, `risuaccess`, `aiaccess`, the JSON-schema parse and
+   `MC-122`'s three bugs. W2d-a (`4c34172c`) closed CHORE-27.
 2. **W3:** `/` commands, `/multisend`, `sendPofile`.
 3. **W2e:** the delete warning and complete registration.
 4. **The memory footprint** (`MC-119`): the savings being worked out in the Q&A session, from the
@@ -169,7 +169,8 @@ dispatches; `Agents/Carry-Forward.md` holds what a stage left for later ones. Ea
 | W2c-a, scripts, Lua edit triggers and lorebook | 40 | `79c6e35e` | `4576d07e` | 355-370 |
 | Escape on alerts, stage 2 | 41 | `c0b323b0` | `d848ecdf` | 375-381 |
 | W2c-b, prompt parses, persona and summaries | 42 | `9d493c79` | `dd41a43d` | 382, 384-392 |
-| W2c-c, the prompt's index tags and hidden messages | 43 | `d27a1ee4` | the commit after it | 393-403 |
+| W2c-c, the prompt's index tags and hidden messages | 43 | `d27a1ee4` | `1e8c64f1` | 393-403 |
+| W2d-a, the `request` trigger and the prompt's names (CHORE-27) | 44 | `4c34172c` | the commit after it | 404-416 |
 
 Escape on alerts stage 2 and W2c-a were merged as `1d6fa16b`.
 
@@ -217,8 +218,10 @@ Escape on alerts stage 2 and W2c-a were merged as `1d6fa16b`.
 
 ## Test suite
 
-- **W2c-c's final tree (`d27a1ee4`):** 178 files, 2,828 passed, 4 skipped, 0 failed (ledger rows
-  400-401). `pnpm check` is clean and the build passes.
+- **W2d-a's tree before its one-guard remediation:** 182 files, 2,950 passed, 4 skipped, 0 failed
+  (ledger row 412); `pnpm check` clean, the build passes. After the remediation the four
+  `requestOrigin*` files pass 123/123 and `pnpm check` is clean (row 414); the full suite was not
+  re-run for that test-only change.
 - `cargo check` last ran on the removal stage.
 - Run the suite with plain `pnpm test` or `npx vitest run`. `vitest.config.ts` excludes
   `.claude/**` (`7b72b813`).

@@ -1308,6 +1308,11 @@ writer stage W1 (`MC-076`), not fixed separately.
 
 ### CHORE-27 — The `request` trigger runs on whatever character is selected, on live data
 
+**Status (2026-09-30): fixed by W2d-a, committed as `4c34172c`** (Report 44; ledger rows 404-416).
+A request made for a send or a trigger run carries its subject; the `request` trigger runs under
+that chat's origin (skipped when it is gone, duplicated or a group's), and the text-completion
+names follow it too.
+
 **Status (2026-09-24):** traced by the pre-W0 checks (ledger row 162), Orchestrator re-checked
 in source; upstream `main` has the same code. Closed by writer stage W2 (`MC-076`).
 

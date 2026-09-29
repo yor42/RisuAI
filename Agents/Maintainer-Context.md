@@ -3537,3 +3537,52 @@ decided):**
    `v2SystemPrompt`) is parsed under the prompt rule:** walk-backs and history tags skip hidden
    messages.
 2. **Every other trigger parse, and Lua's `cbs()`, keep reading the whole chat.**
+
+---
+
+### MC-121 — W2d: a trigger run's model calls follow the run's origin
+
+- **Tag:** decision
+- **Date:** 2026-09-29
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on a question the Orchestrator asked
+  after W2d's scoping (ledger row 404), which found that five trigger and Lua model calls already
+  run under a trigger run's own origin, and that a send's own start and output triggers can contain
+  them.
+- **Reasoning:** leaving them on the selection would leave part of one send unbound: its start or
+  output trigger's model call would run the selected character's `request` trigger and use the
+  selected chat's tools, such as graph memory.
+- **Alternatives rejected:** keep them on the selection (`MC-103`'s default as first stated).
+- **Amends:** `MC-103`'s default that callers other than the send's own requests keep following the
+  selection, for trigger-run model calls only.
+- **Related:** MC-078, MC-095, MC-103, MC-110.
+
+**What was decided:**
+1. **A model call made by a trigger run** (the v2 `runLLM` effects and Lua's `LLM`, `simpleLLM`
+   and `axLLM`) runs the `request` trigger and uses the tools of the run's own chat, not the
+   selection's. In a chat whose id has two holders the run's own reads and writes keep `MC-078`.
+2. **The translator, the Playground, Suggestion and the other callers with no origin** keep
+   following the selection.
+
+---
+
+### MC-122 — Three request-layer bugs found during W2d-a are fixed in W2d-b
+
+- **Tag:** decision
+- **Date:** 2026-09-30
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose "Fold into W2d-b" on a question the Orchestrator asked when
+  W2d-a was ready to commit (Report 44 section 6; ledger rows 405, 409, 413).
+- **Reasoning:** none stated beyond the choice; W2d-b edits the same request files.
+- **Alternatives rejected:** a Roadmap chore for each (the Orchestrator's recommendation); only
+  noting them in Report 44.
+- **Related:** MC-091, MC-103, MC-121.
+
+**What was decided:** W2d-b fixes, with tests:
+1. the image-prompt block in `sendChatBody` appends the request's result object (`data += rq`)
+   instead of its text;
+2. `stringlizeAINChat` (NovelList) has a stray unary `+` that appends `NaN` and drops the
+   character's name label;
+3. with `fallbackModels` set for a mode, the attempts are the list's entries only and the primary
+   model is never tried. Whether that is intended is not established; W2d-b's scoping checks
+   upstream and the settings text first, and a product question goes to the maintainer.
