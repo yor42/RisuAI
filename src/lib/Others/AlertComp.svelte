@@ -1,5 +1,7 @@
 <script lang="ts">
-    import { alertGenerationInfoStore, STALE_ACCOUNT_NOTICE_ACK } from "../../ts/alert";
+    import { untrack } from "svelte";
+    import { alertGenerationInfoStore, STALE_ACCOUNT_NOTICE_ACK, type alertData } from "../../ts/alert";
+    import { isConsentType, isPromptType } from "../../ts/alertPrompts";
     import { UPSTREAM_AGREEMENT_ACCEPT, UPSTREAM_AGREEMENT_DECLINE } from "../../ts/upstreamAgreement";
     
     import { DBState } from 'src/ts/stores.svelte';
@@ -135,20 +137,43 @@
         if(btn){
             btn.focus()
         }
-        if($alertStore.type !== 'input'){
-            input = ''
-        }
         if($alertStore.type !== 'branches'){
             branchHover = null
-        }
-        if($alertStore.type !== 'cardexport'){
-            cardExportType = 'realm'
-            cardExportType2 = ''
-            cardLicense = ''
         }
         if($alertStore.type !== 'requestlogs'){
             expandedLogs = new Set()
             allExpanded = false
+        }
+    });
+
+    // The prompt whose dialog is kept mounted. Another alert that covers it
+    // hides the dialog instead of unmounting it, so what the user typed,
+    // chose or scrolled to is still there when the prompt comes back. It is
+    // replaced by the next prompt object and dropped when the store closes.
+    // The consent prompts are not held: they defend their own place on screen
+    // and are shown like any other alert.
+    let held: alertData | null = $state.raw(null)
+    const promptCovered = $derived(held !== null && $alertStore !== held)
+
+    function resetPromptState() {
+        input = ''
+        cardExportType = 'realm'
+        cardExportType2 = ''
+        cardLicense = ''
+    }
+
+    $effect.pre(() => {
+        const value = $alertStore
+        const keptPrompt = untrack(() => held)
+        if(isPromptType(value.type) && !isConsentType(value.type)){
+            if(value !== keptPrompt){
+                held = value
+                resetPromptState()
+            }
+        }
+        else if(value.type === 'none' && keptPrompt !== null){
+            held = null
+            resetPromptState()
         }
     });
 
@@ -185,29 +210,30 @@
     }
 </script>
 
-{#if $alertStore.type !== 'none' &&  $alertStore.type !== 'toast' &&  $alertStore.type !== 'cardexport' && $alertStore.type !== 'branches' && $alertStore.type !== 'selectModule' && $alertStore.type !== 'pukmakkurit' && $alertStore.type !== 'requestlogs'}
-    <div class="absolute w-full h-full z-50 bg-black/50 flex justify-center items-center" class:vis={ $alertStore.type === 'wait2'}>
+{#snippet alertView(a: alertData)}
+{#if a.type !== 'none' &&  a.type !== 'toast' &&  a.type !== 'cardexport' && a.type !== 'branches' && a.type !== 'selectModule' && a.type !== 'pukmakkurit' && a.type !== 'requestlogs'}
+    <div class="absolute w-full h-full z-50 bg-black/50 flex justify-center items-center" class:vis={ a.type === 'wait2'}>
         <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl  max-h-full overflow-y-auto">
-            {#if $alertStore.type === 'error'}
+            {#if a.type === 'error'}
                 <h2 class="text-red-700 mt-0 mb-2 w-40 max-w-full">Error</h2>
-            {:else if $alertStore.type === 'ask'}
+            {:else if a.type === 'ask'}
                 <h2 class="text-green-700 mt-0 mb-2 w-40 max-w-full">Confirm</h2>
-            {:else if $alertStore.type === 'pluginconfirm'}
+            {:else if a.type === 'pluginconfirm'}
                 <h2 class="text-green-700 mt-0 mb-2 w-40 max-w-full">Plugin Import</h2>
-            {:else if $alertStore.type === 'selectChar'}
+            {:else if a.type === 'selectChar'}
                 <h2 class="text-green-700 mt-0 mb-2 w-40 max-w-full">Select</h2>
-            {:else if $alertStore.type === 'input'}
+            {:else if a.type === 'input'}
                 <h2 class="text-green-700 mt-0 mb-2 w-40 max-w-full">Input</h2>
             {/if}
-            {#if $alertStore.type === 'markdown'}
+            {#if a.type === 'markdown'}
                 <div class="overflow-y-auto">
                     <span class="text-gray-300 chattext prose chattext2" class:prose-invert={$ColorSchemeTypeStore}>
-                        {#await ParseMarkdown($alertStore.msg) then msg}
+                        {#await ParseMarkdown(a.msg) then msg}
                             {@html msg}                        
                         {/await}
                     </span>
                 </div>
-            {:else if $alertStore.type === 'tos'}
+            {:else if a.type === 'tos'}
                 <!-- svelte-ignore a11y_missing_attribute -->
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
 
@@ -216,8 +242,8 @@
                     }}>{language.upstreamAgreementTermsOfService}</a>{language.upstreamAgreementPromptBetween}<a role="button" tabindex="0" class="text-green-600 hover:text-green-500 transition-colors duration-200 cursor-pointer" onclick={() => {
                         openURL('https://account.sionyw.com/privacy')
                     }}>{language.upstreamAgreementPrivacyPolicy}</a>{language.upstreamAgreementPromptAfter}</div>
-            {:else if $alertStore.type === 'pluginconfirm'}
-                {@const parts = $alertStore.msg.split('\n\n')}
+            {:else if a.type === 'pluginconfirm'}
+                {@const parts = a.msg.split('\n\n')}
                 {@const mainPart = parts[0]}
                 {@const confirmMessage = parts[1]}
                 {@const mainParts = mainPart.split('\n')}
@@ -234,13 +260,13 @@
                     {/if}
                     <p class="confirm-message">{confirmMessage}</p>
                 </div>
-            {:else if $alertStore.type !== 'select' && $alertStore.type !== 'requestdata' && $alertStore.type !== 'addchar' && $alertStore.type !== 'hypaV2' && $alertStore.type !== 'chatOptions'}
-                <span class="text-gray-300 whitespace-pre-wrap">{$alertStore.msg}</span>
-                {#if $alertStore.submsg && $alertStore.type !== 'progress'}
-                    <span class="text-gray-500 text-sm">{$alertStore.submsg}</span>
+            {:else if a.type !== 'select' && a.type !== 'requestdata' && a.type !== 'addchar' && a.type !== 'hypaV2' && a.type !== 'chatOptions'}
+                <span class="text-gray-300 whitespace-pre-wrap">{a.msg}</span>
+                {#if a.submsg && a.type !== 'progress'}
+                    <span class="text-gray-500 text-sm">{a.submsg}</span>
                 {/if}
 
-                {#if $alertStore.type === 'error' && $alertStore.stackTrace}
+                {#if a.type === 'error' && a.stackTrace}
                     <div class="mt-4">
                         <Button styled="outlined" size="sm" onclick={() => showDetails = !showDetails}>
                             {showDetails ? language.hideErrorDetails : language.showErrorDetails}
@@ -270,24 +296,24 @@
                     </div>
                 {/if}
             {/if}
-            {#if $alertStore.type === 'wait' && $alertStore.onCancel}
+            {#if a.type === 'wait' && a.onCancel}
                 <div class="flex w-full">
                     <Button styled="outlined" className="mt-4 grow" onclick={() => {
-                        $alertStore.onCancel?.()
+                        a.onCancel?.()
                     }}>{language.cancel}</Button>
                 </div>
             {/if}
 
-            {#if $alertStore.type === 'progress'}
+            {#if a.type === 'progress'}
                 <div class="w-full min-w-64 md:min-w-138 h-2 bg-darkbg border border-darkborderc rounded-md mt-6">
-                    <div class="h-full bg-linear-to-r from-blue-500 to-purple-800 saving-animation transition-[width]" style:width={$alertStore.submsg + '%'}></div>
+                    <div class="h-full bg-linear-to-r from-blue-500 to-purple-800 saving-animation transition-[width]" style:width={a.submsg + '%'}></div>
                 </div>
                 <div class="w-full flex justify-center mt-6">
-                    <span class="text-gray-500 text-sm">{$alertStore.submsg + '%'}</span>
+                    <span class="text-gray-500 text-sm">{a.submsg + '%'}</span>
                 </div>
             {/if}
 
-            {#if $alertStore.type === 'ask' || $alertStore.type === 'pluginconfirm'}
+            {#if a.type === 'ask' || a.type === 'pluginconfirm'}
                 <div class="flex gap-2 w-full">
                     <Button className="mt-4 grow" onclick={() => {
                         alertStore.set({
@@ -302,7 +328,7 @@
                         })
                     }}>NO</Button>
                 </div>
-            {:else if $alertStore.type === 'tos' && import.meta.env.VITE_RISU_LEGAL_CONFIGURED}
+            {:else if a.type === 'tos' && import.meta.env.VITE_RISU_LEGAL_CONFIGURED}
                 <div class="flex gap-2 w-full">
                     <Button className="mt-4 grow" onclick={() => {
                         alertStore.set({
@@ -317,10 +343,10 @@
                         })
                     }}>{language.upstreamAgreementDecline}</Button>
                 </div>
-            {:else if $alertStore.type === 'select'}
-                {@const hasDisplay = $alertStore.msg.startsWith('__DISPLAY__')}
+            {:else if a.type === 'select'}
+                {@const hasDisplay = a.msg.startsWith('__DISPLAY__')}
                 {#if hasDisplay}
-                    {@const parts = $alertStore.msg.substring(11).split('||')}
+                    {@const parts = a.msg.substring(11).split('||')}
                     <div class="mb-4 text-textcolor">{parts[0]}</div>
                     {#each parts.slice(1) as n, i}
                         <Button className="mt-4" onclick={() => {
@@ -331,7 +357,7 @@
                         }}>{n}</Button>
                     {/each}
                 {:else}
-                    {@const parts = $alertStore.msg.split('||')}
+                    {@const parts = a.msg.split('||')}
                     {#each parts as n, i}
                         <Button className="mt-4" onclick={() => {
                             alertStore.set({
@@ -341,22 +367,22 @@
                         }}>{n}</Button>
                     {/each}
                 {/if}
-            {:else if $alertStore.type === 'error' || $alertStore.type === 'normal' || $alertStore.type === 'markdown'}
+            {:else if a.type === 'error' || a.type === 'normal' || a.type === 'markdown'}
                <Button className="mt-4" onclick={() => {
                     alertStore.set({
                         type: 'none',
                         msg: ''
                     })
                 }}>OK</Button>
-            {:else if $alertStore.type === 'staleAccountNotice'}
+            {:else if a.type === 'staleAccountNotice'}
                <Button className="mt-4" onclick={() => {
                     alertStore.set({
                         type: 'none',
                         msg: STALE_ACCOUNT_NOTICE_ACK
                     })
                 }}>OK</Button>
-            {:else if $alertStore.type === 'input'}
-                <TextInput value={$alertStore.defaultValue} id="alert-input" autocomplete="off" marginTop list="alert-input-list" />
+            {:else if a.type === 'input'}
+                <TextInput value={a.defaultValue} id="alert-input" autocomplete="off" marginTop list="alert-input-list" />
                 <Button className="mt-4" onclick={() => {
                     alertStore.set({
                         type: 'none',
@@ -364,9 +390,9 @@
                         msg: document.querySelector('#alert-input')?.value
                     })
                 }}>OK</Button>
-                {#if $alertStore.datalist}
+                {#if a.datalist}
                     <datalist id="alert-input-list">
-                        {#each $alertStore.datalist as item}
+                        {#each a.datalist as item}
                             <option
                                 value={item[0]}
                                 label={item[1] ? item[1] : item[0]}
@@ -374,7 +400,7 @@
                         {/each}
                     </datalist>
                 {/if}
-            {:else if $alertStore.type === 'selectChar'}
+            {:else if a.type === 'selectChar'}
                 <div class="flex w-full items-start flex-wrap gap-2 justify-start">
                     {#each DBState.db.characters as char, i (i)}
                         {#if char.type !== 'group'}
@@ -404,7 +430,7 @@
                         alertStore.set({type: 'none', msg: ''})
                     }}>{language.cancel}</Button>
                 </div>
-            {:else if $alertStore.type === 'requestdata'}
+            {:else if a.type === 'requestdata'}
                 {#if aiLawApplies()}
                 <div>
                     {language.generatedByAIDisclaimer}
@@ -495,7 +521,7 @@
                 </div>
                 {/if}
                 {#if generationInfoMenuIndex === 2}
-                    {#await getFetchData($alertStore.msg) then data} 
+                    {#await getFetchData(a.msg) then data} 
                         {#if !data}
                             <span class="text-gray-300 text-lg mt-2">{language.errors.requestLogRemoved}</span>
                             <span class="text-gray-500">{language.errors.requestLogRemovedDesc}</span>
@@ -545,7 +571,7 @@
                         </div>
                     {/if}
                 {/if}
-            {:else if $alertStore.type === 'hypaV2'}
+            {:else if a.type === 'hypaV2'}
                 <div class="flex flex-wrap gap-2 mb-4 max-w-full w-124">
                     <Button selected={generationInfoMenuIndex === 0} size="sm" onclick={() => {generationInfoMenuIndex = 0}}>
                         Chunks
@@ -580,7 +606,7 @@
                         </div>
                     {/each}
                 {/if}
-            {:else if $alertStore.type === 'addchar'}
+            {:else if a.type === 'addchar'}
                 <div class="w-2xl flex flex-col max-w-full">
 
                     <button class="border-darkborderc border py-12 px-8 flex rounded-md hover:ring-2 justify-center items-center" onclick={(e) => {
@@ -657,7 +683,7 @@
                         </div>
                     </button>
                 </div>
-            {:else if $alertStore.type === 'chatOptions'}
+            {:else if a.type === 'chatOptions'}
                 <div class="w-2xl flex flex-col max-w-full">
                     <h1 class="text-xl mb-4 font-bold">
                         {language.chatOptions}
@@ -703,7 +729,7 @@
         </div>
     </div>
 
-{:else if $alertStore.type === 'cardexport'}
+{:else if a.type === 'cardexport'}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div  class="fixed top-0 left-0 h-full w-full bg-black/50 flex flex-col z-50 items-center justify-center" role="button" tabindex="0" onclick={close}>
         <div class="bg-darkbg rounded-md p-4 max-w-full flex flex-col w-2xl" role="button" tabindex="0" onclick={(e) => {
@@ -727,9 +753,9 @@
             </h1>
             <span class="text-textcolor mt-4">{language.type}</span>
             {#if cardExportType === ''}
-                {#if $alertStore.submsg === 'module'}
+                {#if a.submsg === 'module'}
                     <span class="text-textcolor2 text-sm">{language.risuMDesc}</span>
-                {:else if $alertStore.submsg === 'preset'}
+                {:else if a.submsg === 'preset'}
                     <span class="text-textcolor2 text-sm">{language.risupresetDesc}</span>
                     {#if cardExportType2 === 'preset' && (DBState.db.botPresets[DBState.db.botPresetsId].image || DBState.db.botPresets[DBState.db.botPresetsId].regex?.length > 0)}
                         <span class="text-red-500 text-sm">Use RisuRealm to share the preset. Preset with image or regexes cannot be exported for now.</span>
@@ -749,10 +775,10 @@
                 <span class="text-textcolor2 text-sm">{language.realmDesc}</span>
             {/if}
             <div class="flex items-center flex-wrap mt-2">
-                {#if $alertStore.submsg === 'preset'}
+                {#if a.submsg === 'preset'}
                     <button class="bg-bgcolor px-2 py-4 rounded-lg flex-1" class:ring-1={cardExportType === 'realm'} onclick={() => {cardExportType = 'realm'}}>RisuRealm</button>
                     <button class="bg-bgcolor px-2 py-4 rounded-lg ml-2 flex-1" class:ring-1={cardExportType === ''} onclick={() => {cardExportType = ''}}>Risupreset</button>
-                {:else if $alertStore.submsg === 'module'}
+                {:else if a.submsg === 'module'}
                     <button class="bg-bgcolor px-2 py-4 rounded-lg ml-2 flex-1" class:ring-1={cardExportType === 'realm'} onclick={() => {cardExportType = 'realm'}}>RisuRealm</button>
                     <button class="bg-bgcolor px-2 py-4 rounded-lg flex-1" class:ring-1={cardExportType === ''} onclick={() => {cardExportType = ''}}>RisuM</button>
                 {:else}
@@ -764,7 +790,7 @@
                     <button class="bg-bgcolor px-2 py-4 rounded-lg ml-2 flex-1" class:ring-1={cardExportType === 'ccv2'} onclick={() => {cardExportType = 'ccv2'}}>Character Card V2</button>
                 {/if}
             </div>
-            {#if $alertStore.submsg === '' && cardExportType === ''}
+            {#if a.submsg === '' && cardExportType === ''}
                 <span class="text-textcolor mt-4">{language.format}</span>
                 <SelectInput bind:value={cardExportType2} className="mt-2">
                     <OptionInput value="charx">CHARX</OptionInput>
@@ -785,7 +811,7 @@
         </div>
     </div>
 
-{:else if $alertStore.type === 'toast'}
+{:else if a.type === 'toast'}
     <div class="toast-anime absolute right-0 bottom-0 bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl  max-h-11/12 overflow-y-auto z-50 text-textcolor"
         onanimationend={() => {
             alertStore.set({
@@ -793,15 +819,15 @@
                 msg: ''
             })
         }}
-    >{$alertStore.msg}</div>
-{:else if $alertStore.type === 'selectModule'}
+    >{a.msg}</div>
+{:else if a.type === 'selectModule'}
     <ModuleChatMenu alertMode close={(d) => {
         alertStore.set({
             type: 'none',
             msg: d
         })
     }} />
-{:else if $alertStore.type === 'pukmakkurit'}
+{:else if a.type === 'pukmakkurit'}
     <!-- Log Generator by dootaang, GPL3 -->
     <!-- Svelte, Typescript version by Kwaroran -->
     
@@ -811,7 +837,7 @@
 
         </div>
     </div>
-{:else if $alertStore.type === 'branches'}
+{:else if a.type === 'branches'}
     <div class="absolute w-full h-full z-50 bg-black/80 flex justify-center items-center overflow-x-auto overflow-y-auto">
         {#if branchHover !== null}
             <div class="z-30 whitespace-pre-wrap p-4 text-textcolor bg-darkbg border-darkborderc border rounded-md absolute" style="top: {branchHover.y * 80 + 24}px; left: {(branchHover.x + 1) * 80 + 24}px">
@@ -883,7 +909,7 @@
             {/if}
         {/each}
     </div>
-{:else if $alertStore.type === 'requestlogs'}
+{:else if a.type === 'requestlogs'}
     {@const logs = getFetchLogs()}
     <div class="fixed inset-0 z-50 bg-black/80 flex justify-center items-start overflow-y-auto p-4">
         <div class="bg-darkbg rounded-lg w-full max-w-4xl my-4 flex flex-col max-h-[90vh]">
@@ -1025,6 +1051,19 @@
             </div>
         </div>
     </div>
+{/if}
+{/snippet}
+
+<!-- A prompt stays mounted, hidden and inert, while another alert covers it. -->
+{#if held}
+    {#key held}
+        <div style="display: contents" style:visibility={promptCovered ? 'hidden' : null} inert={promptCovered}>
+            {@render alertView(held)}
+        </div>
+    {/key}
+{/if}
+{#if $alertStore !== held && $alertStore.type !== 'none'}
+    {@render alertView($alertStore)}
 {/if}
 
 <style>

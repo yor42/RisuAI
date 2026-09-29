@@ -84,7 +84,8 @@ vi.mock(import('src/ts/process/index.svelte'), () => ({
 
 import { initHotkey } from 'src/ts/hotkey'
 import { runPreviewPrompt } from 'src/ts/process/devToolActions'
-import { renderPromptPreview, renderPromptResult } from 'src/ts/process/previewRunner'
+import { previewMayStart, renderPromptPreview, renderPromptResult, runPreview } from 'src/ts/process/previewRunner'
+import { resetAlertPromptsForTests } from 'src/ts/alertPrompts'
 import { setComposerWindow } from 'src/ts/process/generationOwnership.svelte'
 import { alertStore, DBState, selectedCharID, settingsOpen } from 'src/ts/stores.svelte'
 import { doingChat, sendChat } from 'src/ts/process/index.svelte'
@@ -133,6 +134,7 @@ afterEach(() => {
     document.body.replaceChildren()
     settingsOpen.set(false)
     setComposerWindow(false)
+    resetAlertPromptsForTests()
     alertStore.set(NONE)
     vi.restoreAllMocks()
 })
@@ -1146,5 +1148,180 @@ describe('DevTool formatted previews of a group member', () => {
         await runPreviewPrompt('normal', 'no', 'chatml', '')
 
         expect(shown()).toMatchObject({ type: 'markdown', msg: language.groupPreviewNoSpeaker })
+    })
+})
+
+describe('a preview and a prompt that is waiting', () => {
+    /** Just past the 400 ms during which an answer to a returning prompt is discarded. */
+    const GUARD_MS = 401
+
+    /** What a caller has received so far from a prompt. */
+    interface PromptOutcome {
+        settled: boolean
+        value?: boolean
+    }
+
+    function trackConfirm(promise: Promise<boolean>): PromptOutcome {
+        const outcome: PromptOutcome = { settled: false }
+        void promise.then((value) => { outcome.settled = true; outcome.value = value })
+        return outcome
+    }
+
+    async function settle(): Promise<void> {
+        await vi.advanceTimersByTimeAsync(0)
+    }
+
+    beforeEach(() => {
+        vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+        vi.useRealTimers()
+    })
+
+    describe.each(previewEntries)('$name: a result that finishes while a prompt is covered', (entry) => {
+        test('closing the notice that covers the prompt shows the prompt and not the result, and answering the prompt then shows the result', async () => {
+            let prompt!: PromptOutcome
+            let asked!: alertData
+            fakeSend({
+                returns: true,
+                body: REQUEST_BODY,
+                during: () => {
+                    prompt = trackConfirm(alertConfirm('Proceed?'))
+                    asked = shown()
+                    alertNormal('The start trigger says hi')
+                },
+            })
+            const alerts = recordAlerts()
+            await entry.run()
+            expect(shown().type, 'the alert at the end of the run').toBe('normal')
+
+            alertStore.set({ type: 'none', msg: 'yes' })
+            await settle()
+
+            expect.soft(shown(), 'the alert once the notice closed').toEqual(asked)
+            expect.soft(alerts.markdown(), 'previews shown while the prompt waits').toEqual([])
+            expect.soft(prompt.settled, 'the prompt settled with the notice\'s answer').toBe(false)
+            await vi.advanceTimersByTimeAsync(GUARD_MS)
+            alertStore.set({ type: 'none', msg: 'no' })
+            await settle()
+            expect.soft(prompt, 'the prompt after its own answer').toEqual({ settled: true, value: false })
+            expect.soft(shown().type, 'the alert once the prompt was answered').toBe('markdown')
+            expect.soft(shown().msg).toContain('test-model')
+        })
+
+        test('a result that finishes while a toast covers the prompt does not replace the toast, and shows after the prompt is answered', async () => {
+            let prompt!: PromptOutcome
+            let asked!: alertData
+            fakeSend({
+                returns: true,
+                body: REQUEST_BODY,
+                during: () => {
+                    prompt = trackConfirm(alertConfirm('Proceed?'))
+                    asked = shown()
+                    alertToast('Alert Closed')
+                },
+            })
+            const alerts = recordAlerts()
+
+            await entry.run()
+
+            expect.soft(shown().type, 'the alert at the end of the run').toBe('toast')
+            expect.soft(alerts.markdown(), 'previews shown at the end of the run').toEqual([])
+            alertStore.set(NONE)
+            await settle()
+            expect.soft(shown(), 'the alert once the toast ended').toEqual(asked)
+            await vi.advanceTimersByTimeAsync(GUARD_MS)
+            alertStore.set({ type: 'none', msg: 'yes' })
+            await settle()
+            expect.soft(prompt, 'the prompt after its own answer').toEqual({ settled: true, value: true })
+            expect.soft(shown().type, 'the alert once the prompt was answered').toBe('markdown')
+        })
+    })
+
+    describe('whether a preview may start', () => {
+        test('it may not while a prompt is waiting under a toast', () => {
+            trackConfirm(alertConfirm('Proceed?'))
+            alertToast('Alert Closed')
+
+            expect(previewMayStart()).toBe(false)
+        })
+
+        test('guard: it may start under a toast when no prompt is waiting', () => {
+            alertToast('Alert Closed')
+
+            expect(previewMayStart()).toBe(true)
+        })
+
+        test('guard: it may not start while a prompt is showing', () => {
+            trackConfirm(alertConfirm('Proceed?'))
+
+            expect(previewMayStart()).toBe(false)
+        })
+    })
+
+    describe('a preview run started while a prompt is waiting', () => {
+        test('a finished result closes the runner\'s notice over the prompt, the prompt returns, and the result shows once the prompt is answered', async () => {
+            const prompt = trackConfirm(alertConfirm('Proceed?'))
+            const asked = shown()
+            fakeSend({ returns: true, body: REQUEST_BODY })
+            const alerts = recordAlerts()
+
+            await runPreview({ previewPrompt: true }, renderPromptResult)
+            await settle()
+
+            expect.soft(shown(), 'the alert once the run ended').toEqual(asked)
+            expect.soft(alerts.markdown(), 'previews shown while the prompt waits').toEqual([])
+            expect.soft(prompt.settled, 'the prompt settled').toBe(false)
+            await vi.advanceTimersByTimeAsync(GUARD_MS)
+            alertStore.set({ type: 'none', msg: 'yes' })
+            await settle()
+            expect.soft(prompt, 'the prompt after its own answer').toEqual({ settled: true, value: true })
+            expect.soft(shown().type, 'the alert once the prompt was answered').toBe('markdown')
+            expect.soft(shown().msg).toContain('test-model')
+        })
+    })
+
+    describe('Escape on the preview\'s cancellable notice over a waiting prompt', () => {
+        /** Puts a prompt up, then runs a preview that holds its send; the runner's notice covers the prompt. */
+        async function previewOverPrompt(): Promise<{ prompt: PromptOutcome, asked: alertData, signal: () => AbortSignal | undefined, finish: () => Promise<void> }> {
+            const prompt = trackConfirm(alertConfirm('Proceed?'))
+            const asked = shown()
+            const held = holdingSend({ returns: true, body: REQUEST_BODY })
+            const run = runPreview({ previewPrompt: true }, renderPromptResult)
+            const arg = await held.started
+            expect(shown().type, 'the alert while the preview runs').toBe('wait')
+            return {
+                prompt,
+                asked,
+                signal: () => arg.signal,
+                finish: async () => {
+                    held.finish()
+                    await run
+                },
+            }
+        }
+
+        test('guard: Escape cancels the preview and closes its notice', async () => {
+            const preview = await previewOverPrompt()
+
+            await keydownHandler(escapeKey())
+
+            expect.soft(preview.signal()?.aborted, 'the send\'s signal').toBe(true)
+            expect.soft(shown().type, 'the notice after Escape').not.toBe('wait')
+            await preview.finish()
+        })
+
+        test('the prompt is shown again and still waits after Escape cancels the preview', async () => {
+            const preview = await previewOverPrompt()
+
+            await keydownHandler(escapeKey())
+            await settle()
+
+            expect.soft(shown(), 'the alert after Escape').toEqual(preview.asked)
+            expect.soft(preview.prompt.settled, 'the prompt settled').toBe(false)
+            await preview.finish()
+            expect.soft(shown(), 'the alert once the cancelled send ended').toEqual(preview.asked)
+        })
     })
 })

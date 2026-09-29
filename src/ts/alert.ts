@@ -3,6 +3,7 @@ import { language } from "../lang"
 import { isTauri, isNodeServer } from "src/ts/platform"
 import { getDatabase, type MessageGenerationInfo } from "./storage/database.svelte"
 import { alertStore as alertStoreImported } from "./stores.svelte"
+import { askPrompt, promptShowing, promptWaiting } from "./alertPrompts"
 
 export interface alertData{
     type: 'error'|'normal'|'none'|'ask'|'wait'|'selectChar'
@@ -26,6 +27,10 @@ type AlertGenerationInfoStoreData = {
 export const alertGenerationInfoStore = writable<AlertGenerationInfoStoreData>(null)
 export const alertStore = {
     set: (d:alertData) => {
+        // Code never closes a prompt that is on screen; only the user's answer does.
+        if(d.type === 'none' && promptShowing()){
+            return
+        }
         alertStoreImported.set(d)
     }
 }
@@ -79,8 +84,10 @@ export function alertError(msg: string | Error) {
  * Resolves with the `msg` of the first `none` value the alert store takes, or
  * already holds. The answer comes from the value that ended the alert, as the
  * subscriber receives it, never from a later read of the store: whatever is put
- * in the store after the answer cannot replace it. Every blocking alert in this
- * module that waits for the store's `none` captures its answer through this.
+ * in the store after the answer cannot replace it. Only the waiters of a notice
+ * (`waitAlert`) use this, so they resolve when the notice closes. A prompt does
+ * not: the first `none` may be the close of a notice that covered it, so a
+ * prompt takes its answer through `askPrompt` in `alertPrompts.ts`.
  */
 function alertEndMessage(): Promise<string> {
     return new Promise<string>((resolve) => {
@@ -123,21 +130,17 @@ export async function alertNormalWait(msg:string){
 }
 
 export async function alertAddCharacter() {
-    alertStoreImported.set({
+    return await askPrompt({
         'type': 'addchar',
         'msg': language.addCharacter
     })
-
-    return await alertEndMessage()
 }
 
 export async function alertChatOptions() {
-    alertStoreImported.set({
+    return parseInt(await askPrompt({
         'type': 'chatOptions',
         'msg': language.chatOptions
-    })
-
-    return parseInt(await alertEndMessage())
+    }))
 }
 
 /**
@@ -193,12 +196,10 @@ export function alertStaleAccountNotice(): Promise<void> {
 
 export async function alertSelect(msg:string[], display?:string){
     const message = display !== undefined ? `__DISPLAY__${display}||${msg.join('||')}` : msg.join('||')
-    alertStoreImported.set({
+    return await askPrompt({
         'type': 'select',
         'msg': message
     })
-
-    return await alertEndMessage()
 }
 
 export async function alertErrorWait(msg:string){
@@ -217,7 +218,7 @@ export function alertMd(msg:string){
 }
 
 export function doingAlert(){
-    return get(alertStoreImported).type !== 'none' && get(alertStoreImported).type !== 'toast' && get(alertStoreImported).type !== 'wait'
+    return promptWaiting() || (get(alertStoreImported).type !== 'none' && get(alertStoreImported).type !== 'toast' && get(alertStoreImported).type !== 'wait')
 }
 
 export function alertToast(msg:string){
@@ -245,7 +246,11 @@ export function alertWait(msg:string, onCancel?: () => void): alertData {
 }
 
 
+/** Closes the alert on screen. A prompt that is on screen is left alone: only its answer closes it. */
 export function alertClear(){
+    if(promptShowing()){
+        return
+    }
     alertStoreImported.set({
         'type': 'none',
         'msg': ''
@@ -253,43 +258,35 @@ export function alertClear(){
 }
 
 export async function alertSelectChar(){
-    alertStoreImported.set({
+    return await askPrompt({
         'type': 'selectChar',
         'msg': ''
     })
-
-    return await alertEndMessage()
 }
 
 export async function alertConfirm(msg:string){
 
-    alertStoreImported.set({
+    return (await askPrompt({
         'type': 'ask',
         'msg': msg
-    })
-
-    return (await alertEndMessage()) === 'yes'
+    })) === 'yes'
 }
 
 export async function alertPluginConfirm(msg:string){
 
-    alertStoreImported.set({
+    return (await askPrompt({
         'type': 'pluginconfirm',
         'msg': msg
-    })
-
-    return (await alertEndMessage()) === 'yes'
+    })) === 'yes'
 }
 
 export async function alertCardExport(type:string = ''){
 
-    alertStoreImported.set({
+    return JSON.parse(await askPrompt({
         'type': 'cardexport',
         'msg': '',
         'submsg': type
-    })
-
-    return JSON.parse(await alertEndMessage()) as {
+    })) as {
         type: string,
         type2: string,
     }
@@ -297,24 +294,20 @@ export async function alertCardExport(type:string = ''){
 
 export async function alertInput(msg:string, datalist?:[string, string][], defaultValue?:string) {
 
-    alertStoreImported.set({
+    return await askPrompt({
         'type': 'input',
         'msg': msg,
         'datalist': datalist ?? [],
         'defaultValue': defaultValue ?? ''
     })
-
-    return await alertEndMessage()
 }
 
 export async function alertModuleSelect(){
 
-    alertStoreImported.set({
+    return await askPrompt({
         'type': 'selectModule',
         'msg': ''
     })
-
-    return await alertEndMessage()
 }
 
 export function alertRequestData(info:AlertGenerationInfoStoreData){

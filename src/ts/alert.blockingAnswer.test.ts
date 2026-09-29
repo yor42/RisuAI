@@ -43,6 +43,7 @@ import {
     waitAlert,
 } from './alert'
 import { alertStore } from './stores.svelte'
+import { resetAlertPromptsForTests } from './alertPrompts'
 
 //#region helpers
 
@@ -74,6 +75,7 @@ async function settledWithin(promise: Promise<unknown>, ms: number): Promise<boo
 }
 
 afterEach(() => {
+    resetAlertPromptsForTests()
     alertStore.set(NONE)
 })
 

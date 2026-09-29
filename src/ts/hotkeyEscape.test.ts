@@ -81,6 +81,7 @@ vi.mock(import('./process/index.svelte'), () => ({
 import { initHotkey } from './hotkey'
 import { alertStore, settingsOpen } from './stores.svelte'
 import { alertConfirm } from './alert'
+import { resetAlertPromptsForTests } from './alertPrompts'
 
 //#region helpers
 
@@ -118,6 +119,7 @@ afterEach(() => {
     vi.useRealTimers()
     document.body.replaceChildren()
     settingsOpen.set(false)
+    resetAlertPromptsForTests()
     alertStore.set(NONE)
 })
 

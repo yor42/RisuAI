@@ -1,6 +1,7 @@
 import { get } from "svelte/store"
 import { alertSelect, alertToast, alertClear, doingAlert, alertRequestLogs } from "./alert"
 import { escapeActionFor } from "./alertEscape"
+import { promptWaiting } from "./alertPrompts"
 import { changeToPreset as changeToPreset2, getDatabase  } from "./storage/database.svelte"
 import { alertStore, DBState, loadoutModalStore, MobileGUIStack, MobileSideBar, openPersonaList, openPresetList, OpenRealmStore, PlaygroundStore, QuickSettings, SafeModeStore, selectedCharID, settingsOpen } from "./stores.svelte"
 import { language } from "src/lang"
@@ -41,6 +42,14 @@ export function initHotkey(){
         const hotKeys = database?.hotkeys ?? defaultHotkeys
 
         let hotkeyRan = false
+        // A prompt waiting for its answer, shown or covered, owns the keyboard:
+        // a shortcut is still recognised and consumed as usual, but does nothing.
+        const promptUp = promptWaiting()
+        const act = (action: () => void) => {
+            if(!promptUp){
+                action()
+            }
+        }
         // A control that natively activates on this key (a button, select,
         // etc.) and currently holds keyboard focus should get to handle it
         // instead of a hotkey match stealing it via preventDefault below.
@@ -53,59 +62,63 @@ export function initHotkey(){
             }
             switch(hotkey.action){
                 case 'reroll':{
-                    clickQuery('.button-icon-reroll')
+                    act(() => clickQuery('.button-icon-reroll'))
                     break
                 }
                 case 'unreroll':{
-                    clickQuery('.button-icon-unreroll')
+                    act(() => clickQuery('.button-icon-unreroll'))
                     break
                 }
                 case 'translate':{
-                    clickQuery('.button-icon-translate')
+                    act(() => clickQuery('.button-icon-translate'))
                     break
                 }
                 case 'remove':{
-                    clickQuery('.button-icon-remove')
+                    act(() => clickQuery('.button-icon-remove'))
                     break
                 }
                 case 'edit':{
-                    clickQuery('.button-icon-edit')
-                    setTimeout(() => {
-                        focusQuery('.message-edit-area')
-                    }, 100)
+                    act(() => {
+                        clickQuery('.button-icon-edit')
+                        setTimeout(() => {
+                            focusQuery('.message-edit-area')
+                        }, 100)
+                    })
                     break
                 }
                 case 'copy':{
-                    clickQuery('.button-icon-copy')
+                    act(() => clickQuery('.button-icon-copy'))
                     break
                 }
                 case 'focusInput':{
-                    focusQuery('.text-input-area')
+                    act(() => focusQuery('.text-input-area'))
                     break
                 }
                 case 'send':{
-                    clickQuery('.button-icon-send')
+                    act(() => clickQuery('.button-icon-send'))
                     break
                 }
                 case 'settings':{
-                    settingsOpen.set(!get(settingsOpen))
+                    act(() => settingsOpen.set(!get(settingsOpen)))
                     break
                 }
                 case 'home':{
-                    selectedCharID.set(-1)
+                    act(() => selectedCharID.set(-1))
                     break
                 }
                 case 'presets':{
-                    openPresetList.set(!get(openPresetList))
+                    act(() => openPresetList.set(!get(openPresetList)))
                     break
                 }
                 case 'persona':{
-                    openPersonaList.set(!get(openPersonaList))
+                    act(() => openPersonaList.set(!get(openPersonaList)))
                     break
                 }
                 case 'toggleCSS':{
-                    SafeModeStore.set(!get(SafeModeStore))
-                    updateTextThemeAndCSS()
+                    act(() => {
+                        SafeModeStore.set(!get(SafeModeStore))
+                        updateTextThemeAndCSS()
+                    })
                     break
                 }
                 case 'prevChar':{
@@ -123,6 +136,9 @@ export function initHotkey(){
                     const target = sorted[targetIndex].i
                     ev.preventDefault()
                     ev.stopPropagation()
+                    if(promptUp){
+                        break
+                    }
                     await changeChar(target)
                     if(get(selectedCharID) === target){
                         PlaygroundStore.set(0)
@@ -145,6 +161,9 @@ export function initHotkey(){
                     const target = sorted[targetIndex].i
                     ev.preventDefault()
                     ev.stopPropagation()
+                    if(promptUp){
+                        break
+                    }
                     await changeChar(target)
                     if(get(selectedCharID) === target){
                         PlaygroundStore.set(0)
@@ -153,7 +172,7 @@ export function initHotkey(){
                     break
                 }
                 case 'quickMenu':{
-                    quickMenu()
+                    act(() => quickMenu())
                     break
                 }
                 case 'previewRequest':{
@@ -161,7 +180,7 @@ export function initHotkey(){
                     // browser's own Ctrl+U (view source) never runs.
                     ev.preventDefault()
                     ev.stopPropagation()
-                    if(get(selectedCharID) === -1 || !previewMayStart()){
+                    if(promptUp || get(selectedCharID) === -1 || !previewMayStart()){
                         return false
                     }
                     await runPreview({
@@ -170,22 +189,28 @@ export function initHotkey(){
                     return
                 }
                 case 'toggleLog':{
-                    alertRequestLogs()
+                    act(() => alertRequestLogs())
                     break
                 }
                 case 'quickSettings':{
-                    QuickSettings.open = !QuickSettings.open
-                    QuickSettings.index = 0
+                    act(() => {
+                        QuickSettings.open = !QuickSettings.open
+                        QuickSettings.index = 0
+                    })
                     break
                 }
                 case 'scrollToActiveChar':{
-                    if(database.enableScrollToActiveChar !== false){
-                        window.dispatchEvent(new CustomEvent('scrollToActiveCharacter'))
-                    }
+                    act(() => {
+                        if(database.enableScrollToActiveChar !== false){
+                            window.dispatchEvent(new CustomEvent('scrollToActiveCharacter'))
+                        }
+                    })
                     break
                 }
                 case 'loadout':{
-                    loadoutModalStore.open = !loadoutModalStore.open
+                    act(() => {
+                        loadoutModalStore.open = !loadoutModalStore.open
+                    })
                     break
                 }
                 default:{
@@ -281,8 +306,10 @@ export function initHotkey(){
             }
             ev.preventDefault()
         }
-        if(ev.key === 'Enter'){
-            const alertType = get(alertStore).type 
+        if(ev.key === 'Enter' && !ev.ctrlKey && !ev.altKey && !ev.metaKey && !ev.repeat){
+            // A plain, first press of Enter answers a confirm and closes a
+            // notice. A held key repeats, and a shortcut chord is not an answer.
+            const alertType = get(alertStore).type
             if(alertType === 'ask' || alertType === 'normal' || alertType === 'error'){
                 alertStore.set({
                     type: 'none',

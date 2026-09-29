@@ -587,12 +587,37 @@ type PluginV3ProviderOptions = PluginV2ProviderOptions & {
 
 export const customV3ProviderMetaStore:LLMModel[] = []
 
-const getPluginPermission = async (pluginName: string, scriptHash: string, permissionDesc: PluginPermission, reconfirm: boolean|'periodically' = false) => {
+/**
+ * Permission requests that have not settled, by plugin script and permission.
+ * Requests made while one is in flight share its prompt and its answer.
+ */
+const permissionRequestsInFlight = new Map<string, Promise<boolean>>()
+
+const getPluginPermission = (pluginName: string, scriptHash: string, permissionDesc: PluginPermission, reconfirm: boolean|'periodically' = false): Promise<boolean> => {
     const cachedPermission = permissionSessionCache.get(scriptHash, permissionDesc)
     if(cachedPermission !== undefined){
-        return cachedPermission;
+        return Promise.resolve(cachedPermission)
     }
 
+    // Looked up and stored before anything awaits, so a request that arrives
+    // while an earlier one is still asking finds it.
+    const permissionKey = getPluginPermissionKey(scriptHash, permissionDesc)
+    const inFlight = permissionRequestsInFlight.get(permissionKey)
+    if(inFlight){
+        return inFlight
+    }
+    const request = requestPluginPermission(pluginName, scriptHash, permissionDesc, reconfirm)
+    permissionRequestsInFlight.set(permissionKey, request)
+    const forget = () => {
+        if(permissionRequestsInFlight.get(permissionKey) === request){
+            permissionRequestsInFlight.delete(permissionKey)
+        }
+    }
+    request.then(forget, forget)
+    return request
+}
+
+const requestPluginPermission = async (pluginName: string, scriptHash: string, permissionDesc: PluginPermission, reconfirm: boolean|'periodically'): Promise<boolean> => {
     const permissionKey = getPluginPermissionKey(scriptHash, permissionDesc)
 
     let requiresReconfirm = false;

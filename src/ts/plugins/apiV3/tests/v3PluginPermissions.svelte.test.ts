@@ -421,3 +421,141 @@ describe('guard: a persisted grant recorded under the hash+permission key is hon
         expect(result).not.toBeNull()
     })
 })
+
+describe('permission requests made at the same time for one plugin script and permission', () => {
+    // `alertConfirm` is a stand-in here: these tests pin how many prompts the
+    // permission layer asks for and that one answer reaches every caller, and
+    // say nothing about how the real alert queue shows or answers them.
+
+    /** Makes the next confirm stay open until `answer` is called with the user's choice. */
+    function heldConfirm(): { answer: (granted: boolean) => void } {
+        let release: (granted: boolean) => void = () => {}
+        alertConfirmMock.mockImplementationOnce(() => new Promise<boolean>((resolve) => { release = resolve }))
+        return { answer: (granted) => release(granted) }
+    }
+
+    /** Lets every request that can reach its confirm do so. */
+    function letRequestsReachTheirConfirm(): Promise<void> {
+        return new Promise<void>((resolve) => setTimeout(resolve, 30))
+    }
+
+    test.each([
+        ['granted', true, 'script-shared-grant'],
+        ['denied', false, 'script-shared-deny'],
+    ])('two requests for the same permission ask once, and the one answer, %s, is what both receive', async (_label, granted, script) => {
+        installDb([{ name: 'shared-prompt-plugin', script }])
+        const api = makeApi('shared-prompt-plugin')
+        const held = heldConfirm()
+
+        const first = api.getDatabase()
+        const second = api.getDatabase()
+        await letRequestsReachTheirConfirm()
+
+        expect.soft(alertConfirmMock, 'confirms asked for two requests').toHaveBeenCalledTimes(1)
+        held.answer(granted)
+        const results = await Promise.all([first, second])
+        expect.soft(results.map((result) => result !== null), 'requests that were granted').toEqual([granted, granted])
+    })
+
+    test('two API objects made for the same plugin script share one prompt for the same permission', async () => {
+        installDb([{ name: 'shared-across-apis-plugin', script: 'script-shared-across-apis' }])
+        const held = heldConfirm()
+
+        const first = makeApi('shared-across-apis-plugin').getDatabase()
+        const second = makeApi('shared-across-apis-plugin').getDatabase()
+        await letRequestsReachTheirConfirm()
+
+        expect.soft(alertConfirmMock, 'confirms asked for two requests').toHaveBeenCalledTimes(1)
+        held.answer(true)
+        const results = await Promise.all([first, second])
+        expect.soft(results.map((result) => result !== null), 'requests that were granted').toEqual([true, true])
+    })
+
+    test('guard: a request made after the shared prompt was answered is served without a new prompt', async () => {
+        installDb([{ name: 'shared-then-cached-plugin', script: 'script-shared-then-cached' }])
+        const api = makeApi('shared-then-cached-plugin')
+        const held = heldConfirm()
+        const first = api.getDatabase()
+        const second = api.getDatabase()
+        await letRequestsReachTheirConfirm()
+        held.answer(true)
+        await Promise.all([first, second])
+        alertConfirmMock.mockClear()
+
+        const later = await api.getDatabase()
+
+        expect.soft(alertConfirmMock, 'confirms asked for the later request').not.toHaveBeenCalled()
+        expect.soft(later).not.toBeNull()
+    })
+
+    test('guard: requests for two different permissions of one plugin ask separately', async () => {
+        installDb([{ name: 'two-permissions-plugin', script: 'script-two-permissions' }])
+        const api = makeApi('two-permissions-plugin')
+        const dbConfirm = heldConfirm()
+        const logsConfirm = heldConfirm()
+
+        const db = api.getDatabase()
+        const logs = api.getFetchLogs()
+        await letRequestsReachTheirConfirm()
+
+        expect.soft(alertConfirmMock, 'confirms asked for two permissions').toHaveBeenCalledTimes(2)
+        dbConfirm.answer(true)
+        logsConfirm.answer(false)
+        const [dbResult, logsResult] = await Promise.all([db, logs])
+        expect.soft(dbResult, 'the granted permission').not.toBeNull()
+        expect.soft(logsResult, 'the denied permission').toBeNull()
+    })
+
+    test('guard: requests for the same permission from two different plugins ask separately', async () => {
+        installDb([
+            { name: 'two-plugins-a', script: 'script-two-plugins-a' },
+            { name: 'two-plugins-b', script: 'script-two-plugins-b' },
+        ])
+        const confirmA = heldConfirm()
+        const confirmB = heldConfirm()
+
+        const a = makeApi('two-plugins-a').getDatabase()
+        const b = makeApi('two-plugins-b').getDatabase()
+        await letRequestsReachTheirConfirm()
+
+        expect.soft(alertConfirmMock, 'confirms asked for two plugins').toHaveBeenCalledTimes(2)
+        confirmA.answer(true)
+        confirmB.answer(false)
+        const [resultA, resultB] = await Promise.all([a, b])
+        expect.soft(resultA, 'the plugin that was granted').not.toBeNull()
+        expect.soft(resultB, 'the plugin that was denied').toBeNull()
+    })
+
+    test('guard: requests for the same permission from two scripts declaring the same name ask separately', async () => {
+        installDb([{ name: 'same-name-plugin', script: 'script-same-name-first' }])
+        const first = makeApi('same-name-plugin')
+        DBState.db.plugins[0].script = 'script-same-name-second'
+        const second = makeApi('same-name-plugin')
+        const firstConfirm = heldConfirm()
+        const secondConfirm = heldConfirm()
+
+        const firstRequest = first.getDatabase()
+        const secondRequest = second.getDatabase()
+        await letRequestsReachTheirConfirm()
+
+        expect.soft(alertConfirmMock, 'confirms asked for two scripts').toHaveBeenCalledTimes(2)
+        firstConfirm.answer(true)
+        secondConfirm.answer(false)
+        const [firstResult, secondResult] = await Promise.all([firstRequest, secondRequest])
+        expect.soft(firstResult, 'the script that was granted').not.toBeNull()
+        expect.soft(secondResult, 'the script that was denied').toBeNull()
+    })
+
+    test('guard: a request made after a prompt that threw asks again', async () => {
+        installDb([{ name: 'threw-then-asks-plugin', script: 'script-threw-then-asks' }])
+        const api = makeApi('threw-then-asks-plugin')
+        alertConfirmMock.mockImplementationOnce(async () => { throw new Error('the prompt failed') })
+
+        await expect(api.getDatabase()).rejects.toThrow('the prompt failed')
+        alertConfirmMock.mockImplementationOnce(async () => true)
+        const later = await api.getDatabase()
+
+        expect.soft(alertConfirmMock, 'confirms asked in all').toHaveBeenCalledTimes(2)
+        expect.soft(later).not.toBeNull()
+    })
+})

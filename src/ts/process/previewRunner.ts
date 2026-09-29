@@ -2,6 +2,7 @@ import { get } from "svelte/store"
 import { language } from "src/lang"
 import { alertClear, alertMd, alertWait, type alertData } from "../alert"
 import { alertStore } from "../stores.svelte"
+import { alertIdle, promptWaiting } from "../alertPrompts"
 import { doingChat, sendChat, type PreviewResult, type SendChatArg } from "./index.svelte"
 import { isComposerWindowOpen } from "./generationOwnership.svelte"
 import { watchSelectedChat } from "./previewSelectionWatch.svelte"
@@ -20,12 +21,14 @@ function dropPendingResult(): void {
 
 /**
  * Whether a prompt preview may start. It may not while a generation or the
- * composer's Send holds the chat, nor while an alert is up: the preview's wait
- * notice would cover that alert, and the alert's waiter would then read the
- * `none` that ends the preview as its own answer. A toast does not block.
+ * composer's Send holds the chat, nor while a prompt is waiting for its answer
+ * (shown, or covered by a toast or notice), nor while an alert is up: the
+ * preview's wait notice would replace that alert, and the waiter of a notice
+ * would then read the `none` that ends the preview as its own close. A toast
+ * does not block, unless it covers a waiting prompt.
  */
 export function previewMayStart(): boolean {
-    if (get(doingChat) || isComposerWindowOpen()) {
+    if (get(doingChat) || isComposerWindowOpen() || promptWaiting()) {
         return false
     }
     const type = get(alertStore).type
@@ -33,13 +36,16 @@ export function previewMayStart(): boolean {
 }
 
 /**
- * Shows `md` once the alert now in front of it is closed: at the first `none`
- * the store takes, delivered to this subscriber. Every blocking alert takes its
- * answer from that same `none` (see `alertEndMessage` in `alert.ts`), and the
- * store delivers a value to all its subscribers before it delivers a write made
- * from inside one, so the result never becomes an alert's answer. It waits for
- * no timer and holds no flag. A newer preview run, or any change of the
- * selected character or chat, drops it.
+ * Shows `md` once nothing is on screen and no prompt is waiting: when the alert
+ * prompt controller reports idle (see `alertIdle` in `alertPrompts.ts`). The
+ * controller reports it after it has processed the store's `none`, so the
+ * momentary `none` between a notice's close and the return of the prompt it
+ * covered is not idle, and the result does not depend on the order in which
+ * readers subscribed to the store. The result is put in the store from inside
+ * that report, and the store delivers a value to all its subscribers before it
+ * delivers a write made from inside one, so it never becomes the close a
+ * notice's waiter is waiting for. It waits for no timer and holds no flag. A
+ * newer preview run, or any change of the selected character or chat, drops it.
  */
 function showAfterAlertCloses(md: string): void {
     dropPendingResult()
@@ -59,8 +65,8 @@ function showAfterAlertCloses(md: string): void {
     }
     endPendingResult = end
     unwatch = watchSelectedChat(end)
-    unsubscribe = alertStore.subscribe((value) => {
-        if (settled || value.type !== 'none') {
+    unsubscribe = alertIdle.subscribe((idle) => {
+        if (settled || !idle) {
             return
         }
         end()
@@ -82,8 +88,11 @@ function showAfterAlertCloses(md: string): void {
  *   its notice if the store still holds it, and shows nothing. An alert that
  *   replaced the notice (the failure's error, say) stays.
  * - The send threw: the notice is closed the same way and the error propagates.
- * - Otherwise the result is shown now if the store holds the notice, nothing or
- *   a toast; behind any other alert it is shown after that alert closes.
+ * - Otherwise the result is shown now if no prompt is waiting and the store
+ *   holds the notice, nothing or a toast. Behind any other alert, or while a
+ *   prompt is waiting, it is shown once the store is closed and no prompt
+ *   waits; a notice of the runner's own that covers a waiting prompt is closed
+ *   so that the prompt comes back.
  *
  * `render` returns the markdown for a result, or undefined when there is none.
  */
@@ -126,9 +135,13 @@ export async function runPreview(
             return
         }
         const current = get(alertStore)
-        if (current === notice || current.type === 'none' || current.type === 'toast') {
+        const promptUp = promptWaiting()
+        if (!promptUp && (current === notice || current.type === 'none' || current.type === 'toast')) {
             alertMd(md)
         } else {
+            if (promptUp) {
+                closeIfOurs()
+            }
             showAfterAlertCloses(md)
         }
     } catch (error) {
