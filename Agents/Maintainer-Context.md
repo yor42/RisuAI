@@ -3183,3 +3183,39 @@ decide them either.** Revisit any of them on request:
 5. **A successful preview that finishes while another alert is up waits for it.** The other alert
    stays; the preview shows once it is closed. Starting another preview in the meantime drops the
    pending one.
+
+---
+
+### MC-109 — Escape leaves a prompt alone and closes an information alert; a covered prompt is a second stage
+
+- **Tag:** decision
+- **Date:** 2026-09-29
+- **Sweep ref:** none (stated directly this session)
+- **Source:** after an investigation into Escape on alerts (Report 39; ledger row 348),
+  the maintainer chose the recommended option on three questions the Orchestrator asked.
+- **Reasoning:**
+  - Escape swaps any alert for a toast, and the toast's close answers `''` about a second later.
+    `''` is not a safe cancel. On the instant-remove confirm, "No" also removes every message after
+    it. On the hosted server's first-run password prompt, it sets the password to the hash of an
+    empty string. On export selects it downloads a TXT, and on card export it throws.
+  - A text input, and most selects, have no cancel value at all. The instant-remove confirm cannot
+    express one through its boolean. Answering "cancel" would therefore need about fifteen caller
+    changes.
+  - A prompt covered by any other alert takes that alert's answer, whether or not Escape was
+    pressed. Escape only adds a one-second window.
+- **Alternatives rejected:**
+  - Escape writes each prompt's own cancel answer;
+  - keep upstream's toast;
+  - keep the toast-close on information alerts;
+  - fix the covered-prompt hazard in the same change, or as a separate ticket.
+- **Amends:** none. Upstream behaviour changes: Escape no longer dismisses a prompt.
+- **Related:** MC-011, MC-106, MC-108.
+
+**What was decided:**
+1. **Escape on an alert that is waiting for an answer does nothing.** The alert stays up until
+   the user answers it. This covers confirm, select, input, the character and module pickers, add
+   character, chat options, card export, the consent prompt and the stale-account notice.
+2. **Escape on an information alert closes it at once, with no toast.** This covers notices,
+   errors, markdown, request logs and branches. Escape leaves a progress bar alone.
+3. **A prompt that another alert covers is a second stage** of this item, with its own plan and
+   gates.

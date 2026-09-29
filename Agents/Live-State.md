@@ -524,10 +524,18 @@ bug) is blocked on the maintainer's console output, not scheduled by position.
     tests: rows 341-342. Gate 2: rows 343 [EDITORIAL] and 344 [APPROVE]. Live check passed (row
     345), with one defect (an empty member name) fixed test-first and approved (row 346).
   - Final snapshot: `pnpm test` 160 files, 2212 passed, 4 skipped; `pnpm check` clean; the build
-    passes. Commit-message check (row 347): [EDITORIAL], applied. Not committed yet.
+    passes. Commit-message check (row 347): [EDITORIAL], applied. Committed as `8f93d095`,
+    with its records in `5e4a2bfd`.
   - Flagged to the maintainer as a separate task: Escape on a blocking alert leaves it unanswered
-    (upstream).
+    (upstream). Addressed by Escape on alerts, stage 1, below.
   - Next: W2c (the send's scripts and parses).
+- **Escape on alerts (stage 1): Gate 2 passed** (Report 39 rev 3.1; `MC-109`; ledger rows
+  348-354). Escape leaves a prompt waiting for an answer alone, closes an information alert at
+  once, and leaves a progress bar alone. The group character picker gets a Cancel (`MC-091`).
+  - Gate 1: rounds 1-2 [REJECT], round 3 [EDITORIAL]. Gate 2: [APPROVE].
+  - Final snapshot: `pnpm test` 163 files, 2273 passed, 4 skipped; `pnpm check` clean; the build
+    passes. Committed as `6631f5e0`.
+  - Next: stage 2 (`MC-109` 3): a prompt covered by another alert takes that alert's answer.
 - **Disclosed for the maintainer:** in a chat with a duplicated id, the send's own writes land
   (`MC-104` 1) but its trigger runs still write nothing (`MC-078`).
 
@@ -573,7 +581,7 @@ bug) is blocked on the maintainer's console output, not scheduled by position.
 
 ## Test suite
 
-**160 files: 2212 passed, 4 skipped, 0 failed**, the check on W2b-previews' final tree (uncommitted). `pnpm check` is clean, and `pnpm run build` passes.
+**163 files: 2273 passed, 4 skipped, 0 failed**, the check on the final tree of Escape on alerts (stage 1, uncommitted). `pnpm check` is clean, and `pnpm run build` passes.
 `cargo check` last ran on the removal stage.
 - Run the suite with plain `pnpm test` or `npx vitest run`. `vitest.config.ts` excludes
   `.claude/**` (`7b72b813`).
