@@ -14,18 +14,29 @@ import { isColdChat } from './coldstorageData'
 import { isExpTranslator, translate } from '../translator/translator'
 import { beginWork, originStatus, resolveOriginWithHint, writeAt, type Origin, type WorkHandle } from './chatOrigin'
 import { markCharacterForSave } from '../storage/characterSaveMarks'
+import { abortUnitInProgress, isComposerWindowOpen, multisendPushCount, setComposerWindow, turnsReachedCount } from './generationOwnership.svelte'
 import { registerDraft, unregisterDraft, COMPOSER_DRAFT_KIND } from '../localDrafts'
 import * as composerDrafts from './composerDrafts.svelte'
 import type { ComposerDraftKey } from './composerDrafts.svelte'
 import { v4 as uuidv4 } from 'uuid'
 
 /**
+ * Auto mode stops after this many consecutive ticks in which no turn reached
+ * its generation setup. A random group order can pick no speaker by chance
+ * (about 83% per tick in the worst setting), so the bound is set where a run
+ * of that many quiet ticks in a group that can still speak is negligible.
+ */
+const MAX_QUIET_TICKS = 50
+
+/**
  * Module-level state for the single in-flight composer action (Send or
- * Continue). `windowOpen` is the one-action-at-a-time window: it is open
- * from a Send's/Continue's take, or from the start of a reroll, unreroll or
- * auto mode, until that action's generation hand-off returns. `locked` is
- * open only for a Send's/Continue's own span, from the take until the
- * moment before generation starts (or until the values go back).
+ * Continue). The one-action-at-a-time window lives in
+ * `generationOwnership.svelte.ts`, where starters outside the composer read
+ * it: it is open from a Send's/Continue's take, or from the start of a
+ * reroll, unreroll or auto mode, until that action's generation hand-off
+ * returns. `locked` is open only for a Send's/Continue's own span, from the
+ * take until the moment before generation starts (or until the values go
+ * back).
  * `autoModeRunning` and `currentGenerationController` are module state too,
  * so a toggle or an abort click in any mounted composer instance --
  * including one mounted after the loop or the generation started -- reaches
@@ -34,7 +45,6 @@ import { v4 as uuidv4 } from 'uuid'
  * state. `isComposerBusy`/`isComposerLocked`/`isAutoModeActive` below expose
  * the relevant ones read-only.
  */
-let windowOpen = $state(false)
 let locked = $state(false)
 let autoModeRunning = $state(false)
 let currentGenerationController: AbortController | null = null
@@ -66,7 +76,10 @@ const inflightDraftKey = uuidv4()
  * successful push never sets it, and instead clears `inflight` directly (see
  * `clearInflightIfCurrent`'s call sites in `sendMain`), which is what stops a
  * later `abortChat` call from treating an already-pushed send as still
- * cancelable. `sendMain`'s own `finally` always runs `clearInflightIfCurrent`
+ * cancelable. `commandStartPushes` is the `/multisend` push count when the
+ * take's `/` stage started, or null while that stage has not started;
+ * `commandEndPushes` is the count when the stage ended, or null while it has
+ * not ended. `sendMain`'s own `finally` always runs `clearInflightIfCurrent`
  * and ends the work handle -- both are harmless to repeat -- but reads
  * `settled` to decide the rest: when it is true, the busy button already put
  * the values back and closed the window and the lock, so `finally` does not
@@ -79,7 +92,32 @@ interface InflightRecord {
     takenMessageInput: string
     takenMessageInputTranslate: string
     takenFileInput: string[]
+    commandStartPushes: number | null
+    commandEndPushes: number | null
     settled: boolean
+}
+
+/**
+ * True when a `/multisend` posted a segment during the take's `/` stage.
+ * While the stage runs it compares against the live count; once the stage has
+ * ended, against the count taken at its end, so a push made later in the take
+ * (an input trigger's, say) is not counted.
+ */
+function postedDuringCommandStage(record: InflightRecord): boolean {
+    if(record.commandStartPushes === null){
+        return false
+    }
+    return (record.commandEndPushes ?? multisendPushCount()) !== record.commandStartPushes
+}
+
+/**
+ * The text a put-back returns to the origin's record: the text as taken,
+ * unless a `/multisend` posted a segment during the take's `/` stage. Then
+ * the command counts as handled however that stage ended, and the text is not
+ * returned.
+ */
+function textToPutBack(record: InflightRecord): string {
+    return postedDuringCommandStage(record) ? '' : record.takenMessageInput
 }
 
 /**
@@ -108,7 +146,7 @@ export function resetComposerActionsForTests(): void {
     inflight = null
     unregisterDraft(inflightDraftKey)
     locked = false
-    windowOpen = false
+    setComposerWindow(false)
     autoModeRunning = false
     currentGenerationController = null
     composerDrafts.resetComposerDraftsForTests()
@@ -116,7 +154,7 @@ export function resetComposerActionsForTests(): void {
 
 /** True while the one-action window is open; the Send button's busy state. */
 export function isComposerBusy(): boolean {
-    return windowOpen
+    return isComposerWindowOpen()
 }
 
 /** True from a Send's/Continue's take until its hand-off or put-back. */
@@ -178,7 +216,7 @@ export async function sendMain(source: ComposerActionsSource, continueResponse: 
     if(get(doingChat)){
         return
     }
-    if(windowOpen){
+    if(isComposerWindowOpen()){
         return
     }
 
@@ -221,7 +259,7 @@ export async function sendMain(source: ComposerActionsSource, continueResponse: 
     // controller rather than a stale one left by an earlier generation.
     currentGenerationController = controller
 
-    windowOpen = true
+    setComposerWindow(true)
     locked = true
 
     const record: InflightRecord = {
@@ -230,6 +268,8 @@ export async function sendMain(source: ComposerActionsSource, continueResponse: 
         takenMessageInput,
         takenMessageInputTranslate,
         takenFileInput,
+        commandStartPushes: null,
+        commandEndPushes: null,
         settled: false,
     }
     inflight = record
@@ -252,14 +292,22 @@ export async function sendMain(source: ComposerActionsSource, continueResponse: 
         let workingText = takenMessageInput
 
         if(workingText.startsWith('/')){
-            const commandProcessed = await processMultiCommand(workingText)
+            record.commandStartPushes = multisendPushCount()
+            let commandProcessed: Awaited<ReturnType<typeof processMultiCommand>>
+            try {
+                commandProcessed = await processMultiCommand(workingText)
+            } finally {
+                record.commandEndPushes = multisendPushCount()
+            }
             if(controller.signal.aborted){
                 return
             }
-            if(commandProcessed !== false){
-                // A handled command consumes the text; the staged files and
-                // the translation go back into the origin's record, in front
-                // of anything a late file result already placed there.
+            if(commandProcessed !== false || postedDuringCommandStage(record)){
+                // A handled command consumes the text (as does a command line
+                // that posted a `/multisend` segment before it failed); the
+                // staged files and the translation go back into the origin's
+                // record, in front of anything a late file result already
+                // placed there.
                 composerDrafts.putBack(workHandle.origin, {
                     messageInput: '',
                     messageInputTranslate: takenMessageInputTranslate,
@@ -372,13 +420,13 @@ export async function sendMain(source: ComposerActionsSource, continueResponse: 
                 // any, is mounted -- in front of whatever a late writer
                 // already placed there.
                 composerDrafts.putBack(workHandle.origin, {
-                    messageInput: takenMessageInput,
+                    messageInput: textToPutBack(record),
                     messageInputTranslate: takenMessageInputTranslate,
                     fileInput: takenFileInput,
                 })
             }
             locked = false
-            windowOpen = false
+            setComposerWindow(false)
         }
     }
 }
@@ -389,10 +437,10 @@ export async function reroll(source: ComposerActionsSource): Promise<void> {
     }
     // The one-action window also covers reroll, so a Send while a reroll's
     // own generation is running is refused the same way.
-    if(windowOpen){
+    if(isComposerWindowOpen()){
         return
     }
-    windowOpen = true
+    setComposerWindow(true)
     let workHandle: WorkHandle | null = null
     try {
         const char = DBState.db.characters[get(selectedCharID)]
@@ -458,7 +506,7 @@ export async function reroll(source: ComposerActionsSource): Promise<void> {
     }
     finally {
         workHandle?.end()
-        windowOpen = false
+        setComposerWindow(false)
     }
 }
 
@@ -466,10 +514,10 @@ export async function unReroll(source: ComposerActionsSource): Promise<void> {
     if(get(doingChat)){
         return
     }
-    if(windowOpen){
+    if(isComposerWindowOpen()){
         return
     }
-    windowOpen = true
+    setComposerWindow(true)
     try {
         if(source.lastCharId.get() !== get(selectedCharID)){
             source.rerolls.set([])
@@ -497,11 +545,16 @@ export async function unReroll(source: ComposerActionsSource): Promise<void> {
         }
     }
     finally {
-        windowOpen = false
+        setComposerWindow(false)
     }
 }
 
-export async function sendChatMain(source: ComposerActionsSource, target: GenerationTarget, continued: boolean = false, existingController?: AbortController): Promise<void> {
+/**
+ * Hands one generation to `sendChat`. Resolves to whether the send
+ * completed: false when it was refused, cancelled, or failed (the failure is
+ * alerted here).
+ */
+export async function sendChatMain(source: ComposerActionsSource, target: GenerationTarget, continued: boolean = false, existingController?: AbortController): Promise<boolean> {
 
     // Every read around the send goes through the target's own chat, never
     // the selection, which may be another chat, another character or Home by
@@ -513,8 +566,9 @@ export async function sendChatMain(source: ComposerActionsSource, target: Genera
     // instance -- including one mounted after generation started -- aborts
     // this same generation.
     currentGenerationController = controller
+    let completed = false
     try {
-        await sendChat(-1, {
+        completed = await sendChat(-1, {
             signal: controller.signal,
             continue: continued,
             origin: target.origin,
@@ -533,14 +587,20 @@ export async function sendChatMain(source: ComposerActionsSource, target: Genera
     if(settledTarget){
         source.lastCharId.set(settledTarget.ownerIndex)
     }
-    doingChat.set(false)
     if(DBState.db.playMessage){
         const audio = new Audio(sendSound);
         audio.play().catch(() => {});
     }
+    return completed
 }
 
 export function abortChat(): void {
+    // The send in progress and auto mode are stopped on every press, before
+    // anything below can return early: a composer take that is still
+    // unsettled (a `/multisend` typed in the composer, whose segment is the
+    // send in progress) must not shield either.
+    abortUnitInProgress()
+    autoModeRunning = false
     // While a Send/Continue is still between its take and its push, the
     // busy button cancels it at once here, rather than waiting for its
     // stalled step to resolve and unwind on its own: the window and the
@@ -556,12 +616,12 @@ export function abortChat(): void {
         record.workHandle.end()
         unregisterDraft(inflightDraftKey)
         composerDrafts.putBack(record.workHandle.origin, {
-            messageInput: record.takenMessageInput,
+            messageInput: textToPutBack(record),
             messageInputTranslate: record.takenMessageInputTranslate,
             fileInput: record.takenFileInput,
         })
         locked = false
-        windowOpen = false
+        setComposerWindow(false)
         return
     }
     // Abort the module-level generation controller, not a per-instance one
@@ -579,6 +639,25 @@ function isShowingChat(origin: Origin): boolean {
     return shown?.chaId === origin.chaId && shown.chats?.[shown.chatPage]?.id === origin.chatId
 }
 
+/**
+ * Resolves after the event loop has run other tasks. A message on a channel
+ * is not delayed in a hidden tab or by nested timers, as `setTimeout(0)` is.
+ */
+function yieldToEventLoop(): Promise<void> {
+    if(typeof MessageChannel === 'undefined'){
+        return new Promise<void>((resolve) => setTimeout(resolve, 0))
+    }
+    return new Promise<void>((resolve) => {
+        const { port1, port2 } = new MessageChannel()
+        port1.onmessage = () => {
+            port1.close()
+            port2.close()
+            resolve()
+        }
+        port2.postMessage(null)
+    })
+}
+
 export async function runAutoMode(source: ComposerActionsSource): Promise<void> {
     // Running state is module-level, so stopping auto mode from any
     // instance -- including one mounted after the loop started -- is never
@@ -587,7 +666,7 @@ export async function runAutoMode(source: ComposerActionsSource): Promise<void> 
         autoModeRunning = false
         return
     }
-    if(windowOpen){
+    if(get(doingChat) || isComposerWindowOpen()){
         return
     }
     const char = DBState.db.characters[get(selectedCharID)]
@@ -602,13 +681,31 @@ export async function runAutoMode(source: ComposerActionsSource): Promise<void> 
     }
     const target: GenerationTarget = { origin: workHandle.origin, originHint: { owner: char, chat } }
     autoModeRunning = true
-    windowOpen = true
+    setComposerWindow(true)
     try {
+        let quietTicks = 0
         while(autoModeRunning){
-            await sendChatMain(source, target)
-            if(!isShowingChat(target.origin)){
-                autoModeRunning = false
+            // The flag and the chat on screen are read in the same synchronous
+            // stretch as the tick's `sendChat`: no await between the reads
+            // and the call.
+            if(get(doingChat) || !isShowingChat(target.origin)){
+                break
             }
+            const turnsBefore = turnsReachedCount()
+            const completed = await sendChatMain(source, target)
+            if(!completed || !isShowingChat(target.origin)){
+                break
+            }
+            quietTicks = turnsReachedCount() === turnsBefore ? quietTicks + 1 : 0
+            if(quietTicks >= MAX_QUIET_TICKS){
+                break
+            }
+            // A quiet tick (a group with nobody to speak) ends without awaiting
+            // anything, and would otherwise let the next one start on resolved
+            // promises alone and never hand control back to the page. A stop,
+            // a switch of chat, or another send taking the flag that lands
+            // here is seen at the top of the loop before another tick starts.
+            await yieldToEventLoop()
         }
     }
     finally {
@@ -618,7 +715,7 @@ export async function runAutoMode(source: ComposerActionsSource): Promise<void> 
         // state and a stuck true here would survive a remount.
         workHandle.end()
         autoModeRunning = false
-        windowOpen = false
+        setComposerWindow(false)
     }
 }
 

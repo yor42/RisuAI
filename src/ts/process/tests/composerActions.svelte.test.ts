@@ -222,7 +222,8 @@ vi.mock(import('../modules'), () => ({
 // Generation is out of scope for this suite. This spy mirrors the real
 // module's own `doingChat` handling: a call made while it is already set
 // refuses at once; otherwise it sets `doingChat` synchronously (before any
-// await, as the real `sendChatBody` does) and awaits a controllable gate.
+// await, as the real `sendChat` does), awaits a controllable gate, and clears
+// it when it settles.
 // `doingChatMock` is a hand-rolled store (not svelte's `writable`) because
 // `vi.hoisted` runs before this file's own imports are initialized, so its
 // callback cannot call an imported function.
@@ -247,8 +248,12 @@ const sendChatMock = vi.hoisted(() => vi.fn(async (_index: number, _arg: SendCha
         return false
     }
     doingChatMock.set(true)
-    await generationGateBox.current
-    return true
+    try {
+        await generationGateBox.current
+        return true
+    } finally {
+        doingChatMock.set(false)
+    }
 }))
 
 vi.mock(import('../index.svelte'), () => ({
@@ -1767,6 +1772,7 @@ async function sendWithSwitch(timing: SwitchTiming, doSwitch: () => void) {
         if (timing === 'during generation') {
             doSwitch()
         }
+        doingChatMock.set(false)
         return true
     })
     const { source } = makeSource()
@@ -1844,8 +1850,8 @@ describe('composerActions: the origin handed to generation', () => {
         installDb([char])
         const { source } = makeSource()
         sendChatMock
-            .mockImplementationOnce(async () => { doingChatMock.set(true); return true })
-            .mockImplementationOnce(async () => { doingChatMock.set(true); void runAutoMode(source); return true })
+            .mockImplementationOnce(async () => { doingChatMock.set(true); doingChatMock.set(false); return true })
+            .mockImplementationOnce(async () => { doingChatMock.set(true); void runAutoMode(source); doingChatMock.set(false); return true })
 
         await runAutoMode(source)
 
@@ -1872,6 +1878,7 @@ describe('composerActions: the origin is registered as being written to for the 
         sendChatMock.mockImplementationOnce(async () => {
             doingChatMock.set(true)
             during = isWriting(target)
+            doingChatMock.set(false)
             return true
         })
 
@@ -1891,6 +1898,7 @@ describe('composerActions: the origin is registered as being written to for the 
         sendChatMock.mockImplementationOnce(async () => {
             doingChatMock.set(true)
             during = isWriting(target)
+            doingChatMock.set(false)
             return true
         })
 
@@ -1911,6 +1919,7 @@ describe('composerActions: the origin is registered as being written to for the 
             doingChatMock.set(true)
             during = isWriting(target)
             void runAutoMode(source)
+            doingChatMock.set(false)
             return true
         })
 
@@ -1962,6 +1971,7 @@ describe('composerActions: a switch around a reroll and around auto mode', () =>
             doingChatMock.set(true)
             origin.chats[0].message.push(textMessage('char', 'new reply'))
             doSwitch()
+            doingChatMock.set(false)
             return true
         })
 
@@ -1981,9 +1991,9 @@ describe('composerActions: a switch around a reroll and around auto mode', () =>
         const { origin } = installSwitchWorld()
         const { source } = makeSource()
         sendChatMock
-            .mockImplementationOnce(async () => { doingChatMock.set(true); origin.chatPage = 1; return true })
-            .mockImplementationOnce(async () => { doingChatMock.set(true); return true })
-            .mockImplementationOnce(async () => { doingChatMock.set(true); void runAutoMode(source); return true })
+            .mockImplementationOnce(async () => { doingChatMock.set(true); origin.chatPage = 1; doingChatMock.set(false); return true })
+            .mockImplementationOnce(async () => { doingChatMock.set(true); doingChatMock.set(false); return true })
+            .mockImplementationOnce(async () => { doingChatMock.set(true); void runAutoMode(source); doingChatMock.set(false); return true })
 
         await runAutoMode(source)
 
@@ -1999,9 +2009,9 @@ describe('composerActions: a switch around a reroll and around auto mode', () =>
         installSwitchWorld()
         const { source } = makeSource()
         sendChatMock
-            .mockImplementationOnce(async () => { doingChatMock.set(true); doSwitch(); return true })
-            .mockImplementationOnce(async () => { doingChatMock.set(true); return true })
-            .mockImplementationOnce(async () => { doingChatMock.set(true); void runAutoMode(source); return true })
+            .mockImplementationOnce(async () => { doingChatMock.set(true); doSwitch(); doingChatMock.set(false); return true })
+            .mockImplementationOnce(async () => { doingChatMock.set(true); doingChatMock.set(false); return true })
+            .mockImplementationOnce(async () => { doingChatMock.set(true); void runAutoMode(source); doingChatMock.set(false); return true })
 
         await runAutoMode(source)
 

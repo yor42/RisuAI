@@ -31,6 +31,7 @@ import { hasher, risuChatParser, type CbsConditions } from "src/ts/parser/parser
 import localforage from "localforage";
 import { LLMFlags, LLMFormat, LLMProvider, LLMTokenizer, type LLMModel } from "src/ts/model/types";
 import { sendChat as processSendChat, doingChat } from "src/ts/process/index.svelte";
+import { isComposerWindowOpen } from "src/ts/process/generationOwnership.svelte";
 import { processScriptFull } from "src/ts/process/scripts";
 import { getModelInfo } from "src/ts/model/modellist";
 import type { ModelModeExtended } from "src/ts/process/request/shared";
@@ -1430,7 +1431,7 @@ export const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 throw new Error("Message must be a string");
             }
 
-            if(get(doingChat)){
+            if(get(doingChat) || isComposerWindowOpen()){
                 throw new Error("A chat is already in progress");
             }
 
@@ -1458,13 +1459,7 @@ export const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 });
             }
 
-            try {
-                await processSendChat(-1, {});
-            } finally {
-                // Plugin API path does not pass through the UI unlock logic,
-                // so release doingChat here on both success and failure.
-                doingChat.set(false);
-            }
+            await processSendChat(-1, {});
 
             return true;
         },

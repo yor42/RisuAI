@@ -259,10 +259,11 @@ vi.mock(import('src/ts/translator/translator'), () => ({
 
 // Generation is out of scope: this spy mirrors the real module's own
 // `doingChat` handling (refuse at once when already set, otherwise set it
-// synchronously and await a controllable gate), the same as composerActions.svelte.test.ts. A
-// per-call queue (`sendChatGateQueue`) additionally lets a test gate a
-// specific call -- needed for auto mode's loop, where every tick calls
-// `sendChat` again once the previous one resolves.
+// synchronously, await a controllable gate and clear it when it settles), the
+// same as composerActions.svelte.test.ts. A per-call queue
+// (`sendChatGateQueue`) additionally lets a test gate a specific call --
+// needed for auto mode's loop, where every tick calls `sendChat` again once
+// the previous one resolves.
 const doingChatMock = vi.hoisted(() => {
     let value = false
     const subscribers = new Set<(v: boolean) => void>()
@@ -285,9 +286,13 @@ const sendChatMock = vi.hoisted(() => vi.fn(async (_index: number, arg: { signal
         return false
     }
     doingChatMock.set(true)
-    const queued = sendChatGateQueue.shift()
-    await (queued ? queued.gate : generationGateBox.current)
-    return true
+    try {
+        const queued = sendChatGateQueue.shift()
+        await (queued ? queued.gate : generationGateBox.current)
+        return true
+    } finally {
+        doingChatMock.set(false)
+    }
 }))
 vi.mock(import('src/ts/process/index.svelte'), () => ({
     doingChat: doingChatMock,

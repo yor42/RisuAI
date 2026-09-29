@@ -35,6 +35,7 @@ import { pluginV2 } from "../plugins/plugins.svelte";
 import { isColdChat } from "./coldstorageData";
 import { markCharacterForSave } from "../storage/characterSaveMarks";
 import { beginWork, createSendSubject, registerWork, resolveOriginWithHint, type Origin, type OriginContext, type SendSubject, type WorkHandle } from "./chatOrigin";
+import { noteTurnReached, publishUnit, releaseUnit } from "./generationOwnership.svelte";
 
 export interface OpenAIChat{
     role: 'system'|'user'|'assistant'|'function'
@@ -83,6 +84,11 @@ export interface requestTokenPart{
     tokens:number
 }
 
+/**
+ * True exactly while one outermost `sendChat` call is in progress. That call
+ * sets it when it is accepted and clears it when it settles; nothing else
+ * writes it.
+ */
 export const doingChat = writable(false)
 export const chatProcessStage = writable(0)
 export const abortChat = writable(false)
@@ -172,7 +178,6 @@ function enterSendChat(chatProcessIndex: number, arg: SendChatArg): SendChatEntr
     if(arg.origin){
         const ctx = resolveOriginWithHint(arg.origin, arg.originHint)
         if(!ctx){
-            doingChat.set(false)
             return null
         }
         if(isColdChat(ctx.chat)){
@@ -217,22 +222,74 @@ function enterSendChat(chatProcessIndex: number, arg: SendChatArg): SendChatEntr
 }
 
 /**
- * Thin outer wrapper (CHORE-01). Applies the refusals -- a generation already
- * running, a cold chat still loading, nothing selected, an origin that is
- * gone -- fixes the origin the call writes into, and registers it as being
- * written to until the call settles. The recursion inside `sendChatBody`
- * (group turns, auto-continue, resend) calls this function, not the body, so
- * every level registers and marks for itself. Once a call has settled, its
- * origin's owner and member are marked for save whatever the selection has
- * moved to since: a write made mid-generation to a character other than the
- * selected one (hotkeys, Playground and Home buttons all change selection
- * without checking `doingChat`) would otherwise never be saved.
+ * Ends a call's registration and marks its origin's owner and member for save,
+ * whatever the selection has moved to since: a write made mid-generation to a
+ * character other than the selected one (hotkeys, Playground and Home buttons
+ * all change selection without checking `doingChat`) would otherwise never be
+ * saved.
+ */
+function settleSendChatCall(entry: SendChatEntry): void {
+    entry.handle.end()
+    markCharacterForSave(entry.context.origin.chaId)
+    markCharacterForSave(entry.context.origin.memberChaId)
+}
+
+/**
+ * Outer wrapper (CHORE-01). An outermost call is a unit: it owns `doingChat`
+ * and the abort controller published as the unit in progress, from the moment
+ * it is accepted until it settles. It is refused while another unit holds the
+ * flag, when its caller's signal is already aborted, and by the refusals that
+ * depend on the chat it writes to (a cold chat still loading, nothing
+ * selected, an origin that is gone). A refused call changes neither the flag
+ * nor the published controller and registers nothing.
+ *
+ * The flag check and the take happen in one synchronous stretch: nothing
+ * between them may await, or two units could be accepted together.
+ *
+ * The call writes into a chat fixed at entry and is registered as writing to
+ * it until it settles. The recursion inside `sendChatBody` (group turns,
+ * auto-continue, resend) goes through `sendChatRecursion`, so it registers
+ * and marks for itself but neither checks, sets nor clears the flag.
+ *
+ * Reports `true` only when the body did and the unit was not aborted, by its
+ * caller's signal or by the busy button.
  */
 export async function sendChat(chatProcessIndex = -1, arg: SendChatArg = {}): Promise<boolean> {
     chatProcessStage.set(0)
-    if(chatProcessIndex === -1 && get(doingChat)){
+    if(get(doingChat) || arg.signal?.aborted){
         return false
     }
+    const entry = enterSendChat(chatProcessIndex, arg)
+    if(!entry){
+        return false
+    }
+    const unit = new AbortController()
+    const callerSignal = arg.signal
+    const relayAbort = () => unit.abort()
+    try {
+        callerSignal?.addEventListener('abort', relayAbort)
+        publishUnit(unit)
+        doingChat.set(true)
+        const completed = await sendChatBody(chatProcessIndex, { ...arg, signal: unit.signal }, entry.context)
+        return completed && !unit.signal.aborted
+    } finally {
+        try {
+            callerSignal?.removeEventListener('abort', relayAbort)
+            releaseUnit(unit)
+            doingChat.set(false)
+        } finally {
+            settleSendChatCall(entry)
+        }
+    }
+}
+
+/**
+ * A send's own recursion (a group's turns, an auto-continue, a resend): it
+ * runs on its unit's flag and signal, so it neither checks, sets nor clears
+ * the flag.
+ */
+async function sendChatRecursion(chatProcessIndex: number, arg: SendChatArg): Promise<boolean> {
+    chatProcessStage.set(0)
     const entry = enterSendChat(chatProcessIndex, arg)
     if(!entry){
         return false
@@ -240,9 +297,7 @@ export async function sendChat(chatProcessIndex = -1, arg: SendChatArg = {}): Pr
     try {
         return await sendChatBody(chatProcessIndex, arg, entry.context)
     } finally {
-        entry.handle.end()
-        markCharacterForSave(entry.context.origin.chaId)
-        markCharacterForSave(entry.context.origin.memberChaId)
+        settleSendChatCall(entry)
     }
 }
 
@@ -294,7 +349,6 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
     // Ends the call quietly because its origin is gone: nothing more is
     // written or generated for it.
     function endGone():false{
-        doingChat.set(false)
         return false
     }
 
@@ -444,8 +498,6 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
         }
     }
 
-    doingChat.set(true)
-
     if(chatProcessIndex === -1 && DBState.db.presetChain){
         const names = DBState.db.presetChain.split(',').map((v) => v.trim())
         const randomSelect = Math.floor(Math.random() * names.length)
@@ -580,7 +632,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
                 })
             }
             for(let i=0;i<order.length;i++){
-                const r = await sendChat(order[i].index, {
+                const r = await sendChatRecursion(order[i].index, {
                     chatAdditonalTokens: caculatedChatTokens,
                     signal: abortSignal,
                     origin: { ...origin, memberChaId: order[i].id },
@@ -604,6 +656,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
     else{
         currentChar = nowChatroom
     }
+    noteTurnReached()
 
     let chatAdditonalTokens = arg.chatAdditonalTokens ?? caculatedChatTokens
     const tokenizer = new ChatTokenizer(chatAdditonalTokens, DBState.db.aiModel.startsWith('gpt') ? 'noName' : 'name')
@@ -1163,14 +1216,12 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
         // several and none is the object the send started from.
         const afterStart = subject.resolve()
         if(!afterStart){
-            doingChat.set(false)
             return false
         }
         currentChat = afterStart.chat
         ms = makeMs(currentChat)
         currentTokens += triggerResult.tokens
         if(triggerResult.stopSending){
-            doingChat.set(false)
             return false
         }
     }
@@ -2269,8 +2320,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
         // A continue extends the chat's last message, so it follows only a
         // reply that is still the last one.
         if(continueTarget && continueTarget.index === continueTarget.ctx.chat.message.length - 1){
-            doingChat.set(false)
-            return await sendChat(chatProcessIndex, {
+            return await sendChatRecursion(chatProcessIndex, {
                 chatAdditonalTokens: arg.chatAdditonalTokens,
                 continue: true,
                 signal: abortSignal,
@@ -2322,8 +2372,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
             return endGone()
         }
 
-        doingChat.set(false)
-        return await sendChat(chatProcessIndex, {
+        return await sendChatRecursion(chatProcessIndex, {
             signal: abortSignal,
             origin,
             originHint: hint

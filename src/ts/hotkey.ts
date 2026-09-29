@@ -6,6 +6,7 @@ import { language } from "src/lang"
 import { updateTextThemeAndCSS } from "./gui/colorscheme"
 import { defaultHotkeys } from "./defaulthotkeys"
 import { doingChat, previewBody, sendChat } from "./process/index.svelte"
+import { isComposerWindowOpen } from "./process/generationOwnership.svelte"
 import { RISU_SIDEBAR_DRAG_TYPE } from "./dragTypes"
 import { shouldYieldToFocusedControl } from "./hotkeyYield"
 import { changeChar } from "./characters"
@@ -144,7 +145,7 @@ export function initHotkey(){
                     break
                 }
                 case 'previewRequest':{
-                    if(get(doingChat) && get(selectedCharID) !== -1){
+                    if(get(selectedCharID) === -1 || get(doingChat) || isComposerWindowOpen()){
                         return false
                     }
                     alertWait("Loading...")
@@ -157,7 +158,6 @@ export function initHotkey(){
                     let md = ''
                     md += '### Prompt\n'
                     md += '```json\n' + JSON.stringify(JSON.parse(previewBody), null, 2).replaceAll('```', '\\`\\`\\`') + '\n```\n'
-                    doingChat.set(false)
                     alertMd(md)
                     return
                 }

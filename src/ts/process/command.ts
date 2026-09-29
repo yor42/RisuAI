@@ -4,10 +4,11 @@ import { selectedCharID } from "../stores.svelte";
 import { alertInput, alertMd, alertNormal, alertSelect } from "../alert";
 import { sayTTS } from "./tts";
 import { risuChatParser } from "../parser/parser.svelte";
-import { sendChat } from "./index.svelte";
+import { doingChat, sendChat } from "./index.svelte";
 import { loadLoreBookV3Prompt } from "./lorebook.svelte";
 import { runTrigger } from "./triggers";
 import { beginWork } from "./chatOrigin";
+import { noteMultisendPush } from "./generationOwnership.svelte";
 
 export async function processMultiCommand(command:string) {
     let pipe = ''
@@ -20,6 +21,17 @@ export async function processMultiCommand(command:string) {
             quoteDepth = !quoteDepth
         }
         else if(char === '|' && quoteDepth === false){
+            // An unquoted run of three or more stays in the command's text
+            // (`/multisend` splits its segments on it); one or two separate
+            // commands, and two leave an empty command between them.
+            let run = 1
+            while(command[i + run] === '|'){
+                run++
+            }
+            if(run >= 3){
+                i += run - 1
+                continue
+            }
             splited.push(command.slice(lastIndex, i))
             lastIndex = i+1
         }
@@ -168,6 +180,11 @@ async function processCommand(command:string, pipe:string):Promise<false | strin
                 clearMode = true
                 splited.shift()
             }
+            // Read once, before the first push. While it runs, either an
+            // enclosing send holds the flag throughout, or nothing can take
+            // it: no task runs between one segment's settling and the next
+            // push.
+            const generates = !get(doingChat)
             for(const e of splited){
                 if(clearMode){
                     currentChat.message = []
@@ -176,7 +193,10 @@ async function processCommand(command:string, pipe:string):Promise<false | strin
                     role: 'user',
                     data: e
                 })
-                await sendChat(-1)
+                noteMultisendPush()
+                if(generates && !(await sendChat(-1))){
+                    break
+                }
             }
             return ''
         }

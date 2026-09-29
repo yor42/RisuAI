@@ -4,7 +4,7 @@
     import NumberInput from "../UI/GUI/NumberInput.svelte";
     import Button from "../UI/GUI/Button.svelte";
     import { getRequestLog } from "src/ts/globalApi.svelte";
-    import { alertMd, alertWait } from "src/ts/alert";
+    import { alertMd } from "src/ts/alert";
     import Accordion from "../UI/Accordion.svelte";
     import { getCharToken, getChatToken } from "src/ts/tokenizer";
     import { tokenizePreset } from "src/ts/process/prompt";
@@ -13,9 +13,9 @@
     import TextAreaInput from "../UI/GUI/TextAreaInput.svelte";
     import { HardDriveUploadIcon, PlusIcon, TrashIcon } from "@lucide/svelte";
     import { selectSingleFile } from "src/ts/util";
-    import { doingChat, previewFormated, previewBody, sendChat } from "src/ts/process/index.svelte";
+    import { runAutopilot, runPreviewPrompt } from "src/ts/process/devToolActions";
     import SelectInput from "../UI/GUI/SelectInput.svelte";
-    import { applyChatTemplate, chatTemplates } from "src/ts/process/templates/chatTemplate";
+    import { chatTemplates } from "src/ts/process/templates/chatTemplate";
     import OptionInput from "../UI/GUI/OptionInput.svelte";
   import { loadLoreBookV3Prompt } from "src/ts/process/lorebook.svelte";
   import { getModules } from "src/ts/process/modules";
@@ -24,86 +24,6 @@
     let previewJoin = $state('yes')
     let instructType = $state('chatml')
     let instructCustom = $state('')
-
-    const preview = async () => {
-        if($doingChat){
-            return false
-        }
-        alertWait("Loading...")
-        await sendChat(-1, {
-            preview: previewJoin !== 'prompt',
-            previewPrompt: previewJoin === 'prompt'
-        })
-
-        let md = ''
-        const styledRole = {
-            "function": "📐 Function",
-            "user": "😐 User",
-            "system": "⚙️ System",
-            "assistant": "✨ Assistant",
-        }
-
-        if(previewJoin === 'prompt'){
-            md += '### Prompt\n'
-            md += '```json\n' + JSON.stringify(JSON.parse(previewBody), null, 2).replaceAll('```', '\\`\\`\\`') + '\n```\n'
-            $doingChat = false
-            alertMd(md)
-            return
-        }
-
-        let formated = safeStructuredClone(previewFormated)
-
-        if(previewJoin === 'yes'){
-            let newFormated = []
-            let latestRole = ''
-
-            for(let i=0;i<formated.length;i++){
-                if(formated[i].role === latestRole){
-                    newFormated[newFormated.length - 1].content += '\n' + formated[i].content
-                }else{
-                    newFormated.push(formated[i])
-                    latestRole = formated[i].role
-                }
-            }
-
-            formated = newFormated
-        }
-
-        if(previewMode === 'instruct'){
-            const instructed = applyChatTemplate(formated, {
-                type: instructType,
-                custom: instructCustom
-            })
-
-            md += '### Instruction\n'
-            md += '```\n' + instructed.replaceAll('```', '\\`\\`\\`') + '\n```\n'
-            $doingChat = false
-            alertMd(md)
-            return
-        }
-
-        for(let i=0;i<formated.length;i++){
-            
-            md += '### ' + (styledRole[formated[i].role] ?? '🤔 Unknown role') + '\n'
-            const modals = formated[i].multimodals
-
-            if(modals && modals.length > 0){
-                md += `> ${modals.length} non-text content(s) included\n` 
-            }
-
-            if(formated[i].thoughts && formated[i].thoughts.length > 0){
-                md += `> ${formated[i].thoughts.length} thought(s) included\n`
-            }
-
-            if(formated[i].cachePoint){
-                md += `> Cache point\n`
-            }
-
-            md += '```\n' + formated[i].content.replaceAll('```', '\\`\\`\\`') + '\n```\n'
-        }
-        $doingChat = false
-        alertMd(md)
-    }
     
     let autopilot = $state([])
 </script>
@@ -211,30 +131,7 @@
         </button>
     </div>
     <Button className="mt-2" onclick={async () => {
-        if($doingChat){
-            return
-        }
-        for(let i=0;i<autopilot.length;i++){
-            const db = (DBState.db)
-            let currentChar = db.characters[$selectedCharID]
-            let currentChat = currentChar.chats[currentChar.chatPage]
-            currentChat.message.push({
-                role: 'user',
-                data: autopilot[i]
-            })
-            currentChar.chats[currentChar.chatPage] = currentChat
-            db.characters[$selectedCharID] = currentChar
-            if($doingChat){
-                return
-            }
-            currentChar.chats[currentChar.chatPage] = currentChat
-            db.characters[$selectedCharID] = currentChar
-            doingChat.set(false)
-            await sendChat(i);
-            currentChar = db.characters[$selectedCharID]
-            currentChat = currentChar.chats[currentChar.chatPage]
-        }
-        doingChat.set(false)
+        await runAutopilot(autopilot)
     }}>Run</Button>
 </Accordion>
 
@@ -264,7 +161,7 @@
         <OptionInput value="no">Without Join</OptionInput>
         <OptionInput value="prompt">As Request</OptionInput>
     </SelectInput>
-    <Button className="mt-2" onclick={() => {preview()}}>Run</Button>
+    <Button className="mt-2" onclick={() => {runPreviewPrompt(previewMode, previewJoin, instructType, instructCustom)}}>Run</Button>
 </Accordion>
 
 <Accordion styled name={"Preview Lorebook"}>

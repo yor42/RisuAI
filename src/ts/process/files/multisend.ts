@@ -2,6 +2,7 @@ import { getDatabase, setDatabase } from 'src/ts/storage/database.svelte';
 import { DBState, selectedCharID } from 'src/ts/stores.svelte';
 import { get } from 'svelte/store';
 import { doingChat, sendChat } from '../index.svelte';
+import { isComposerWindowOpen } from '../generationOwnership.svelte';
 import { downloadFile } from 'src/ts/globalApi.svelte';
 import { isTauri } from "src/ts/platform"
 import { HypaProcesser } from '../memory/hypamemory';
@@ -20,6 +21,7 @@ async function sendPofile(arg:sendFileArg){
     let note = ''
     let speaker = ''
     let parseMode = 0
+    let sentEntries = 0
     let currentChar = DBState.db.characters[get(selectedCharID)]
     let currentChat = currentChar.chats[currentChar.chatPage]
     const lines = arg.file.split('\n')
@@ -30,6 +32,15 @@ async function sendPofile(arg:sendFileArg){
             if(msgId === ''){
                 result += '\n'
                 continue
+            }
+            if(get(doingChat) || isComposerWindowOpen()){
+                // Another send is in flight: post nothing more. A job that
+                // has already sent an entry still ends by handing over what
+                // it has built.
+                if(sentEntries === 0){
+                    return
+                }
+                break
             }
             let text = msgId
             if(speaker !== ''){
@@ -44,8 +55,10 @@ async function sendPofile(arg:sendFileArg){
             })
             currentChar.chats[currentChar.chatPage] = currentChat
             DBState.db.characters[get(selectedCharID)] = currentChar
-            doingChat.set(false)
-            await sendChat(-1);
+            sentEntries++
+            if(!(await sendChat(-1))){
+                break
+            }
             currentChar = DBState.db.characters[get(selectedCharID)]
             currentChat = currentChar.chats[currentChar.chatPage]
             const res = currentChat.message[currentChat.message.length-1]
