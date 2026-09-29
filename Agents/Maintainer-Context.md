@@ -3044,3 +3044,97 @@ decide them either.** Revisit any of them on request:
 2. **A cold group member** is restored from cold storage when their turn comes, the same way
    opening them directly restores them, and their turn runs. If the restore fails, the existing
    "cold storage restore failed" error is shown and the group turn stops.
+
+---
+
+### MC-105 — W2b: `/multisend` replies to every segment; the busy button cancels every generation; a group preview previews the next member
+
+- **Tag:** decision
+- **Date:** 2026-09-29
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on three questions the Orchestrator asked
+  after W2b's scoping (ledger row 319).
+- **Reasoning:**
+  - `/multisend`'s code pushes each segment and then generates. Only the first segment gets a reply
+    because the busy flag stays set after it. Upstream has the same bug.
+  - During a plugin, preview, Autopilot, `/multisend` or `.po` Post File generation, the Send button
+    shows its stop icon, but pressing it did nothing.
+  - A preview in a group chat ran real replies for every member and then showed a stale preview.
+    Upstream does the same.
+- **Alternatives rejected:**
+  - `/multisend`: only the first segment gets a reply;
+  - the busy button: only a composer send can be cancelled;
+  - a group preview: refuse previews in group chats, or leave upstream's behaviour and ticket it.
+- **Settles:** `MC-103`'s deferred question "does `/multisend` generate a reply after each segment"
+  (yes). Binding `/multisend` to an origin stays W3's.
+- **Related:** MC-099, MC-103.
+
+**What was decided:**
+1. **`/multisend a|||b|||c` posts each segment and generates a reply after it, in order.**
+2. **The busy button cancels whatever generation is running**, not only a composer send. This
+   covers a plugin's `sendChat`, the prompt previews, DevTool Autopilot, `/multisend` and a `.po`
+   Post File job. A cancelled plugin `sendChat` returns normally, without a reply.
+3. **A prompt preview in a group chat previews the request of the first member whose turn it would
+   be, and generates nothing.**
+
+---
+
+### MC-106 — W2b: `|||` survives the command line; a `/multisend` inside a running send posts its segments without replies; a preview gets a Cancel button
+
+- **Tag:** decision
+- **Date:** 2026-09-29
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on three questions the Orchestrator asked
+  after W2b's Gate 1 round 1 (Report 36; ledger row 320), which brought new evidence about
+  `MC-105`'s consequences.
+- **Reasoning:**
+  - `processMultiCommand` splits on every unquoted `|`, so a typed `/multisend a|||b|||c` posts
+    only `a`, the command then fails, and the composer posts the command text itself as a message.
+    Once the busy flag is fixed, the model would reply to that text. A `|||` can never form a
+    working pipe (an empty command fails), so leaving it intact changes no working command.
+  - A `/multisend` run while another send is generating cannot generate. Upstream posts every
+    segment with no reply.
+  - A preview's full-screen "Loading..." notice covers the busy button, and Escape does not close
+    it, so `MC-105` 2's preview cancel needs a control of its own.
+- **Alternatives rejected:**
+  - `|||`: leave the splitter to W3;
+  - a nested `/multisend`: post the first segment and drop the rest;
+  - the preview: not cancellable.
+- **Amends:** `MC-105` (what it takes to deliver 1 and 2). `MC-091` scope amendment: the command
+  line's splitter, which is otherwise W3's.
+- **Related:** MC-011, MC-103, MC-105.
+
+**What was decided:**
+1. **An unquoted `|||` in a typed command line stays part of the command's text**, so
+   `/multisend a|||b|||c` posts `a`, `b` and `c`, each followed by its reply.
+2. **A `/multisend` that runs while another send is generating posts every segment, and none gets
+   a reply of its own**, as upstream.
+3. **A prompt preview's "Loading..." notice has a Cancel button** (the existing "Cancel" string).
+   It stops the preview and closes the notice.
+
+---
+
+### MC-107 — W2b: a stopped `/multisend` does not put its text back; the `|||` rule applies to triggers too
+
+- **Tag:** decision
+- **Date:** 2026-09-29
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on two questions the Orchestrator asked
+  after the `senior-advisor` escalation on W2b's Gate 1 (Report 36; ledger row 323).
+- **Reasoning:**
+  - The busy button also cancels the composer's take (`MC-099`), which puts the typed text back.
+    After a `/multisend` has posted a segment, that text would repost it on the next Send.
+  - The composer and trigger `command` effects share one command-line splitter. Keeping
+    upstream's split for triggers would need the splitter to know its caller, which it does not.
+- **Alternatives rejected:**
+  - put the command text back, as with any cancelled Send;
+  - the `|||` rule for the composer only.
+- **Amends:** `MC-099`, for a `/multisend` that has posted a segment. Confirms the Orchestrator's
+  reading of `MC-106` 1.
+- **Related:** MC-099, MC-105, MC-106.
+
+**What was decided:**
+1. **Once a `/multisend` has posted a segment, the busy button leaves the composer empty.** What
+   was posted stays in the chat, and the command text is not put back.
+2. **`MC-106` 1 applies wherever the command line runs**: a trigger's `command` effect running
+   `/multisend a|||b` posts both segments, each with a reply (upstream posts only `a`).

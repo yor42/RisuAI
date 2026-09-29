@@ -38,6 +38,8 @@ The branch is `fix/persistence-conflict-platform-hardening`. **It is pushed thro
   `5c85cac7`, `0f38ac8c`, `9213ebc2`, then its records commit on top. See "Upstream batch state"
   below.
 - W2a (Report 35), not pushed: `ec65c200`, then its records commit on top. See "W2 state" below.
+- W2b-core (Report 36), not pushed: `ac8cb3da`, then its records commit on top. See "W2 state"
+  below.
 
 ## Parallel sessions (from 2026-09-27)
 
@@ -495,7 +497,21 @@ bug) is blocked on the maintainer's console output, not scheduled by position.
   - Optional, not taken (Report 35 section 12): skip the image-prompt request when there is no
     reply; align the non-streaming continue whose target is already missing.
   - Commit-message check (row 318): [EDITORIAL], applied.
-  - **Next: W2b** (`doingChat` ownership and the other generation starters).
+  - W2a is followed by W2b.
+- **W2b-core: Gate 1 passed** (Report 36 rev 7.1; ledger rows 319-327). Decisions `MC-105`,
+  `MC-106`, `MC-107`. Seven rounds: rounds 1-3 [REJECT], then a `senior-advisor` escalation (row
+  323: the unit that owns the flag also owns the cancel; at most one unit is ever in progress);
+  rounds 4-6 [REJECT] on definitions and scenarios; round 7 [EDITORIAL], applied.
+  - The preview work (notice, Cancel button, stale preview, group preview) is split out as
+    **W2b-previews**, its own plan and gates after W2b-core.
+  - Seams, red tests (40 reproducers, 19 guards) and the fix: rows 328-329. Gate 2: rows 330
+    [REJECT] and 331 [APPROVE]. Live check passed (row 332).
+  - Final snapshot: `pnpm test` 155 files, 1974 passed, 4 skipped; `pnpm check` clean; the build
+    passes.
+  - Commit-message check (row 333): [EDITORIAL], applied. **Committed as `ac8cb3da`** at the
+    maintainer's request.
+  - **Next: W2b-previews** (the preview's notice and Cancel button, stale previews, a body that
+    is not JSON, the group preview; `MC-105` 3, `MC-106` 3).
 - **Disclosed for the maintainer:** in a chat with a duplicated id, the send's own writes land
   (`MC-104` 1) but its trigger runs still write nothing (`MC-078`).
 
@@ -541,7 +557,7 @@ bug) is blocked on the maintainer's console output, not scheduled by position.
 
 ## Test suite
 
-**150 files: 1895 passed, 4 skipped, 0 failed**, the check on W2a's final tree (`ec65c200`). `pnpm check` is clean, and `pnpm run build` passes.
+**155 files: 1974 passed, 4 skipped, 0 failed**, the check on W2b-core's final tree (`ac8cb3da`). `pnpm check` is clean, and `pnpm run build` passes.
 `cargo check` last ran on the removal stage.
 - Run the suite with plain `pnpm test` or `npx vitest run`. `vitest.config.ts` excludes
   `.claude/**` (`7b72b813`).
