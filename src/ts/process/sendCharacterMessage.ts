@@ -1,17 +1,20 @@
 import { type Message, type character, type Chat } from "../storage/database.svelte";
 import { runTrigger } from "./triggers";
 import { processScript } from "./scripts";
-import { originStatus, writeAt, type WorkHandle } from "./chatOrigin";
+import { createSendSubject, originStatus, writeAt, type WorkHandle } from "./chatOrigin";
 import { markCharacterForSave } from "../storage/characterSaveMarks";
 
 /**
  * Runs a character's input trigger, then its `editinput` script, and
  * appends the resulting user message to the chat the send started from.
- * `runTrigger` and `processScript` read `char` and `startChat` directly, as
- * given; only the append itself is resolved through the origin, after every
- * await this function makes, never through the live `chatPage` -- a switch
- * during either await must not move where the message lands, and must never
- * make two chats share one message array.
+ * `runTrigger` reads `char` and `startChat` directly, as given. The
+ * `editinput` script reads the chat the message is appended to, through a
+ * subject that prefers `startChat` when the chat's id has two holders, and
+ * its Lua follows the same rule as a send's: it sees an empty chat and writes
+ * nothing when the id has two holders. The append itself is resolved through
+ * the origin, after every await this function makes, never through the live
+ * `chatPage` -- a switch during either await must not move where the message
+ * lands, and must never make two chats share one message array.
  *
  * `workHandle` is acquired, and ended, by the caller: this function neither
  * calls `beginWork` nor calls `workHandle.end()`, so one work handle covers
@@ -31,7 +34,8 @@ import { markCharacterForSave } from "../storage/characterSaveMarks";
 export async function sendCharacterMessage(workHandle: WorkHandle, char: character, startChat: Chat, messageInput: string, signal: AbortSignal, onAppended: () => void): Promise<boolean> {
     await runTrigger(char, 'input', { chat: startChat, origin: workHandle.origin })
 
-    const data = await processScript(char, messageInput, 'editinput', {}, workHandle.origin)
+    const subject = createSendSubject(workHandle.origin, { owner: char, chat: startChat })
+    const data = await processScript(char, messageInput, 'editinput', {}, undefined, subject)
 
     if (signal.aborted) {
         return false

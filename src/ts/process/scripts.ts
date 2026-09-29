@@ -1,6 +1,6 @@
 import { get } from "svelte/store";
 import { CharEmotion, selectedCharID } from "../stores.svelte";
-import { type character, type customscript, type groupChat, getDatabase, getCurrentCharacter, getCurrentChat } from "../storage/database.svelte";
+import { type character, type customscript, type groupChat, getDatabase, getCurrentCharacter, getCurrentChat, type Chat, type Message } from "../storage/database.svelte";
 import { downloadFile } from "../globalApi.svelte";
 import { alertError, alertNormal } from "../alert";
 import { language } from "src/lang";
@@ -24,8 +24,8 @@ type pScript = {
     actions: string[]
 }
 
-export async function processScript(char:character|groupChat, data:string, mode:ScriptMode, cbsConditions:CbsConditions = {}, origin?:Origin){
-    return (await processScriptFull(char, data, mode, -1, cbsConditions, origin)).data
+export async function processScript(char:character|groupChat, data:string, mode:ScriptMode, cbsConditions:CbsConditions = {}, origin?:Origin, subject?:RunSubject){
+    return (await processScriptFull(char, data, mode, -1, cbsConditions, origin, subject)).data
 }
 
 export function exportRegex(s?:customscript[]){
@@ -69,13 +69,74 @@ export async function importRegex(o?:customscript[]):Promise<customscript[]>{
 let bestMatchCache = new Map<string, string>()
 let processScriptCache = new Map<string, string>()
 
-function generateScriptCacheKey(scripts: customscript[], data: string, mode: ScriptMode, chatID = -1, cbsConditions: CbsConditions = {}, subject?: RunSubject) {
+const scriptPassCounters = { cacheHits: 0, scans: 0 }
+
+/**
+ * Test-only counts of script-cache hits and of the linear scans that find a
+ * referenced message when its reference carries no locator.
+ */
+export function scriptPassCountersForTests(): { cacheHits: number, scans: number } {
+    return { ...scriptPassCounters }
+}
+
+export function resetScriptPassCountersForTests(): void {
+    scriptPassCounters.cacheHits = 0
+    scriptPassCounters.scans = 0
+}
+
+/**
+ * Finds a message in a chat's message array by identity when the index it was
+ * recorded at does not hold it. `-1`: not found where the pass last mapped it,
+ * and the message is treated as gone.
+ */
+export interface MessageLocator {
+    find(messages: Message[], message: Message): number
+}
+
+/**
+ * The message `@@inject` and `@@repeat_back` act on: the message object and
+ * the index it had when the call started. The branches find it again by
+ * identity in the subject's chat, so an edit to the chat during the call
+ * cannot redirect them to another message.
+ */
+export interface MessageRef {
+    message: Message
+    index: number
+    /** Shared by every call of one pass over a chat, so that a shifted chat costs one map build rather than one scan per call. Without one, a scan finds the message. */
+    locator?: MessageLocator
+}
+
+function locateMessage(messages: Message[], ref: MessageRef): number {
+    if(messages[ref.index] === ref.message){
+        return ref.index
+    }
+    if(ref.locator){
+        return ref.locator.find(messages, ref.message)
+    }
+    scriptPassCounters.scans++
+    for(let i = 0; i < messages.length; i++){
+        if(messages[i] === ref.message){
+            return i
+        }
+    }
+    return -1
+}
+
+// `refIndex` is passed whenever the `@@` branches act on a referenced message,
+// and adds a suffix to the key only when that message sits at a different
+// index than `chatID`, since `@@repeat_back`'s output then depends on it. The
+// terminator keeps a suffixed key from equalling, or aligning with, any
+// unsuffixed one.
+function generateScriptCacheKey(scripts: customscript[], data: string, mode: ScriptMode, chatID = -1, cbsConditions: CbsConditions = {}, subject?: RunSubject, refIndex?: number) {
     let hash = data + '|||' + mode + '|||';
     for (const script of scripts) {
         if(script.type !== mode){
             continue
         }
         hash += `${script.flag?.includes('<cbs>') ? risuChatParser(script.in, { chatID: chatID, cbsConditions, subject }) : script.in}|||${script.out}${chatID}|||${script.flag ?? ''}|||${script.ableFlag ? 1 : 0}`;
+    }
+    if(refIndex !== undefined && refIndex !== chatID){
+        hash += `\u0000ref=${refIndex}\u0000`
     }
     return hash;
 }
@@ -97,11 +158,31 @@ export function resetScriptCache(){
     processScriptCache = new Map()
 }
 
-export async function processScriptFull(char:character|groupChat|simpleCharacterArgument, data:string, mode:ScriptMode, chatID = -1, cbsConditions:CbsConditions = {}, origin?:Origin){
+/**
+ * `sendSubject` is the caller's own address into the database. With it, the
+ * module regex list, the parses and the dynamic assets read the owner and chat
+ * it resolves, never the selection, and the Lua edit triggers choose their
+ * scripts through it. It supersedes `origin`, which on its own only builds a
+ * subject for the same reads. With neither, the selection is read.
+ *
+ * `messageRef` is honoured only together with a subject, and decides what
+ * `@@inject` and `@@repeat_back` act on:
+ * - `undefined`: the branches address `chatID` in the selection's chat, as
+ *   they do with no subject.
+ * - `null`: the call has no such message yet (a reply that is not in the
+ *   chat), so `@@inject` does nothing and `@@repeat_back` reads as it does
+ *   for a message that does not exist.
+ * - a reference: the message is found by identity in the subject's chat. With
+ *   a locator, one the pass's map no longer places is treated as gone, as for
+ *   `null`; without one, it is searched for wherever it now sits, and is gone
+ *   only when it is no longer in the chat.
+ */
+export async function processScriptFull(char:character|groupChat|simpleCharacterArgument, data:string, mode:ScriptMode, chatID = -1, cbsConditions:CbsConditions = {}, origin?:Origin, sendSubject?:RunSubject, messageRef?:MessageRef|null){
     let db = getDatabase()
     let emoChanged = false
-    const subject = origin ? createRunSubject(origin) : undefined
-    data = await runLuaEditTrigger(char, mode, data, { index:chatID }, origin)
+    const subject = sendSubject ?? (origin ? createRunSubject(origin) : undefined)
+    const refPass = subject && messageRef !== undefined ? { subject, ref: messageRef } : undefined
+    data = await runLuaEditTrigger(char, mode, data, { index:chatID }, origin, sendSubject)
 
     if(mode === 'editdisplay'){
         const currentChar = getCurrentCharacter()
@@ -134,9 +215,10 @@ export async function processScriptFull(char:character|groupChat|simpleCharacter
 
     data = risuChatParser(data, { chatID: chatID, cbsConditions, subject })
     const scripts = (db.presetRegex ?? []).concat(char.customscript).concat(getModuleRegexScripts(subject))
-    const hash = generateScriptCacheKey(scripts, data, mode, chatID, cbsConditions, subject)
+    const hash = generateScriptCacheKey(scripts, data, mode, chatID, cbsConditions, subject, refPass?.ref?.index)
     const cached = getScriptCache(hash)
     if(cached){
+        scriptPassCounters.cacheHits++
         return {data: cached, emoChanged: false}
     }
     
@@ -207,9 +289,22 @@ export async function processScriptFull(char:character|groupChat|simpleCharacter
                         }
                     }
                     else if((outScript.startsWith('@@inject') || pscript.actions.includes('inject')) && chatID !== -1){
-                        const selchar = db.characters[get(selectedCharID)]
-                        selchar.chats[selchar.chatPage].message[chatID].data = data
-                        data = data.replace(reg, "")
+                        if(refPass){
+                            // The write and its mark are one synchronous stretch; a message
+                            // that is not in the chat leaves the data as it is.
+                            const ctx = refPass.subject.resolve()
+                            const at = ctx && refPass.ref ? locateMessage(ctx.chat.message, refPass.ref) : -1
+                            if(ctx && at !== -1){
+                                ctx.chat.message[at].data = data
+                                refPass.subject.mark()
+                                data = data.replace(reg, "")
+                            }
+                        }
+                        else{
+                            const selchar = db.characters[get(selectedCharID)]
+                            selchar.chats[selchar.chatPage].message[chatID].data = data
+                            data = data.replace(reg, "")
+                        }
                     }
                     else if(
                         outScript.startsWith('@@move_top') || outScript.startsWith('@@move_bottom') ||
@@ -253,12 +348,35 @@ export async function processScriptFull(char:character|groupChat|simpleCharacter
                 else{
                     if((outScript.startsWith('@@repeat_back') || pscript.actions.includes('repeat_back'))  && chatID !== -1){
                         const v = outScript.split(' ', 2)[1]
-                        const selchar = db.characters[get(selectedCharID)]
-                        const chat = selchar.chats[selchar.chatPage]
-                        let lastChat = chat.fmIndex === -1 ? selchar.firstMessage : selchar.alternateGreetings[chat.fmIndex]
-                        let pointer = chatID - 1
+                        let owner:character|groupChat
+                        let chat:Chat
+                        let at = chatID
+                        if(refPass){
+                            const ctx = refPass.subject.resolve()
+                            if(!ctx){
+                                return
+                            }
+                            owner = ctx.owner
+                            chat = ctx.chat
+                            at = refPass.ref ? locateMessage(chat.message, refPass.ref) : -1
+                            // Without such a message the read at `chatID` is what remains:
+                            // with `chatID > 0` it finds nothing and appends nothing, at 0
+                            // there is nothing to walk back over.
+                            if(at === -1){
+                                if(chatID > 0){
+                                    return
+                                }
+                                at = chatID
+                            }
+                        }
+                        else{
+                            owner = db.characters[get(selectedCharID)]
+                            chat = owner.chats[owner.chatPage]
+                        }
+                        let lastChat = chat.fmIndex === -1 ? owner.firstMessage : owner.alternateGreetings[chat.fmIndex]
+                        let pointer = at - 1
                         while(pointer >= 0){
-                            if(chat.message[pointer].role === chat.message[chatID].role){
+                            if(chat.message[pointer].role === chat.message[at].role){
                                 lastChat = chat.message[pointer].data
                                 break
                             }
@@ -352,7 +470,7 @@ export async function processScriptFull(char:character|groupChat|simpleCharacter
         }
         const assetNames = char.additionalAssets.map((v) => v[0])
 
-        const moduleAssets = getModuleAssets()
+        const moduleAssets = getModuleAssets(subject)
         if(moduleAssets.length > 0){
             for(const asset of moduleAssets){
                 assetNames.push(asset[0])

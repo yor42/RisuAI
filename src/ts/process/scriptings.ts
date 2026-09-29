@@ -190,9 +190,9 @@ export async function runScripted(code:string, arg:{
 
     // A call with an origin and no explicit override resolves `setChatVar`/
     // `getChatVar` through it, never the selection; a call with no origin
-    // keeps the selection-bound defaults, unchanged for `runLuaEditTrigger`
-    // and every other origin-less caller. An explicit `setVar`/`getVar`, as
-    // `triggerlua` passes, always wins over either default.
+    // keeps the selection-bound defaults. An explicit `setVar`/`getVar` always
+    // wins over either default: `triggerlua` passes both, and
+    // `runLuaEditTrigger` passes a `getVar` for a send subject.
     const setVar = arg.setVar ?? (arg.origin
         ? (key: string, value: string) => defaultSetVarFor(ScriptingEngineState, key, value)
         : setChatVar)
@@ -1551,7 +1551,17 @@ ${code}
 `
 }
 
-export async function runLuaEditTrigger<T extends string|OpenAIChat[]>(char:character|groupChat|simpleCharacterArgument, mode:string, content:T, meta?:object, origin?:Origin):Promise<T>{
+/**
+ * `sendSubject` is the caller's own address into the database (a send's). It
+ * chooses which triggers run: the module list is the one of the chat it
+ * resolves, never the selection's. The Lua itself is not given it. Its origin
+ * is the same ids without the group member, and its chat variables are read
+ * through a subject built from that origin alone, so that in a chat whose id
+ * has two holders the Lua sees an empty chat and writes nothing, and in a
+ * group its variable defaults come from the group. The text the triggers
+ * return is used either way. `origin` alone is handed to the Lua as it is.
+ */
+export async function runLuaEditTrigger<T extends string|OpenAIChat[]>(char:character|groupChat|simpleCharacterArgument, mode:string, content:T, meta?:object, origin?:Origin, sendSubject?:RunSubject):Promise<T>{
     switch(mode){
         case 'editinput':
             mode = 'editInput'
@@ -1568,24 +1578,32 @@ export async function runLuaEditTrigger<T extends string|OpenAIChat[]>(char:char
 
     try {
         let data = content
-        // Resolved once, here, before the module list is read -- an origin
-        // makes the module selection follow it, never the selection, for
-        // every trigger this call runs.
-        const subject = origin ? createRunSubject(origin) : undefined
+        // Chosen here, before the module list is read -- an origin or a
+        // subject makes the module selection follow it, never the selection,
+        // for every trigger this call runs.
+        const subject = sendSubject ?? (origin ? createRunSubject(origin) : undefined)
 
         const triggers = char.type === 'group' ? (getModuleTriggers(subject)) : (char.triggerscript.map((v): triggerscript => {
             return { ...v, lowLevelAccess: false }
         }).concat(getModuleTriggers(subject)))
 
+        let luaOrigin = origin
+        let luaSubject: RunSubject | undefined
         for(let trigger of triggers){
             if(trigger?.effect?.[0]?.type === 'triggerlua'){
+                if(sendSubject && !luaSubject){
+                    luaOrigin = { chaId: sendSubject.origin.chaId, chatId: sendSubject.origin.chatId }
+                    luaSubject = createRunSubject(luaOrigin)
+                }
+                const varSubject = luaSubject
                 const runResult = await runScripted(trigger.effect[0].code, {
                     char: char,
                     lowLevelAccess: false,
                     mode: mode,
                     data,
                     meta,
-                    origin,
+                    origin: luaOrigin,
+                    getVar: varSubject ? (key: string) => getChatVar(key, varSubject) : undefined,
                 })
                 data = runResult.res ?? data
             }

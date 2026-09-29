@@ -10,7 +10,7 @@ import { loadLoreBookV3Prompt } from "./lorebook.svelte";
 import { findCharacterbyId, getAuthorNoteDefaultText, getPersonaPrompt, getUserName, isLastCharPunctuation, trimUntilPunctuation, parseToggleSyntax, prebuiltAssetCommand } from "../util";
 import { requestChatData } from "./request/request";
 import { stableDiff } from "./stableDiff";
-import { processScript, processScriptFull, risuChatParser } from "./scripts";
+import { processScript, processScriptFull, risuChatParser, type MessageLocator, type MessageRef } from "./scripts";
 import { exampleMessage } from "./exampleMessages";
 import { sayTTS } from "./tts";
 import { supaMemory } from "./memory/supaMemory";
@@ -109,6 +109,40 @@ export interface StreamFlushUse {
 }
 
 let streamFlushObserver: ((use: StreamFlushUse) => void) | null = null
+
+let messageMapRebuilds = 0
+
+/** Test-only count of the message-to-index maps the prompt pass has built. */
+export function messageMapRebuildsForTests(): number {
+    return messageMapRebuilds
+}
+
+export function resetMessageMapRebuildsForTests(): void {
+    messageMapRebuilds = 0
+}
+
+/**
+ * A locator for one prompt pass over a chat: on the first miss it maps every
+ * message to its index once, and every hit is checked by identity. A message
+ * absent from the map, or whose hit fails the check, counts as gone; the map
+ * is never rebuilt, so finding the messages of a pass is linear in the chat.
+ */
+function createMessageLocator(): MessageLocator {
+    let map: Map<Message, number> | null = null
+    return {
+        find(messages, message){
+            if(map === null){
+                messageMapRebuilds++
+                map = new Map()
+                for(let i = 0; i < messages.length; i++){
+                    map.set(messages[i], i)
+                }
+            }
+            const at = map.get(message)
+            return at !== undefined && messages[at] === message ? at : -1
+        }
+    }
+}
 
 export function setStreamFlushObserverForTests(observer: ((use: StreamFlushUse) => void) | null): void {
     streamFlushObserver = observer
@@ -406,6 +440,12 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
         }
         replyIndex = found
         return found
+    }
+
+    // The reply as the script pass's `@@` branches name it: the tracked
+    // message and the index it is at now.
+    function replyMessageRef(target:{ctx:OriginContext, index:number}):MessageRef{
+        return {message: target.ctx.chat.message[target.index], index: target.index}
     }
 
     function resolveReply():{ctx:OriginContext, index:number, replyId:string}|null{
@@ -851,7 +891,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
         }
     }
 
-    const lorepmt = await loadLoreBookV3Prompt()
+    const lorepmt = await loadLoreBookV3Prompt(subject)
 
     const positionRegex = /{{position::(.+?)}}/g
     const replaceposition = (text:string):{text:string, replaced:boolean} => {
@@ -1202,8 +1242,11 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
 
     
     let msReseted = false
+    // The chat index of each message in `ms`, parallel to it.
+    let msChatIndexes:number[] = []
     const makeMs = (currentChat:Chat) => {
         let mss:Message[] = []
+        let chatIndexes:number[] = []
         msReseted = false
         for(let i=currentChat.message.length -1;i>=0;i--){
             const d = currentChat.message[i]
@@ -1215,7 +1258,9 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
                 break
             }
             mss.unshift(d)
+            chatIndexes.push(i)
         }
+        msChatIndexes = chatIndexes.reverse()
         return mss
     }
 
@@ -1228,7 +1273,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
             role: 'assistant',
             content: await (processScript(nowChatroom,
                 risuChatParser(firstMsg, {chara: currentChar}),
-            'editprocess'))
+            'editprocess', {}, undefined, subject))
         }
 
         if(usingPromptTemplate && DBState.db.promptSettings.sendName){
@@ -1266,10 +1311,14 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
     }
 
     let index = 0
+    // `index` is the position among the sent messages, which the parser and
+    // the script cache see; the `@@` branches act on the message at its
+    // index in the chat, found again by identity should the chat shift.
+    const messageLocator = createMessageLocator()
     for(const msg of ms){
         let formatedChat = (await processScriptFull(nowChatroom,risuChatParser(msg.data, {chara: currentChar, role: msg.role}), 'editprocess', index, {
             chatRole: msg.role,
-        })).data
+        }, undefined, subject, {message: msg, index: msChatIndexes[index], locator: messageLocator})).data
         let name = ''
         if(msg.role === 'char'){
             if(msg.saying){
@@ -1878,10 +1927,10 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
         })
     }
 
-    formated = await runLuaEditTrigger(currentChar, 'editRequest', formated)
+    formated = await runLuaEditTrigger(currentChar, 'editRequest', formated, undefined, undefined, subject)
 
     if(DBState.db.promptInfoInsideChat && DBState.db.promptTextInfoInsideChat){
-        promptBodyformatedForChatStore = await runLuaEditTrigger(currentChar, 'editRequest', promptBodyformatedForChatStore)
+        promptBodyformatedForChatStore = await runLuaEditTrigger(currentChar, 'editRequest', promptBodyformatedForChatStore, undefined, undefined, subject)
         promptInfo.promptText = promptBodyformatedForChatStore
     }
 
@@ -2075,7 +2124,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
             if(!before){
                 return false
             }
-            const processed = await processScriptFull(nowChatroom, text, 'editoutput', before.index)
+            const processed = await processScriptFull(nowChatroom, text, 'editoutput', before.index, {}, undefined, subject, replyMessageRef(before))
             emoChanged = processed.emoChanged
             return writeReplyData(processed.data, bumpKeys)
         }
@@ -2256,12 +2305,12 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
                     trackReply(startCtx.chat, continuedIndex)
                 }
             }
-            let result2 = await processScriptFull(nowChatroom, reformatContent(mess), 'editoutput', startCtx.chat.message.length)
+            let result2 = await processScriptFull(nowChatroom, reformatContent(mess), 'editoutput', startCtx.chat.message.length, {}, undefined, subject, null)
             if(continuing){
                 const continuedTarget = resolveReply()
                 if(continuedTarget){
                     const beforeData = continuedTarget.ctx.chat.message[continuedTarget.index].data
-                    result2 = await processScriptFull(nowChatroom, reformatContent(beforeData + mess), 'editoutput', continuedTarget.index)
+                    result2 = await processScriptFull(nowChatroom, reformatContent(beforeData + mess), 'editoutput', continuedTarget.index, {}, undefined, subject, replyMessageRef(continuedTarget))
                 }
             }
             if(DBState.db.removeIncompleteResponse){
