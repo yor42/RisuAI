@@ -536,6 +536,16 @@ bug) is blocked on the maintainer's console output, not scheduled by position.
   - Final snapshot: `pnpm test` 163 files, 2273 passed, 4 skipped; `pnpm check` clean; the build
     passes. Committed as `6631f5e0`.
   - Next: stage 2 (`MC-109` 3): a prompt covered by another alert takes that alert's answer.
+- **Escape on alerts (stage 2): Gate 2 passed** (Report 41 rev 2.1; `MC-115`; ledger rows
+  375-380). A prompt takes only its own answer. A notice over a prompt shows at once, and the
+  prompt comes back as the user left it. Prompts go in turn. Shortcuts wait while a prompt is up.
+  A returning prompt ignores an answer for 0.4 s. Duplicate plugin permission requests share one
+  prompt.
+  - Gate 1: round 1 [REJECT], round 2 [EDITORIAL]. Gate 2: [APPROVE]; its optional items applied.
+  - Final snapshot: `pnpm test` 166 files, 2428 passed, 4 skipped; `pnpm check` clean; the build
+    passes. Committed as `c0b323b0`.
+  - Residuals (Report 41 section 7): the hosted first-run password prompt, if two ever run at
+    once; a follow-up prompt answers at once; third-party scripts that relied on a foreign answer.
 - **Disclosed for the maintainer:** in a chat with a duplicated id, the send's own writes land
   (`MC-104` 1) but its trigger runs still write nothing (`MC-078`).
 
@@ -581,7 +591,7 @@ bug) is blocked on the maintainer's console output, not scheduled by position.
 
 ## Test suite
 
-**163 files: 2273 passed, 4 skipped, 0 failed**, the check on the final tree of Escape on alerts (stage 1, uncommitted). `pnpm check` is clean, and `pnpm run build` passes.
+**166 files: 2428 passed, 4 skipped, 0 failed**, the check on the final tree of Escape on alerts (stage 2, `c0b323b0`). `pnpm check` is clean, and `pnpm run build` passes.
 `cargo check` last ran on the removal stage.
 - Run the suite with plain `pnpm test` or `npx vitest run`. `vitest.config.ts` excludes
   `.claude/**` (`7b72b813`).

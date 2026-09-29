@@ -3219,3 +3219,55 @@ decide them either.** Revisit any of them on request:
    errors, markdown, request logs and branches. Escape leaves a progress bar alone.
 3. **A prompt that another alert covers is a second stage** of this item, with its own plan and
    gates.
+
+---
+
+### MC-115 — Escape on alerts, stage 2: a notice shows over a prompt and the prompt comes back; prompts go in turn; shortcuts wait while a prompt is up; a returning prompt ignores a double-press; duplicate plugin permission requests share one prompt
+
+- **Tag:** decision
+- **Date:** 2026-09-29
+- **Sweep ref:** none (stated directly this session)
+- **Source:** after an investigation into prompts covered by another alert (ledger row 375), the
+  maintainer chose the recommended option on three questions the Orchestrator asked, and on two
+  more after Gate 1 round 1 (Report 41; ledger row 376). This is `MC-109` 3's second stage.
+- **Reasoning:**
+  - A prompt covered by any other alert, or closed by code that clears alerts, takes whatever
+    answer ends the store's current alert. Enter on a notice answers "yes", so it can grant a
+    hidden permission prompt or confirm a hidden delete. A toast or an OK answers `''`, which is
+    not a safe cancel (`MC-109`).
+  - Background sources raise prompts with no user action: plugin and MCP permission requests, the
+    save loop's other-tab prompt, Lua and triggers. A full-storage save failure toasts again every
+    few seconds.
+  - Default shortcuts run while a prompt is up, so a double-pressed remove opens two delete
+    confirms that one answer resolves.
+  - Holding notices behind a prompt would let one unanswerable prompt block every later error, and
+    Escape no longer dismisses prompts (`MC-109` 1).
+  - A prompt that comes back, or the next one in turn, appears where the user just pressed or
+    clicked. A fast second press would answer a prompt the user has not seen.
+  - A plugin can request one permission several times at once. Today one dialog answers them all.
+    Taking prompts in turn would repeat the same dialog.
+- **Alternatives rejected:**
+  - hold notices, errors, toasts and loading overlays until the prompt is answered;
+  - show a newer prompt over the open one;
+  - let shortcuts run while a prompt is up;
+  - cancel a covered prompt at once with an empty answer;
+  - guard a returning prompt against key auto-repeat only, accepting a double-press;
+  - show each of several identical plugin permission requests in turn.
+- **Amends:** none. Upstream behaviour changes: a prompt no longer takes another alert's answer.
+- **Related:** MC-011, MC-108, MC-109.
+
+**What was decided:**
+1. **A notice, error, toast or loading overlay that arrives while a prompt is waiting shows at
+   once.** When it closes, the prompt comes back, with anything typed into it kept. A prompt only
+   takes its own answer.
+2. **A second prompt waits its turn.** It shows after the open prompt is answered, and each prompt
+   takes only its own answer. The terms prompt and the stale-account notice still go ahead of
+   other prompts.
+3. **Keyboard shortcuts do nothing while a prompt is waiting for an answer.** This covers every
+   configurable shortcut, including those that open an alert or click a chat button. Escape and
+   Enter on the alert itself keep `MC-109`'s behaviour.
+4. **For about 0.4 s after a prompt comes back, or the next prompt in turn appears, a click or
+   key that would answer it is ignored.** Typing into it is not. A prompt that opens fresh answers
+   at once, as today.
+5. **Identical permission requests from one plugin that are in flight together share one prompt
+   and its answer.**
