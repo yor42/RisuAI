@@ -3222,6 +3222,130 @@ decide them either.** Revisit any of them on request:
 
 ---
 
+### MC-110 — W2c: a send's prompt reads the chat it started in; its Lua edit triggers keep `MC-078`; the disabled-message index is fixed
+
+- **Tag:** decision
+- **Date:** 2026-09-29
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on three questions the Orchestrator asked
+  after W2c's scoping (ledger row 355).
+- **Reasoning:**
+  - `MC-104` 1 sends the reply to the chat the send started in when that chat's id has two
+    holders. Building the prompt from an empty chat there would answer a conversation the model
+    never saw.
+  - The send's start and output triggers already keep `MC-078` in such a chat (Report 35); its Lua
+    edit triggers are trigger runs too.
+  - In the prompt-building script pass, `@@inject` and `@@repeat_back` count only enabled
+    messages, so with a disabled message in the chat they write to or read another message. The
+    same happens upstream. W2c rewrites those lines.
+- **Alternatives rejected:**
+  - reads in a duplicated-id chat: an empty chat, as `MC-078`;
+  - Lua edit triggers there: read and write the chat the send started in, as the send's own writes;
+  - the disabled-message index: keep upstream's behaviour and open a chore.
+- **Extends:** `MC-104` 1 from the send's writes to its reads.
+- **Related:** MC-078, MC-095, MC-103, MC-104.
+
+**What was decided:**
+1. **The send's own reads follow its writes.** Its prompt parses, scripts, lorebook, persona and
+   module selection read the chat the send started in, resolved as its writes are (`MC-104` 1). In
+   a chat whose id is not duplicated this is the only holder, and nothing changes.
+2. **The send's Lua edit triggers (`editRequest`, `editOutput`) behave like its other trigger runs.**
+   Which triggers run is chosen from the send's chat, as above. The Lua's own chat reads and writes
+   keep `MC-078`: in a duplicated-id chat they see an empty chat and write nothing. The text the
+   triggers return is still used.
+3. **`@@inject` and `@@repeat_back` in the prompt-building pass address the real message** when
+   the chat has disabled messages.
+
+---
+
+### MC-111 — W2c: the prompt pass's index tags describe the message being processed; its walk-backs skip messages not sent
+
+- **Tag:** decision
+- **Date:** 2026-09-29
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer answered two questions the Orchestrator asked after W2c-a's Gate 1
+  round 1 (Report 40; ledger row 357), which found that `MC-110` 3 as planned also changed tags
+  the decision did not name. The maintainer chose the non-recommended option on the first and the
+  recommended option on the second.
+- **Reasoning:**
+  - In the prompt-building pass, the position `chatID` carries counts only the messages sent to the
+    model. So with a disabled message, or an `allBefore` reset, every tag that reads `chatID`
+    describes another message, not only `@@inject` and `@@repeat_back`. Upstream has the same
+    defect. Their documentation says "the current message index in the chat".
+  - A walk-back that reads disabled messages would put text the user hid from the model into the
+    prompt.
+- **Alternatives rejected:**
+  - fix only `@@inject` and `@@repeat_back`, and keep the tags' upstream output (a chore);
+  - walk back over the whole chat, disabled and pre-reset messages included.
+- **Extends:** `MC-110` 3.
+- **Related:** MC-110.
+
+**What was decided:**
+1. **In the prompt-building pass, every tag that reads the message index describes the message
+   being processed:** `{{chat_index}}`, `{{role}}`, `{{messagetime}}`, `{{messagedate}}`,
+   `{{messageidleduration}}`, `{{previouscharchat}}`, `{{previoususerchat}}`, as well as
+   `@@inject` and `@@repeat_back`.
+2. **In that pass, walking back to an earlier message (`@@repeat_back`, `{{previouscharchat}}`,
+   `{{previoususerchat}}`) considers only messages sent to the model:** not disabled messages,
+   and nothing before an `allBefore` reset. Walk-backs on the reply keep upstream's behaviour.
+
+---
+
+### MC-112 — W2c: every look-back while the prompt is built skips hidden messages, in W2c-a; the first message is its fallback only if it was sent
+
+- **Tag:** decision
+- **Date:** 2026-09-29
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer answered the Orchestrator's disclosure of three details of Report 40
+  rev 3 that go beyond `MC-111`'s wording (ledger rows 358-359). They kept the first two as
+  planned and widened the third.
+- **Reasoning:** `MC-111` 2's reason (text the user hid from the model must not reach the prompt)
+  holds for every parse that builds the prompt, not only the per-message script pass.
+- **Alternatives rejected:**
+  - `{{messageidleduration}}` walking the whole chat;
+  - the fallback: always the first message (upstream), or always empty;
+  - the rest of the prompt: in W2c-b, or not at all (script pass only).
+- **Extends:** `MC-111` 2.
+- **Related:** MC-110, MC-111.
+
+**What was decided:**
+1. **`{{messageidleduration}}` follows `MC-111` 2** in the prompt-building pass: it skips disabled
+   messages and everything up to an `allBefore` reset when it looks back.
+2. **When a look-back in the prompt-building pass finds no earlier sent message**, it returns the
+   first message (or the chosen alternate greeting) only if that was sent to the model (not a group
+   chat, no reset); otherwise it returns nothing.
+3. **The rule covers every parse that builds the prompt, and W2c-a delivers it:** the per-message
+   script pass, each message's own text, the first message, and the other prompt parses in
+   `sendChatBody`.
+
+---
+
+### MC-113 — W2c: the prompt's index tags and hidden-message rule get their own stage, W2c-c
+
+- **Tag:** decision
+- **Date:** 2026-09-29
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on a question the Orchestrator asked
+  after W2c-a's Gate 1 round 4 (Report 40; ledger row 362), the fourth [REJECT] in a row.
+- **Reasoning:** every finding from round 2 on came from `MC-111` and `MC-112`: each round found
+  another place the prompt is built (a message's own tags expanded at the send's entry, chatML
+  template items, the history tags) or another cache dimension. The rest of W2c-a has held since
+  its rev 2.
+- **Alternatives rejected:** keep one stage and fix round 4's findings; narrow `MC-111`/`MC-112`
+  to the per-message script pass.
+- **Amends:** `MC-112` 3 (W2c-c delivers the rule, not W2c-a). `MC-111` and `MC-112` otherwise stand.
+- **Related:** MC-110, MC-111, MC-112, MC-103.
+
+**What was decided:**
+1. **W2c-a** delivers the binding (the script pass, the Lua edit triggers and the lorebook scan
+   read the send's chat) and `MC-110` 3 alone: `@@inject` and `@@repeat_back` in the
+   prompt-building pass address the real message. Tags, walk-backs and the script cache keep
+   their upstream behaviour there.
+2. **W2c-c**, after W2c-b, delivers `MC-111` and `MC-112` with its own plan and gates, starting
+   from a complete inventory of every parse that builds the prompt.
+
+---
+
 ### MC-115 — Escape on alerts, stage 2: a notice shows over a prompt and the prompt comes back; prompts go in turn; shortcuts wait while a prompt is up; a returning prompt ignores a double-press; duplicate plugin permission requests share one prompt
 
 - **Tag:** decision

@@ -1663,6 +1663,26 @@ amendment; live-checked, ledger row 299). Present at `688b13e8` as well.
 - **A likely shape:** keep auto mode's running state and the current generation's abort controller
   at module level, beside S1's window, so any instance's toggle or busy button stops it.
 
+### CHORE-45 — The script cache misses every lookup on a repeat send in a long chat
+
+**Status (2026-09-29):** filed from W2c-a's cache measurement (Report 40 section 6; ledger row
+361), under `MC-069`. Present upstream. Not fixed and not scheduled.
+
+- **Mechanism (measured by `perf-analyzer`, the eviction inferred from source):**
+  - `processScriptCache` in `scripts.ts` holds at most 1,000 entries and evicts the oldest
+    inserted; a hit does not refresh an entry.
+  - A send inserts one entry per message of the prompt pass, plus the first message and the
+    reply. From about 999 messages on, the end of one send evicts the entries the next send's pass
+    reads first, and that pass then misses on every message.
+  - Display and `editinput` entries share the map, so a real chat reaches the cliff earlier.
+- **Cost:** on 998 messages with 8 `editprocess` scripts, a warm pass took about 10-13 ms and a
+  cold one about 60 ms on an i9-13900K (dev build, node). Phones and Pi-class hardware are roughly
+  10-15x slower.
+- **Not a fix on its own:** an LRU refresh does not help a cyclic scan longer than the capacity.
+  A likely shape is a capacity that follows the chat's length, or a separate cache per pass.
+- **Related:** W2c-c (`MC-113`) decides how the prompt pass uses the cache at all; revisit this
+  with it.
+
 ## Sequencing Summary
 
 ```

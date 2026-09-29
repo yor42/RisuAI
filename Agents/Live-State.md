@@ -536,6 +536,35 @@ bug) is blocked on the maintainer's console output, not scheduled by position.
   - Final snapshot: `pnpm test` 163 files, 2273 passed, 4 skipped; `pnpm check` clean; the build
     passes. Committed as `6631f5e0`.
   - Next: stage 2 (`MC-109` 3): a prompt covered by another alert takes that alert's answer.
+- **W2c: scoped** (ledger row 355; packet in the session scratchpad, `w2c/packet.md`). Decision
+  `MC-110` (the send's reads follow its writes in a duplicated-id chat; its Lua edit triggers keep
+  `MC-078`; the `editprocess` disabled-message index is fixed). Split into:
+  - **W2c-a:** the script pass, `@@inject`/`@@repeat_back`, the Lua edit triggers and the lorebook
+    scan. Plan: Report 40 rev 2. Harness spike feasible (row 356). Gate 1 round 1 [REJECT] (row
+    357); `MC-111` decided (the prompt pass's index tags describe the processed message; its
+    walk-backs skip messages not sent). Rounds 2 and 3 [REJECT] (rows 358, 359); the third in a
+    row, so a `senior-advisor` escalation (row 360: the cache keys on content, not on the chat
+    state its outputs read; cache only what the key determines) and a measurement (row 361:
+    bypassing costs ~50 ms per 1,000 messages on the i9). `MC-112` decided (every prompt parse
+    skips hidden messages, in W2c-a). Rev 4 (a purity check on the prompt pass's cache): Gate 1
+    round 4 (fresh `opus-reviewer`) [REJECT] (row 362), the fourth in a row, all from the
+    `MC-111`/`MC-112` work. `MC-113`: that work becomes its own stage, W2c-c, after W2c-b. Rev 5
+    (W2c-a without it; `MC-110` 3 alone): round 5 [EDITORIAL] (row 363), applied in rev 5.1.
+    **Gate 1 passed.** Red tests (row 364: 22 reproducers fail at HEAD, 19 guards pass), the fix
+    (row 365, four production files), acceptance guards on its seams (row 366). Pre-gate snapshot:
+    `pnpm test` 169 files, 2325 passed, 4 skipped; `pnpm check` clean; the build passes. Gate 2:
+    round 1 [REJECT] on tests only (row 367), round 2 [EDITORIAL], closed (row 368). Live check
+    passed (row 369). Final: `pnpm test` 169 files, 2331 passed, 4 skipped; `pnpm check` clean.
+    Commit-message check (row 370): [EDITORIAL], applied. Not committed yet.
+  - Next after W2c-a: W2c-b (the send's prompt parses and helpers), then W2c-c. Numbers reserved for W2c-a: MC-110 to MC-114, ledger
+    rows 355-374, Report 40 (the Escape-on-alerts session took Report 39, MC-109 and rows
+    348-354; its stage 2 starts at MC-115, row 375, Report 41).
+  - **W2c-b:** the 36 prompt parses and the persona, module and helper reads. Its own plan after
+    W2c-a.
+  - **W2c-c** (`MC-113`): `MC-111` and `MC-112` (the prompt's index tags describe the processed
+    message; every look-back while the prompt is built skips hidden messages; the script cache made
+    sound for it). Its own plan after W2c-b, from a complete inventory of the parses that build the
+    prompt; W2c-a's rounds 2-4 and rows 360-362 are its starting evidence.
 - **Escape on alerts (stage 2): Gate 2 passed** (Report 41 rev 2.1; `MC-115`; ledger rows
   375-380). A prompt takes only its own answer. A notice over a prompt shows at once, and the
   prompt comes back as the user left it. Prompts go in turn. Shortcuts wait while a prompt is up.
@@ -591,7 +620,7 @@ bug) is blocked on the maintainer's console output, not scheduled by position.
 
 ## Test suite
 
-**166 files: 2428 passed, 4 skipped, 0 failed**, the check on the final tree of Escape on alerts (stage 2, `c0b323b0`). `pnpm check` is clean, and `pnpm run build` passes.
+**172 files: 2486 passed, 4 skipped, 0 failed**, the check on the combined tree of W2c-a (`79c6e35e`) and Escape on alerts stage 2 (`c0b323b0`). `pnpm check` is clean, and `pnpm run build` passes.
 `cargo check` last ran on the removal stage.
 - Run the suite with plain `pnpm test` or `npx vitest run`. `vitest.config.ts` excludes
   `.claude/**` (`7b72b813`).
