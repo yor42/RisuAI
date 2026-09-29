@@ -1147,6 +1147,7 @@ export const languageSpanish = {
     "namespace": "Namespace",
     "moduleIntergration": "Integración de Módulos",
     "previewInfo": "Esta vista previa muestra el prompt antes del procesamiento específico del modelo.",
+    "groupPreviewNoSpeaker": "Ahora mismo ningún miembro del grupo respondería.",
     "miscTools": "Herramientas Varias",
     "promptConvertion": "Conversión de Prompt",
     "convertionStep1": "Selecciona todos los archivos relacionados con el prompt (Contexto, Instrucción y Sampler JSON compatibles)",

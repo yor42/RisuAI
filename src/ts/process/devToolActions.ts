@@ -1,30 +1,31 @@
 import { get } from "svelte/store"
-import { alertMd, alertWait } from "../alert"
 import { DBState, selectedCharID } from "../stores.svelte"
 import { applyChatTemplate } from "./templates/chatTemplate"
-import { doingChat, previewBody, previewFormated, sendChat } from "./index.svelte"
+import { doingChat, sendChat, type OpenAIChat, type PreviewResult } from "./index.svelte"
+import { memberLabel, previewMayStart, renderPromptResult, runPreview } from "./previewRunner"
 import { isComposerWindowOpen } from "./generationOwnership.svelte"
 
 function isBusy(): boolean {
     return get(doingChat) || isComposerWindowOpen()
 }
 
-export async function runPreviewPrompt(
+/** The markdown for a formatted preview (the messages, joined as asked, or their chat template), or undefined when the call wrote none. */
+function renderFormattedPreview(
+    result: PreviewResult,
     previewMode: string,
     previewJoin: string,
     instructType: string,
     instructCustom: string
-){
-    if(isBusy()){
-        return false
+): string | undefined {
+    if(result.formated === undefined){
+        return undefined
     }
-    alertWait("Loading...")
-    await sendChat(-1, {
-        preview: previewJoin !== 'prompt',
-        previewPrompt: previewJoin === 'prompt'
-    })
 
     let md = ''
+    const label = memberLabel(result.memberName)
+    if(label !== undefined){
+        md += '> Previewing ' + label + '\n'
+    }
     const styledRole = {
         "function": "📐 Function",
         "user": "😐 User",
@@ -32,17 +33,10 @@ export async function runPreviewPrompt(
         "assistant": "✨ Assistant",
     }
 
-    if(previewJoin === 'prompt'){
-        md += '### Prompt\n'
-        md += '```json\n' + JSON.stringify(JSON.parse(previewBody), null, 2).replaceAll('```', '\\`\\`\\`') + '\n```\n'
-        alertMd(md)
-        return
-    }
-
-    let formated = safeStructuredClone(previewFormated)
+    let formated: OpenAIChat[] = safeStructuredClone(result.formated)
 
     if(previewJoin === 'yes'){
-        let newFormated = []
+        let newFormated: OpenAIChat[] = []
         let latestRole = ''
 
         for(let i=0;i<formated.length;i++){
@@ -65,8 +59,7 @@ export async function runPreviewPrompt(
 
         md += '### Instruction\n'
         md += '```\n' + instructed.replaceAll('```', '\\`\\`\\`') + '\n```\n'
-        alertMd(md)
-        return
+        return md
     }
 
     for(let i=0;i<formated.length;i++){
@@ -88,7 +81,27 @@ export async function runPreviewPrompt(
 
         md += '```\n' + formated[i].content.replaceAll('```', '\\`\\`\\`') + '\n```\n'
     }
-    alertMd(md)
+    return md
+}
+
+export async function runPreviewPrompt(
+    previewMode: string,
+    previewJoin: string,
+    instructType: string,
+    instructCustom: string
+){
+    if(!previewMayStart()){
+        return false
+    }
+    await runPreview({
+        preview: previewJoin !== 'prompt',
+        previewPrompt: previewJoin === 'prompt'
+    }, (result) => {
+        if(previewJoin === 'prompt'){
+            return renderPromptResult(result)
+        }
+        return renderFormattedPreview(result, previewMode, previewJoin, instructType, instructCustom)
+    })
 }
 
 export async function runAutopilot(autopilot: string[]){

@@ -270,6 +270,14 @@
                     </div>
                 {/if}
             {/if}
+            {#if $alertStore.type === 'wait' && $alertStore.onCancel}
+                <div class="flex w-full">
+                    <Button styled="outlined" className="mt-4 grow" onclick={() => {
+                        $alertStore.onCancel?.()
+                    }}>{language.cancel}</Button>
+                </div>
+            {/if}
+
             {#if $alertStore.type === 'progress'}
                 <div class="w-full min-w-64 md:min-w-138 h-2 bg-darkbg border border-darkborderc rounded-md mt-6">
                     <div class="h-full bg-linear-to-r from-blue-500 to-purple-800 saving-animation transition-[width]" style:width={$alertStore.submsg + '%'}></div>

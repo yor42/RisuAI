@@ -1193,6 +1193,7 @@ export const languageChineseTraditional = {
     "namespace": "Namespace",
     "moduleIntergration": "模組整合",
     "previewInfo": "此預覽顯示套用模型專屬處理前的提示詞",
+    "groupPreviewNoSpeaker": "目前沒有任何群組成員會回覆。",
     "miscTools": "其他工具",
     "promptConvertion": "提示詞轉換",
     "convertionStep1": "選擇所有與提示詞相關的檔案（支援 Context、Instruct 與 Sampler JSON）",

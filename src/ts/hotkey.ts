@@ -1,18 +1,29 @@
 import { get } from "svelte/store"
-import { alertMd, alertSelect, alertToast, alertWait, doingAlert, alertRequestLogs } from "./alert"
+import { alertSelect, alertToast, doingAlert, alertRequestLogs } from "./alert"
 import { changeToPreset as changeToPreset2, getDatabase  } from "./storage/database.svelte"
 import { alertStore, DBState, loadoutModalStore, MobileGUIStack, MobileSideBar, openPersonaList, openPresetList, OpenRealmStore, PlaygroundStore, QuickSettings, SafeModeStore, selectedCharID, settingsOpen } from "./stores.svelte"
 import { language } from "src/lang"
 import { updateTextThemeAndCSS } from "./gui/colorscheme"
 import { defaultHotkeys } from "./defaulthotkeys"
-import { doingChat, previewBody, sendChat } from "./process/index.svelte"
-import { isComposerWindowOpen } from "./process/generationOwnership.svelte"
+import { previewMayStart, renderPromptResult, runPreview } from "./process/previewRunner"
 import { RISU_SIDEBAR_DRAG_TYPE } from "./dragTypes"
 import { shouldYieldToFocusedControl } from "./hotkeyYield"
 import { changeChar } from "./characters"
 
 export function initHotkey(){
     document.addEventListener('keydown', async (ev) => {
+        // Escape cancels a wait notice that offers a Cancel button, whatever
+        // has focus, and is consumed so that nothing else acts on it.
+        if(ev.key === 'Escape'){
+            const shown = get(alertStore)
+            if(shown.type === 'wait' && shown.onCancel){
+                shown.onCancel()
+                ev.preventDefault()
+                ev.stopPropagation()
+                return
+            }
+        }
+
         if(
             !ev.ctrlKey &&
             !ev.altKey &&
@@ -145,20 +156,16 @@ export function initHotkey(){
                     break
                 }
                 case 'previewRequest':{
-                    if(get(selectedCharID) === -1 || get(doingChat) || isComposerWindowOpen()){
-                        return false
-                    }
-                    alertWait("Loading...")
+                    // Consumed whether or not a preview starts, so the
+                    // browser's own Ctrl+U (view source) never runs.
                     ev.preventDefault()
                     ev.stopPropagation()
-                    await sendChat(-1, {
+                    if(get(selectedCharID) === -1 || !previewMayStart()){
+                        return false
+                    }
+                    await runPreview({
                         previewPrompt: true
-                    })
-
-                    let md = ''
-                    md += '### Prompt\n'
-                    md += '```json\n' + JSON.stringify(JSON.parse(previewBody), null, 2).replaceAll('```', '\\`\\`\\`') + '\n```\n'
-                    alertMd(md)
+                    }, renderPromptResult)
                     return
                 }
                 case 'toggleLog':{

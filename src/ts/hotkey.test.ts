@@ -58,7 +58,6 @@ vi.mock(import('./gui/colorscheme'), () => {
 vi.mock(import('./process/index.svelte'), () => {
     return {
         doingChat: writable(false),
-        previewBody: '',
         sendChat: vi.fn(),
     } as unknown as typeof import('./process/index.svelte')
 })

@@ -50,6 +50,10 @@ export type GroupOrder = {
 }
 
 export function groupOrder(chars:GroupOrder[], input:string):GroupOrder[] {
+    if (chars.length === 0) {
+        return []
+    }
+
     let order:GroupOrder[] = [];
     let ids:string[] = []
     if (input) {

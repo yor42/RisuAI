@@ -1147,6 +1147,7 @@ export const languageChinese = {
     "namespace": "命名空间",
     "moduleIntergration": "模块集成",
     "previewInfo": "此预览显示模型处理前的提示词。",
+    "groupPreviewNoSpeaker": "目前没有任何群组成员会回复。",
     "miscTools": "其他工具",
     "promptConvertion": "提示词转换",
     "convertionStep1": "选择与提示词相关的文件（支持 Context、Instruct 及 Sampler JSON）",

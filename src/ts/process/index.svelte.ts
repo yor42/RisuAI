@@ -93,8 +93,6 @@ export const doingChat = writable(false)
 export const chatProcessStage = writable(0)
 export const abortChat = writable(false)
 export let requestTokenParts:{[key:string]:requestTokenPart[]} = {}
-export let previewFormated:OpenAIChat[] = []
-export let previewBody:string = ''
 
 /**
  * Test-only observation of the positions a streamed reply's flush wrote at.
@@ -126,6 +124,17 @@ export interface SendChatOriginHint {
     chat: Chat
 }
 
+/**
+ * A preview call's own output. The caller passes the object in
+ * `SendChatArg.previewResult` and reads it after the call returns.
+ */
+export interface PreviewResult {
+    body?: string
+    formated?: OpenAIChat[]
+    memberName?: string
+    noSpeaker?: boolean
+}
+
 export interface SendChatArg {
     chatAdditonalTokens?:number,
     signal?:AbortSignal,
@@ -133,6 +142,8 @@ export interface SendChatArg {
     usedContinueTokens?:number,
     preview?:boolean
     previewPrompt?:boolean
+    /** Receives this call's preview output (see `PreviewResult`). */
+    previewResult?: PreviewResult
     /**
      * The chat this send writes into, for a caller that already holds one.
      * Without it, one is captured from the chat on screen when the call starts.
@@ -631,16 +642,38 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
                     return true
                 })
             }
+            // A preview walks the same order as a real send and stops at the
+            // first member whose call writes a result; a member passed over
+            // (gone, duplicated, not in the group) writes none and the walk
+            // goes on. Nothing is generated: the preview flags reach every
+            // member call.
+            const previewing = !!(arg.preview || arg.previewPrompt)
+            const previewResult = arg.previewResult ?? {}
             for(let i=0;i<order.length;i++){
+                if(abortSignal.aborted){
+                    return false
+                }
                 const r = await sendChatRecursion(order[i].index, {
                     chatAdditonalTokens: caculatedChatTokens,
                     signal: abortSignal,
                     origin: { ...origin, memberChaId: order[i].id },
-                    originHint: hint
+                    originHint: hint,
+                    ...(previewing ? {
+                        preview: arg.preview,
+                        previewPrompt: arg.previewPrompt,
+                        previewResult
+                    } : {})
                 })
                 if(!r){
                     return false
                 }
+                if(previewing && (previewResult.body !== undefined || previewResult.formated !== undefined)){
+                    previewResult.memberName = findCharacterbyIdwithCache(order[i].id).name
+                    return true
+                }
+            }
+            if(previewing){
+                previewResult.noSpeaker = true
             }
             return true
         }
@@ -1208,6 +1241,9 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
     
     console.log('Prepared messages for token calculation:', ms)
 
+    if(abortSignal.aborted){
+        return false
+    }
     const triggerResult = await runTrigger(currentChar, 'start', {chat: currentChat, origin})
     if(triggerResult){
         // A trigger run resolves the origin by id alone, so it writes nothing
@@ -1224,6 +1260,9 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
         if(triggerResult.stopSending){
             return false
         }
+    }
+    if(abortSignal.aborted){
+        return false
     }
 
     let index = 0
@@ -1394,6 +1433,10 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
         currentTokens += await tokenizer.tokenizeChat(chat)
     }
     
+    if(abortSignal.aborted){
+        return false
+    }
+
     if(nowChatroom.supaMemory && (DBState.db.supaModelType !== 'none' || DBState.db.hanuraiEnable || DBState.db.hypav2 || DBState.db.hypaV3)){
         stageTimings.stage1Duration = Date.now() - stageTimings.stage1Start
         chatProcessStage.set(2)
@@ -1492,6 +1535,10 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
         if(lastMemoryCtx){
             lastMemoryCtx.chat.lastMemory = chats[0].memo
         }
+    }
+
+    if(abortSignal.aborted){
+        return false
     }
 
     let biases:[string,number][] = DBState.db.bias.concat(currentChar.bias).map((v) => {
@@ -1888,7 +1935,12 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
     chatProcessStage.set(3)
     stageTimings.stage3Start = Date.now()
     if(arg.preview){
-        previewFormated = formated
+        if(abortSignal.aborted){
+            return false
+        }
+        if(arg.previewResult){
+            arg.previewResult.formated = formated
+        }
         return true
     }
 
@@ -1918,7 +1970,9 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
     }
 
     if(arg.previewPrompt && req.type === 'success'){
-        previewBody = req.result
+        if(arg.previewResult){
+            arg.previewResult.body = req.result
+        }
         return true
     }
 

@@ -26,7 +26,6 @@ import 'src/ts/polyfill'
 //#region module mocks
 
 const inputStepMock = vi.hoisted(() => vi.fn())
-const previewBodyBox = vi.hoisted(() => ({ value: '{"messages":[]}' }))
 
 vi.mock('localforage', () => ({
     default: {
@@ -106,8 +105,6 @@ vi.mock(import('src/ts/gui/colorscheme'), () => ({
 
 vi.mock(import('src/ts/process/index.svelte'), () => ({
     doingChat: writable(false),
-    get previewBody() { return previewBodyBox.value },
-    previewFormated: [],
     sendChat: vi.fn(),
 }) as unknown as typeof import('src/ts/process/index.svelte'))
 
@@ -231,7 +228,6 @@ function resetFixture() {
     DBState.db = { characters } as unknown as Database
     selectedCharID.set(-1)
     doingChat.set(false)
-    previewBodyBox.value = '{"messages":[]}'
 }
 
 let keydownHandler: (ev: KeyboardEvent) => unknown
@@ -307,7 +303,7 @@ async function openComposerWindow(): Promise<{ close: () => Promise<void> }> {
 //#endregion
 
 describe('the preview hotkey while a generation is running', () => {
-    test('at Home, with a body left by an earlier preview, it leaves the flag set and sends nothing', async () => {
+    test('at Home, it leaves the flag set and sends nothing', async () => {
         selectedCharID.set(-1)
         doingChat.set(true)
 

@@ -1,5 +1,4 @@
 import { get, writable } from "svelte/store"
-import { sleep } from "./util"
 import { language } from "../lang"
 import { isTauri, isNodeServer } from "src/ts/platform"
 import { getDatabase, type MessageGenerationInfo } from "./storage/database.svelte"
@@ -16,6 +15,8 @@ export interface alertData{
     datalist?: [string, string][],
     stackTrace?: string;
     defaultValue?: string
+    /** Set on a wait alert that can be cancelled: the action that ends the wait early. */
+    onCancel?: () => void
 }
 
 type AlertGenerationInfoStoreData = {
@@ -74,13 +75,36 @@ export function alertError(msg: string | Error) {
     })
 }
 
-export async function waitAlert(){
-    while(true){
-        if (get(alertStoreImported).type === 'none'){
-            break
+/**
+ * Resolves with the `msg` of the first `none` value the alert store takes, or
+ * already holds. The answer comes from the value that ended the alert, as the
+ * subscriber receives it, never from a later read of the store: whatever is put
+ * in the store after the answer cannot replace it. Every blocking alert in this
+ * module that waits for the store's `none` captures its answer through this.
+ */
+function alertEndMessage(): Promise<string> {
+    return new Promise<string>((resolve) => {
+        let settled = false
+        let unsubscribe: (() => void) | undefined
+        unsubscribe = alertStoreImported.subscribe((v) => {
+            if (settled || v.type !== 'none') {
+                return
+            }
+            settled = true
+            resolve(v.msg)
+            // On the synchronous first call `unsubscribe` is not assigned yet;
+            // the check below `subscribe()` covers it.
+            unsubscribe?.()
+        })
+        if (settled) {
+            unsubscribe()
         }
-        await sleep(10)
-    }
+    })
+}
+
+/** Waits until the alert store is `none`. */
+export async function waitAlert(): Promise<void> {
+    await alertEndMessage()
 }
 
 export function alertNormal(msg:string){
@@ -103,9 +127,8 @@ export async function alertAddCharacter() {
         'type': 'addchar',
         'msg': language.addCharacter
     })
-    await waitAlert()
 
-    return get(alertStoreImported).msg
+    return await alertEndMessage()
 }
 
 export async function alertChatOptions() {
@@ -113,9 +136,8 @@ export async function alertChatOptions() {
         'type': 'chatOptions',
         'msg': language.chatOptions
     })
-    await waitAlert()
 
-    return parseInt(get(alertStoreImported).msg)
+    return parseInt(await alertEndMessage())
 }
 
 /**
@@ -176,9 +198,7 @@ export async function alertSelect(msg:string[], display?:string){
         'msg': message
     })
 
-    await waitAlert()
-
-    return get(alertStoreImported).msg
+    return await alertEndMessage()
 }
 
 export async function alertErrorWait(msg:string){
@@ -207,12 +227,21 @@ export function alertToast(msg:string){
     })
 }
 
-export function alertWait(msg:string){
-    alertStoreImported.set({
+/**
+ * Shows a wait notice and returns the exact object it put in the store, so a
+ * caller can tell later whether the store still holds its notice. With
+ * `onCancel` the notice offers a Cancel button and Escape runs it.
+ */
+export function alertWait(msg:string, onCancel?: () => void): alertData {
+    const data: alertData = {
         'type': 'wait',
         'msg': msg
-    })
-
+    }
+    if (onCancel) {
+        data.onCancel = onCancel
+    }
+    alertStoreImported.set(data)
+    return data
 }
 
 
@@ -229,9 +258,7 @@ export async function alertSelectChar(){
         'msg': ''
     })
 
-    await waitAlert()
-
-    return get(alertStoreImported).msg
+    return await alertEndMessage()
 }
 
 export async function alertConfirm(msg:string){
@@ -241,9 +268,7 @@ export async function alertConfirm(msg:string){
         'msg': msg
     })
 
-    await waitAlert()
-
-    return get(alertStoreImported).msg === 'yes'
+    return (await alertEndMessage()) === 'yes'
 }
 
 export async function alertPluginConfirm(msg:string){
@@ -253,9 +278,7 @@ export async function alertPluginConfirm(msg:string){
         'msg': msg
     })
 
-    await waitAlert()
-
-    return get(alertStoreImported).msg === 'yes'
+    return (await alertEndMessage()) === 'yes'
 }
 
 export async function alertCardExport(type:string = ''){
@@ -266,9 +289,7 @@ export async function alertCardExport(type:string = ''){
         'submsg': type
     })
 
-    await waitAlert()
-
-    return JSON.parse(get(alertStoreImported).msg) as {
+    return JSON.parse(await alertEndMessage()) as {
         type: string,
         type2: string,
     }
@@ -283,9 +304,7 @@ export async function alertInput(msg:string, datalist?:[string, string][], defau
         'defaultValue': defaultValue ?? ''
     })
 
-    await waitAlert()
-
-    return get(alertStoreImported).msg
+    return await alertEndMessage()
 }
 
 export async function alertModuleSelect(){
@@ -295,14 +314,7 @@ export async function alertModuleSelect(){
         'msg': ''
     })
 
-    while(true){
-        if (get(alertStoreImported).type === 'none'){
-            break
-        }
-        await sleep(20)
-    }
-
-    return get(alertStoreImported).msg
+    return await alertEndMessage()
 }
 
 export function alertRequestData(info:AlertGenerationInfoStoreData){

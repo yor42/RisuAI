@@ -1147,6 +1147,7 @@ export const languageGerman = {
     "namespace": "Namespace",
     "moduleIntergration": "Modul-Integration",
     "previewInfo": "Diese Vorschau zeigt die Anweisung vor der modellspezifischen Verarbeitung.",
+    "groupPreviewNoSpeaker": "Im Moment würde kein Gruppenmitglied antworten.",
     "miscTools": "Verschiedene Tools",
     "promptConvertion": "Anweisungskonvertierung",
     "convertionStep1": "Wählen Sie alle Dateien aus, die sich auf die Anweisung beziehen (Kontext, Anweisung und Sampler-JSON werden unterstützt)",

@@ -1147,6 +1147,7 @@ export const languageKorean = {
     "namespace": "네임스페이스",
     "moduleIntergration": "모듈 통합",
     "previewInfo": "미리보기는 모델 특화 처리 전에 프롬프트를 보여줍니다.",
+    "groupPreviewNoSpeaker": "지금은 응답할 그룹 멤버가 없습니다.",
     "miscTools": "기타 도구",
     "promptConvertion": "프롬프트 변환",
     "convertionStep1": "프롬프트와 관련된 모든 파일을 선택하세요 (컨텍스트, 인스트럭트, 샘플러 JSON을 지원합니다)",

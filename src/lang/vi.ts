@@ -1147,6 +1147,7 @@ export const languageVietnamese = {
     "namespace": "Namespace",
     "moduleIntergration": "Tích hợp mô-đun",
     "previewInfo": "Bản xem trước này hiển thị lời nhắc trước khi xử lý theo mô hình cụ thể.",
+    "groupPreviewNoSpeaker": "Hiện không có thành viên nhóm nào sẽ phản hồi.",
     "miscTools": "Công cụ khác",
     "promptConvertion": "Chuyển đổi lời nhắc",
     "convertionStep1": "Chọn tất cả tập tin liên quan đến lời nhắc (Context, Instruct và Sampler JSON được hỗ trợ)",
