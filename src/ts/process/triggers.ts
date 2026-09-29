@@ -1,5 +1,6 @@
 import { parseChatML } from "../parser/chatML";
 import { risuChatParser } from "../parser/parser.svelte";
+import { promptViewOfMessages, type PromptView } from "../cbs";
 import { getDatabase, type Chat, type character } from "../storage/database.svelte";
 import { tokenize } from "../tokenizer";
 import { getModuleTriggers } from "./modules";
@@ -1071,6 +1072,7 @@ type RunTriggerLiveArg = {
     displayData?: string
     tempVars?: Record<string, string>
     origin: Origin
+    promptFirstSent?: boolean
 }
 type RunTriggerDisplayArg = {
     chat: Chat
@@ -1083,7 +1085,12 @@ type RunTriggerDisplayArg = {
     displayData?: string
     tempVars?: Record<string, string>
     origin?: undefined
+    promptFirstSent?: undefined
 }
+// `promptFirstSent` is set only on the run the send makes for its start
+// trigger, with the send's own decision on whether the first message is sent;
+// every run it starts through `runtrigger` or `v2RunTrigger` carries it on. The
+// system-prompt text of such a run is parsed as part of the prompt.
 export type RunTriggerArg = RunTriggerLiveArg | RunTriggerDisplayArg
 
 export async function runTrigger(char:character,mode:triggerMode, arg: RunTriggerArg){
@@ -1126,6 +1133,16 @@ export async function runTrigger(char:character,mode:triggerMode, arg: RunTrigge
     // must not: a gone or ambiguous group member makes it `null`, and a
     // caller of it must skip rather than substitute the group.
     let runner: character | null = null
+
+    // The parser option for the text a system-prompt effect hands to the
+    // prompt. The hidden messages are those of the list as it stands now, since
+    // an earlier effect may have replaced or edited it.
+    function promptOption(): { promptView?: PromptView } {
+        if(arg.promptFirstSent === undefined){
+            return {}
+        }
+        return { promptView: promptViewOfMessages(chat.message, arg.promptFirstSent) }
+    }
 
     // Refreshes `char`, `chat` and `runner` from the origin for the run's
     // current synchronous stretch. Returns false, changing none of them,
@@ -1469,7 +1486,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg: RunTrigge
                     break
                 }
                 case 'systemprompt':{
-                    const effectValue = risuChatParser(effect.value,{chara:char, subject})
+                    const effectValue = risuChatParser(effect.value,{chara:char, subject, ...promptOption()})
                     additonalSysPrompt[effect.location] += effectValue + "\n\n"
                     break
                 }
@@ -1507,6 +1524,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg: RunTrigge
                             stopSending,
                             manualName: effect.value,
                             origin: arg.origin as Origin,
+                            promptFirstSent: arg.promptFirstSent,
                         })
                         if(r){
                             additonalSysPrompt = r.additonalSysPrompt
@@ -1919,6 +1937,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg: RunTrigge
                             stopSending,
                             manualName: effect.target,
                             origin: arg.origin as Origin,
+                            promptFirstSent: arg.promptFirstSent,
                         })
                         if(r){
                             additonalSysPrompt = r.additonalSysPrompt
@@ -1960,7 +1979,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg: RunTrigge
                     break
                 }
                 case 'v2SystemPrompt':{
-                    let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char, subject}) : getVar(risuChatParser(effect.value,{chara:char, subject}))
+                    let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char, subject, ...promptOption()}) : getVar(risuChatParser(effect.value,{chara:char, subject}))
                     additonalSysPrompt[effect.location] += value + "\n\n"
                     break
                 }

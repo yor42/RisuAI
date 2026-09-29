@@ -761,7 +761,7 @@ describe('the prompt pass\'s @@inject and @@repeat_back address the message bein
         expect(foreign).toEqual([])
     })
 
-    test('guard: the index tags of the prompt pass keep the position among the sent messages', async () => {
+    test('the index tags of the prompt pass describe the chat index of the message and the walk-back reads the nearest earlier sent message', async () => {
         const A = makeChar('char-A', 'Alice', [makeChat('chat-A', [
             msg('char', 'c0 T0'),
             msg('char', 'c1 T1'),
@@ -775,7 +775,7 @@ describe('the prompt pass\'s @@inject and @@repeat_back address the message bein
         await sendReply(A, A.chats[0], 'reply-index-tags')
 
         const processed = promptOf().find((entry) => entry.content.startsWith('c4'))
-        expect(processed?.content).toBe('c4 i=3 p=c1 T1')
+        expect(processed?.content).toBe('c4 i=4 p=c3 T3')
     })
 })
 

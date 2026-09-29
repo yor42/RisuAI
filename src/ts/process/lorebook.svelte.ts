@@ -14,6 +14,7 @@ import { CCardLib } from "@risuai/ccardlib";
 import { v4 } from "uuid";
 import type { OriginContext, RunSubject } from "./chatOrigin";
 import { markCharacterForSave } from "../storage/characterSaveMarks";
+import type { PromptView } from "../cbs";
 
 /**
  * A fixed stand-in for `RunSubject` that always resolves to `ctx`, captured
@@ -102,7 +103,13 @@ export function addLorebookFolder(type:number) {
     }
 }
 
-export async function loadLoreBookV3Prompt(subject?: RunSubject){
+/**
+ * With a `promptView`, the send is running the scan: keywords and scan depth
+ * count only the messages the prompt sends, and an entry's token budget is
+ * measured on its text parsed as part of the prompt. The decorators that count
+ * turns keep counting the whole chat.
+ */
+export async function loadLoreBookV3Prompt(subject?: RunSubject, promptView?: PromptView){
     // Resolved once, here, for the whole call -- every read below, the flag
     // writes further down, and this call's own CBS parses all share this one
     // snapshot, never a fresh resolution after one of this loop's own
@@ -130,6 +137,14 @@ export async function loadLoreBookV3Prompt(subject?: RunSubject){
     const moduleLorebook = getModuleLorebooks(subject)
     const fullLore = safeStructuredClone(characterLore.concat(chatLore).concat(moduleLorebook))
     const currentChat = chat?.message ?? []
+    let scannedMessages: Message[] | undefined
+    const messagesToScan = (): Message[] => {
+        if(!promptView){
+            return currentChat
+        }
+        scannedMessages ??= currentChat.filter((message) => !promptView.hidden(message))
+        return scannedMessages
+    }
     const loreDepth = char?.loreSettings?.scanDepth ?? DBState.db.loreBookDepth
     const loreToken = char?.loreSettings?.tokenBudget ?? DBState.db.loreBookToken
     const fullWordMatchingSetting = char?.loreSettings?.fullWordMatching ?? false
@@ -581,7 +596,7 @@ export async function loadLoreBookV3Prompt(subject?: RunSubject){
                 }
     
                 for(const query of searchQueries){
-                    const result = searchMatch(currentChat, {
+                    const result = searchMatch(messagesToScan(), {
                         keys: query.keys,
                         searchDepth: scanDepth,
                         regex: fullLore[i].useRegex,
@@ -622,7 +637,7 @@ export async function loadLoreBookV3Prompt(subject?: RunSubject){
                     // so cutoff reflects what actually reaches the context, not the unevaluated source.
                     // runVar is left false (matching the output path in index.svelte.ts), so this
                     // evaluation has no side effects like setvar.
-                    tokens: await tokenize(risuChatParser(content, {chara: char, subject: flagSubject})),
+                    tokens: await tokenize(risuChatParser(content, promptView ? {chara: char, subject: flagSubject, promptView} : {chara: char, subject: flagSubject})),
                     priority: priority,
                     source: fullLore[i].comment || `lorebook ${i}`,
                     inject: inject ?? null

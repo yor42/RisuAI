@@ -1,12 +1,14 @@
 import { risuChatParser } from './parser.svelte'
 import type { RunSubject } from '../process/chatOrigin'
+import type { PromptView } from '../cbs'
 
 /**
  * Splits ChatML text into messages and parses each message's content. With a
  * `subject` the content is parsed as the chat that subject stands for; without
- * one, as the selected chat.
+ * one, as the selected chat. With a `promptView` every content is parsed as
+ * part of the prompt.
  */
-export function parseChatML(data: string, subject?: RunSubject): OpenAIChat[] | null {
+export function parseChatML(data: string, subject?: RunSubject, promptView?: PromptView): OpenAIChat[] | null {
   const starter = '<|im_start|>'
   const seperator = '<|im_sep|>'
   const ender = '<|im_end|>'
@@ -58,7 +60,7 @@ export function parseChatML(data: string, subject?: RunSubject): OpenAIChat[] | 
 
       return {
         role: role,
-        content: risuChatParser(v, { subject }),
+        content: risuChatParser(v, promptView ? { subject, promptView } : { subject }),
         thoughts: thoughts,
       }
     })

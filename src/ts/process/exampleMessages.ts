@@ -1,10 +1,14 @@
 import type { OpenAIChat } from "./index.svelte";
 import type { character } from "../storage/database.svelte";
 import type { RunSubject } from "./chatOrigin";
+import type { PromptView } from "../cbs";
 import { risuChatParser } from "./scripts";
 
-/** Parses the character's example dialogue as the chat `subject` stands for; with no subject, as the selected chat. */
-export function exampleMessage(char:character, subject?:RunSubject):OpenAIChat[]{
+/**
+ * Parses the character's example dialogue as the chat `subject` stands for; with no subject, as the selected chat.
+ * With a `promptView` every line is parsed as part of the prompt.
+ */
+export function exampleMessage(char:character, subject?:RunSubject, promptView?:PromptView):OpenAIChat[]{
     if(char.exampleMessage === ''){
         return []
     }
@@ -60,7 +64,7 @@ export function exampleMessage(char:character, subject?:RunSubject):OpenAIChat[]
     result = result.map((r) => {
         return {
             role: r.role,
-            content: risuChatParser(r.content, {chara: char, subject}),
+            content: risuChatParser(r.content, promptView ? {chara: char, subject, promptView} : {chara: char, subject}),
             name: r.name,
             memo: r.memo
         }

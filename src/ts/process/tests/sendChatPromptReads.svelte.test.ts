@@ -27,6 +27,17 @@
  *
  * Tests whose title starts with `guard:` pass with or without the binding:
  * they pin behaviour that must be preserved.
+ *
+ * The sections from "the prompt view: fixtures" on pin what the prompt reads
+ * inside that chat: the index tags of the per-message pass, the walk-backs and
+ * history tags, the lorebook scan, the additional-information query and the
+ * script cache. A message that is disabled, or at or before an `allBefore`
+ * reset, is not sent to the model, and the prompt's walk-backs, history tags
+ * and scans skip it; the tags that count messages (`{{lastmessageid}}`) and
+ * the turn-count decorators still count the whole chat, as the guards below
+ * pin. The start-trigger cases are in
+ * `sendChatPromptViewTriggers.svelte.test.ts`, which runs the real trigger
+ * engine.
  */
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
@@ -538,12 +549,12 @@ function textOf(entries: PromptEntry[]): string {
 }
 
 /** Answers every request kind; `model` replies `reply`, `memory` replies `SUMMARY`, `emotion` replies `EMO`. */
-function installRequestMock(): void {
+function installRequestMock(reply = 'reply'): void {
     h.request.mockReset()
     h.request.mockImplementation(async (_body: RequestBody, mode: string) => {
         if (mode === 'memory') return { type: 'success', result: 'SUMMARY' }
         if (mode === 'emotion') return { type: 'success', result: 'EMO' }
-        return { type: 'success', result: 'reply' }
+        return { type: 'success', result: reply }
     })
 }
 
@@ -569,9 +580,9 @@ function capture(outcome: boolean | Error, chat: Chat): Captured {
  * One whole send from `owner`'s `chat`, with the selection at `selection`
  * from its first line (`-1` is Home), and what it asked the provider for.
  */
-async function sendWith(owner: Owner, chat: Chat, selection: number, arg: SendChatArg = {}): Promise<Captured> {
+async function sendWith(owner: Owner, chat: Chat, selection: number, arg: SendChatArg = {}, reply = 'reply'): Promise<Captured> {
     selectedCharID.set(selection)
-    installRequestMock()
+    installRequestMock(reply)
     h.queries.length = 0
     const send = startSend(owner, chat, arg)
     const outcome = await send.outcome
@@ -1782,15 +1793,18 @@ const PARSE_RUNS: ParseRun[] = [
     },
 ]
 
-/** `via|text|keys` of a call, without `subject` among the keys. */
+/** Options the recorded signatures leave out: the send's subject, and the prompt-view marker, whose presence the completeness tests pin. */
+const UNRECORDED_KEYS = ['subject', 'promptView']
+
+/** `via|text|keys` of a call, without the unrecorded keys. */
 function signatureWithoutSubject(call: ParserCall): string {
-    return `${call.via}|${call.text}|${call.keys.filter((k) => k !== 'subject').join(',')}`
+    return `${call.via}|${call.text}|${call.keys.filter((k) => !UNRECORDED_KEYS.includes(k)).join(',')}`
 }
 
-/** A recorded `via|text|keys` signature without `subject` among the keys; the text may contain `|`, the keys never do. */
+/** A recorded `via|text|keys` signature without the unrecorded keys; the text may contain `|`, the keys never do. */
 function withoutSubject(signature: string): string {
     const cut = signature.lastIndexOf('|')
-    const keys = signature.slice(cut + 1).split(',').filter((k) => k !== '' && k !== 'subject')
+    const keys = signature.slice(cut + 1).split(',').filter((k) => k !== '' && !UNRECORDED_KEYS.includes(k))
     return `${signature.slice(0, cut)}|${keys.join(',')}`
 }
 
@@ -1804,11 +1818,961 @@ for (const { name, recorded, origin, run } of PARSE_RUNS) {
             expect(offenders).toEqual([])
         })
 
-        test('guard: the calls and their options other than subject are the recorded ones', async () => {
+        test('guard: the calls and their options other than subject and promptView are the recorded ones', async () => {
             const calls = await recordParses(run)
             expect(calls.map(signatureWithoutSubject).sort()).toEqual(recorded.map(withoutSubject).sort())
         })
     })
 }
+
+//#endregion
+
+//#region the prompt view: fixtures
+
+/**
+ * While the prompt is built, a message is hidden when it is disabled or sits
+ * at or before an `allBefore` reset; the first message is sent only in a chat
+ * that is not a group and has no reset. The tests below put a hidden message
+ * where a walk that reads it would find it.
+ */
+
+const editprocess = (inp: string, out: string, extra: Record<string, unknown> = {}): Record<string, unknown> => (
+    { comment: `${inp}->${out}`, in: inp, out, type: 'editprocess', ableFlag: false, ...extra }
+)
+
+/** The text between the first `open` and the next `close`, or `null`. */
+function between(text: string, open: string, close: string): string | null {
+    const from = text.indexOf(open)
+    if (from < 0) return null
+    const to = text.indexOf(close, from + open.length)
+    return to < 0 ? null : text.slice(from + open.length, to)
+}
+
+/** The prompt entry that starts with `prefix`, or `undefined`. */
+function entryStarting(r: Captured, prefix: string): string | undefined {
+    return r.prompt.find((e) => e.content.startsWith(prefix))?.content
+}
+
+interface ViewOptions {
+    scripts?: Array<Record<string, unknown>>
+    charA?: Record<string, unknown>
+    chatA?: Record<string, unknown>
+    db?: Record<string, unknown>
+}
+
+/**
+ * Alice with `messages` as her chat, the first message `FIRSTMSG` and the
+ * alternate greeting `GREETING-1`; the character as the database now holds it.
+ */
+function viewWorld(messages: Message[], o: ViewOptions = {}): character {
+    world({
+        messagesA: messages, chatA: o.chatA, db: o.db,
+        charA: { firstMessage: 'FIRSTMSG', alternateGreetings: ['GREETING-1'], customscript: o.scripts ?? [], ...o.charA },
+    })
+    return DBState.db.characters[0] as character
+}
+
+/** A group of Mia and Max whose chat is `messages`, first message `GFIRST`; the group as the database now holds it. */
+function viewGroup(messages: Message[], extra: Record<string, unknown> = {}, db: Record<string, unknown> = {}): groupChat {
+    const M1 = makeChar('m1', 'Mia', [makeChat('mc1', [msg('user', 'x')])])
+    const M2 = makeChar('m2', 'Max', [makeChat('mc2', [msg('user', 'y')])])
+    const G = makeGroup('grp', ['m1', 'm2'], [makeChat('gc1', messages)], { firstMessage: 'GFIRST', ...extra })
+    installDb([G, M1, M2], db)
+    return DBState.db.characters[0] as groupChat
+}
+
+function sendView(A: Owner, reply = 'reply'): Promise<Captured> {
+    return sendWith(A, A.chats[0], 0, {}, reply)
+}
+
+/**
+ * An `editprocess` call as a plugin or the HypaV3 modal makes it: it carries
+ * no subject, so the selected chat (Alice's) is the chat it reads.
+ */
+async function callEditprocess(A: character, text: string, index: number, conditions: object): Promise<string> {
+    selectedCharID.set(0)
+    const { processScriptFull } = await import('../scripts')
+    return (await processScriptFull(A, text, 'editprocess', index, conditions)).data
+}
+
+const when = (day: number, hour: number): number => Date.UTC(2021, 0, day, hour)
+const timeText = (t: number): string => new Date(t).toLocaleTimeString()
+const dateText = (t: number): string => new Date(t).toLocaleDateString()
+const RESET = 'RESET-MARK'
+
+//#endregion
+
+//#region 1: the index, time and date tags of the per-message pass
+
+describe('the index tags of the per-message pass describe the message being processed', () => {
+    const script = editprocess('^hi$', 'hi i={{chat_index}} t={{messagetime}} d={{messagedate}}')
+    const printed = (index: number, time: number) => `hi i=${index} t=${timeText(time)} d=${dateText(time)}`
+
+    test('{{chat_index}}, {{messagetime}} and {{messagedate}} print the chat index and time of the message when a disabled message precedes it', async () => {
+        const A = viewWorld([
+            msg('char', 'zero', { time: when(1, 1) }),
+            msg('user', 'gone', { time: when(2, 2), disabled: true }),
+            msg('user', 'hi', { time: when(3, 3) }),
+        ], { scripts: [script] })
+        const r = await sendView(A)
+        expect(entryStarting(r, 'hi i=')).toBe(printed(2, when(3, 3)))
+    })
+
+    test('{{chat_index}}, {{messagetime}} and {{messagedate}} print the chat index and time of the message when an allBefore reset precedes it', async () => {
+        const A = viewWorld([
+            msg('char', 'pre', { time: when(1, 1) }),
+            msg('user', RESET, { time: when(2, 2), disabled: 'allBefore' }),
+            msg('user', 'mid', { time: when(3, 3) }),
+            msg('user', 'hi', { time: when(4, 4) }),
+        ], { scripts: [script] })
+        const r = await sendView(A)
+        expect(entryStarting(r, 'hi i=')).toBe(printed(3, when(4, 4)))
+    })
+
+    test('guard: with no hidden message the tags print the message\'s own index and time', async () => {
+        const A = viewWorld([
+            msg('char', 'zero', { time: when(1, 1) }),
+            msg('user', 'hi', { time: when(2, 2) }),
+        ], { scripts: [script] })
+        const r = await sendView(A)
+        expect(entryStarting(r, 'hi i=')).toBe(printed(1, when(2, 2)))
+    })
+})
+
+//#endregion
+
+//#region 2: {{previouscharchat}} and {{previoususerchat}} in the per-message pass
+
+describe('the walk-back tags of the per-message pass consider only sent messages', () => {
+    const prevChar = editprocess('^hi$', 'hi (p={{previouscharchat}})')
+    const prevUser = editprocess('^hi$', 'hi (p={{previoususerchat}})')
+    const found = (r: Captured): string | null => /hi \(p=([^)]*)\)/.exec(r.promptText)?.[1] ?? null
+
+    test('{{previouscharchat}} skips a disabled char message', async () => {
+        const A = viewWorld([msg('char', 'C0-VIS'), msg('char', 'C1-HID', { disabled: true }), msg('user', 'Q'), msg('char', 'hi')], { scripts: [prevChar] })
+        expect(found(await sendView(A))).toBe('C0-VIS')
+    })
+
+    test('{{previoususerchat}} skips a disabled user message', async () => {
+        const A = viewWorld([msg('user', 'U0-VIS'), msg('user', 'U1-HID', { disabled: true }), msg('char', 'A'), msg('user', 'hi')], { scripts: [prevUser] })
+        expect(found(await sendView(A))).toBe('U0-VIS')
+    })
+
+    test('{{previouscharchat}} does not cross an allBefore reset, and returns nothing after it when the first message is not sent', async () => {
+        const A = viewWorld([msg('char', 'PRE-C'), msg('user', RESET, { disabled: 'allBefore' }), msg('user', 'Q'), msg('char', 'hi')], { scripts: [prevChar] })
+        expect(found(await sendView(A))).toBe('')
+    })
+
+    test('{{previoususerchat}} does not cross an allBefore reset, and returns nothing after it when the first message is not sent', async () => {
+        const A = viewWorld([msg('user', 'PRE-U'), msg('char', RESET, { disabled: 'allBefore' }), msg('char', 'A'), msg('user', 'hi')], { scripts: [prevUser] })
+        expect(found(await sendView(A))).toBe('')
+    })
+
+    test('{{previouscharchat}} returns nothing right after a reset, where the first message is not sent', async () => {
+        const A = viewWorld([msg('user', RESET, { disabled: 'allBefore' }), msg('char', 'hi')], { scripts: [prevChar] })
+        expect(found(await sendView(A))).toBe('')
+    })
+
+    test('{{previoususerchat}} returns nothing right after a reset, where the first message is not sent', async () => {
+        const A = viewWorld([msg('char', RESET, { disabled: 'allBefore' }), msg('user', 'hi')], { scripts: [prevUser] })
+        expect(found(await sendView(A))).toBe('')
+    })
+
+    test('{{previouscharchat}} returns nothing in a group chat, where the first message is not sent', async () => {
+        const G = viewGroup([msg('user', 'Q'), msg('char', 'hi')], { customscript: [prevChar] })
+        expect(found(await sendView(G))).toBe('')
+    })
+
+    test('{{previoususerchat}} returns nothing in a group chat, where the first message is not sent', async () => {
+        const G = viewGroup([msg('char', 'A'), msg('user', 'hi')], { customscript: [prevUser] })
+        expect(found(await sendView(G))).toBe('')
+    })
+
+    test('{{previouscharchat}} in a field with no message index walks from the end over sent messages only', async () => {
+        const A = viewWorld([msg('char', 'C0-VIS'), msg('char', 'C1-HID', { disabled: true }), msg('user', 'Q')], { charA: { desc: 'DESC<<{{previouscharchat}}>>' } })
+        const r = await sendView(A)
+        expect(between(r.promptText, 'DESC<<', '>>')).toBe('C0-VIS')
+    })
+
+    test('guard: {{previoususerchat}} in a field with no message index returns nothing', async () => {
+        const A = viewWorld([msg('user', 'U0-VIS'), msg('char', 'A')], { charA: { desc: 'DESC<<{{previoususerchat}}>>' } })
+        const r = await sendView(A)
+        expect(between(r.promptText, 'DESC<<', '>>')).toBe('')
+    })
+
+    test('guard: {{previouscharchat}} falls back to the first message when the first message is sent and no earlier char message exists', async () => {
+        const A = viewWorld([msg('user', 'Q'), msg('char', 'hi')], { scripts: [prevChar] })
+        expect(found(await sendView(A))).toBe('FIRSTMSG')
+    })
+
+    test('guard: {{previoususerchat}} falls back to the first message when the first message is sent and no earlier user message exists', async () => {
+        const A = viewWorld([msg('char', 'A'), msg('user', 'hi')], { scripts: [prevUser] })
+        expect(found(await sendView(A))).toBe('FIRSTMSG')
+    })
+
+    test('guard: the fallback is the chosen alternate greeting when the chat uses one', async () => {
+        const A = viewWorld([msg('user', 'Q'), msg('char', 'hi')], { scripts: [prevChar], chatA: { fmIndex: 0 } })
+        expect(found(await sendView(A))).toBe('GREETING-1')
+    })
+
+    test('guard: {{previouscharchat}} returns the nearest earlier char message when none is hidden', async () => {
+        const A = viewWorld([msg('char', 'C0-VIS'), msg('user', 'Q'), msg('char', 'hi')], { scripts: [prevChar] })
+        expect(found(await sendView(A))).toBe('C0-VIS')
+    })
+})
+
+//#endregion
+
+//#region 3: {{messageidleduration}} in the per-message pass
+
+describe('{{messageidleduration}} of the per-message pass considers only sent messages', () => {
+    test('it measures from the message itself to the nearest earlier sent user message, skipping a disabled user message between them', async () => {
+        const A = viewWorld([
+            msg('user', 'U0', { time: 1_000_000 }),
+            msg('user', 'U1-HID', { time: 1_500_000, disabled: true }),
+            msg('char', 'A'),
+            msg('user', 'hi', { time: 4_600_000 }),
+        ], { scripts: [editprocess('^hi$', 'hi idle={{messageidleduration}}')] })
+        const r = await sendView(A)
+        expect(entryStarting(r, 'hi idle=')).toBe('hi idle=1:00:00')
+    })
+})
+
+//#endregion
+
+//#region 4: @@repeat_back and the <repeat_back> flag
+
+describe('@@repeat_back and the <repeat_back> flag consider only sent messages', () => {
+    const forms: Array<[string, Record<string, unknown>]> = [
+        ['@@repeat_back', editprocess('TAG\\w+', '@@repeat_back end')],
+        ['<repeat_back>', editprocess('TAG\\w+', 'plain', { ableFlag: true, flag: 'g<repeat_back>' })],
+    ]
+
+    for (const [form, script] of forms) {
+        test(`${form} skips a disabled same-role message`, async () => {
+            const A = viewWorld([msg('char', 'c0 TAGold'), msg('char', 'c1 TAGhid', { disabled: true }), msg('user', 'q'), msg('char', 'c3')], { scripts: [script] })
+            const r = await sendView(A)
+            expect(entryStarting(r, 'c3')).toBe('c3TAGold')
+        })
+
+        test(`${form} adds nothing after a reset, whether an earlier same-role message or the greeting would match`, async () => {
+            resetScriptCache()
+            const withEarlier = viewWorld([msg('char', 'c0 TAGpre'), msg('user', RESET, { disabled: 'allBefore' }), msg('char', 'c2')], { scripts: [script], charA: { firstMessage: 'GREET TAGgreet' } })
+            expect(entryStarting(await sendView(withEarlier), 'c2')).toBe('c2')
+
+            resetScriptCache()
+            const greetingOnly = viewWorld([msg('user', RESET, { disabled: 'allBefore' }), msg('char', 'c1')], { scripts: [script], charA: { firstMessage: 'GREET TAGgreet' } })
+            expect(entryStarting(await sendView(greetingOnly), 'c1')).toBe('c1')
+        })
+
+        test(`guard: ${form} reads an earlier sent same-role message`, async () => {
+            const A = viewWorld([msg('char', 'c0 TAGold'), msg('user', 'q'), msg('char', 'c2')], { scripts: [script] })
+            const r = await sendView(A)
+            expect(entryStarting(r, 'c2')).toBe('c2TAGold')
+        })
+
+        test(`guard: ${form} reads the first message when it is sent and no earlier same-role message exists`, async () => {
+            const A = viewWorld([msg('user', 'q'), msg('char', 'c1')], { scripts: [script], charA: { firstMessage: 'GREET TAGgreet' } })
+            const r = await sendView(A)
+            expect(entryStarting(r, 'c1')).toBe('c1TAGgreet')
+        })
+    }
+})
+
+//#endregion
+
+//#region 5: a message's own text and the group wrapper
+
+describe('a message\'s own text and the group wrapper expand {{chat_index}} to the message\'s chat index', () => {
+    const idxVar = { scriptstate: { $who: 'VAR-A', $idx: '{{chat_index}}' } }
+
+    test('the own text of a message after a disabled message expands {{chat_index}} to its chat index', async () => {
+        const A = viewWorld([msg('char', 'a'), msg('user', 'gone', { disabled: true }), msg('char', 'OWN[{{getvar::idx}}]')], { chatA: idxVar })
+        const r = await sendView(A)
+        expect(marker(r.promptText, 'OWN')).toBe('OWN[2]')
+    })
+
+    test('the own text of a message after an allBefore reset expands {{chat_index}} to its chat index', async () => {
+        const A = viewWorld([msg('char', 'pre'), msg('user', RESET, { disabled: 'allBefore' }), msg('char', 'OWN[{{getvar::idx}}]')], { chatA: idxVar })
+        const r = await sendView(A)
+        expect(marker(r.promptText, 'OWN')).toBe('OWN[2]')
+    })
+
+    test('the group wrapper of a message expands {{chat_index}} to the wrapped message\'s chat index', async () => {
+        const G = viewGroup(
+            [msg('user', 'gu0'), msg('user', 'gone', { disabled: true }), msg('char', 'from-max', { saying: 'm2' })],
+            {}, { groupTemplate: 'GRP[{{chat_index}}]\n{{slot}}' },
+        )
+        const r = await sendView(G)
+        expect(wrapperOf(r.promptText, 'from-max')).toBe('GRP[2]')
+    })
+
+    test('guard: the first message keeps index -1', async () => {
+        const A = viewWorld([msg('user', 'q')], { charA: { firstMessage: 'FIRSTIDX[{{chat_index}}]' } })
+        const r = await sendView(A)
+        expect(marker(r.promptText, 'FIRSTIDX')).toBe('FIRSTIDX[-1]')
+    })
+})
+
+//#endregion
+
+//#region 6: the expansion when a send starts
+
+describe('the expansion of a message\'s own tags when a send starts', () => {
+    test('a stored message holding {{chat_index}} and {{previouscharchat}} is saved with its own index and the nearest earlier sent char message', async () => {
+        const A = viewWorld([
+            msg('char', 'C0'), msg('char', 'C1-HID', { disabled: true }), msg('user', 'Q'),
+            msg('user', 'IDX={{chat_index}} PREV={{previouscharchat}}'),
+        ])
+        const r = await sendView(A)
+        expect(A.chats[0].message[3].data).toBe('IDX=3 PREV=C0')
+        expect(r.promptText).toContain('IDX=3 PREV=C0')
+    })
+
+    test('guard: a disabled message is still expanded and its {{setvar}} still runs', async () => {
+        const A = viewWorld([msg('user', 'HID {{char}} {{setvar::seen::yes}}', { disabled: true }), msg('user', 'q')])
+        await sendView(A)
+        expect(A.chats[0].message[0].data).toBe('HID Alice ')
+        expect(A.chats[0].scriptstate.$seen).toBe('yes')
+    })
+
+    test('a disabled message\'s own {{messageidleduration}} skips itself', async () => {
+        const A = viewWorld([
+            msg('user', 'U0', { time: 1_000_000 }), msg('user', 'U1', { time: 1_600_000 }),
+            msg('user', 'D {{messageidleduration}}', { time: 4_600_000, disabled: true }),
+        ])
+        await sendView(A)
+        expect(A.chats[0].message[2].data).toBe('D 0:10:00')
+    })
+
+    test('after a non-streamed first reply, the reply\'s {{messagetime}}, {{messagedate}} and {{role}} are stored with its real time and role', async () => {
+        const A = viewWorld([msg('char', 'c0'), msg('user', 'u1')])
+        await sendView(A, 'R t={{messagetime}} r={{role}} d={{messagedate}}')
+        const reply = A.chats[0].message.at(-1)!
+        expect(reply.role).toBe('char')
+        expect(reply.data).toBe(`R t=${timeText(reply.time!)} r=char d=${dateText(reply.time!)}`)
+    })
+})
+
+//#endregion
+
+//#region 7: the history tags
+
+describe('the history tags return only sent messages while the prompt is built', () => {
+    const BRANCH = 'BRANCH-COMMENT'
+    /** A branched chat ends with a disabled "branched from" comment. */
+    const branched = (): Message[] => [msg('user', 'Q0'), msg('char', 'A1'), msg('char', BRANCH, { disabled: true })]
+
+    /** A template with the tag in a plain card, a description card and a chatML item. */
+    function templateWith(tag: string): Record<string, unknown> {
+        return templateDb({
+            promptTemplate: [
+                { type: 'plain', text: `TPL<<${tag}>>`, role: 'system', type2: 'main' },
+                { type: 'description', innerFormat: `DC<<${tag}>> {{slot}}` },
+                { type: 'chatML', text: `<|im_start|>system\nCM<<${tag}>><|im_end|>` },
+                { type: 'chat', rangeStart: 0, rangeEnd: 'end' },
+            ],
+        })
+    }
+
+    test('{{lastmessage}} in the description skips the trailing disabled comment of a branched chat', async () => {
+        const A = viewWorld(branched(), { charA: { desc: 'DESC<<{{lastmessage}}>>' } })
+        const r = await sendView(A)
+        expect(between(r.promptText, 'DESC<<', '>>')).toBe('A1')
+    })
+
+    test('{{lastmessage}} in a template card, a description card and a chatML item skips the trailing disabled comment of a branched chat', async () => {
+        const A = viewWorld(branched(), { db: templateWith('{{lastmessage}}') })
+        const r = await sendView(A)
+        expect(between(r.promptText, 'TPL<<', '>>'), 'plain card').toBe('A1')
+        expect(between(r.promptText, 'DC<<', '>>'), 'description card').toBe('A1')
+        expect(between(r.promptText, 'CM<<', '>>'), 'chatML item').toBe('A1')
+    })
+
+    describe('a chat with a reset, disabled messages and a first message that is not sent', () => {
+        const chatWithReset = (): Message[] => [
+            msg('char', 'PRE-HIST'), msg('user', RESET, { disabled: 'allBefore' }),
+            msg('user', 'Q2'), msg('char', 'A3'),
+            msg('user', 'HID-USER', { disabled: true }), msg('char', 'HID-CHAR', { disabled: true }),
+            msg('user', 'Q6'),
+        ]
+        const tags: Array<[string, string]> = [
+            ['{{history}}', '{{history}}'],
+            ['{{history::role}}', '{{history::role}}'],
+            ['{{userhistory}}', '{{userhistory}}'],
+            ['{{charhistory}}', '{{charhistory}}'],
+        ]
+
+        for (const [title, tag] of tags) {
+            test(`${title} holds no hidden message and not the unsent first message`, async () => {
+                const A = viewWorld(chatWithReset(), { charA: { desc: `DESC<<${tag}>>` } })
+                const r = await sendView(A)
+                const text = between(r.promptText, 'DESC<<', '>>') ?? ''
+                expect(text, 'the tag expanded').not.toBe('')
+                for (const hidden of ['PRE-HIST', RESET, 'HID-USER', 'HID-CHAR', 'FIRSTMSG']) {
+                    expect(text, hidden).not.toContain(hidden)
+                }
+            })
+        }
+
+        test('{{history}} in a template card, a description card and a chatML item holds no hidden message and not the unsent first message', async () => {
+            const A = viewWorld(chatWithReset(), { db: templateWith('{{history}}') })
+            const r = await sendView(A)
+            for (const [label, open] of [['plain card', 'TPL<<'], ['description card', 'DC<<'], ['chatML item', 'CM<<']]) {
+                const text = between(r.promptText, open, '>>') ?? ''
+                expect(text, `${label}: the tag expanded`).not.toBe('')
+                for (const hidden of ['PRE-HIST', RESET, 'HID-USER', 'HID-CHAR', 'FIRSTMSG']) {
+                    expect(text, `${label}: ${hidden}`).not.toContain(hidden)
+                }
+            }
+        })
+
+        test('guard: {{history}} keeps the sent messages', async () => {
+            const A = viewWorld(chatWithReset(), { charA: { desc: 'DESC<<{{history}}>>' } })
+            const r = await sendView(A)
+            const text = between(r.promptText, 'DESC<<', '>>') ?? ''
+            for (const sent of ['Q2', 'A3', 'Q6']) {
+                expect(text, sent).toContain(sent)
+            }
+        })
+
+        test('{{history}} holds no group first message where the first message is not sent', async () => {
+            const G = viewGroup([msg('user', 'gq0'), msg('char', 'ga1')], {}, { mainPrompt: 'MAINH<<{{history}}>>' })
+            const r = await sendView(G)
+            const text = between(r.promptText, 'MAINH<<', '>>') ?? ''
+            expect(text, 'the tag expanded').toContain('gq0')
+            expect(text).not.toContain('GFIRST')
+        })
+    })
+
+    test('guard: {{history}} starts with the first message when it is sent', async () => {
+        const A = viewWorld([msg('user', 'Q0'), msg('char', 'A1')], { charA: { desc: 'DESC<<{{history}}>>' } })
+        const r = await sendView(A)
+        const text = between(r.promptText, 'DESC<<', '>>') ?? ''
+        expect(text).toContain('FIRSTMSG')
+        expect(text).toContain('A1')
+    })
+
+    test('{{previouschatlog::n}} returns nothing for a hidden index', async () => {
+        const A = viewWorld([msg('char', 'VIS-0'), msg('user', 'HID-1', { disabled: true }), msg('user', 'VIS-2')], { charA: { desc: 'DESC<<{{previouschatlog::1}}>>' } })
+        const r = await sendView(A)
+        expect(between(r.promptText, 'DESC<<', '>>')).toBe('')
+    })
+
+    test('guard: {{previouschatlog::n}} returns a sent message', async () => {
+        const A = viewWorld([msg('char', 'VIS-0'), msg('user', 'HID-1', { disabled: true }), msg('user', 'VIS-2')], { charA: { desc: 'DESC<<{{previouschatlog::0}}>>' } })
+        const r = await sendView(A)
+        expect(between(r.promptText, 'DESC<<', '>>')).toBe('VIS-0')
+    })
+
+    test('guard: {{lastmessageid}} counts every message, hidden ones included', async () => {
+        const A = viewWorld(branched(), { charA: { desc: 'DESC<<{{lastmessageid}}>>' } })
+        const r = await sendView(A)
+        expect(between(r.promptText, 'DESC<<', '>>')).toBe('2')
+    })
+})
+
+//#endregion
+
+//#region 8: the lorebook scan
+
+describe('the lorebook scan of a send considers only sent messages', () => {
+    const keyed = (comment: string, key: string, content: string): Record<string, unknown> => (
+        { comment, content, mode: 'normal', insertorder: 100, alwaysActive: false, key, secondkey: '', selective: false }
+    )
+
+    test('a keyword found only in a disabled message within the scan depth activates nothing', async () => {
+        const A = viewWorld(
+            [msg('user', 'q0'), msg('user', 'a zebra passes', { disabled: true }), msg('char', 'ok'), msg('user', 'hello')],
+            { charA: { globalLore: [keyed('zebra', 'zebra', 'LORE-ZEBRA')] } },
+        )
+        const r = await sendView(A)
+        expect(r.promptText).not.toContain('LORE-ZEBRA')
+    })
+
+    test('a keyword found only before an allBefore reset activates nothing', async () => {
+        const A = viewWorld(
+            [msg('user', 'zebra before the reset'), msg('user', RESET, { disabled: 'allBefore' }), msg('char', 'ok'), msg('user', 'hello')],
+            { charA: { globalLore: [keyed('zebra', 'zebra', 'LORE-ZEBRA')] } },
+        )
+        const r = await sendView(A)
+        expect(r.promptText).not.toContain('LORE-ZEBRA')
+    })
+
+    test('a keyword whose message is within the scan depth only when hidden messages are not counted activates the entry', async () => {
+        const A = viewWorld(
+            [msg('user', 'the zebra'), msg('char', 'filler1'), msg('user', 'hidden filler', { disabled: true }), msg('char', 'filler3')],
+            { charA: { globalLore: [keyed('zebra', 'zebra', 'LORE-ZEBRA')] }, db: { loreBookDepth: 3 } },
+        )
+        const r = await sendView(A)
+        expect(r.promptText).toContain('LORE-ZEBRA')
+    })
+
+    test('the token budget of an entry is measured on its text expanded over the sent messages only', async () => {
+        const A = viewWorld(
+            [msg('user', 'Q0'), msg('char', 'A1'), msg('char', 'BRANCH-COMMENT-OF-SOME-LENGTH', { disabled: true })],
+            { charA: { globalLore: [lore('budget', 'X{{lastmessage}}')] }, db: { loreBookToken: 10 } },
+        )
+        const r = await sendView(A)
+        expect(r.promptText).toContain('XA1')
+    })
+
+    test('guard: a keyword in a sent message within the scan depth activates the entry', async () => {
+        const A = viewWorld(
+            [msg('user', 'q0'), msg('user', 'a zebra passes'), msg('user', 'gone', { disabled: true }), msg('user', 'hello')],
+            { charA: { globalLore: [keyed('zebra', 'zebra', 'LORE-ZEBRA')] } },
+        )
+        const r = await sendView(A)
+        expect(r.promptText).toContain('LORE-ZEBRA')
+    })
+
+    test('guard: the decorators that count turns keep counting the whole chat', async () => {
+        const A = viewWorld(
+            [msg('user', 'a'), msg('user', 'b', { disabled: true }), msg('char', 'c')],
+            { charA: { globalLore: [lore('after', '@@activate_only_after 4\nLORE-AFTER'), lore('every', '@@activate_only_every 4\nLORE-EVERY')] } },
+        )
+        const r = await sendView(A)
+        expect(r.promptText).toContain('LORE-AFTER')
+        expect(r.promptText).toContain('LORE-EVERY')
+    })
+})
+
+//#endregion
+
+//#region 9: additional information
+
+describe('the additional-information query holds only sent messages', () => {
+    const info = { additionalText: 'INFO1\n\nINFO2' }
+
+    test('the query is built from the first four sent messages when a message is disabled', async () => {
+        const A = viewWorld([
+            msg('user', 'M0-TEXT'), msg('char', 'M1-HID', { disabled: true }), msg('user', 'M2-TEXT'),
+            msg('char', 'M3-TEXT'), msg('user', 'M4-TEXT'), msg('char', 'M5-TEXT'),
+        ], { charA: info })
+        const r = await sendView(A)
+        expect(r.queries[0]).not.toContain('M1-HID')
+        expect(r.queries[0]).toContain('M4-TEXT')
+        expect(r.queries[0]).not.toContain('M5-TEXT')
+    })
+
+    test('the query is built from the first four sent messages after an allBefore reset', async () => {
+        const A = viewWorld([
+            msg('char', 'PRE-TEXT'), msg('user', RESET, { disabled: 'allBefore' }), msg('user', 'M2-TEXT'),
+            msg('char', 'M3-TEXT'), msg('user', 'M4-TEXT'), msg('char', 'M5-TEXT'), msg('user', 'M6-TEXT'),
+        ], { charA: info })
+        const r = await sendView(A)
+        expect(r.queries[0]).not.toContain('PRE-TEXT')
+        expect(r.queries[0]).not.toContain(RESET)
+        expect(r.queries[0]).toContain('M5-TEXT')
+        expect(r.queries[0]).not.toContain('M6-TEXT')
+    })
+
+    test('guard: with no hidden message the query is built from the first four messages', async () => {
+        const A = viewWorld([
+            msg('user', 'M0-TEXT'), msg('char', 'M1-TEXT'), msg('user', 'M2-TEXT'),
+            msg('char', 'M3-TEXT'), msg('user', 'M4-TEXT'),
+        ], { charA: info })
+        const r = await sendView(A)
+        expect(r.queries[0]).toContain('M0-TEXT')
+        expect(r.queries[0]).toContain('M3-TEXT')
+        expect(r.queries[0]).not.toContain('M4-TEXT')
+    })
+})
+
+//#endregion
+
+//#region 10: the script cache
+
+describe('the script cache serves a prompt-pass result only when the key determines it', () => {
+    /** Sends twice from `A`'s chat, running `edit` after the first send; the script cache stays live between them. */
+    const twoSends = async (A: character, edit: () => void): Promise<[Captured, Captured]> => {
+        const first = await sendView(A)
+        edit()
+        const second = await sendView(A)
+        return [first, second]
+    }
+
+    test('a walk-back in the out sees an earlier message edited between two sends', async () => {
+        const A = viewWorld([msg('char', 'AAA'), msg('char', 'SECRET'), msg('user', 'hi')], {
+            scripts: [editprocess('^hi$', 'hi (after: {{previouscharchat}})')],
+        })
+        const [first, second] = await twoSends(A, () => { A.chats[0].message[1].data = 'NEWTEXT' })
+        expect(first.promptText).toContain('hi (after: SECRET)')
+        expect(second.promptText).toContain('hi (after: NEWTEXT)')
+    })
+
+    test('a <repeat_back> flag whose out is plain text sees an earlier message edited between two sends', async () => {
+        const A = viewWorld([msg('char', 'c0 TAGold'), msg('user', 'q'), msg('char', 'c2')], {
+            scripts: [editprocess('TAG\\w+', 'plain', { ableFlag: true, flag: 'g<repeat_back>' })],
+        })
+        const [first, second] = await twoSends(A, () => { A.chats[0].message[0].data = 'c0 TAGnew' })
+        expect(entryStarting(first, 'c2')).toBe('c2TAGold')
+        expect(entryStarting(second, 'c2')).toBe('c2TAGnew')
+    })
+
+    test('two characters with an identical preset list and identical text each get their own name from <char>', async () => {
+        const A = makeChar('char-A', 'Alice', [makeChat('chat-A', [msg('user', 'hi')])])
+        const B = makeChar('char-B', 'Bob', [makeChat('chat-B', [msg('user', 'hi')])])
+        installDb([A, B], { presetRegex: [editprocess('^hi$', 'hi to <char>')] })
+        const alice = DBState.db.characters[0] as character
+        const bob = DBState.db.characters[1] as character
+        const fromAlice = await sendWith(alice, alice.chats[0], 0)
+        const fromBob = await sendWith(bob, bob.chats[0], 1)
+        expect(fromAlice.promptText).toContain('hi to Alice')
+        expect(fromBob.promptText).toContain('hi to Bob')
+    })
+
+    test('a plugin-API editprocess call on the same text and index with another chatRole does not change what {{role}} prints in the prompt', async () => {
+        const A = viewWorld([msg('char', 'c0'), msg('char', 'c1'), msg('user', 'hi')], { scripts: [editprocess('^hi$', 'hi as {{role}}')] })
+        expect(await callEditprocess(A, 'hi', 2, { chatRole: 'char' })).toBe('hi as char')
+        const r = await sendView(A)
+        expect(entryStarting(r, 'hi as')).toBe('hi as user')
+    })
+
+    test('a plugin-API editprocess call that stored a result joined from message fragments does not put a disabled message into the prompt', async () => {
+        const A = viewWorld([msg('char', 'c0'), msg('user', 'hi {x{lastmessage}}'), msg('char', 'HIDDEN-TAIL', { disabled: true })], {
+            scripts: [editprocess('x(?=\\{last)', '')],
+        })
+        expect(await callEditprocess(A, 'hi {x{lastmessage}}', 1, { chatRole: 'user' }), 'the plugin call reads the whole chat').toBe('hi HIDDEN-TAIL')
+        const r = await sendView(A)
+        expect(r.promptText).not.toContain('HIDDEN-TAIL')
+    })
+
+    test('an @@repeat_back out sees an earlier message edited between two sends', async () => {
+        const A = viewWorld([msg('char', 'c0 TAGold'), msg('user', 'q'), msg('char', 'c2')], {
+            scripts: [editprocess('TAG\\w+', '@@repeat_back end')],
+        })
+        const [first, second] = await twoSends(A, () => { A.chats[0].message[0].data = 'c0 TAGnew' })
+        expect(entryStarting(first, 'c2')).toBe('c2TAGold')
+        expect(entryStarting(second, 'c2')).toBe('c2TAGnew')
+    })
+
+    test('an @@emo out sets the emotion again on a repeat send', async () => {
+        const { CharEmotion } = await import('../../stores.svelte')
+        const shown = (): number => get(CharEmotion)['char-A']?.length ?? 0
+        const A = viewWorld([msg('user', 'hi')], {
+            scripts: [editprocess('^hi$', '@@emo happy')],
+            charA: { emotionImages: [['happy', 'happy.png']] },
+        })
+        CharEmotion.set({})
+        await sendView(A)
+        expect(shown(), 'the first send set the emotion').toBe(1)
+        CharEmotion.set({})
+        await sendView(A)
+        expect(shown()).toBe(1)
+    })
+
+    test('a script with the <cbs> flag is run again, not served from the cache, on a repeat send', async () => {
+        const A = viewWorld([msg('user', 'hi')], { scripts: [editprocess('hi', 'yo', { ableFlag: true, flag: 'g<cbs>' })] })
+        const scripts = await import('../scripts')
+        await sendView(A, 'reply-1')
+        scripts.resetScriptPassCountersForTests()
+        await sendView(A, 'reply-2')
+        expect(scripts.scriptPassCountersForTests().cacheHits).toBe(0)
+    })
+
+    test('a script with the <inject> flag writes the message again on a repeat send', async () => {
+        const A = viewWorld([msg('user', 'INJ A')], {
+            scripts: [editprocess('A', 'B'), editprocess('INJ', 'plain', { ableFlag: true, flag: 'g<inject>' })],
+        })
+        await sendView(A)
+        expect(A.chats[0].message[0].data, 'the first send wrote the message').toBe('INJ B')
+        A.chats[0].message[0].data = 'INJ A'
+        await sendView(A)
+        expect(A.chats[0].message[0].data).toBe('INJ B')
+    })
+
+    test('two characters sharing a preset list each get their own name from a <char> that a replace joins in the message text', async () => {
+        const A = makeChar('char-A', 'Alice', [makeChat('chat-A', [msg('user', 'hi <chxar>')])])
+        const B = makeChar('char-B', 'Bob', [makeChat('chat-B', [msg('user', 'hi <chxar>')])])
+        installDb([A, B], { presetRegex: [editprocess('x', '')] })
+        const alice = DBState.db.characters[0] as character
+        const bob = DBState.db.characters[1] as character
+        const fromAlice = await sendWith(alice, alice.chats[0], 0)
+        const fromBob = await sendWith(bob, bob.chats[0], 1)
+        expect(fromAlice.promptText).toContain('hi Alice')
+        expect(fromBob.promptText).toContain('hi Bob')
+    })
+
+    const cacheable: Array<[string, Record<string, unknown>]> = [
+        ['an order and a move_bottom flag', editprocess('hi', 'yo', { ableFlag: true, flag: 'g<order 2, move_bottom>' })],
+        ['a @@move_bottom out', editprocess('hi', '@@move_bottom yo')],
+    ]
+
+    for (const [name, script] of cacheable) {
+        test(`guard: a list with ${name} is served from the cache on a repeat send`, async () => {
+            const A = viewWorld([msg('user', 'hi')], { scripts: [script] })
+            const scripts = await import('../scripts')
+            await sendView(A, 'reply-1')
+            scripts.resetScriptPassCountersForTests()
+            await sendView(A, 'reply-2')
+            expect(scripts.scriptPassCountersForTests().cacheHits).toBeGreaterThan(0)
+        })
+    }
+
+    test('guard: a plain-replace list is served from the cache on a repeat send', async () => {
+        const A = viewWorld([msg('user', 'hi')], { scripts: [editprocess('^hi$', 'hello')] })
+        const scripts = await import('../scripts')
+        const first = await sendView(A, 'reply-1')
+        scripts.resetScriptPassCountersForTests()
+        const second = await sendView(A, 'reply-2')
+        expect(entryStarting(first, 'hello')).toBe('hello')
+        expect(entryStarting(second, 'hello')).toBe('hello')
+        expect(scripts.scriptPassCountersForTests().cacheHits).toBeGreaterThan(0)
+    })
+})
+
+//#endregion
+
+//#region 11: what the prompt view leaves alone
+
+describe('guard: what the prompt view leaves alone', () => {
+    const prevChar = editprocess('^hi$', 'hi (p={{previouscharchat}})')
+
+    test('guard: a walk-back the model writes in the reply is expanded by the reply\'s own pass over the whole chat', async () => {
+        const A = viewWorld([msg('char', 'C0-VIS'), msg('user', 'q'), msg('char', 'HIDC', { disabled: true }), msg('user', 'q2')])
+        await sendView(A, 'R p=[{{previouscharchat}}]')
+        expect(A.chats[0].message.at(-1)!.data).toBe('R p=[HIDC]')
+    })
+
+    test('guard: a plugin-API editprocess call keeps walking over hidden messages', async () => {
+        const A = viewWorld([msg('char', 'C0-VIS'), msg('char', 'HIDC', { disabled: true }), msg('user', 'hi')], { scripts: [prevChar] })
+        expect(await callEditprocess(A, 'hi', 2, { chatRole: 'user' })).toBe('hi (p=HIDC)')
+    })
+
+    test('guard: a plugin-API call whose cbsConditions name promptView does not switch the prompt view on', async () => {
+        const A = viewWorld([msg('char', 'C0-VIS'), msg('char', 'HIDC', { disabled: true }), msg('user', 'hi')], { scripts: [prevChar] })
+        expect(await callEditprocess(A, 'hi', 2, { chatRole: 'user', promptView: true })).toBe('hi (p=HIDC)')
+    })
+})
+
+//#endregion
+
+//#region 12: every parse the send makes carries the prompt view, except the named side requests
+
+/**
+ * The parses that build the prompt carry the `promptView` option. The parses
+ * that do not, identified by the text they were seeded with: the image-prompt
+ * request (`igpPrompt`; where a fixture leaves it empty, the parse with no
+ * character option and no text) and the memory summarizer's chatML prompt.
+ * The parser spy does not record the parses made inside the script pass, the
+ * lorebook scan and the trigger engine, so the reply's own `editoutput` pass,
+ * the other trigger effects and Lua's `cbs()` are pinned by the behaviour tests
+ * above and in `sendChatPromptViewTriggers.svelte.test.ts`.
+ */
+function isSideRequest(call: ParserCall): boolean {
+    return call.text.startsWith('<|im_start|>system\\nIGP[')
+        || call.text.startsWith('IGP[')
+        || call.text.startsWith('SUMP[')
+        || (call.text === '' && !call.keys.includes('chara'))
+}
+
+describe('every top-level parse of a send carries promptView, except the side requests', () => {
+    for (const { name, run } of PARSE_RUNS) {
+        test(`the parses of a ${name} send carry promptView`, async () => {
+            const calls = await recordParses(run)
+            const offenders = calls
+                .filter((c) => !c.keys.includes('promptView') && !isSideRequest(c))
+                .map((c) => `${c.via}|${c.text}`)
+            expect(offenders).toEqual([])
+        })
+
+        test(`guard: the side requests of a ${name} send do not carry promptView`, async () => {
+            const calls = await recordParses(run)
+            const sideRequests = calls.filter(isSideRequest)
+            expect(sideRequests.filter((c) => c.keys.includes('promptView')).map((c) => `${c.via}|${c.text}`)).toEqual([])
+        })
+    }
+
+    /** The texts that stand for one field of the prompt: every copy of one is parsed for the prompt, whichever pass builds it. */
+    const FIELD_LABELS = ['MAIN[', 'JB[', 'GN[', 'NOTE[', 'DESC[', 'LORE[', 'LDESC[', 'LD0[', 'LD0A[', 'LD1[', 'DP[', 'DCARD[', 'ACARD[', 'PCARD[', 'MCARD[', 'TPLMAIN[', 'TPLPLAIN[', 'TPLGN[', 'TPLJB[', 'TPLCOT[', 'DEFNOTE[']
+
+    for (const { name, run } of PARSE_RUNS) {
+        test(`guard: the token-count copy and the build copy of a field in a ${name} send carry the same options`, async () => {
+            const calls = await recordParses(run)
+            const disagreeing: string[] = []
+            for (const label of FIELD_LABELS) {
+                const copies = calls.filter((c) => c.text.startsWith(label) && c.keys.includes('chara'))
+                const shapes = new Set(copies.map((c) => c.keys.join(',')))
+                if (shapes.size > 1) {
+                    disagreeing.push(`${label} ${[...shapes].join(' vs ')}`)
+                }
+            }
+            expect(disagreeing).toEqual([])
+        })
+    }
+})
+
+//#endregion
+
+//#region 13: the parses inside the per-message script pass
+
+type EditHook = (data: string) => Promise<string | null | undefined>
+
+/** Runs `body` with `hook` among the plugins' `editprocess` hooks, and removes it afterwards. */
+async function withEditprocessHook(hook: EditHook, body: () => Promise<void>): Promise<void> {
+    const plugins = (await import('../../plugins/plugins.svelte')) as unknown as { pluginV2: { editprocess: Set<EditHook> } }
+    plugins.pluginV2.editprocess.add(hook)
+    try {
+        await body()
+    } finally {
+        plugins.pluginV2.editprocess.delete(hook)
+    }
+}
+
+describe('every parse inside the per-message script pass skips hidden messages', () => {
+    /**
+     * Sent and disabled char messages alternate before the user message the
+     * pass processes, so a walk-back that reads a hidden message, or counts
+     * the sent messages instead of the chat, lands on the wrong one.
+     */
+    const chatWith = (last: string): Message[] => [
+        msg('char', 'C0-VIS'), msg('char', 'C1-HID', { disabled: true }),
+        msg('char', 'C2-VIS'), msg('char', 'C3-HID', { disabled: true }),
+        msg('user', last),
+    ]
+
+    test('a tag that a plugin hook puts into the text is expanded over the sent messages only', async () => {
+        const A = viewWorld(chatWith('q'))
+        await withEditprocessHook(async (data) => (data === 'q' ? 'q p={{previouscharchat}}' : null), async () => {
+            const r = await sendView(A)
+            expect(entryStarting(r, 'q p=')).toBe('q p=C2-VIS')
+        })
+    })
+
+    test('the in of a <cbs> script is expanded over the sent messages only', async () => {
+        const A = viewWorld(chatWith('q C2-VIS'), {
+            scripts: [editprocess('{{previouscharchat}}', 'FOUND', { ableFlag: true, flag: 'g<cbs>' })],
+        })
+        const r = await sendView(A)
+        expect(entryStarting(r, 'q ')).toBe('q FOUND')
+    })
+
+    test('the out of a script with a flag action is expanded over the sent messages only', async () => {
+        const A = viewWorld(chatWith('q'), {
+            scripts: [editprocess('^q$', 'q p={{previouscharchat}}', { ableFlag: true, flag: 'g<no_end_nl>' })],
+        })
+        const r = await sendView(A)
+        expect(entryStarting(r, 'q p=')).toBe('q p=C2-VIS')
+    })
+
+    test('the out of a script over the first message is expanded over the sent messages only', async () => {
+        const A = viewWorld(
+            [msg('user', 'A0'), msg('char', 'BRANCH-COMMENT', { disabled: true })],
+            { scripts: [editprocess('^FIRSTMSG$', 'FM last={{lastmessage}}')] },
+        )
+        const r = await sendView(A)
+        expect(entryStarting(r, 'FM last=')).toBe('FM last=A0')
+    })
+})
+
+//#endregion
+
+//#region 14: a message removed while the per-message pass runs
+
+/**
+ * A message deleted while the pass runs (by a plugin hook, or by the user
+ * during an await such as the inlay read) shifts every message after it. Each
+ * later message is still processed, and a walk-back never takes a message the
+ * prompt does not send: hidden-ness is judged on the message itself. The walk
+ * starts from the index the pass began with, so after a shift it can start one
+ * message off.
+ */
+describe('a message removed during the per-message pass does not make a walk-back take an unsent message', () => {
+    type Driver = 'a plugin hook' | 'the inlay read'
+    const drivers: Driver[] = ['a plugin hook', 'the inlay read']
+
+    /**
+     * Sends from `A`'s chat and removes its first message once: while `hookOn`
+     * is processed for the hook, while the `{{inlay::pic}}` in the chat is
+     * read for the inlay driver.
+     */
+    async function sendRemovingFirst(A: character, driver: Driver, hookOn: string): Promise<Captured> {
+        let removed = false
+        const removeFirst = (): void => {
+            if(!removed){
+                removed = true
+                A.chats[0].message.splice(0, 1)
+            }
+        }
+        let result: Captured | undefined
+        if(driver === 'the inlay read'){
+            const { getInlayAsset } = await import('../files/inlays')
+            vi.mocked(getInlayAsset).mockImplementationOnce(async () => {
+                removeFirst()
+                return null
+            })
+            try {
+                result = await sendView(A)
+            } finally {
+                vi.mocked(getInlayAsset).mockReset()
+            }
+        } else {
+            await withEditprocessHook(async (data) => {
+                if(data === hookOn){
+                    removeFirst()
+                }
+                return null
+            }, async () => {
+                result = await sendView(A)
+            })
+        }
+        expect(removed, 'the message was removed while the pass ran').toBe(true)
+        return result!
+    }
+
+    /** `X`, a disabled char message, a sent char message, the user message that holds the inlay, then `last`. */
+    const chatEndingWith = (last: Message): Message[] => [
+        msg('user', 'X'),
+        msg('char', 'c1 TAGhid', { disabled: true }),
+        msg('char', 'c2 TAGvis'),
+        msg('user', 'q {{inlay::pic}}'),
+        last,
+    ]
+
+    for (const driver of drivers) {
+        test(`guard: with ${driver}, @@repeat_back after the removal copies from a sent message, not the disabled one`, async () => {
+            const A = viewWorld(chatEndingWith(msg('char', 'c4')), { scripts: [editprocess('TAG\\w+', '@@repeat_back end')] })
+            const r = await sendRemovingFirst(A, driver, 'c4')
+            expect(entryStarting(r, 'c4')).toBe('c4TAGvis')
+            expect(r.promptText).not.toContain('TAGhid')
+        })
+
+        test(`guard: with ${driver}, {{previouscharchat}} in an out after the removal returns a sent message, not the disabled one`, async () => {
+            const A = viewWorld(chatEndingWith(msg('user', 'last')), { scripts: [editprocess('^last$', 'last (p={{previouscharchat}})')] })
+            const r = await sendRemovingFirst(A, driver, 'last')
+            expect(entryStarting(r, 'last (p=')).toBe('last (p=c2 TAGvis)')
+            expect(r.promptText).not.toContain('TAGhid')
+        })
+    }
+
+    test('guard: with no removal, @@repeat_back copies from the nearest earlier sent message', async () => {
+        const A = viewWorld(chatEndingWith(msg('char', 'c4')), { scripts: [editprocess('TAG\\w+', '@@repeat_back end')] })
+        const r = await sendView(A)
+        expect(entryStarting(r, 'c4')).toBe('c4TAGvis')
+    })
+})
+
+//#endregion
+
+//#region 15: regex scripts from imported data
+
+describe('a regex script whose out is missing or not a string does not stop a send', () => {
+    const malformed: Array<[string, unknown]> = [
+        ['missing', undefined],
+        ['null', null],
+        ['a number', 5],
+    ]
+
+    for (const [name, out] of malformed) {
+        test(`guard: a script with an out that is ${name} is skipped and the other scripts still apply`, async () => {
+            const broken = { comment: 'broken', in: 'zzz', out, type: 'editprocess', ableFlag: false }
+            const A = viewWorld([msg('user', 'hi there')], { scripts: [broken, editprocess('there', 'THERE')] })
+            const r = await sendView(A)
+            expect(r.outcome).toBe(true)
+            expect(r.promptText).toContain('hi THERE')
+        })
+    }
+})
 
 //#endregion

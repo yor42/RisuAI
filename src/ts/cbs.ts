@@ -1,4 +1,4 @@
-import type { Chat, Database, character, groupChat, loreBook } from './storage/database.svelte';
+import type { Chat, Database, Message, character, groupChat, loreBook } from './storage/database.svelte';
 import type { CbsConditions } from './parser/parser.svelte';
 import type { RisuModule } from './process/modules';
 import type { LLMModel } from './model/modellist';
@@ -73,6 +73,84 @@ export type matcherArg = {
     // per-character read below resolves this instead of the selection; with
     // none, every read here follows the selection.
     subject?: RunSubject
+    // Present only on the parses that build the prompt; the history and
+    // walk-back tags then skip the messages the prompt does not send.
+    promptView?: PromptView
+}
+
+/**
+ * Which messages the prompt does not send, and whether the first message (or
+ * chosen greeting) is sent. It names the messages themselves, so a check refers
+ * to the message a reader holds however the list has shifted since the view was
+ * built; a message the view has never seen counts as sent.
+ */
+export interface PromptView {
+    /** True when `message` is one the prompt does not send. Constant time. */
+    hidden(message: Message): boolean
+    /** The send's own decision on whether the first message is sent. */
+    readonly firstSent: boolean
+    /** The chat index of the message a parse belongs to, for a parse that passes no `chatID` of its own. */
+    readonly at?: number
+}
+
+/**
+ * The messages a request is built from: none that is disabled, none at or
+ * before the latest `allBefore` message. `chatIndexes` is the chat index of
+ * each sent message, parallel to `sent`; `resetAt` is the index of the latest
+ * `allBefore` message, or -1; `hidden` holds every message that is not sent:
+ * the disabled ones after it, and it and everything before it.
+ */
+export interface SentMessages {
+    sent: Message[]
+    chatIndexes: number[]
+    resetAt: number
+    hidden: ReadonlySet<Message>
+}
+
+/** The one definition of which messages are sent; the request and every prompt view are built from it. */
+export function splitSentMessages(messages: Message[]): SentMessages {
+    const length = messages.length
+    const sent: Message[] = []
+    const chatIndexes: number[] = []
+    const hidden = new Set<Message>()
+    let resetAt = -1
+    for(let i = length - 1; i >= 0; i--){
+        const d = messages[i]
+        if(d.disabled === true){
+            hidden.add(d)
+            continue
+        }
+        if(d.disabled === 'allBefore'){
+            resetAt = i
+            break
+        }
+        sent.push(d)
+        chatIndexes.push(i)
+    }
+    for(let i = 0; i <= resetAt; i++){
+        hidden.add(messages[i])
+    }
+    sent.reverse()
+    chatIndexes.reverse()
+    return { sent, chatIndexes, resetAt, hidden }
+}
+
+export function promptViewOf(split: SentMessages, firstSent: boolean): PromptView {
+    const { hidden } = split
+    return {
+        hidden: (message: Message) => hidden.has(message),
+        firstSent,
+    }
+}
+
+/** The same view, for a parse of the message at chat index `at`. */
+export function promptViewAt(view: PromptView, at: number): PromptView {
+    return { hidden: view.hidden, firstSent: view.firstSent, at }
+}
+
+/** A view of `messages` as the prompt sees them, for a first message sent or not as `firstSent` says. */
+export function promptViewOfMessages(messages: Message[], firstSent: boolean): PromptView {
+    return promptViewOf(splitSentMessages(messages), firstSent)
 }
 "a".toLowerCase().split('::')
 
@@ -221,12 +299,16 @@ export function registerCBS(arg:CBSRegisterArg) {
         name: 'previouscharchat',
         callback: (str, matcherArg, args, vars) => {
             const { char: selchar, chat } = targetCtx(matcherArg)
+            const view = matcherArg.promptView
             let pointer = matcherArg.chatID !== -1 ? matcherArg.chatID - 1 : chat.message.length - 1
             while(pointer >= 0){
-                if(chat.message[pointer].role === 'char'){
+                if(chat.message[pointer].role === 'char' && !view?.hidden(chat.message[pointer])){
                     return chat.message[pointer].data
                 }
                 pointer--
+            }
+            if(view && !view.firstSent){
+                return ''
             }
             return chat.fmIndex === -1 ? selchar.firstMessage : selchar.alternateGreetings[chat.fmIndex]
         },
@@ -240,12 +322,16 @@ export function registerCBS(arg:CBSRegisterArg) {
             const chatID = matcherArg.chatID
             if(chatID !== -1){
                 const { char: selchar, chat } = targetCtx(matcherArg)
+                const view = matcherArg.promptView
                 let pointer = chatID - 1
                 while(pointer >= 0){
-                    if(chat.message[pointer].role === 'user'){
+                    if(chat.message[pointer].role === 'user' && !view?.hidden(chat.message[pointer])){
                         return chat.message[pointer].data
                     }
                     pointer--
+                }
+                if(view && !view.firstSent){
+                    return ''
                 }
                 return chat.fmIndex === -1 ? selchar.firstMessage : selchar.alternateGreetings[chat.fmIndex]
             }
@@ -353,8 +439,9 @@ export function registerCBS(arg:CBSRegisterArg) {
         name: 'userhistory',
         callback: (str, matcherArg, args, vars) => {
             const chat = targetCtx(matcherArg).chat
+            const view = matcherArg.promptView
             return makeArray(chat.message.filter((v) => {
-                return v.role === 'user'
+                return v.role === 'user' && !view?.hidden(v)
             }).map((v) => {
                 v = safeStructuredClone(v)
                 v.data = risuChatParser(v.data, matcherArg)
@@ -369,8 +456,9 @@ export function registerCBS(arg:CBSRegisterArg) {
         name: 'charhistory',
         callback: (str, matcherArg, args, vars) => {
             const chat = targetCtx(matcherArg).chat
+            const view = matcherArg.promptView
             return makeArray(chat.message.filter((v) => {
-                return v.role === 'char'
+                return v.role === 'char' && !view?.hidden(v)
             }).map((v) => {
                 v = safeStructuredClone(v)
                 v.data = risuChatParser(v.data, matcherArg)
@@ -558,12 +646,13 @@ export function registerCBS(arg:CBSRegisterArg) {
             }
             const chat = targetCtx(matcherArg).chat
 
+            const view = matcherArg.promptView
             let pointer = matcherArg.chatID
             let pointerMode: 'findLast'|'findSecondLast' = 'findLast'
             let message:any
             let previous_message:any
             while(pointer >= 0){
-                if(chat.message[pointer].role === 'user'){
+                if(chat.message[pointer].role === 'user' && !view?.hidden(chat.message[pointer])){
                     if(pointerMode === 'findLast'){
                         message = chat.message[pointer]
                         pointerMode = 'findSecondLast'
@@ -723,7 +812,17 @@ export function registerCBS(arg:CBSRegisterArg) {
             if(!chat){
                 return ''
             }
-            return chat.message[chat.message.length - 1].data
+            const view = matcherArg.promptView
+            let last = chat.message.length - 1
+            if(view){
+                while(last >= 0 && view.hidden(chat.message[last])){
+                    last--
+                }
+                if(last < 0 && chat.message.length > 0){
+                    return ''
+                }
+            }
+            return chat.message[last].data
         },
         alias: [],
         description: 'Returns the content/data of the last message in the current chat, regardless of role (user/char). Returns empty string if no character selected.\n\nUsage:: {{lastmessage}}',
@@ -1141,7 +1240,11 @@ export function registerCBS(arg:CBSRegisterArg) {
         name: 'previouschatlog',
         callback: (str, matcherArg, args, vars) => {
             const chat = targetCtx(matcherArg).chat
-            return chat?.message[Number(args[0])]?.data ?? 'Out of range'
+            const target = chat?.message[Number(args[0])]
+            if(target && matcherArg.promptView?.hidden(target)){
+                return ''
+            }
+            return target?.data ?? 'Out of range'
         },
         alias: ['previous_chat_log'],
         description: 'Retrieves the message content at the specified index in the chat history. Returns "Out of range" if index is invalid.\n\nUsage:: {{previouschatlog::5}}',
@@ -1501,19 +1604,22 @@ export function registerCBS(arg:CBSRegisterArg) {
         name: 'history',
         callback: (str, matcherArg, args, vars) => {
 
+            const view = matcherArg.promptView
             if(args.length === 0){
                 const { char: selchar, chat } = targetCtx(matcherArg)
-                return makeArray([{
+                const first = {
                     role: 'char',
                     data: chat.fmIndex === -1 ? selchar.firstMessage : selchar.alternateGreetings[chat.fmIndex]
-                }].concat(chat.message).map((v) => {
+                }
+                const shown = view ? chat.message.filter((v) => !view.hidden(v)) : chat.message
+                return makeArray((view && !view.firstSent ? [] : [first]).concat(shown).map((v) => {
                     v = safeStructuredClone(v)
                     v.data = risuChatParser(v.data, matcherArg)
                     return JSON.stringify(v)
                 }))
             }
             const chat = targetCtx(matcherArg).chat
-            return makeArray(chat.message.map((f) => {
+            return makeArray(chat.message.filter((f) => !view?.hidden(f)).map((f) => {
                 let data = ''
                 if(args.includes('role')){
                     data += f.role + ': '

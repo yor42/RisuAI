@@ -18,7 +18,7 @@ import 'highlight.js/styles/atom-one-dark.min.css'
 import { language } from 'src/lang';
 import katex from 'katex'
 import { getModelInfo } from '../model/modellist';
-import { registerCBS, type matcherArg, type RegisterCallback } from '../cbs';
+import { registerCBS, type matcherArg, type PromptView, type RegisterCallback } from '../cbs';
 import type { RunSubject } from '../process/chatOrigin';
 import cssSelectorParser from 'postcss-selector-parser'
 
@@ -1615,8 +1615,10 @@ export function risuChatParser(da:string, arg:{
     callStack?:number
     cbsConditions?:CbsConditions
     subject?:RunSubject
+    // Set only by the parses that build the prompt; never read from `cbsConditions`.
+    promptView?:PromptView
 } = {}):string{
-    const chatID = arg.chatID ?? -1
+    const chatID = arg.chatID ?? arg.promptView?.at ?? -1
     const db = arg.db ?? DBState.db
     const aChara = arg.chara
     let chara:character|string = null
@@ -1691,6 +1693,7 @@ export function risuChatParser(da:string, arg:{
         cbsConditions: arg.cbsConditions ?? {},
         callStack: arg.callStack,
         subject: arg.subject,
+        promptView: arg.promptView,
         getNested: () => {
             return nested
         },

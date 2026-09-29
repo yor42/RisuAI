@@ -632,3 +632,59 @@ describe('guard: the cost of an undisturbed send on a proxied database', () => {
         })
     }
 })
+
+describe('guard: the cost of the prompt view on a proxied database', () => {
+    interface Counter { reads: number }
+
+    /**
+     * An array holding `items` whose element reads (`a[i]`) are counted. It
+     * has its own prototype, so the database leaves it unproxied, and an
+     * array derived from it (`map`, `slice`) is counted too.
+     */
+    function countedArray(items: Message[], counter: Counter): Message[] {
+        const wrap = (target: Message[]): Message[] => new Proxy(target, {
+            get(t, prop, receiver) {
+                if (typeof prop === 'string' && /^\d+$/.test(prop)) {
+                    counter.reads++
+                }
+                return Reflect.get(t, prop, receiver)
+            },
+        })
+        class CountedMessages extends Array<Message> {
+            constructor(length?: number) {
+                super(length ?? 0)
+                return wrap(this)
+            }
+        }
+        const counted = new CountedMessages(items.length)
+        items.forEach((item, i) => { counted[i] = item })
+        return counted
+    }
+
+    /** Alternating roles, with every tenth message disabled. */
+    function longChat(length: number): Message[] {
+        return Array.from({ length }, (_, i) => msg(i % 2 ? 'char' : 'user', `m${i}`, i % 10 === 5 ? { disabled: true } : {}))
+    }
+
+    /** The chat element reads one whole send of a `length`-message chat makes, with a walk-back in every message's out. */
+    async function readsOfSend(length: number): Promise<{ reads: number, promptText: string }> {
+        const counter: Counter = { reads: 0 }
+        const out = { comment: 'walk', in: '^(m\\d+)$', out: '$1 (p={{previouscharchat}})', type: 'editprocess', ableFlag: false }
+        const A = liveWorld(world({ messagesA: countedArray(longChat(length), counter), charA: { customscript: [out] } }))
+        counter.reads = 0
+        const r = await sendWith(A, A.chats[0], 0)
+        expect(r.outcome, 'the send completes').toBe(true)
+        return { reads: counter.reads, promptText: r.promptText }
+    }
+
+    test('guard: the chat element reads of a send grow linearly with the length of the chat', async () => {
+        const small = await readsOfSend(1000)
+        const large = await readsOfSend(2000)
+
+        expect(small.promptText, 'the walk-back ran').toMatch(/m501 \(p=m\d+\)/)
+        expect(large.promptText, 'the walk-back ran').toMatch(/m1501 \(p=m\d+\)/)
+        expect(small.reads).toBeGreaterThan(1000)
+        // Linear growth doubles the reads; a lookup that scans the chat per message quadruples them.
+        expect(large.reads / small.reads).toBeLessThan(3)
+    })
+})

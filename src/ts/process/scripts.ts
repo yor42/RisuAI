@@ -6,6 +6,7 @@ import { alertError, alertNormal } from "../alert";
 import { language } from "src/lang";
 import { selectSingleFile } from "../util";
 import { assetRegex, type CbsConditions, risuChatParser as risuChatParserOrg, type simpleCharacterArgument } from "../parser/parser.svelte";
+import type { PromptView } from "../cbs";
 import { getModuleAssets, getModuleRegexScripts } from "./modules";
 import { HypaProcesser } from "./memory/hypamemory";
 import { runLuaEditTrigger } from "./scriptings";
@@ -24,8 +25,8 @@ type pScript = {
     actions: string[]
 }
 
-export async function processScript(char:character|groupChat, data:string, mode:ScriptMode, cbsConditions:CbsConditions = {}, origin?:Origin, subject?:RunSubject){
-    return (await processScriptFull(char, data, mode, -1, cbsConditions, origin, subject)).data
+export async function processScript(char:character|groupChat, data:string, mode:ScriptMode, cbsConditions:CbsConditions = {}, origin?:Origin, subject?:RunSubject, promptView?:PromptView){
+    return (await processScriptFull(char, data, mode, -1, cbsConditions, origin, subject, undefined, promptView)).data
 }
 
 export function exportRegex(s?:customscript[]){
@@ -122,23 +123,63 @@ function locateMessage(messages: Message[], ref: MessageRef): number {
     return -1
 }
 
-// `refIndex` is passed whenever the `@@` branches act on a referenced message,
-// and adds a suffix to the key only when that message sits at a different
-// index than `chatID`, since `@@repeat_back`'s output then depends on it. The
-// terminator keeps a suffixed key from equalling, or aligning with, any
-// unsuffixed one.
-function generateScriptCacheKey(scripts: customscript[], data: string, mode: ScriptMode, chatID = -1, cbsConditions: CbsConditions = {}, subject?: RunSubject, refIndex?: number) {
+function generateScriptCacheKey(scripts: customscript[], data: string, mode: ScriptMode, chatID = -1, cbsConditions: CbsConditions = {}, subject?: RunSubject, promptView?: PromptView) {
     let hash = data + '|||' + mode + '|||';
     for (const script of scripts) {
         if(script.type !== mode){
             continue
         }
-        hash += `${script.flag?.includes('<cbs>') ? risuChatParser(script.in, { chatID: chatID, cbsConditions, subject }) : script.in}|||${script.out}${chatID}|||${script.flag ?? ''}|||${script.ableFlag ? 1 : 0}`;
-    }
-    if(refIndex !== undefined && refIndex !== chatID){
-        hash += `\u0000ref=${refIndex}\u0000`
+        hash += `${script.flag?.includes('<cbs>') ? risuChatParser(script.in, { chatID: chatID, cbsConditions, subject, promptView }) : script.in}|||${script.out}${chatID}|||${script.flag ?? ''}|||${script.ableFlag ? 1 : 0}`;
     }
     return hash;
+}
+
+const flagActionRegex = /<(.+?)>/g
+
+/**
+ * Whether running the scripts of `mode` over `data` gives a result the cache
+ * key determines, with no side effect a hit would skip. The test reads the key's
+ * own inputs only, so an entry under the key holds the same text whichever
+ * caller stored it. A script `out` or the text itself holding `{` or `<` may
+ * carry a tag or a legacy `<char>` form, which reads chat, variables, owner or
+ * persona; the actions and `@@` outs below read other messages or write. A
+ * script whose `out` or `flag` is not a string comes from malformed imported
+ * data; it is not key-determined, and its own run decides what it does.
+ */
+function isKeyDeterminedPass(scripts: customscript[], mode: ScriptMode, data: string): boolean {
+    if(data.includes('{') || data.includes('<')){
+        return false
+    }
+    for(const script of scripts){
+        if(script.type !== mode){
+            continue
+        }
+        const out = script.out
+        if(typeof out !== 'string'){
+            return false
+        }
+        if(out.includes('{') || out.includes('<')){
+            return false
+        }
+        if(out.startsWith('@@') && !out.startsWith('@@move_top') && !out.startsWith('@@move_bottom')){
+            return false
+        }
+        const flag = script.flag
+        if(flag !== undefined && typeof flag !== 'string'){
+            return false
+        }
+        if(flag && flag.includes('<')){
+            for(const match of flag.matchAll(flagActionRegex)){
+                for(const meta of match[1].split(',')){
+                    const action = meta.trim()
+                    if(action === 'cbs' || action === 'repeat_back' || action === 'inject'){
+                        return false
+                    }
+                }
+            }
+        }
+    }
+    return true
 }
 
 function cacheScript(hash:string, result:string){
@@ -176,8 +217,13 @@ export function resetScriptCache(){
  *   a locator, one the pass's map no longer places is treated as gone, as for
  *   `null`; without one, it is searched for wherever it now sits, and is gone
  *   only when it is no longer in the chat.
+ *
+ * `promptView` marks a call that builds the prompt. Its parses and
+ * `@@repeat_back` then skip the messages the prompt does not send, and the
+ * script cache serves and stores it only when `isKeyDeterminedPass` holds.
+ * Without one the call reads and caches as any other.
  */
-export async function processScriptFull(char:character|groupChat|simpleCharacterArgument, data:string, mode:ScriptMode, chatID = -1, cbsConditions:CbsConditions = {}, origin?:Origin, sendSubject?:RunSubject, messageRef?:MessageRef|null){
+export async function processScriptFull(char:character|groupChat|simpleCharacterArgument, data:string, mode:ScriptMode, chatID = -1, cbsConditions:CbsConditions = {}, origin?:Origin, sendSubject?:RunSubject, messageRef?:MessageRef|null, promptView?:PromptView){
     let db = getDatabase()
     let emoChanged = false
     const subject = sendSubject ?? (origin ? createRunSubject(origin) : undefined)
@@ -213,17 +259,20 @@ export async function processScriptFull(char:character|groupChat|simpleCharacter
         }
     }
 
-    data = risuChatParser(data, { chatID: chatID, cbsConditions, subject })
+    data = risuChatParser(data, { chatID: chatID, cbsConditions, subject, promptView })
     const scripts = (db.presetRegex ?? []).concat(char.customscript).concat(getModuleRegexScripts(subject))
-    const hash = generateScriptCacheKey(scripts, data, mode, chatID, cbsConditions, subject, refPass?.ref?.index)
-    const cached = getScriptCache(hash)
+    const useCache = !promptView || isKeyDeterminedPass(scripts, mode, data)
+    const hash = useCache ? generateScriptCacheKey(scripts, data, mode, chatID, cbsConditions, subject, promptView) : ''
+    const cached = useCache ? getScriptCache(hash) : undefined
     if(cached){
         scriptPassCounters.cacheHits++
         return {data: cached, emoChanged: false}
     }
     
     if(scripts.length === 0){
-        cacheScript(hash, data)
+        if(useCache){
+            cacheScript(hash, data)
+        }
         return {data, emoChanged}
     }
     function executeScript(pscript:pScript){
@@ -259,7 +308,7 @@ export async function processScriptFull(char:character|groupChat|simpleCharacter
 
             let input = script.in
             if(pscript.actions.includes('cbs')){
-                input = risuChatParser(input, { chatID: chatID, cbsConditions, subject })
+                input = risuChatParser(input, { chatID: chatID, cbsConditions, subject, promptView })
             }
 
             const reg = new RegExp(input, flag)
@@ -342,7 +391,7 @@ export async function processScriptFull(char:character|groupChat|simpleCharacter
                         }
                     }
                     else{
-                        data = risuChatParser(data.replace(reg, outScript), { chatID: chatID, cbsConditions, subject })
+                        data = risuChatParser(data.replace(reg, outScript), { chatID: chatID, cbsConditions, subject, promptView })
                     }
                 }
                 else{
@@ -375,12 +424,19 @@ export async function processScriptFull(char:character|groupChat|simpleCharacter
                         }
                         let lastChat = chat.fmIndex === -1 ? owner.firstMessage : owner.alternateGreetings[chat.fmIndex]
                         let pointer = at - 1
+                        let earlierFound = false
                         while(pointer >= 0){
-                            if(chat.message[pointer].role === chat.message[at].role){
+                            if(chat.message[pointer].role === chat.message[at].role && !promptView?.hidden(chat.message[pointer])){
                                 lastChat = chat.message[pointer].data
+                                earlierFound = true
                                 break
                             }
                             pointer--
+                        }
+                        // With no earlier sent message of the role, the first message is the
+                        // fallback only when it was sent.
+                        if(!earlierFound && promptView && !promptView.firstSent){
+                            return
                         }
 
                         const r = lastChat.match(reg)
@@ -408,7 +464,7 @@ export async function processScriptFull(char:character|groupChat|simpleCharacter
                 }
             }
             else{
-                data = risuChatParser(data.replace(reg, outScript), { chatID: chatID, cbsConditions, subject })
+                data = risuChatParser(data.replace(reg, outScript), { chatID: chatID, cbsConditions, subject, promptView })
             }
         }
     }
@@ -465,7 +521,9 @@ export async function processScriptFull(char:character|groupChat|simpleCharacter
     if(db.dynamicAssets && (char.type === 'simple' || char.type === 'character') && char.additionalAssets && char.additionalAssets.length > 0){
         if((!db.dynamicAssetsEditDisplay && mode === 'editdisplay')
             || mode === 'editinput' || mode === 'editprocess'){
-            cacheScript(hash, data)
+            if(useCache){
+                cacheScript(hash, data)
+            }
             return {data, emoChanged}
         }
         const assetNames = char.additionalAssets.map((v) => v[0])
@@ -501,7 +559,9 @@ export async function processScriptFull(char:character|groupChat|simpleCharacter
         }
     }
 
-    cacheScript(hash, data)
+    if(useCache){
+        cacheScript(hash, data)
+    }
 
     return {data, emoChanged}
 }

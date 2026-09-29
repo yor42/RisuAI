@@ -1,8 +1,10 @@
 import { getDatabase, type Chat, type character } from "src/ts/storage/database.svelte";
 import { HypaProcesser } from '../memory/hypamemory'
 import { getUserName } from "src/ts/util";
+import type { PromptView } from "src/ts/cbs";
 
-export async function additionalInformations(char: character,chats:Chat,){
+/** With a `promptView`, the query is built from the first four messages the prompt sends. */
+export async function additionalInformations(char: character,chats:Chat,promptView?:PromptView){
     const processer = new HypaProcesser()
     const db = getDatabase()
 
@@ -11,7 +13,14 @@ export async function additionalInformations(char: character,chats:Chat,){
         const infos = info.split('\n\n')
 
         await processer.addText(infos)
-        const filteredChat = chats.message.slice(0, 4).map((chat) => {
+        const messages = chats.message
+        const queried: Chat['message'] = []
+        for(let i = 0; i < messages.length && queried.length < 4; i++){
+            if(!promptView?.hidden(messages[i])){
+                queried.push(messages[i])
+            }
+        }
+        const filteredChat = queried.map((chat) => {
             let name = chat.saying ?? ''
 
             if(!name){
