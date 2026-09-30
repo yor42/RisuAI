@@ -12,12 +12,12 @@ import { DBState, selectedCharID } from "../stores.svelte"
 import { get } from "svelte/store"
 import type { NodeStorage } from "../storage/nodeStorage"
 import { compress as fflateCompress, decompress as fflateDecompress } from "fflate"
-import { v4 as uuidv4 } from "uuid"
 import { alertClear, alertConfirm, alertError, alertWait } from "../alert"
 import { language } from "src/lang"
-import type { Database, character } from "../storage/database.svelte"
+import type { Database, character, groupChat } from "../storage/database.svelte"
 import { coldStorageHeader, getColdStorageAffectedCharacters, getColdStorageBackupName, isColdStorageBackupData, listColdDataKeysFromDb, matchColdStorageLoadErrorKey, mergeRetriedColdChatSideFields } from "./coldstorageData"
 import { doingChat } from "./index.svelte"
+import { buildColdStub, isArchivableCharacter } from "./coldCharacter"
 
 export {
     coldStorageHeader,
@@ -437,7 +437,7 @@ export async function confirmIncompleteColdStorageOperation(
 
 async function makeColdDataForCharacter(i:number, coldTime:number): Promise<boolean>{
     const lastInteraction = DBState.db.characters[i].lastInteraction ?? Date.now()
-    if(lastInteraction < coldTime && !DBState.db.characters[i].coldstorage){
+    if(lastInteraction < coldTime && isArchivableCharacter(DBState.db.characters[i])){
         console.log(`Character ${DBState.db.characters[i].name ?? i} has not been interacted with since ${new Date(lastInteraction).toLocaleDateString()}, moving to cold storage`)
         const id = crypto.randomUUID()
         const writeSuccess = await setColdStorageItem(id, {
@@ -455,10 +455,14 @@ async function makeColdDataForCharacter(i:number, coldTime:number): Promise<bool
             return false
         }
 
+        // The stub describes the character as it was written into its unit and
+        // read back, not the live object that may have changed during the awaits.
+        const written: character | groupChat = (!Array.isArray(verifyData) && verifyData.character) ? verifyData.character : DBState.db.characters[i]
+
         //get cold storaged chats in this character
         const coldStoragedChats:string[] = []
-        for(let j=0;j<DBState.db.characters[i].chats.length;j++){
-            const chat = DBState.db.characters[i].chats[j]
+        for(let j=0;j<written.chats.length;j++){
+            const chat = written.chats[j]
             if(chat.message?.[0]?.data?.startsWith(coldStorageHeader)){
                 const coldDataKey = chat.message[0].data.slice(coldStorageHeader.length)
                 coldStoragedChats.push(coldDataKey)
@@ -467,27 +471,7 @@ async function makeColdDataForCharacter(i:number, coldTime:number): Promise<bool
 
         // Not a full character object,
         // just the data needed to show in the character list and load the chat when clicked. The rest will be loaded back when the character is opened.
-        const coldCharacter:character = {
-            type: 'character',
-            image: DBState.db.characters[i].image,
-            name: DBState.db.characters[i].name,
-            chats: [{
-                id: uuidv4(),
-                message: [{
-                    time: Date.now(),
-                    data: '',
-                    role: 'char'
-                }],
-                note: "",
-                name: "",
-                localLore: []
-            }],
-            chatPage: 0,
-            chaId: DBState.db.characters[i].chaId,
-            firstMsgIndex: 0,
-            coldstorage: id,
-            coldStoragedChats: coldStoragedChats
-        } as any
+        const coldCharacter = buildColdStub(written, id, coldStoragedChats)
 
         DBState.db.characters[i] = coldCharacter
         return true

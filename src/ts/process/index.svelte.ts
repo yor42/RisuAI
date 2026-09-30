@@ -603,8 +603,9 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
         if(memberStatus === 'gone'){
             const holder = DBState.db.characters.find((c) => c.chaId === memberChaId) as character | undefined
             if(holder?.coldstorage){
-                // Loaded on demand: the restore imports `characters.ts` and
-                // `coldstorage.svelte.ts`, which import this module back.
+                // Loaded on demand: the restore imports `characters.ts`, which
+                // imports `doingChat` from this module, so a static import
+                // would be a load-time cycle.
                 const { restoreColdCharacterByChaId } = await import('./coldMemberRestore')
                 if(!(await restoreColdCharacterByChaId(memberChaId))){
                     const afterRestore = subject.resolve()
@@ -613,12 +614,13 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
                     }
                     // A member deleted, or taken out of the group, while being
                     // restored has no turn; only a failure for a member who
-                    // still exists stops the group.
+                    // still exists stops the group. The restore shows its own
+                    // alert for the failures it reports; a member whose only
+                    // holder now points at another unit stops the turn silently.
                     if(afterRestore.owner.type !== 'group' || !afterRestore.owner.characters.includes(memberChaId)
                         || !DBState.db.characters.some((c) => c.chaId === memberChaId)){
                         return true
                     }
-                    alertError(language.errors.coldStorageRestoreFailed)
                     return false
                 }
                 if(!subject.resolve()){

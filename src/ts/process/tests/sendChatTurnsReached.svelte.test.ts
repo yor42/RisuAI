@@ -460,14 +460,15 @@ describe('a send whose member is in cold storage', () => {
         expect(turns).toBe(1)
     })
 
-    test('a restore that fails stops the send before any turn is reached', async () => {
+    // The restore shows its own alert for the failures it reports, so the send adds none.
+    test('a restore that fails stops the send before any turn is reached and the send shows no alert of its own', async () => {
         installGroup([member('m-1'), coldPlaceholder('m-cold')], ['m-1', 'm-cold'], 'm-1')
         restoreColdCharacterMock.mockResolvedValue(false)
 
         const { turns, result } = await turnsOfOneSend()
 
         expect(result).toBe(false)
-        expect(alertErrorMock).toHaveBeenCalledTimes(1)
+        expect(alertErrorMock).not.toHaveBeenCalled()
         expect(requestChatDataMock).not.toHaveBeenCalled()
         expect(turns).toBe(0)
     })

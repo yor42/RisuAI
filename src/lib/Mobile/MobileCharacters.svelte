@@ -7,6 +7,7 @@
     import { MessageSquareIcon, PlusIcon } from "@lucide/svelte";
     import { nearViewport } from "src/ts/gui/nearViewport.svelte";
     import { SvelteMap } from "svelte/reactivity";
+    import { coldStubChatCount } from "src/ts/process/coldCharacter";
 
     interface Props {
         endGrid?: () => void;
@@ -64,7 +65,7 @@
             return {
                 name: c.name || "Unnamed",
                 image: c.image,
-                chats: c.chats.length,
+                chats: coldStubChatCount(c),
                 i: i,
                 interaction: c.lastInteraction || 0,
                 agoText: makeAgoText(c.lastInteraction || 0),

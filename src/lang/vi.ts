@@ -32,6 +32,7 @@ export const languageVietnamese = {
         "coldStorageWriteFailed": "Ghi vào bộ nhớ lạnh thất bại. Dữ liệu trò chuyện của bạn đã được bảo toàn.",
         "coldStorageVerifyFailed": "Xác minh bộ nhớ lạnh thất bại. Dữ liệu trò chuyện của bạn đã được bảo toàn.",
         "coldStorageRestoreFailed": "Không thể tải dữ liệu bộ nhớ lạnh. Dữ liệu của nhân vật bị ảnh hưởng có thể đã bị mất vĩnh viễn.",
+        "coldStorageRestoreUnreadable": "Hiện không thể tải nhân vật này. Không có gì bị thay đổi. Hãy thử lại.",
         "coldStorageUnknownCharacterName": "Nhân vật không xác định",
         "coldStorageIncompleteBackupConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
             `Dữ liệu bộ nhớ lạnh của ${characterNames || "nhân vật không xác định"} bị thiếu hoặc không hợp lệ.${unresolvedCount > 0 ? ` Có ${unresolvedCount} mục không thể liên kết với nhân vật.` : ""}\n\nNếu tiếp tục, bản sao lưu này sẽ thiếu ${unavailableCount} mục bộ nhớ lạnh và dữ liệu nhân vật hoặc cuộc trò chuyện bị ảnh hưởng có thể không thể khôi phục từ bản sao lưu.\n\nVẫn tạo bản sao lưu không đầy đủ?`,

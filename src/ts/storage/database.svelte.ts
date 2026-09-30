@@ -1495,6 +1495,8 @@ export interface character{
     moduleNamespace?:string
     coldstorage?:string
     coldStoragedChats?:string[]
+    coldVersion?:number
+    coldChatCount?:number
     customModuleToggle?:string
 }
 
@@ -1577,6 +1579,8 @@ export interface groupChat{
     modules?:string[]
     coldstorage?:string
     coldStoragedChats?:string[]
+    coldVersion?:number
+    coldChatCount?:number
 }
 
 export interface botPreset{

@@ -262,7 +262,6 @@ vi.mock('../coldMemberRestore', () => ({
 import { sendChat, doingChat } from '../index.svelte'
 import { DBState, selectedCharID } from '../../stores.svelte'
 import { isWriting, writeAt, type Origin } from '../chatOrigin'
-import { language } from '../../../lang'
 
 //#region fixtures
 
@@ -650,7 +649,11 @@ describe('a member who is in cold storage when their turn comes', () => {
         expect(requestChatDataMock.mock.calls[1][0].currentChar.desc).toBe('restored member-2 description')
     })
 
-    test('a restore that fails shows the cold storage error and stops the group turn', async () => {
+    // The restore shows its own alert for the failures it reports (a missing
+    // unit, an unreadable one, a unit for another character, a chaId held by
+    // several characters), so the group turn stops without a second, possibly
+    // contradictory alert of its own.
+    test('a restore that fails stops the group turn and the group turn shows no alert of its own', async () => {
         installGroupWorld(['member-2'])
         restoreColdCharacterMock.mockResolvedValue(false)
         mockReply('reply 1')
@@ -660,8 +663,7 @@ describe('a member who is in cold storage when their turn comes', () => {
         const result = await settled(() => sendChat())
 
         expect(result).toBe(false)
-        expect(alertErrorMock).toHaveBeenCalledTimes(1)
-        expect(alertErrorMock).toHaveBeenCalledWith(language.errors.coldStorageRestoreFailed)
+        expect(alertErrorMock).not.toHaveBeenCalled()
         expect(restoreColdCharacterMock).toHaveBeenCalledWith('member-2')
         expect(sayings()).toEqual(['member-1'])
         expect(requestChatDataMock).toHaveBeenCalledTimes(1)

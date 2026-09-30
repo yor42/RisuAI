@@ -1,66 +1,50 @@
 import { DBState } from "../stores.svelte"
-import { getColdStorageItem } from "./coldstorage.svelte"
+import { alertError } from "../alert"
+import { language } from "../../lang"
+import { findChaIdHolders, restoreColdCharacter } from "./coldCharacterRestore"
 import { characterFormatUpdate } from "../characters"
 
 /**
- * The index of the one character holding `chaId`, or -1 when none or several
- * do. Several holders are refused rather than guessed between.
- */
-function soleHolderIndex(chaId: string): number {
-    const characters = DBState.db?.characters
-    if (!Array.isArray(characters)) {
-        return -1
-    }
-    let found = -1
-    for (let i = 0; i < characters.length; i++) {
-        if (characters[i]?.chaId === chaId) {
-            if (found !== -1) {
-                return -1
-            }
-            found = i
-        }
-    }
-    return found
-}
-
-/**
- * Brings the cold-storage character holding `chaId` back into memory, with
- * `changeChar`'s checks: the stored item's character must carry the same
- * `chaId`. Resolves true when the character holding that id is warm
- * afterwards, false when the restore failed and the placeholder was left as
- * it was.
+ * Brings the cold-storage character holding `chaId` back into memory through
+ * `restoreColdCharacter`, which reads the unit, checks that it holds the same
+ * `chaId` and installs it in the sole holder of that id that is still a
+ * placeholder once the read is done. Resolves true when the character holding
+ * that id is warm afterwards, false when it is not.
  *
- * The slot is found again by `chaId` after the cold read's await: the
- * characters array can have had entries inserted or deleted while the read
- * was pending, so an index taken before it points at some other character.
+ * The restore tells the user why it failed: a missing unit, an unreadable
+ * one, a unit for another character, or a `chaId` held by several characters,
+ * before or after the read. It stays silent when no character holds the id,
+ * before the read or once it is done, and when the only holder is a
+ * placeholder that points at another unit than the one read: then there is
+ * nothing to install. The caller therefore shows no alert of its own.
  *
- * This module imports `characters.ts` and `coldstorage.svelte.ts`, both of
- * which import `doingChat` from `index.svelte.ts`. The send therefore loads it
- * with a dynamic `import()` at the call site, on the cold-member path only: a
- * static import from `index.svelte.ts` would put a load-time cycle through
- * both of them.
+ * `characters.ts` imports `doingChat` from `index.svelte.ts`, so a static
+ * import of this module from `index.svelte.ts` would put a load-time cycle
+ * through it. The send loads this module with a dynamic `import()` at the call
+ * site, on the cold-member path only.
  */
 export async function restoreColdCharacterByChaId(chaId: string): Promise<boolean> {
-    const before = soleHolderIndex(chaId)
-    if (before === -1) {
+    const holders = findChaIdHolders(chaId)
+    if (holders.length === 0) {
         return false
     }
-    const placeholder = DBState.db.characters[before]
+    if (holders.length > 1) {
+        alertError(language.errors.coldStorageRestoreFailed)
+        return false
+    }
+    const placeholder = DBState.db.characters[holders[0]]
     if (!placeholder.coldstorage) {
         return true
     }
-    const coldData = await getColdStorageItem(placeholder.coldstorage)
-    if (!coldData?.character || coldData.character.chaId !== chaId) {
+    const outcome = await restoreColdCharacter(placeholder, { byChaId: true })
+    if (outcome.status !== 'restored') {
         return false
     }
-    const index = soleHolderIndex(chaId)
-    if (index === -1) {
-        return false
+    if (outcome.installedHere) {
+        const index = DBState.db.characters.indexOf(outcome.character)
+        if (index !== -1) {
+            characterFormatUpdate(index)
+        }
     }
-    if (!DBState.db.characters[index].coldstorage) {
-        return true
-    }
-    DBState.db.characters[index] = coldData.character
-    characterFormatUpdate(index)
     return true
 }

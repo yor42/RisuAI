@@ -134,8 +134,20 @@ vi.mock(import('src/ts/pngChunk'), () => ({
     PngChunk: class {},
 }) as unknown as typeof import('src/ts/pngChunk'))
 
+// The restore reads through `readColdStorageItem` (ok / missing / error).
+// `getColdStorageItem`, the reader that collapses missing and error into
+// null, stays a thin adapter over the same mock so the restore's choice of
+// reader is observable.
+const readColdStorageItemMock = vi.hoisted(() => vi.fn())
+const legacyReadSpy = vi.hoisted(() => vi.fn())
+
 vi.mock(import('src/ts/process/coldstorage.svelte'), () => ({
-    getColdStorageItem: vi.fn(),
+    readColdStorageItem: readColdStorageItemMock,
+    getColdStorageItem: async (key: string) => {
+        legacyReadSpy(key)
+        const result = await readColdStorageItemMock(key)
+        return result?.status === 'ok' ? result.value : null
+    },
     makeColdData: vi.fn(),
 }) as unknown as typeof import('src/ts/process/coldstorage.svelte'))
 
@@ -152,7 +164,6 @@ vi.mock(import('src/ts/storage/characterSaveMarks'), () => ({
 
 import { DBState } from 'src/ts/stores.svelte'
 import { createNewChat, createNewGroup, createBlankChar, changeChar } from './characters'
-import { getColdStorageItem } from 'src/ts/process/coldstorage.svelte'
 
 //#region fixture helpers
 
@@ -320,23 +331,26 @@ describe('changeChar restoring a cold-storage character -- every chat gets an id
             }],
         } as unknown as Database
 
-        vi.mocked(getColdStorageItem).mockResolvedValue({
-            character: {
-                chaId: 'cold-char-1',
-                name: 'Cold Character',
-                type: 'character',
-                chatPage: 0,
-                globalLore: [],
-                // Skips characterFormatUpdate's updateInlayScreen call, which
-                // is mocked here to a bare vi.fn() (it is exercised for real
-                // in updateInlayScreen's own tests, not this one).
-                newGenData: true,
-                chats: [
-                    { message: [], note: '', name: 'Chat 1', localLore: [] },
-                    { message: [], note: '', name: 'Chat 2', localLore: [] },
-                ],
+        readColdStorageItemMock.mockResolvedValue({
+            status: 'ok',
+            value: {
+                character: {
+                    chaId: 'cold-char-1',
+                    name: 'Cold Character',
+                    type: 'character',
+                    chatPage: 0,
+                    globalLore: [],
+                    // Skips characterFormatUpdate's updateInlayScreen call, which
+                    // is mocked here to a bare vi.fn() (it is exercised for real
+                    // in updateInlayScreen's own tests, not this one).
+                    newGenData: true,
+                    chats: [
+                        { message: [], note: '', name: 'Chat 1', localLore: [] },
+                        { message: [], note: '', name: 'Chat 2', localLore: [] },
+                    ],
+                },
             },
-        } as never)
+        })
 
         await changeChar(0)
 

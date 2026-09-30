@@ -142,7 +142,7 @@ vi.mock(import('./pngChunk'), () => ({
 }) as unknown as typeof import('./pngChunk'))
 
 vi.mock(import('./process/coldstorage.svelte'), () => ({
-    getColdStorageItem: vi.fn(),
+    readColdStorageItem: vi.fn(),
     makeColdData: vi.fn(),
 }) as unknown as typeof import('./process/coldstorage.svelte'))
 
@@ -174,7 +174,9 @@ vi.mock(import('./globalApi.svelte'), () => ({
 import { initHotkey } from './hotkey'
 import { DBState, PlaygroundStore, OpenRealmStore, selectedCharID } from './stores.svelte'
 import { doingChat } from './process/index.svelte'
-import { getColdStorageItem } from './process/coldstorage.svelte'
+import { readColdStorageItem } from './process/coldstorage.svelte'
+import { alertError } from './alert'
+import { language } from '../lang'
 import { changeChar, characterFormatUpdate } from './characters'
 
 //#region fixtures
@@ -385,14 +387,15 @@ describe('nextChar / prevChar switch through the same path as a sidebar click', 
         expect(get(OpenRealmStore)).toBe(true)
     })
 
-    // Regression reproducer: prevChar/nextChar never call getColdStorageItem,
-    // so a cold-storage placeholder is selected without being restored.
+    // A cold-storage placeholder is restored before it is selected:
+    // the switch goes through the same restore a click uses.
     test('restores a cold-storage placeholder before selecting it', async () => {
         (DBState.db.characters[CHARLIE] as unknown as { coldstorage?: string }).coldstorage = 'cold-key-1'
         DBState.db.characters[CHARLIE].chaId = 'charlie-cold-chaid'
-        vi.mocked(getColdStorageItem).mockResolvedValueOnce({
-            character: makeCharacter('Charlie', 'charlie-cold-chaid'),
-        } as never)
+        vi.mocked(readColdStorageItem).mockResolvedValueOnce({
+            status: 'ok',
+            value: { character: makeCharacter('Charlie', 'charlie-cold-chaid') },
+        })
         selectedCharID.set(BOB)
 
         await fireNextChar()
@@ -428,20 +431,25 @@ describe('nextChar / prevChar switch through the same path as a sidebar click', 
         expect(get(OpenRealmStore)).toBe(false)
     })
 
-    // Regression reproducer: prevChar/nextChar select the target unconditionally,
-    // even when a cold-storage restore comes back for the wrong character and
-    // changeChar would refuse the switch.
-    test('does not switch when the cold-storage restore fails', async () => {
+    // A refused restore keeps the selection: the failure used here is a unit
+    // that holds another character (its chaId differs from the placeholder's),
+    // which the restore refuses, leaving the placeholder in place and telling
+    // the user.
+    test('does not switch when the cold-storage restore is refused', async () => {
         (DBState.db.characters[CHARLIE] as unknown as { coldstorage?: string }).coldstorage = 'cold-key-1'
         DBState.db.characters[CHARLIE].chaId = 'charlie-cold-chaid'
-        vi.mocked(getColdStorageItem).mockResolvedValueOnce({
-            character: makeCharacter('Charlie', 'mismatched-chaid'),
-        } as never)
+        vi.mocked(alertError).mockClear()
+        vi.mocked(readColdStorageItem).mockResolvedValueOnce({
+            status: 'ok',
+            value: { character: makeCharacter('Charlie', 'mismatched-chaid') },
+        })
         selectedCharID.set(BOB)
 
         await fireNextChar()
 
         expect(get(selectedCharID)).toBe(BOB)
+        expect((DBState.db.characters[CHARLIE] as unknown as { coldstorage?: string }).coldstorage).toBe('cold-key-1')
+        expect(vi.mocked(alertError)).toHaveBeenCalledWith(language.errors.coldStorageRestoreFailed)
     })
 })
 

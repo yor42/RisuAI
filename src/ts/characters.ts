@@ -13,7 +13,7 @@ import { translateHTML } from "./translator/translator";
 import { doingChat } from "./process/index.svelte";
 import { importCharacter } from "./characterCards";
 import { PngChunk } from "./pngChunk";
-import { getColdStorageItem } from "./process/coldstorage.svelte";
+import { restoreColdCharacter } from "./process/coldCharacterRestore";
 import { getAvatarThumbSrc, isThumbEligible } from "./media/avatarThumb";
 import { markCharacterForSave } from "./storage/characterSaveMarks";
 import { hasWorkIn, stopWorkIn } from "./process/chatOrigin";
@@ -1000,6 +1000,13 @@ export async function addCharacter(arg:{
     MobileGUIStack.set(1)
 }
 
+/**
+ * Counts the `changeChar` calls that got past the `doingChat` guard. Only the
+ * most recent one may select a character, so a slow restore of an archived
+ * character cannot override a later choice.
+ */
+let latestChangeChar = 0
+
 export async function changeChar(index: number, arg:{
     reseter?:()=>any,
 } = {}) {
@@ -1007,16 +1014,32 @@ export async function changeChar(index: number, arg:{
     if(get(doingChat)){
       return
     }
+    const callId = ++latestChangeChar
     reseter();
-    if(DBState.db.characters?.[index]?.coldstorage){
-        const coldData = await getColdStorageItem(DBState.db.characters[index].coldstorage!)
-        if(coldData?.character && coldData.character.chaId === DBState.db.characters[index].chaId){
-            DBState.db.characters[index] = coldData.character
-        }
-        else{
-            alertError(language.errors.coldStorageRestoreFailed)
+    const clicked = DBState.db.characters?.[index]
+    if(clicked?.coldstorage){
+        // The restore finds the clicked placeholder again after its read, so
+        // the character list may have changed meanwhile; it tells the user
+        // when it fails. Selecting is skipped when a later call has started
+        // or a chat began generating during the read.
+        const outcome = await restoreColdCharacter(clicked)
+        if(outcome.status !== 'restored'){
             return
         }
+        const restoredIndex = DBState.db.characters.indexOf(outcome.character)
+        if(restoredIndex === -1){
+            return
+        }
+        if(outcome.installedHere){
+            characterFormatUpdate(restoredIndex, {
+              updateInteraction: true,
+            });
+        }
+        if(callId !== latestChangeChar || get(doingChat)){
+            return
+        }
+        selectedCharID.set(restoredIndex);
+        return
     }
     characterFormatUpdate(index, {
       updateInteraction: true,
