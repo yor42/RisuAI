@@ -24,6 +24,11 @@ These later commits are local and not pushed:
 - `2b3dd636`: memory stage 1 step 1, the exclusive manual clean-up (Report 50);
 - `bc09a9a1`: the step 1 records and the Roadmap's Phase 2 status note;
 - `db49aeeb`: memory stage 1 step 2, the v2 stub and the shared restore (Report 51);
+- `d199b07b`: the step 2 records;
+- `64f23154`: the manual clean-up reads saves that never used plugin storage (the empty-`pluginStorage` decoder fix);
+- `96772e97`: the stage 1 live-check records and CHORE-50;
+- `bd57aa19`: memory stage 1 step 3a, plugin and MCP reads and writes of
+  archived characters (Report 52);
 - the records commit that carries this file.
 
 Push only at the maintainer's request.
@@ -44,7 +49,7 @@ Several sessions work **in this same checkout**:
   build"** and **"Fork rebranding exploration"** are idle or done; see Report 39/41 and ledger
   row 428.
 
-**Next free numbers:** `MC-146`, Report 52, ledger row 504 and CHORE-51. Check the ledger's last row before taking
+**Next free numbers:** `MC-147`, Report 53, ledger row 509 and CHORE-51. Check the ledger's last row before taking
 one. `MC-114` and ledger rows 371-374 were reserved for W2c-a and left unused; nobody
 should fill them.
 
@@ -55,14 +60,19 @@ should fill them.
 
 ## Current work
 
-### Resume here (hand-off, 2026-10-01, memory stage 1: steps 1 and 2 done)
+### Resume here (hand-off, 2026-10-01, memory stage 1: steps 1, 2 and 3a done)
 
 1. **Memory-footprint stage 1 is planned and passed Gate 1** (Report 49, `MC-130` to `MC-145`,
    ledger rows 455-486). **Step 1 is done:** the exclusive manual clean-up (D11) and no startup asset
    sweep once a stub exists (D12), committed as `2b3dd636` (Report 50; Gate 2 approved at round 3,
    ledger rows 487-491). **Step 2 is done:** the v2 stub and the shared restore (D6, D7, D9 restore
    side), committed as `db49aeeb` (Report 51; Gate 2 approved at round 2, then one editorial
-   round, ledger rows 494-497). Steps 3-7 are not started.
+   round, ledger rows 494-497). **Step 3a is done:** plugin and MCP reads and writes of archived
+   characters (the seam that reads a stub's unit as a copy, no-downgrade in the plugin setters, restore
+   first in V3 `setChatToIndex` and the seven MCP write tools, the V2.1 restore-all in `loadPlugins`,
+   and the two `MC-091` amendments), committed as the step 3a fix commit (`bd57aa19`; Report 52;
+   Gate 2 by `opus-reviewer` approved at round 3 after two [REJECT] rounds, ledger rows 505-507;
+   `MC-146`). No live check of 3a was run. Step 3b and steps 4-7 are not started.
    - **Live check of steps 1 and 2 (ledger row 499):** the manual clean-up refused on a profile whose
      `pluginStorage` block is empty (row 500; upstream writes the same empty block). The decoder fix
      and its red-first tests are committed as `64f23154`. The fix passed its `opus-reviewer` gate
@@ -78,16 +88,26 @@ should fill them.
      - there is no runtime archive engine (ledger row 475).
    - The working copy of the plan is in the session scratchpad (`memfoot/stage1c/plan.md`).
      Report 49 is the durable version.
-2. **Next: implementation step 3, consumers and writers.** Report 49 section 3.4 (row 3) lists it as:
-   the stub-writer audit, MCP, V3 hydrate and restore-first, no-downgrade, V2/V2.1 restore-all in
-   `loadPlugins`, group member restore, the Playground, `exportAsDataset` and `verifyAssetIntegrity`
-   (D3 setter part, D4, D5, D8, D16 runtime, D19). Gate 2 with `adversarial-reviewer`, and
-   `opus-reviewer` for the plugin and MCP write paths. Follow the same order as before: the
-   investigator's code map, the brief, red tests first, the coder, then Gate 2. Steps 3 and 4 land
-   before the boot pass (step 5), and the idle reload (step 6) comes after it. Open follow-ups: step 1's
-   in Report 50 section 6, step 2's in Report 51 section 6 (among them: whether step 5's pass should
-   enrich upstream-made stubs is a question for the maintainer at step 5; group members that are still
-   stubs in the group screen and the Playground are step 3 items).
+2. **Next: implementation step 3b, groups, the Playground and the exports.** The Orchestrator split
+   step 3 in two (Report 52 section 2). 3b is:
+   - groups: `changeChar` restores a group's members on selection, `addGroupChar`, and `createNewChat`
+     skipping a member that stays archived (`MC-146` 2: the group opens, the member stays archived, gets
+     no greeting, is skipped in turns, and an alert names it);
+   - the Playground: `playgroundChat` restores an archived `§playground` character before it mutates
+     and selects it (`MC-146` 3); it does not go through `changeChar` (Report 52 section 2, R1);
+   - `exportAsDataset` and `verifyAssetIntegrity` read a stub's unit one at a time (D5);
+   - the labelled fork/upstream note for `getDatabase` returning placeholders in `risuai.d.ts` and
+     `plugins.md` (`MC-136` 3).
+
+   Gate 2 with `adversarial-reviewer`. 3b reuses 3a's seam (`readColdCharacterCopy`, the `quiet` option
+   and the failure reasons of `restoreColdCharacter`, `coldCharacterAccess.ts`). The investigator's code
+   map already covers the 3b areas (packet sections 4, 5 and 7, in the session scratchpad,
+   `memfoot/step3/packet.md`), so the next step is the brief, then red tests first, the coder, then
+   Gate 2. Steps 3 and 4 land before the boot pass (step 5), and the idle reload (step 6) comes after
+   it. Open follow-ups: step 1's in Report 50 section 6, step 2's in Report 51 section 6 and step 3a's in
+   Report 52 section 6 (among them: whether step 5's pass should enrich upstream-made stubs is a
+   question for the maintainer at step 5; step 5 reuses `hasEnabledV21Plugin` and owns
+   `loadInternalBackup`, which does not reload at HEAD).
 3. **After stage 1** (`MC-145`):
    - the upstream-compatible inline-everything backup;
    - then archiving of modules that are not enabled;
@@ -104,7 +124,7 @@ should fill them.
 
 ## Work order
 
-1. **Memory stage 1** (Report 49), steps 3-7 (steps 1 and 2 are done, Reports 50 and 51).
+1. **Memory stage 1** (Report 49), steps 3b-7 (steps 1, 2 and 3a are done, Reports 50-52).
 2. **The inline-everything backup, then module archiving** (`MC-145`).
 3. **The wiki's composer and send batch** (Wiki session; unblocked since W2 and W3 are done).
 4. **CHORE-35's opt-in stage:** the remaining upstream-infrastructure features (`MC-092`).
@@ -134,6 +154,12 @@ Not placed in the sequence:
      check remains for cn, zh-Hant, vi, de and es (Report 50 section 6).
    - Step 2 added one string, `coldStorageRestoreUnreadable`, to ko, cn, zh-Hant, vi, de and es. The
      reviewer checked the meaning; the native-speaker check is open for all six (Report 51 section 6).
+   - Step 3a added four strings (`coldStorageNamedRestoreFailed`, `coldStorageNamedRestoreUnreadable`,
+     `coldStoragePluginRestoreProgress`, `coldStoragePluginRestoreIncomplete`) to the same six
+     languages. The reviewer checked the meaning. The translator's low-confidence notes: ko, the
+     particle 을(를) after `${characterName}`; cn and zh-Hant, "N items left" (还剩 N 项 / 剩餘 N 項); vi,
+     whether "đang được bật" reads as "the plugin is enabled", and "Chúng vẫn ở trạng thái lưu trữ";
+     es, the file mixes tú and usted (Report 52 section 6).
 2. **CHORE-41's console output** (ledger rows 201-202 and 206): why the edit button stays dead across
    repeated clicks.
 3. **The MC-091 workflow pilot:** evaluating it is the maintainer's.
@@ -228,6 +254,11 @@ Escape on alerts stage 2 and W2c-a were merged as `1d6fa16b`.
 
 ## Test suite
 
+- **Step 3a's final tree (the step 3a fix commit, `bd57aa19`):** 216 files, 3,680 passed, 4 skipped;
+  `pnpm build` exit 0 (ledger row 507; both on the snapshot Gate 2 approved); `pnpm check` 0 errors and
+  0 warnings on the final tree, after the post-approval edits (`3a/gate/check-final.log`). The full suite
+  and the build were not re-run after the editorial edits to two test headers and the commit message;
+  the two edited test files were, 4 passed.
 - **Step 2's final tree (`db49aeeb`):** 209 files, 3,559 passed, 4 skipped; `pnpm check` 0 errors;
   `pnpm build` exit 0 (ledger row 497; taken before the round-3 comment-only edits). Step 1's tree
   (`2b3dd636`) had 205 files, 3,436 passed, 4 skipped (row 490). The baseline before step 1 was W2e's

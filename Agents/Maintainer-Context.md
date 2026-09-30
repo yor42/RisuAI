@@ -4343,3 +4343,36 @@ Item 3 is amended by MC-145 (the inline backup comes before module archiving).
 **What was decided:**
 1. **After stage 1, the upstream-compatible "inline everything" backup option comes first** (a part of
    stage 2), **then archiving of modules that are not enabled,** then the rest of stage 2.
+
+### MC-146 — Stage 1 step 3: an unreadable archive fails the plugin or MCP call with one alert; a group opens without an unreadable member; the Playground restores its archived character; only V2.1 plugins trigger restore-all
+
+- **Tag:** decision
+- **Date:** 2026-10-01
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on four questions from the step 3
+  investigation (ledger row 504).
+- **Reasoning:** the plan (Report 49, D4, D8, D16, D19) left open what happens when an archive
+  cannot be read, and whether an enabled V2.0 plugin counts. At HEAD `96772e97` only a V2.1 plugin
+  runs code; a V2.0 plugin logs that it is no longer supported and does nothing
+  (`loadV2Plugin`, `plugins.svelte.ts`), and importing either version is refused.
+- **Alternatives rejected:** a plugin read on an unreadable archive returning null; errors to the
+  caller with no alert; refusing to open a group with an unreadable member; discarding an archived
+  `§playground` character and creating a blank one; keeping V2.0 in the restore-all trigger.
+- **Clarifies:** `MC-132` 2, which already names V2.1 only. Report 49 (3.2, D16) had read it as
+  V2/V2.1; decision 4 settles that V2.0 is excluded.
+- **Related:** MC-132, MC-136, MC-138, MC-143.
+
+**What was decided:**
+1. **A plugin or MCP call that reaches an archived character whose archive is missing or
+   unreadable fails.** This covers V3 `getCharacterFromIndex`, `getChatFromIndex` and
+   `setChatToIndex`, and the MCP read and write tools. The caller gets an error; an MCP write does not
+   report success. The user gets one alert naming the character. Nothing is written into the
+   placeholder.
+2. **A group opens even when one member's archive cannot be restored.** That member stays archived,
+   gets no greeting in a new chat, is skipped in turns, and an alert names it.
+3. **An archived `§playground` character is restored when the Playground chat opens,** so its chats
+   are kept. If the restore fails, the user is alerted and the Playground chat does not open. It is
+   never archived again (D19).
+4. **Only an enabled V2.1 plugin restores every archived character** at runtime and keeps characters
+   from being archived at boot: until step 5, through a guard on the 10-day path (`MC-091` amendment
+   A2, Report 52); from step 5, in the new boot pass. An enabled V2.0 plugin does neither.
