@@ -33,6 +33,14 @@ export const languageVietnamese = {
         "coldStorageVerifyFailed": "Xác minh bộ nhớ lạnh thất bại. Dữ liệu trò chuyện của bạn đã được bảo toàn.",
         "coldStorageRestoreFailed": "Không thể tải dữ liệu bộ nhớ lạnh. Dữ liệu của nhân vật bị ảnh hưởng có thể đã bị mất vĩnh viễn.",
         "coldStorageRestoreUnreadable": "Hiện không thể tải nhân vật này. Không có gì bị thay đổi. Hãy thử lại.",
+        "coldStorageNamedRestoreFailed": (characterName: string) =>
+            `Không thể tải nhân vật đã lưu trữ ${characterName}: dữ liệu bộ nhớ lạnh của nhân vật này bị thiếu hoặc không hợp lệ và có thể đã bị mất vĩnh viễn. Không có gì bị thay đổi.`,
+        "coldStorageNamedRestoreUnreadable": (characterName: string) =>
+            `Hiện không thể tải nhân vật đã lưu trữ ${characterName}. Không có gì bị thay đổi. Hãy thử lại.`,
+        "coldStoragePluginRestoreProgress": (leftCount: number) =>
+            `Đang tải các nhân vật đã lưu trữ cho plugin... còn ${leftCount} mục`,
+        "coldStoragePluginRestoreIncomplete": (characterNames: string) =>
+            `Một plugin cần tất cả nhân vật trong bộ nhớ đang được bật, nhưng không thể tải các nhân vật đã lưu trữ sau: ${characterNames}. Chúng vẫn ở trạng thái lưu trữ, nên plugin sẽ không thấy dữ liệu của chúng.`,
         "coldStorageUnknownCharacterName": "Nhân vật không xác định",
         "coldStorageIncompleteBackupConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
             `Dữ liệu bộ nhớ lạnh của ${characterNames || "nhân vật không xác định"} bị thiếu hoặc không hợp lệ.${unresolvedCount > 0 ? ` Có ${unresolvedCount} mục không thể liên kết với nhân vật.` : ""}\n\nNếu tiếp tục, bản sao lưu này sẽ thiếu ${unavailableCount} mục bộ nhớ lạnh và dữ liệu nhân vật hoặc cuộc trò chuyện bị ảnh hưởng có thể không thể khôi phục từ bản sao lưu.\n\nVẫn tạo bản sao lưu không đầy đủ?`,

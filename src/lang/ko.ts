@@ -33,6 +33,14 @@ export const languageKorean = {
         "coldStorageVerifyFailed": "콜드 스토리지 검증에 실패했습니다. 채팅 데이터는 보존되었습니다.",
         "coldStorageRestoreFailed": "콜드 스토리지 데이터를 불러올 수 없습니다. 해당 캐릭터의 데이터가 영구적으로 손실되었을 수 있습니다.",
         "coldStorageRestoreUnreadable": "지금은 이 캐릭터를 불러올 수 없습니다. 변경된 내용은 없습니다. 다시 시도하세요.",
+        "coldStorageNamedRestoreFailed": (characterName: string) =>
+            `보관된 캐릭터 ${characterName}을(를) 불러올 수 없습니다. 콜드 스토리지 데이터가 없거나 올바르지 않으며, 영구적으로 손실되었을 수 있습니다. 변경된 내용은 없습니다.`,
+        "coldStorageNamedRestoreUnreadable": (characterName: string) =>
+            `보관된 캐릭터 ${characterName}을(를) 지금은 불러올 수 없습니다. 변경된 내용은 없습니다. 다시 시도하세요.`,
+        "coldStoragePluginRestoreProgress": (leftCount: number) =>
+            `플러그인을 위해 보관된 캐릭터를 불러오는 중... ${leftCount}개 남음`,
+        "coldStoragePluginRestoreIncomplete": (characterNames: string) =>
+            `모든 캐릭터를 메모리에 불러와야 하는 플러그인이 활성화되어 있지만, 보관된 다음 캐릭터를 불러올 수 없었습니다: ${characterNames}. 이 캐릭터들은 보관된 상태로 남으므로 플러그인이 해당 데이터를 볼 수 없습니다.`,
         "coldStorageUnknownCharacterName": "알 수 없는 캐릭터",
         "coldStorageIncompleteBackupConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
             `${characterNames || "알 수 없는 캐릭터"}의 콜드 스토리지 데이터가 없거나 손상되었습니다.${unresolvedCount > 0 ? ` 데이터를 확인할 수 없는 항목이 ${unresolvedCount}개 있습니다.` : ""}\n\n계속하면 이 백업에서 콜드 스토리지 항목 ${unavailableCount}개가 누락되며, 해당 캐릭터 또는 채팅 데이터를 이 백업으로 복구하지 못할 수 있습니다.\n\n그래도 불완전한 백업을 생성하시겠습니까?`,

@@ -1,7 +1,7 @@
 import { get, writable } from "svelte/store";
 import { language } from "../../lang";
 import { getCurrentCharacter, getDatabase, setDatabase, setDatabaseLite } from "../storage/database.svelte";
-import { alertConfirm, alertError, alertPluginConfirm } from "../alert";
+import { alertConfirm, alertError, alertPluginConfirm, waitAlert } from "../alert";
 import { selectSingleFile, sleep } from "../util";
 import type { OpenAIChat } from "../process/index.svelte";
 import { fetchNative, globalFetch, readImage, saveAsset, toGetter } from "../globalApi.svelte";
@@ -12,6 +12,8 @@ import { SafeDocument, SafeIdbFactory, SafeLocalStorage } from "./pluginSafeClas
 import { loadV3Plugins } from "./apiV3/v3.svelte";
 import { pluginCodeTranspiler } from "./apiV3/transpiler";
 import { markCharacterForSave } from "../storage/characterSaveMarks";
+import { incomingCharacterRefusal, withoutStubDowngrades } from "./stubDowngrade";
+import { hasEnabledV21Plugin } from "./v21Plugins";
 import {
     fillMissingCharacterInstallIds,
     fillMissingDatabaseInstallIds,
@@ -433,6 +435,34 @@ export async function loadPlugins() {
     const pluginV2 = enabledPlugins.filter((a: RisuPlugin) => a.version === 2 || a.version === '2.1')
     const pluginV3 = enabledPlugins.filter((a: RisuPlugin) => a.version === '3.0')
 
+    // An enabled V2.1 plugin reads and writes the live character list
+    // directly, so every archived character is restored before any V2.1 code
+    // runs. A character that cannot be restored stays archived and the plugin
+    // still loads. The restore is loaded on demand: it reads cold storage,
+    // which a profile without a V2.1 plugin never needs here.
+    if (hasEnabledV21Plugin(db.plugins)) {
+        try {
+            const { restoreAllColdCharacters } = await import("../process/coldRestoreAll")
+            await restoreAllColdCharacters()
+        } catch (error) {
+            console.error('Restoring archived characters before loading V2.1 plugins failed', error)
+            // The plugin is about to see whichever characters are still
+            // archived, so the user is told which they are before it runs, and
+            // loading waits until the notice has been dismissed.
+            try {
+                const archived = (DBState.db?.characters ?? [])
+                    .filter((cha) => cha?.coldstorage)
+                    .map((cha) => cha.name || language.errors.coldStorageUnknownCharacterName)
+                if (archived.length > 0) {
+                    alertError(language.errors.coldStoragePluginRestoreIncomplete(archived.join(', ')))
+                    await waitAlert()
+                }
+            } catch (noticeError) {
+                console.error('Telling the user about the archived characters failed', noticeError)
+            }
+        }
+    }
+
     await loadV2Plugin(pluginV2)
     await loadV3Plugins(pluginV3)
 }
@@ -518,6 +548,9 @@ export const getV2PluginAPIs = () => {
             return getCurrentCharacter({ snapshot: true })
         },
         setChar: (char: any, pluginName?: string) => {
+            if (incomingCharacterRefusal(char, pluginName)) {
+                return
+            }
             const db = getDatabase()
             const charid = get(selectedCharID)
             const replaced = charid >= 0 ? db.characters[charid] : undefined
@@ -766,6 +799,7 @@ export const getV2PluginAPIs = () => {
         setDatabaseLite: (newDb: any, pluginName?: string) => {
             const db = getDatabase();
             db.pluginCustomStorage ??= {}
+            newDb = withoutStubDowngrades(db.characters, newDb, pluginName)
             if (Array.isArray(newDb.characters)) {
                 const beforeCharacters = db.characters
                 fillMissingDatabaseInstallIds(newDb)
@@ -800,15 +834,25 @@ export const getV2PluginAPIs = () => {
         setDatabase: async (newDb: any, pluginName?: string) => {
             const db = getDatabase();
             db.pluginCustomStorage ??= {}
+            newDb = withoutStubDowngrades(db.characters, newDb, pluginName)
             if (Array.isArray(newDb.characters)) {
                 const beforeCharacters = db.characters
                 fillMissingDatabaseInstallIds(newDb)
                 warnDuplicatesInDatabaseInstall(newDb, beforeCharacters, pluginName)
             }
+            let awaited = false
             for (const key of Object.keys(newDb)) {
                 if (key === 'plugins') {
                     console.warn('[WARN] Plugin attempted to access plugin directly. this would be blocked in future versions. Instead, use the provided APIs to manage plugins. Attempting to handle plugin installation via plugin for new plugins in the provided database object.')
                     newDb[key] = await handlePluginInstallViaPlugin(newDb.plugins)
+                    awaited = true
+                }
+
+                if (key === 'characters' && awaited) {
+                    // The plugin-install prompt may have been open while a
+                    // character was restored, so the list is checked again at
+                    // the moment it is replaced.
+                    newDb = withoutStubDowngrades(db.characters, newDb, pluginName)
                 }
 
                 if (allowedDbKeys.includes(key)) {

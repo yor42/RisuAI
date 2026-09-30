@@ -674,7 +674,9 @@ export function characterFormatUpdate(indexOrCharacter:number|character, arg:{
     if(checkNullish(cha.customscript)){
         cha.customscript = []
     }
-    cha.lastInteraction = Date.now()
+    if(arg.updateInteraction){
+        cha.lastInteraction = Date.now()
+    }
     if(typeof(indexOrCharacter) === 'number'){
         setCharacterByIndex(indexOrCharacter, cha)
     }

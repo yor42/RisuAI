@@ -33,6 +33,14 @@ export const languageChinese = {
         "coldStorageVerifyFailed": "冷存储验证失败。您的聊天数据已被保留。",
         "coldStorageRestoreFailed": "无法加载冷存储数据。受影响角色的数据可能已永久丢失。",
         "coldStorageRestoreUnreadable": "暂时无法加载此角色。未做任何更改。请重试。",
+        "coldStorageNamedRestoreFailed": (characterName: string) =>
+            `无法加载已归档的角色 ${characterName}：其冷存储数据缺失或无效，可能已永久丢失。未做任何更改。`,
+        "coldStorageNamedRestoreUnreadable": (characterName: string) =>
+            `暂时无法加载已归档的角色 ${characterName}。未做任何更改。请重试。`,
+        "coldStoragePluginRestoreProgress": (leftCount: number) =>
+            `正在为插件加载已归档的角色... 还剩 ${leftCount} 项`,
+        "coldStoragePluginRestoreIncomplete": (characterNames: string) =>
+            `已启用需要将所有角色载入内存的插件，但以下已归档的角色无法加载：${characterNames}。它们仍保持归档状态，因此插件将无法看到其数据。`,
         "coldStorageUnknownCharacterName": "未知角色",
         "coldStorageIncompleteBackupConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
             `${characterNames || "未知角色"}的冷存储数据缺失或无效。${unresolvedCount > 0 ? `有 ${unresolvedCount} 个项目无法关联到角色。` : ""}\n\n如果继续，此备份将缺少 ${unavailableCount} 个冷存储项目，受影响的角色或聊天数据可能无法从该备份恢复。\n\n仍要创建不完整的备份吗？`,

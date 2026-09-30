@@ -1,7 +1,7 @@
 import { allowedDbKeys, customProviderStore, getV2PluginAPIs, handlePluginInstallViaPlugin, pluginV2, type PluginV2ProviderArgument, type PluginV2ProviderOptions, type RisuPlugin } from "../plugins.svelte";
 import { SandboxHost } from "./factory";
 import { createPluginScriptHashGetter, getPluginPermissionKey, PluginPermissionSessionCache, runWithPluginPermission, type PluginPermission } from "./pluginPermissionCache";
-import { getDatabase } from "src/ts/storage/database.svelte";
+import { getDatabase, type Chat } from "src/ts/storage/database.svelte";
 import { markCharacterForSave } from "src/ts/storage/characterSaveMarks";
 import {
     fillMissingCharacterInstallIds,
@@ -23,6 +23,8 @@ import { isNodeServer, isTauri } from "src/ts/platform";
 import { get } from "svelte/store";
 import { registerMCPModule, unregisterMCPModule } from "src/ts/process/mcp/pluginmcp";
 import { setColdStorageItem, readColdStorageItem } from "src/ts/process/coldstorage.svelte";
+import { readArchivedCharacter, restoreArchivedForWrite } from "src/ts/process/coldCharacterAccess";
+import { incomingCharacterRefusal } from "../stubDowngrade";
 import { isColdChat } from "src/ts/process/coldstorageData";
 import { readPluginStorageValue, writePluginStorageValue } from "./pluginColdStorage";
 import { getInlayAsset } from "src/ts/process/files/inlays";
@@ -700,12 +702,54 @@ export function setChatToIndexImpl(characterIndex: number, chatIndex: number, ch
     }
 }
 
+/**
+ * The full character in an archived character's unit, as an independent copy;
+ * rejects with the message the user was also shown when the unit cannot be
+ * used.
+ */
+async function readArchivedCopyOrThrow(stub: Parameters<typeof readArchivedCharacter>[0]) {
+    const copy = await readArchivedCharacter(stub)
+    if(copy.status === 'failed'){
+        throw new Error(copy.message)
+    }
+    return copy.character
+}
+
+/** `setChatToIndexImpl` on the archived character holding `chaId`, once it is restored. */
+async function setChatOfArchivedCharacter(chaId: string, chatIndex: number, chat: any, pluginName: string): Promise<void> {
+    const ready = await restoreArchivedForWrite(chaId)
+    if(ready.status === 'failed'){
+        throw new Error(ready.message)
+    }
+    if(ready.status === 'gone'){
+        throw new Error('The character is not in the character list.')
+    }
+    setChatToIndexImpl(ready.index, chatIndex, chat, pluginName)
+}
+
+function snapshotChat(chats: Chat[] | undefined, chatIndex: number) {
+    if(chats && chats[chatIndex]){
+        return $state.snapshot(chats[chatIndex]);
+    }
+    return null;
+}
+
 // Exported (only) so CHORE-07 stage 7c-1's `sendChat` cold-chat guard can be
 // driven directly in tests without going through the iframe/SandboxHost
 // bridge -- see `src/ts/process/tests/pluginSendChatColdGuard.svelte.test.ts`.
 export const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
 
     const oldApis = getV2PluginAPIs();
+    // Fork-specific: unlike the V2 `setChar`, which ignores an archived-character
+    // placeholder that may not replace the selected character, the V3 call
+    // rejects.
+    const setSelectedCharacter = (char:any, pluginName:string) => {
+        const refusal = incomingCharacterRefusal(char, pluginName)
+        if(refusal){
+            throw new Error(refusal)
+        }
+        oldApis.setChar(char, pluginName)
+    }
     const getPluginScriptHash = createPluginScriptHashGetter(plugin.script, hasher)
     const getPermission = async (permissionDesc: PluginPermission, reconfirm: boolean|'periodically' = false) => {
         return getPluginPermission(plugin.name, await getPluginScriptHash(), permissionDesc, reconfirm)
@@ -747,7 +791,7 @@ export const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             return oldApis.nativeFetch(url, options);
         },
         getChar: oldApis.getChar,
-        setChar: (char:any) => oldApis.setChar(char, plugin.name),
+        setChar: (char:any) => setSelectedCharacter(char, plugin.name),
         addProvider: (name: string, func: (arg: PluginV2ProviderArgument, abortSignal?: AbortSignal) => Promise<{ success: boolean, content: string | ReadableStream<string> }>, options?: PluginV3ProviderOptions) => {
             console.warn(`[WARN] addProvider is a powerful API that can potentially be unsafe if used incorrectly. addProvider's functionality might be limited or changed in future updates to ensure security. please use other APIs if possible.`);
             let provs = get(customProviderStore)
@@ -939,7 +983,15 @@ export const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             const charIds = Object.keys(db.characters);
             const charId = charIds[index];
             if(charId){
-                return $state.snapshot(db.characters[charId]);
+                // Fork-specific: an archived character is read from its unit as
+                // an independent copy, so the plugin gets its real data; the
+                // placeholder stays in the list. `getDatabase` still returns
+                // the placeholder.
+                const stored = db.characters[charId]
+                if(stored?.coldstorage){
+                    return readArchivedCopyOrThrow(stored)
+                }
+                return $state.snapshot(stored);
             }
             return null;
         },
@@ -948,6 +1000,10 @@ export const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             const charIds = Object.keys(db.characters);
             const charId = charIds[index];
             if(charId){
+                const refusal = incomingCharacterRefusal(char, plugin.name)
+                if(refusal){
+                    throw new Error(refusal)
+                }
                 const replaced = db.characters[charId]
                 fillMissingCharacterInstallIds(char)
                 warnIfCharacterChaIdDuplicated(db.characters, index, char?.chaId, replaced?.chaId, plugin.name)
@@ -960,10 +1016,13 @@ export const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             const charIds = Object.keys(db.characters);
             const charId = charIds[characterIndex];
             if(charId){
-                const chats = db.characters[charId].chats;
-                if(chats && chats[chatIndex]){
-                    return $state.snapshot(chats[chatIndex]);
+                const stored = db.characters[charId]
+                // Fork-specific: an archived character's chats come from its
+                // unit, as for `getCharacterFromIndex`.
+                if(stored?.coldstorage){
+                    return readArchivedCopyOrThrow(stored).then((copy) => snapshotChat(copy.chats, chatIndex))
                 }
+                return snapshotChat(stored?.chats, chatIndex);
             }
             return null;
         },
@@ -1010,7 +1069,18 @@ export const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
 
             return (await processScriptFull(char, parsed, 'editprocess', chatID, cbsConditions)).data;
         },
-        setChatToIndex: (characterIndex:number, chatIndex:number, chat:any) => setChatToIndexImpl(characterIndex, chatIndex, chat, plugin.name),
+        setChatToIndex: (characterIndex:number, chatIndex:number, chat:any) => {
+            // Fork-specific: a write to an archived character restores it
+            // first and lands on the restored character, found again by its
+            // chaId because the list may change during the read. A failed
+            // restore writes nothing and rejects.
+            const db = DBState.db
+            const target = db.characters[Object.keys(db.characters)[characterIndex]]
+            if(target?.coldstorage){
+                return setChatOfArchivedCharacter(target.chaId, chatIndex, chat, plugin.name)
+            }
+            setChatToIndexImpl(characterIndex, chatIndex, chat, plugin.name)
+        },
         getCurrentCharacterIndex: () => {
             return get(selectedCharID)
         },
@@ -1033,7 +1103,7 @@ export const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         },
         //New names for character APIs, to match API naming conventions
         getCharacter: oldApis.getChar,
-        setCharacter: (char:any) => oldApis.setChar(char, plugin.name),
+        setCharacter: (char:any) => setSelectedCharacter(char, plugin.name),
 
         showContainer: (
             //more types may be added in future

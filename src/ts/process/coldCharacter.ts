@@ -176,6 +176,81 @@ export function applyStubStateOnRestore<T extends Slot>(stub: Slot, restored: T)
 }
 
 /**
+ * Why a stub offered by a plugin may not go into the character list: the
+ * character holding its `chaId` is already full (`live-full`), it is a stub
+ * for another unit (`other-unit`), or no character holds the `chaId`
+ * (`no-holder`).
+ */
+export type StubRefusal = 'live-full' | 'other-unit' | 'no-holder'
+
+/**
+ * Whether `incoming`, a character offered by a plugin, may take a place in the
+ * character list, given `holders`, the characters in the list that hold its
+ * `chaId`: null, or the reason it may not. Only a stub can be refused, and
+ * only a stub that is not the same placeholder (same `chaId`, same unit key) as
+ * one already in the list; that is what a plugin hands back after reading the
+ * list. A full character is always allowed, even over a live stub.
+ */
+export function stubRefusal(holders: readonly Slot[], incoming: Slot): StubRefusal | null {
+    if (!incoming?.coldstorage) {
+        return null
+    }
+    if (holders.length === 0) {
+        return 'no-holder'
+    }
+    if (holders.some((cha) => cha.coldstorage === incoming.coldstorage)) {
+        return null
+    }
+    return holders.some((cha) => !cha.coldstorage) ? 'live-full' : 'other-unit'
+}
+
+/**
+ * `incoming`, a character array offered by a plugin to replace `live`, with
+ * every refused stub (`stubRefusal`) swapped for the live character it would
+ * have displaced, or left out when none holds its `chaId`. The other elements
+ * are untouched. Returns a new array and the refusals.
+ *
+ * `live` is indexed by `chaId` once, and only when `incoming` holds a stub, so
+ * the cost is linear in both lists however many characters are archived.
+ */
+export function reconcileIncomingCharacters(live: readonly Slot[], incoming: readonly Slot[]): { characters: Slot[], refused: { chaId: string, reason: StubRefusal }[] } {
+    const characters: Slot[] = []
+    const refused: { chaId: string, reason: StubRefusal }[] = []
+    let holdersByChaId: Map<string, Slot[]> | undefined
+    for (const cha of incoming) {
+        if (!cha?.coldstorage) {
+            characters.push(cha)
+            continue
+        }
+        if (!holdersByChaId) {
+            holdersByChaId = new Map()
+            for (const candidate of live) {
+                if (!candidate) {
+                    continue
+                }
+                const held = holdersByChaId.get(candidate.chaId)
+                if (held) {
+                    held.push(candidate)
+                } else {
+                    holdersByChaId.set(candidate.chaId, [candidate])
+                }
+            }
+        }
+        const holders = holdersByChaId.get(cha.chaId) ?? []
+        const reason = stubRefusal(holders, cha)
+        if (!reason) {
+            characters.push(cha)
+            continue
+        }
+        refused.push({ chaId: cha.chaId, reason })
+        if (holders.length > 0) {
+            characters.push(holders[0])
+        }
+    }
+    return { characters, refused }
+}
+
+/**
  * The chat count a character list shows: the full character's count for a
  * stub built here, `chats.length` for a full character and for a stub made by
  * the upstream application.

@@ -33,6 +33,14 @@ export const languageSpanish = {
         "coldStorageVerifyFailed": "Error en la verificación del almacenamiento frío. Sus datos de chat se han conservado.",
         "coldStorageRestoreFailed": "No se pudieron cargar los datos del almacenamiento frío. Los datos del personaje afectado pueden haberse perdido permanentemente.",
         "coldStorageRestoreUnreadable": "No se pudo cargar este personaje en este momento. No se cambió nada. Inténtalo de nuevo.",
+        "coldStorageNamedRestoreFailed": (characterName: string) =>
+            `No se pudo cargar el personaje archivado ${characterName}: los datos de su almacenamiento frío faltan o no son válidos, y pueden haberse perdido permanentemente. No se cambió nada.`,
+        "coldStorageNamedRestoreUnreadable": (characterName: string) =>
+            `No se pudo cargar el personaje archivado ${characterName} en este momento. No se cambió nada. Inténtalo de nuevo.`,
+        "coldStoragePluginRestoreProgress": (leftCount: number) =>
+            `Cargando personajes archivados para un plugin... quedan ${leftCount} elementos`,
+        "coldStoragePluginRestoreIncomplete": (characterNames: string) =>
+            `Hay un plugin habilitado que necesita todos los personajes en memoria, pero no se pudieron cargar estos personajes archivados: ${characterNames}. Siguen archivados, por lo que el plugin no verá sus datos.`,
         "coldStorageUnknownCharacterName": "Personaje desconocido",
         "coldStorageIncompleteBackupConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
             `Faltan datos del almacenamiento frío de ${characterNames || "personajes desconocidos"} o no son válidos.${unresolvedCount > 0 ? ` No se pudieron asociar ${unresolvedCount} elemento(s) con un personaje.` : ""}\n\nSi continúa, a esta copia de seguridad le faltarán ${unavailableCount} elemento(s) del almacenamiento frío y puede que no sea posible recuperar los datos de los personajes o chats afectados.\n\n¿Crear de todos modos la copia de seguridad incompleta?`,

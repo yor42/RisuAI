@@ -33,6 +33,14 @@ export const languageGerman = {
         "coldStorageVerifyFailed": "Kaltlager-Überprüfung fehlgeschlagen. Ihre Chat-Daten wurden beibehalten.",
         "coldStorageRestoreFailed": "Kaltlagerdaten konnten nicht geladen werden. Die Daten des betroffenen Charakters können dauerhaft verloren sein.",
         "coldStorageRestoreUnreadable": "Dieser Charakter konnte gerade nicht geladen werden. Es wurde nichts verändert. Versuchen Sie es bitte erneut.",
+        "coldStorageNamedRestoreFailed": (characterName: string) =>
+            `Der archivierte Charakter ${characterName} konnte nicht geladen werden: Seine Kaltlagerdaten fehlen oder sind ungültig und können dauerhaft verloren sein. Es wurde nichts verändert.`,
+        "coldStorageNamedRestoreUnreadable": (characterName: string) =>
+            `Der archivierte Charakter ${characterName} konnte gerade nicht geladen werden. Es wurde nichts verändert. Versuchen Sie es bitte erneut.`,
+        "coldStoragePluginRestoreProgress": (leftCount: number) =>
+            `Archivierte Charaktere werden für ein Plugin geladen... noch ${leftCount} Element(e)`,
+        "coldStoragePluginRestoreIncomplete": (characterNames: string) =>
+            `Ein Plugin, das alle Charaktere im Speicher benötigt, ist aktiviert, aber diese archivierten Charaktere konnten nicht geladen werden: ${characterNames}. Sie bleiben archiviert, daher wird das Plugin ihre Daten nicht sehen.`,
         "coldStorageUnknownCharacterName": "Unbekannter Charakter",
         "coldStorageIncompleteBackupConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
             `Kaltlagerdaten für ${characterNames || "unbekannte Charaktere"} fehlen oder sind ungültig.${unresolvedCount > 0 ? ` ${unresolvedCount} Element(e) konnten keinem Charakter zugeordnet werden.` : ""}\n\nWenn Sie fortfahren, fehlen in dieser Sicherung ${unavailableCount} Kaltlagerelement(e). Die betroffenen Charakter- oder Chatdaten können daraus möglicherweise nicht wiederhergestellt werden.\n\nTrotzdem eine unvollständige Sicherung erstellen?`,

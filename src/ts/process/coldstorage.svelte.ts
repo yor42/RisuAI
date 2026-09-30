@@ -18,6 +18,7 @@ import type { Database, character, groupChat } from "../storage/database.svelte"
 import { coldStorageHeader, getColdStorageAffectedCharacters, getColdStorageBackupName, isColdStorageBackupData, listColdDataKeysFromDb, matchColdStorageLoadErrorKey, mergeRetriedColdChatSideFields } from "./coldstorageData"
 import { doingChat } from "./index.svelte"
 import { buildColdStub, isArchivableCharacter } from "./coldCharacter"
+import { hasEnabledV21Plugin } from "../plugins/v21Plugins"
 
 export {
     coldStorageHeader,
@@ -631,8 +632,13 @@ export async function makeColdData(){
         didChange = true
     }
 
-    for(let i=0;i<DBState.db.characters.length;i++){
-        queue.push(() => makeColdDataForCharacter(i, coldTime))
+    // An enabled V2.1 plugin edits the live character list directly and must
+    // never see a placeholder, so no character is archived while one exists.
+    // Chats are archived as usual.
+    if(!hasEnabledV21Plugin(DBState.db.plugins)){
+        for(let i=0;i<DBState.db.characters.length;i++){
+            queue.push(() => makeColdDataForCharacter(i, coldTime))
+        }
     }
 
     while(queue.length > 0){

@@ -1,5 +1,5 @@
 import { type MCPTool, MCPToolHandler, type MCPToolCallContext, type RPCToolCallContent } from '../mcplib'
-import { getCharacter } from './utils'
+import { getCharacterForRead } from './utils'
 import { type character, type groupChat } from 'src/ts/storage/database.svelte'
 import type { RunSubject } from '../../chatOrigin'
 
@@ -43,7 +43,7 @@ export class ChatHandler extends MCPToolHandler {
   async getChatHistory(id: string, count: number = 20, offset: number = 0, subject?: RunSubject): Promise<RPCToolCallContent[]> {
     // With no id, a call that carries a subject reads the subject's own chat, not the owner's open one.
     const resolved = !id && subject ? subject.resolve() : null
-    const char: character | groupChat = !id && subject ? resolved?.owner : getCharacter(id)
+    const char: character | groupChat = !id && subject ? resolved?.owner : await getCharacterForRead(id)
     if (!char) {
       return [
         {

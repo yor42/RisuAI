@@ -33,6 +33,14 @@ export const languageChineseTraditional = {
         "coldStorageVerifyFailed": "冷儲存驗證失敗。您的對話資料已被保留",
         "coldStorageRestoreFailed": "無法載入冷儲存資料。受影響角色的資料可能已永久遺失",
         "coldStorageRestoreUnreadable": "暫時無法載入此角色。未做任何變更。請再試一次。",
+        "coldStorageNamedRestoreFailed": (characterName: string) =>
+            `無法載入已封存的角色 ${characterName}：其冷儲存資料遺失或無效，可能已永久遺失。未做任何變更。`,
+        "coldStorageNamedRestoreUnreadable": (characterName: string) =>
+            `暫時無法載入已封存的角色 ${characterName}。未做任何變更。請再試一次。`,
+        "coldStoragePluginRestoreProgress": (leftCount: number) =>
+            `正在為外掛載入已封存的角色... 剩餘 ${leftCount} 項`,
+        "coldStoragePluginRestoreIncomplete": (characterNames: string) =>
+            `已啟用需要將所有角色載入記憶體的外掛，但以下已封存的角色無法載入：${characterNames}。這些角色仍維持封存狀態，因此外掛將無法看到其資料。`,
         "coldStorageUnknownCharacterName": "未知角色",
         "coldStorageIncompleteBackupConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
             `${characterNames || "未知角色"} 的冷儲存資料遺失或無效。${unresolvedCount > 0 ? `有 ${unresolvedCount} 個項目無法連結到角色。` : ""}\n\n若繼續，此備份將缺少 ${unavailableCount} 個冷儲存項目，受影響的角色或對話資料可能無法從此備份復原。\n\n仍要建立不完整的備份嗎？`,

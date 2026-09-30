@@ -7,8 +7,10 @@ import { applyStubStateOnRestore } from "./coldCharacter"
 
 /**
  * Reading an archived character's unit back and installing it in place of its
- * stub, shared by `changeChar` (`characters.ts`) and
- * `restoreColdCharacterByChaId` (`coldMemberRestore.ts`).
+ * stub, shared by `changeChar` (`characters.ts`),
+ * `restoreColdCharacterByChaId` (`coldMemberRestore.ts`) and the plugin and
+ * MCP access paths (`coldCharacterAccess.ts`, `coldRestoreAll.ts`). Reading a
+ * copy without installing it is `readColdCharacterCopy`.
  *
  * This module must not import `characters.ts` or `index.svelte.ts` statically.
  * The group turn in `index.svelte.ts` loads `coldMemberRestore.ts` on demand
@@ -23,6 +25,21 @@ import { applyStubStateOnRestore } from "./coldCharacter"
 
 type Slot = character | groupChat
 
+/**
+ * Why a unit could not be used: there is no usable character in it
+ * (`missing`), the storage failed to read it (`unreadable`), it holds a
+ * character with another `chaId` than the placeholder (`mismatch`), or the
+ * `chaId` is held by several characters (`ambiguous`).
+ */
+export type ColdRestoreFailure = 'missing' | 'unreadable' | 'mismatch' | 'ambiguous'
+
+/** The outcome of reading a stub's character without installing it. */
+export type ColdCopyOutcome =
+    | { status: 'ok', character: Slot }
+    | { status: 'missing' }
+    | { status: 'unreadable', error: unknown }
+    | { status: 'mismatch' }
+
 export type ColdRestoreOutcome =
     /**
      * `character` is the character now in the list in place of the stub.
@@ -33,8 +50,12 @@ export type ColdRestoreOutcome =
     | { status: 'restored', character: Slot, installedHere: boolean }
     /** No slot to install into was left after the read. Nothing was installed and nothing was shown. */
     | { status: 'gone' }
-    /** The unit could not be used, or the chaId is held by several characters. The user has been told, and the stub is untouched. */
-    | { status: 'refused' }
+    /**
+     * The unit could not be used, or the chaId is held by several characters.
+     * The stub is untouched. The user has been told, unless the request was
+     * `quiet`: then the caller owns that, and `reason` says what happened.
+     */
+    | { status: 'refused', reason: ColdRestoreFailure }
 
 export interface ColdRestoreOptions {
     /**
@@ -49,6 +70,13 @@ export interface ColdRestoreOptions {
      * refused with the alert.
      */
     byChaId?: boolean
+    /**
+     * Show no alert of its own on a refusal; the `reason` on the `refused`
+     * outcome is the caller's to report. A request that joins a running restore
+     * that was refused shows nothing: the running request's option decided what
+     * was shown.
+     */
+    quiet?: boolean
 }
 
 /** One running restore per stub object; a second request for the same stub joins it instead of reading and installing again. */
@@ -77,6 +105,52 @@ async function readUnit(key: string): Promise<ColdStorageReadResult> {
     }
 }
 
+/**
+ * What `result`, the read of `key`, yields for `target`, the placeholder it
+ * belongs to: the unit's character, or the way it failed. Logs the failure.
+ */
+function checkUnit(result: ColdStorageReadResult, key: string, target: Slot): ColdCopyOutcome {
+    if (result.status === 'error') {
+        console.error(`Cold storage unit ${key} of ${target.name} could not be read`, result.error)
+        return { status: 'unreadable', error: result.error }
+    }
+    const stored = result.status === 'ok' ? (result.value as { character?: Slot } | null | undefined)?.character : undefined
+    if (!stored) {
+        return { status: 'missing' }
+    }
+    if (stored.chaId !== target.chaId) {
+        console.error(`Cold storage unit ${key} holds a character with chaId ${stored.chaId}, but the placeholder ${target.name} has chaId ${target.chaId}; the placeholder is kept`)
+        return { status: 'mismatch' }
+    }
+    return { status: 'ok', character: stored }
+}
+
+/**
+ * The full character in `stub`'s unit, as an independent copy that carries the
+ * stub's trash state (`applyStubStateOnRestore`). It installs nothing, marks
+ * nothing for save and shows nothing: `DBState.db.characters` is not touched
+ * and the stub stays in its slot. Every call reads the unit again.
+ */
+export async function readColdCharacterCopy(stub: Slot): Promise<ColdCopyOutcome> {
+    const key = stub.coldstorage
+    if (!key) {
+        return { status: 'missing' }
+    }
+    const outcome = checkUnit(await readUnit(key), key, stub)
+    if (outcome.status !== 'ok') {
+        return outcome
+    }
+    return { status: 'ok', character: applyStubStateOnRestore(stub, outcome.character) }
+}
+
+/** The refusal of a restore, with the user-facing alert unless the request is `quiet`. */
+function refuse(options: ColdRestoreOptions, reason: ColdRestoreFailure): ColdRestoreOutcome {
+    if (!options.quiet) {
+        alertError(reason === 'unreadable' ? language.errors.coldStorageRestoreUnreadable : language.errors.coldStorageRestoreFailed)
+    }
+    return { status: 'refused', reason }
+}
+
 async function restoreOnce(stub: Slot, options: ColdRestoreOptions): Promise<ColdRestoreOutcome> {
     const key = stub.coldstorage
     if (!key) {
@@ -99,8 +173,7 @@ async function restoreOnce(stub: Slot, options: ColdRestoreOptions): Promise<Col
             return { status: 'gone' }
         }
         if (holders.length > 1) {
-            alertError(language.errors.coldStorageRestoreFailed)
-            return { status: 'refused' }
+            return refuse(options, 'ambiguous')
         }
         index = holders[0]
         const holder = characters[index]
@@ -120,23 +193,12 @@ async function restoreOnce(stub: Slot, options: ColdRestoreOptions): Promise<Col
     // a copy of the stub that was trashed or lifted from the trash meanwhile.
     const target = characters[index]
 
-    if (result.status === 'error') {
-        console.error(`Cold storage unit ${key} of ${target.name} could not be read`, result.error)
-        alertError(language.errors.coldStorageRestoreUnreadable)
-        return { status: 'refused' }
-    }
-    const stored = result.status === 'ok' ? (result.value as { character?: Slot } | null | undefined)?.character : undefined
-    if (!stored) {
-        alertError(language.errors.coldStorageRestoreFailed)
-        return { status: 'refused' }
-    }
-    if (stored.chaId !== target.chaId) {
-        console.error(`Cold storage unit ${key} holds a character with chaId ${stored.chaId}, but the placeholder ${target.name} has chaId ${target.chaId}; the placeholder is kept`)
-        alertError(language.errors.coldStorageRestoreFailed)
-        return { status: 'refused' }
+    const unit = checkUnit(result, key, target)
+    if (unit.status !== 'ok') {
+        return refuse(options, unit.status)
     }
 
-    characters[index] = applyStubStateOnRestore(target, stored)
+    characters[index] = applyStubStateOnRestore(target, unit.character)
     return { status: 'restored', character: characters[index], installedHere: true }
 }
 
@@ -168,8 +230,7 @@ export function restoreColdCharacter(stub: Slot, options: ColdRestoreOptions = {
                     return { status: 'gone' }
                 }
                 if (holders > 1) {
-                    alertError(language.errors.coldStorageRestoreFailed)
-                    return { status: 'refused' }
+                    return refuse(options, 'ambiguous')
                 }
             }
             return { ...outcome, installedHere: false }

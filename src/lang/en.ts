@@ -34,6 +34,14 @@ export const languageEnglish = {
         coldStorageVerifyFailed: "Cold storage verification failed. Your chat data has been preserved.",
         coldStorageRestoreFailed: "Cold storage data could not be loaded. The affected character's data may be permanently lost.",
         coldStorageRestoreUnreadable: "This character could not be loaded right now. Nothing was changed. Please try again.",
+        coldStorageNamedRestoreFailed: (characterName: string) =>
+            `The archived character ${characterName} could not be loaded: its cold storage data is missing or invalid, and may be permanently lost. Nothing was changed.`,
+        coldStorageNamedRestoreUnreadable: (characterName: string) =>
+            `The archived character ${characterName} could not be loaded right now. Nothing was changed. Please try again.`,
+        coldStoragePluginRestoreProgress: (leftCount: number) =>
+            `Loading archived characters for a plugin... ${leftCount} items left`,
+        coldStoragePluginRestoreIncomplete: (characterNames: string) =>
+            `A plugin that needs every character in memory is enabled, but these archived characters could not be loaded: ${characterNames}. They stay archived, so the plugin will not see their data.`,
         coldStorageUnknownCharacterName: "Unknown character",
         coldStorageIncompleteBackupConfirm: (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
             `Cold storage data for ${characterNames || "unknown characters"} is missing or invalid.${unresolvedCount > 0 ? ` ${unresolvedCount} item(s) could not be linked to a character.` : ""}\n\nIf you continue, this backup will be missing ${unavailableCount} cold storage item(s), and the affected character or chat data may not be recoverable from it.\n\nCreate the incomplete backup anyway?`,

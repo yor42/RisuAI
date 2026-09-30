@@ -33,7 +33,7 @@
             char.name = 'assistant'
             char.firstMessage = '{{none}}'
             DBState.db.characters[charIndex] = char
-            characterFormatUpdate(charIndex)
+            characterFormatUpdate(charIndex, { updateInteraction: true })
 
             selectedCharID.set(charIndex)
             return

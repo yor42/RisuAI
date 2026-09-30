@@ -43,7 +43,7 @@ export async function restoreColdCharacterByChaId(chaId: string): Promise<boolea
     if (outcome.installedHere) {
         const index = DBState.db.characters.indexOf(outcome.character)
         if (index !== -1) {
-            characterFormatUpdate(index)
+            characterFormatUpdate(index, { updateInteraction: true })
         }
     }
     return true

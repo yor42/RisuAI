@@ -5,7 +5,7 @@ import { DBState } from 'src/ts/stores.svelte'
 import { pickHashRand } from 'src/ts/util'
 import type { RunSubject } from '../../chatOrigin'
 import { type MCPTool, MCPToolHandler, type MCPToolCallContext, type RPCToolCallContent } from '../mcplib'
-import { getCharacter, getCharacterForWrite, recheckCharacterForWrite } from './utils'
+import { getCharacterForRead, getCharacterForWrite, recheckCharacterForWrite } from './utils'
 
 export class CharacterHandler extends MCPToolHandler {
   private promptAccess(tool: string, action: string) {
@@ -384,7 +384,7 @@ export class CharacterHandler extends MCPToolHandler {
   }
 
   async getCharacterInfo(id: string, fields: string[], subject?: RunSubject): Promise<RPCToolCallContent[]> {
-    const char: character | groupChat = getCharacter(id, subject)
+    const char: character | groupChat = await getCharacterForRead(id, subject)
     if (!char) {
       return [
         {
@@ -437,7 +437,7 @@ export class CharacterHandler extends MCPToolHandler {
   }
 
   async getCharacterLorebooks(id: string, count: number = 100, offset: number = 0, subject?: RunSubject): Promise<RPCToolCallContent[]> {
-    const char: character | groupChat = getCharacter(id, subject)
+    const char: character | groupChat = await getCharacterForRead(id, subject)
     if (!char) {
       return [
         {
@@ -477,7 +477,7 @@ export class CharacterHandler extends MCPToolHandler {
   }
 
   async getCharacterLorebook(id: string, entryNames: string[], subject?: RunSubject): Promise<RPCToolCallContent[]> {
-    const char: character | groupChat = getCharacter(id, subject)
+    const char: character | groupChat = await getCharacterForRead(id, subject)
     if (!char) {
       return [
         {
@@ -552,7 +552,7 @@ export class CharacterHandler extends MCPToolHandler {
       ]
     }
 
-    const target = recheckCharacterForWrite(id, ctx, char)
+    const target = await recheckCharacterForWrite(id, ctx, char)
     if (!target) {
       return [
         {
@@ -636,7 +636,7 @@ export class CharacterHandler extends MCPToolHandler {
       ]
     }
 
-    const target = recheckCharacterForWrite(id, ctx, char)
+    const target = await recheckCharacterForWrite(id, ctx, char)
     if (!target) {
       return [
         {
@@ -730,7 +730,7 @@ export class CharacterHandler extends MCPToolHandler {
       ]
     }
 
-    const target = recheckCharacterForWrite(id, ctx, char)
+    const target = await recheckCharacterForWrite(id, ctx, char)
     if (!target) {
       return [
         {
@@ -765,7 +765,7 @@ export class CharacterHandler extends MCPToolHandler {
   }
 
   async getCharacterRegexScripts(id: string, subject?: RunSubject): Promise<RPCToolCallContent[]> {
-    const char: character | groupChat = getCharacter(id, subject)
+    const char: character | groupChat = await getCharacterForRead(id, subject)
     if (!char) {
       return [
         {
@@ -845,7 +845,7 @@ export class CharacterHandler extends MCPToolHandler {
       ]
     }
 
-    const target = recheckCharacterForWrite(id, ctx, char)
+    const target = await recheckCharacterForWrite(id, ctx, char)
     if (!target) {
       return [
         {
@@ -933,7 +933,7 @@ export class CharacterHandler extends MCPToolHandler {
       ]
     }
 
-    const target = recheckCharacterForWrite(id, ctx, char)
+    const target = await recheckCharacterForWrite(id, ctx, char)
     if (!target) {
       return [
         {
@@ -972,7 +972,7 @@ export class CharacterHandler extends MCPToolHandler {
   }
 
   async getCharacterAdditionalAssets(id: string, subject?: RunSubject): Promise<RPCToolCallContent[]> {
-    const char: character | groupChat = getCharacter(id, subject)
+    const char: character | groupChat = await getCharacterForRead(id, subject)
     if (!char) {
       return [
         {
@@ -1037,7 +1037,7 @@ export class CharacterHandler extends MCPToolHandler {
       ]
     }
 
-    const target = recheckCharacterForWrite(id, ctx, char)
+    const target = await recheckCharacterForWrite(id, ctx, char)
     if (!target) {
       return [
         {
@@ -1076,7 +1076,7 @@ export class CharacterHandler extends MCPToolHandler {
   }
 
   async getCharacterLuaScript(id: string, subject?: RunSubject): Promise<RPCToolCallContent[]> {
-    const char: character | groupChat = getCharacter(id, subject)
+    const char: character | groupChat = await getCharacterForRead(id, subject)
     if (!char) {
       return [
         {
@@ -1140,7 +1140,7 @@ export class CharacterHandler extends MCPToolHandler {
       ]
     }
 
-    const target = recheckCharacterForWrite(id, ctx, char)
+    const target = await recheckCharacterForWrite(id, ctx, char)
     if (!target) {
       return [
         {
