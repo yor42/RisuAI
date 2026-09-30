@@ -93,11 +93,18 @@ export async function SaveLocalBackup(){
             }
             alertWait(message)
 
+            // Directories are skipped because readFile on one fails. readDir does not follow
+            // links, so a symlink is read, and lands in missingAssets if it is not a readable file.
             const key = asset.name
-            if(!key || !key.endsWith('.png')){
+            if(!key || !(asset.isFile || asset.isSymlink)){
                 continue
             }
-            const data = await readFile('assets/' + asset.name, {baseDir: BaseDirectory.AppData})
+            let data: Uint8Array | undefined
+            try {
+                data = await readFile('assets/' + asset.name, {baseDir: BaseDirectory.AppData})
+            } catch (e) {
+                console.error(e)
+            }
             if (data) {
                 await writer.writeBackup(key, data)
             } else {
@@ -120,7 +127,8 @@ export async function SaveLocalBackup(){
             }
             alertWait(message)
 
-            if(!key || !key.endsWith('.png')){
+            // The same storage also lists database, remote-block, marker and (on the Node server) cold-storage keys; only assets/ keys are assets.
+            if(!key || !key.startsWith('assets/')){
                 continue
             }
             const data = await forageStorage.getItem(key) as unknown as Uint8Array
@@ -170,7 +178,7 @@ export async function SaveLocalBackup(){
  * Differences from SaveLocalBackup:
  * - Only includes profile images for characters/groups (excludes emotion images, additional assets, VITS files, CC assets)
  * - Additionally includes: persona icons, folder images, bot preset images
- * - Processes only assets in assetMap (selective) instead of all .png files in assets folder
+ * - Processes only assets in assetMap (selective) instead of every file in the assets folder
  * - Faster and more efficient for quick backups
  * - Ideal for backing up core visual identity without bulk data
  */
@@ -267,15 +275,12 @@ export async function SavePartialLocalBackup(){
         const assets = await readDir('assets', {baseDir: BaseDirectory.AppData})
         let i = 0;
         for(let asset of assets){
-            if(!asset.name){
+            if(!asset.name || !(asset.isFile || asset.isSymlink)){
                 continue
             }
 
             const keyWithPrefix = asset.name.startsWith('assets/') ? asset.name : `assets/${asset.name}`
-            if(!keyWithPrefix.endsWith('.png')){
-                continue
-            }
-            
+
             // Only process if this asset is in our map (profile images only)
             if(!assetMap.has(keyWithPrefix)){
                 continue
@@ -292,7 +297,12 @@ export async function SavePartialLocalBackup(){
             }
             alertWait(message)
 
-            const data = await readFile(keyWithPrefix, {baseDir: BaseDirectory.AppData})
+            let data: Uint8Array | undefined
+            try {
+                data = await readFile(keyWithPrefix, {baseDir: BaseDirectory.AppData})
+            } catch (e) {
+                console.error(e)
+            }
             if (data) {
                 await writer.writeBackup(keyWithPrefix, data)
             } else {
@@ -316,7 +326,8 @@ export async function SavePartialLocalBackup(){
             }
             alertWait(message)
 
-            if(!key || !key.endsWith('.png')){
+            // A referenced key outside assets/ is not an asset of this store.
+            if(!key || !key.startsWith('assets/')){
                 continue
             }
 

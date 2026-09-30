@@ -2376,9 +2376,14 @@ export class LocalWriter {
      * 
      * @param {string} name - The name of the backup.
      * @param {Uint8Array} data - The data to write.
+     * @throws {Error} When the name or the data does not fit the 32-bit length fields.
      */
     async writeBackup(name: string, data: Uint8Array): Promise<void> {
         const encodedName = new TextEncoder().encode(getBasename(name))
+        // A length past u32 would wrap and yield an entry no reader can parse.
+        if (encodedName.byteLength > 0xFFFFFFFF || data.byteLength > 0xFFFFFFFF) {
+            throw new Error(`Backup entry "${name}" is too large to store (a single backup entry is limited to 4 GiB).`)
+        }
         const nameLength = new Uint32Array([encodedName.byteLength])
         await this.writer.write(new Uint8Array(nameLength.buffer))
         await this.writer.write(encodedName)
