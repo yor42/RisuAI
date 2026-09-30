@@ -11,17 +11,19 @@ treat it as a log or history.
 
 ## Session date
 
-2026-09-30.
+2026-10-01.
 
 ## Branch and commit state
 
-The branch is `fix/persistence-conflict-platform-hardening`. **It is pushed through `7d4bc4b0`.**
+The branch is `fix/persistence-conflict-platform-hardening`. **It is pushed through `0a3fb2b0`.**
 These later commits are local and not pushed:
 - `d25a02fb`: CHORE-47's fix;
 - `bb3f9e7b`: CHORE-47's records;
 - `ccf45c53`: the chat-switch memory fix;
 - `211e7603`: the records of the memory stage 1 plan, its gates and the real-profile findings;
 - `2b3dd636`: memory stage 1 step 1, the exclusive manual clean-up (Report 50);
+- `bc09a9a1`: the step 1 records and the Roadmap's Phase 2 status note;
+- `db49aeeb`: memory stage 1 step 2, the v2 stub and the shared restore (Report 51);
 - the records commit that carries this file.
 
 Push only at the maintainer's request.
@@ -42,8 +44,7 @@ Several sessions work **in this same checkout**:
   build"** and **"Fork rebranding exploration"** are idle or done; see Report 39/41 and ledger
   row 428.
 
-**Next free numbers:** `MC-146`, Report 51, ledger row 494 (row 493 is reserved for the
-`doc-verifier` check of this batch of records) and CHORE-50. Check the ledger's last row before taking
+**Next free numbers:** `MC-146`, Report 52, ledger row 499 and CHORE-50. Check the ledger's last row before taking
 one. `MC-114` and ledger rows 371-374 were reserved for W2c-a and left unused; nobody
 should fill them.
 
@@ -54,12 +55,14 @@ should fill them.
 
 ## Current work
 
-### Resume here (hand-off, 2026-09-30, memory stage 1: step 1 done)
+### Resume here (hand-off, 2026-10-01, memory stage 1: steps 1 and 2 done)
 
 1. **Memory-footprint stage 1 is planned and passed Gate 1** (Report 49, `MC-130` to `MC-145`,
    ledger rows 455-486). **Step 1 is done:** the exclusive manual clean-up (D11) and no startup asset
    sweep once a stub exists (D12), committed as `2b3dd636` (Report 50; Gate 2 approved at round 3,
-   ledger rows 487-491). Steps 2-7 are not started.
+   ledger rows 487-491). **Step 2 is done:** the v2 stub and the shared restore (D6, D7, D9 restore
+   side), committed as `db49aeeb` (Report 51; Gate 2 approved at round 2, then one editorial
+   round, ledger rows 494-497). Steps 3-7 are not started.
    - The round-5 verdict was `[EDITORIAL]`. Its corrections were applied to the plan by the
      Orchestrator and not re-verified; Report 49's section 3 marks what was added after Gate 1.
    - Design:
@@ -69,11 +72,16 @@ should fill them.
      - there is no runtime archive engine (ledger row 475).
    - The working copy of the plan is in the session scratchpad (`memfoot/stage1c/plan.md`).
      Report 49 is the durable version.
-2. **Next: implementation step 2, the stub v2 and restore module (D6, D7, D9).** Report 49 section 3.4
-   lists it as: `changeChar` and `coldMemberRestore` use the module, and the `MobileCharacters` count
-   and the `GridCatalog` description change. Red tests first, then the coder, then Gate 2 with
-   `opus-reviewer`. Steps 2-4 land before the boot pass (step 5), and the idle reload (step 6) comes
-   after it. Step 1's open follow-ups are in Report 50 section 6.
+2. **Next: implementation step 3, consumers and writers.** Report 49 section 3.4 (row 3) lists it as:
+   the stub-writer audit, MCP, V3 hydrate and restore-first, no-downgrade, V2/V2.1 restore-all in
+   `loadPlugins`, group member restore, the Playground, `exportAsDataset` and `verifyAssetIntegrity`
+   (D3 setter part, D4, D5, D8, D16 runtime, D19). Gate 2 with `adversarial-reviewer`, and
+   `opus-reviewer` for the plugin and MCP write paths. Follow the same order as before: the
+   investigator's code map, the brief, red tests first, the coder, then Gate 2. Steps 3 and 4 land
+   before the boot pass (step 5), and the idle reload (step 6) comes after it. Open follow-ups: step 1's
+   in Report 50 section 6, step 2's in Report 51 section 6 (among them: whether step 5's pass should
+   enrich upstream-made stubs is a question for the maintainer at step 5; group members that are still
+   stubs in the group screen and the Playground are step 3 items).
 3. **After stage 1** (`MC-145`):
    - the upstream-compatible inline-everything backup;
    - then archiving of modules that are not enabled;
@@ -90,7 +98,7 @@ should fill them.
 
 ## Work order
 
-1. **Memory stage 1** (Report 49), steps 2-7 (step 1 is done, Report 50).
+1. **Memory stage 1** (Report 49), steps 3-7 (steps 1 and 2 are done, Reports 50 and 51).
 2. **The inline-everything backup, then module archiving** (`MC-145`).
 3. **The wiki's composer and send batch** (Wiki session; unblocked since W2 and W3 are done).
 4. **CHORE-35's opt-in stage:** the remaining upstream-infrastructure features (`MC-092`).
@@ -118,6 +126,8 @@ Not placed in the sequence:
    - For the manual clean-up (step 1), the translator flagged the consent and warning strings in
      every language; the maintainer accepted the Korean strings on 2026-09-30, so the native-speaker
      check remains for cn, zh-Hant, vi, de and es (Report 50 section 6).
+   - Step 2 added one string, `coldStorageRestoreUnreadable`, to ko, cn, zh-Hant, vi, de and es. The
+     reviewer checked the meaning; the native-speaker check is open for all six (Report 51 section 6).
 2. **CHORE-41's console output** (ledger rows 201-202 and 206): why the edit button stays dead across
    repeated clicks.
 3. **The MC-091 workflow pilot:** evaluating it is the maintainer's.
@@ -212,9 +222,10 @@ Escape on alerts stage 2 and W2c-a were merged as `1d6fa16b`.
 
 ## Test suite
 
-- **Step 1's final tree (`2b3dd636`):** 205 files, 3,436 passed, 4 skipped; `pnpm check` 0 errors;
-  `pnpm build` exit 0 (ledger row 490). The previous baseline was W2e's `baf238e7`: 198 files, 3,269
-  passed, 4 skipped, 0 failed (row 452).
+- **Step 2's final tree (`db49aeeb`):** 209 files, 3,559 passed, 4 skipped; `pnpm check` 0 errors;
+  `pnpm build` exit 0 (ledger row 497; taken before the round-3 comment-only edits). Step 1's tree
+  (`2b3dd636`) had 205 files, 3,436 passed, 4 skipped (row 490). The baseline before step 1 was W2e's
+  `baf238e7`: 198 files, 3,269 passed, 4 skipped, 0 failed (row 452).
 - `cargo check` last ran on the removal stage.
 - Run the suite with plain `pnpm test` or `npx vitest run`. `vitest.config.ts` excludes
   `.claude/**` (`7b72b813`).
