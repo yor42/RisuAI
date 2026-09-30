@@ -6,7 +6,7 @@ import { tokenize } from "../tokenizer";
 import { getModuleTriggers } from "./modules";
 import { get } from "svelte/store";
 import { ReloadChatPointer, ReloadGUIPointer, CurrentTriggerIdStore, DBState } from "../stores.svelte";
-import { processMultiCommand } from "./command";
+import { processMultiCommand, type CommandContext } from "./command";
 import { parseKeyValue, sleep } from "../util";
 import { alertError, alertInput, alertNormal, alertSelect } from "../alert";
 import type { OpenAIChat } from "./index.svelte";
@@ -1074,6 +1074,8 @@ type RunTriggerLiveArg = {
     tempVars?: Record<string, string>
     origin: Origin
     promptFirstSent?: boolean
+    signal?: AbortSignal
+    ownsWindow?: boolean
 }
 type RunTriggerDisplayArg = {
     chat: Chat
@@ -1087,11 +1089,16 @@ type RunTriggerDisplayArg = {
     tempVars?: Record<string, string>
     origin?: Origin
     promptFirstSent?: undefined
+    signal?: AbortSignal
+    ownsWindow?: boolean
 }
 // `promptFirstSent` is set only on the run the send makes for its start
 // trigger, with the send's own decision on whether the first message is sent;
 // every run it starts through `runtrigger` or `v2RunTrigger` carries it on. The
 // system-prompt text of such a run is parsed as part of the prompt.
+// `signal` stops the run's command lines before their next command, and
+// `ownsWindow` marks work that opened the composer's window; both are carried
+// on by every run this one starts.
 export type RunTriggerArg = RunTriggerLiveArg | RunTriggerDisplayArg
 
 export async function runTrigger(char:character,mode:triggerMode, arg: RunTriggerArg){
@@ -1182,6 +1189,25 @@ export async function runTrigger(char:character,mode:triggerMode, arg: RunTrigge
     // so marks nothing.
     function markWrite(): void {
         subject?.mark()
+    }
+
+    // The context a command line of this run acts in: the run's own chat, its
+    // cancel signal, whether it owns the composer's window, and the run's own
+    // recursion count, which the line's `/trigger`s advance.
+    function commandContext(lowLevelAccess: boolean | undefined): CommandContext | null {
+        if (!arg.origin) {
+            return null
+        }
+        return {
+            origin: arg.origin,
+            signal: arg.signal,
+            ownsWindow: arg.ownsWindow,
+            recursion: {
+                get count() { return arg.recursiveCount ?? 0 },
+                set count(value: number) { arg.recursiveCount = value },
+            },
+            lowLevelAccess,
+        }
     }
 
     const previousTriggerId = get(CurrentTriggerIdStore)
@@ -1505,7 +1531,10 @@ export async function runTrigger(char:character,mode:triggerMode, arg: RunTrigge
                 }
                 case 'command':{
                     const effectValue = risuChatParser(effect.value,{chara:char, subject})
-                    await processMultiCommand(effectValue)
+                    const commandCtx = commandContext(trigger.lowLevelAccess)
+                    if(commandCtx){
+                        await processMultiCommand(effectValue, commandCtx)
+                    }
                     break
                 }
                 case 'stop':
@@ -1527,6 +1556,8 @@ export async function runTrigger(char:character,mode:triggerMode, arg: RunTrigge
                             manualName: effect.value,
                             origin: arg.origin as Origin,
                             promptFirstSent: arg.promptFirstSent,
+                            signal: arg.signal,
+                            ownsWindow: arg.ownsWindow,
                         })
                         if(r){
                             additonalSysPrompt = r.additonalSysPrompt
@@ -1941,6 +1972,8 @@ export async function runTrigger(char:character,mode:triggerMode, arg: RunTrigge
                             manualName: effect.target,
                             origin: arg.origin as Origin,
                             promptFirstSent: arg.promptFirstSent,
+                            signal: arg.signal,
+                            ownsWindow: arg.ownsWindow,
                         })
                         if(r){
                             additonalSysPrompt = r.additonalSysPrompt
@@ -1999,7 +2032,10 @@ export async function runTrigger(char:character,mode:triggerMode, arg: RunTrigge
                 }
                 case 'v2Command':{
                     let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char, subject}) : getVar(risuChatParser(effect.value,{chara:char, subject}))
-                    await processMultiCommand(value)
+                    const commandCtx = commandContext(trigger.lowLevelAccess)
+                    if(commandCtx){
+                        await processMultiCommand(value, commandCtx)
+                    }
                     break
                 }
                 case 'v2SendAIprompt':{

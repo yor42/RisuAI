@@ -1303,7 +1303,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
     if(abortSignal.aborted){
         return false
     }
-    const triggerResult = await runTrigger(currentChar, 'start', {chat: currentChat, origin, promptFirstSent: firstMessageSent})
+    const triggerResult = await runTrigger(currentChar, 'start', {chat: currentChat, origin, promptFirstSent: firstMessageSent, signal: abortSignal})
     if(triggerResult){
         // A trigger run resolves the origin by id alone, so it writes nothing
         // while the id has two holders. This send goes on with the holder it
@@ -2274,7 +2274,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
                 return endGone()
             }
             currentChat = parsedChat
-            const outputTriggerResult = await runTrigger(currentChar, 'output', {chat:currentChat, origin})
+            const outputTriggerResult = await runTrigger(currentChar, 'output', {chat:currentChat, origin, signal: abortSignal})
             if(outputTriggerResult && outputTriggerResult.sendAIprompt){
                 resendChat = true
             }
@@ -2406,7 +2406,7 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
         }
         currentChat = parsedChat
 
-        const outputTriggerResult = await runTrigger(currentChar, 'output', {chat:currentChat, origin})
+        const outputTriggerResult = await runTrigger(currentChar, 'output', {chat:currentChat, origin, signal: abortSignal})
         if(outputTriggerResult && outputTriggerResult.sendAIprompt){
             resendChat = true
         }

@@ -14,7 +14,7 @@ import { isColdChat } from './coldstorageData'
 import { isExpTranslator, translate } from '../translator/translator'
 import { beginWork, originStatus, resolveOriginWithHint, writeAt, type Origin, type WorkHandle } from './chatOrigin'
 import { markCharacterForSave } from '../storage/characterSaveMarks'
-import { abortUnitInProgress, isComposerWindowOpen, multisendPushCount, setComposerWindow, turnsReachedCount } from './generationOwnership.svelte'
+import { abortUnitInProgress, isComposerWindowOpen, setComposerWindow, turnsReachedCount } from './generationOwnership.svelte'
 import { registerDraft, unregisterDraft, COMPOSER_DRAFT_KIND } from '../localDrafts'
 import * as composerDrafts from './composerDrafts.svelte'
 import type { ComposerDraftKey } from './composerDrafts.svelte'
@@ -76,15 +76,14 @@ const inflightDraftKey = uuidv4()
  * successful push never sets it, and instead clears `inflight` directly (see
  * `clearInflightIfCurrent`'s call sites in `sendMain`), which is what stops a
  * later `abortChat` call from treating an already-pushed send as still
- * cancelable. `commandStartPushes` is the `/multisend` push count when the
- * take's `/` stage started, or null while that stage has not started;
- * `commandEndPushes` is the count when the stage ended, or null while it has
- * not ended. `sendMain`'s own `finally` always runs `clearInflightIfCurrent`
- * and ends the work handle -- both are harmless to repeat -- but reads
- * `settled` to decide the rest: when it is true, the busy button already put
- * the values back and closed the window and the lock, so `finally` does not
- * put them back a second time, and does not close a window or a lock a later
- * send may since have opened.
+ * cancelable. `wrote` is true from the moment the take's own `/` pipe starts a
+ * command that can change chat state, whether or not that command then changes
+ * anything; nothing else sets it. `sendMain`'s own `finally` always runs
+ * `clearInflightIfCurrent` and ends the work handle -- both are harmless to
+ * repeat -- but reads `settled` to decide the rest: when it is true, the busy
+ * button already put the values back and closed the window and the lock, so
+ * `finally` does not put them back a second time, and does not close a window
+ * or a lock a later send may since have opened.
  */
 interface InflightRecord {
     controller: AbortController
@@ -92,32 +91,18 @@ interface InflightRecord {
     takenMessageInput: string
     takenMessageInputTranslate: string
     takenFileInput: string[]
-    commandStartPushes: number | null
-    commandEndPushes: number | null
+    wrote: boolean
     settled: boolean
 }
 
 /**
- * True when a `/multisend` posted a segment during the take's `/` stage.
- * While the stage runs it compares against the live count; once the stage has
- * ended, against the count taken at its end, so a push made later in the take
- * (an input trigger's, say) is not counted.
- */
-function postedDuringCommandStage(record: InflightRecord): boolean {
-    if(record.commandStartPushes === null){
-        return false
-    }
-    return (record.commandEndPushes ?? multisendPushCount()) !== record.commandStartPushes
-}
-
-/**
  * The text a put-back returns to the origin's record: the text as taken,
- * unless a `/multisend` posted a segment during the take's `/` stage. Then
- * the command counts as handled however that stage ended, and the text is not
- * returned.
+ * unless the take's own `/` pipe has started a command that can change chat
+ * state. Then the command counts as handled however the take ended, and the
+ * text is not returned: a resend would repeat what the pipe already did.
  */
 function textToPutBack(record: InflightRecord): string {
-    return postedDuringCommandStage(record) ? '' : record.takenMessageInput
+    return record.wrote ? '' : record.takenMessageInput
 }
 
 /**
@@ -268,8 +253,7 @@ export async function sendMain(source: ComposerActionsSource, continueResponse: 
         takenMessageInput,
         takenMessageInputTranslate,
         takenFileInput,
-        commandStartPushes: null,
-        commandEndPushes: null,
+        wrote: false,
         settled: false,
     }
     inflight = record
@@ -292,19 +276,21 @@ export async function sendMain(source: ComposerActionsSource, continueResponse: 
         let workingText = takenMessageInput
 
         if(workingText.startsWith('/')){
-            record.commandStartPushes = multisendPushCount()
-            let commandProcessed: Awaited<ReturnType<typeof processMultiCommand>>
-            try {
-                commandProcessed = await processMultiCommand(workingText)
-            } finally {
-                record.commandEndPushes = multisendPushCount()
-            }
+            // The line acts on the chat the take started from, stops when the
+            // take is cancelled, and owns the window the take opened.
+            const commandProcessed = await processMultiCommand(workingText, {
+                origin: workHandle.origin,
+                hint: { owner: char, chat: startChat },
+                signal: controller.signal,
+                ownsWindow: true,
+                noteWrite: () => { record.wrote = true },
+            })
             if(controller.signal.aborted){
                 return
             }
-            if(commandProcessed !== false || postedDuringCommandStage(record)){
+            if(commandProcessed !== false || record.wrote){
                 // A handled command consumes the text (as does a command line
-                // that posted a `/multisend` segment before it failed); the
+                // that started a writing command before it failed); the
                 // staged files and the translation go back into the origin's
                 // record, in front of anything a late file result already
                 // placed there.

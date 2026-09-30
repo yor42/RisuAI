@@ -1,8 +1,8 @@
-import { getDatabase, setDatabase } from 'src/ts/storage/database.svelte';
-import { DBState, selectedCharID } from 'src/ts/stores.svelte';
 import { get } from 'svelte/store';
 import { doingChat, sendChat } from '../index.svelte';
 import { isComposerWindowOpen } from '../generationOwnership.svelte';
+import { createSendSubject, type OriginHint, type RunSubject } from '../chatOrigin';
+import type { ComposerDraftKey } from '../composerDrafts.svelte';
 import { downloadFile } from 'src/ts/globalApi.svelte';
 import { isTauri } from "src/ts/platform"
 import { HypaProcesser } from '../memory/hypamemory';
@@ -14,7 +14,13 @@ type sendFileArg = {
     query:string
 }
 
-async function sendPofile(arg:sendFileArg){
+/**
+ * Sends each entry of a `.po` file into the chat `subject` addresses, and
+ * hands over the file it builds. The chat is found again by id at every entry,
+ * never through the selection and never through an object held across an
+ * `await`; a chat that is gone stops the job.
+ */
+async function sendPofile(arg:sendFileArg, subject:RunSubject, hint:OriginHint|undefined){
 
     let result = ''
     let msgId = ''
@@ -22,8 +28,9 @@ async function sendPofile(arg:sendFileArg){
     let speaker = ''
     let parseMode = 0
     let sentEntries = 0
-    let currentChar = DBState.db.characters[get(selectedCharID)]
-    let currentChat = currentChar.chats[currentChar.chatPage]
+    if(!subject.resolve()){
+        return
+    }
     const lines = arg.file.split('\n')
     for(let i=0;i<lines.length;i++){
         console.log(i)
@@ -42,6 +49,15 @@ async function sendPofile(arg:sendFileArg){
                 }
                 break
             }
+            const target = subject.resolve()
+            if(!target){
+                // The chat is gone: post nothing more. A job that has already
+                // sent an entry still ends by handing over what it has built.
+                if(sentEntries === 0){
+                    return
+                }
+                break
+            }
             let text = msgId
             if(speaker !== ''){
                 text = `Speaker: ${speaker}\n${text}`
@@ -49,20 +65,17 @@ async function sendPofile(arg:sendFileArg){
             if(note !== ''){
                 text = `Note: ${note}\n${text}`
             }
-            currentChat.message.push({
+            target.chat.message.push({
                 role: 'user',
                 data: text
             })
-            currentChar.chats[currentChar.chatPage] = currentChat
-            DBState.db.characters[get(selectedCharID)] = currentChar
+            subject.mark()
             sentEntries++
-            if(!(await sendChat(-1))){
+            if(!(await sendChat(-1, { origin: subject.origin, originHint: hint }))){
                 break
             }
-            currentChar = DBState.db.characters[get(selectedCharID)]
-            currentChat = currentChar.chats[currentChar.chatPage]
-            const res = currentChat.message[currentChat.message.length-1]
-            const msgStr = res.data.split('\n').filter((a) => {
+            const res = subject.resolve()?.chat.message.at(-1)
+            const msgStr = (res?.data ?? '').split('\n').filter((a) => {
                 return a !== ''
             }).map((str) => {
                 return `"${str.replaceAll('"', '\\"')}"`
@@ -77,7 +90,7 @@ async function sendPofile(arg:sendFileArg){
             continue
         }
         if(line.startsWith('#. Note =')){
-            note = line.replace('#. Notes =', '').trim()
+            note = line.replace('#. Note =', '').trim()
             continue
         }
         if(line.startsWith('#. Speaker =')){
@@ -112,10 +125,6 @@ async function sendPofile(arg:sendFileArg){
             continue
         }
         result += line + '\n'
-
-        if(i > 100){
-            break //prevent too long message in testing
-        }
 
     }
     await downloadFile('translated.po', result)
@@ -206,10 +215,16 @@ type postFileResultText = {
     type: 'text',
     name: string
 }
+/**
+ * `key` is the composer record of the chat the caller was clicked in, and
+ * `hint` the objects the caller read that chat through: a `.po` job sends into
+ * that chat, whichever chat is on screen by the time each entry runs, and does
+ * nothing without a key. The other file types do not touch a chat.
+ */
 export async function postChatFile(query:string|{
     name:string,
     data:Uint8Array
-}):Promise<postFileResult[]>{
+}, key?:ComposerDraftKey|null, hint?:OriginHint|null):Promise<postFileResult[]>{
     const files = typeof(query) === 'string' ? (await selectMultipleFile([
         //image format
         'jpg',
@@ -250,10 +265,12 @@ export async function postChatFile(query:string|{
 
         switch(extention){
             case 'po':{
-                await sendPofile({
-                    file: BufferToText(file.data),
-                    query: xquery
-                })
+                if(key){
+                    await sendPofile({
+                        file: BufferToText(file.data),
+                        query: xquery
+                    }, createSendSubject({ chaId: key.chaId, chatId: key.chatId }, hint ?? undefined), hint ?? undefined)
+                }
                 results.push({
                     type: 'void'
                 })

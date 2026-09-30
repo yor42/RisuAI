@@ -1,7 +1,7 @@
 /**
  * State shared by the modules that start, hold and cancel a generation: the
  * composer's action window, the abort controller of the one send in progress,
- * and two counters that auto mode and the composer's take read. It imports
+ * and the count of turns that auto mode reads. It imports
  * nothing, so `index.svelte.ts` and every module that imports it can depend on
  * it without a cycle.
  *
@@ -57,15 +57,4 @@ export function noteTurnReached(): void {
 
 export function turnsReachedCount(): number {
     return turnsReached
-}
-
-let multisendPushes = 0
-
-/** Called by `/multisend` after each segment it posts. */
-export function noteMultisendPush(): void {
-    multisendPushes++
-}
-
-export function multisendPushCount(): number {
-    return multisendPushes
 }

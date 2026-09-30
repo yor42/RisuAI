@@ -16,6 +16,10 @@ import { markCharacterForSave } from "../storage/characterSaveMarks";
  * `chatPage` -- a switch during either await must not move where the message
  * lands, and must never make two chats share one message array.
  *
+ * The input trigger runs with `signal`, so a cancel stops its command lines,
+ * and owns the composer's window: a `/multisend` in its command lines, or in a
+ * trigger it runs, answers each segment.
+ *
  * `workHandle` is acquired, and ended, by the caller: this function neither
  * calls `beginWork` nor calls `workHandle.end()`, so one work handle covers
  * every branch a caller's own send takes, not just the character branch.
@@ -32,7 +36,7 @@ import { markCharacterForSave } from "../storage/characterSaveMarks";
  * append.
  */
 export async function sendCharacterMessage(workHandle: WorkHandle, char: character, startChat: Chat, messageInput: string, signal: AbortSignal, onAppended: () => void): Promise<boolean> {
-    await runTrigger(char, 'input', { chat: startChat, origin: workHandle.origin })
+    await runTrigger(char, 'input', { chat: startChat, origin: workHandle.origin, signal, ownsWindow: true })
 
     const subject = createSendSubject(workHandle.origin, { owner: char, chat: startChat })
     const data = await processScript(char, messageInput, 'editinput', {}, undefined, subject)

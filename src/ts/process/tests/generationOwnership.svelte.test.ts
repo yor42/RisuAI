@@ -31,6 +31,8 @@ import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { writable, get } from 'svelte/store'
 import type { Database, Chat, Message } from 'src/ts/storage/database.svelte'
 import type { RisuPlugin } from 'src/ts/plugins/plugins.svelte'
+import type { Origin } from 'src/ts/process/chatOrigin'
+import type { CommandContext } from 'src/ts/process/command'
 // Installs the real `globalThis.safeStructuredClone`, the same way
 // `src/main.ts` does (`import "./ts/polyfill"`).
 import 'src/ts/polyfill'
@@ -45,7 +47,14 @@ interface ChatOutputArg {
     messageIndex: number
 }
 
-type TriggerHandler = () => unknown
+/** What the trigger engine is handed for a run: the parts a command effect passes on. */
+interface TriggerRunArg {
+    origin?: Origin
+    signal?: AbortSignal
+    ownsWindow?: boolean
+}
+
+type TriggerHandler = (arg: TriggerRunArg) => unknown
 
 const requestChatDataMock = vi.hoisted(() => vi.fn())
 const alertErrorMock = vi.hoisted(() => vi.fn())
@@ -689,6 +698,30 @@ function gateInputTrigger() {
     return { release, reached }
 }
 
+/**
+ * The context a command effect of a run gives its command line: the run's own
+ * chat, its cancel signal and whether it owns the composer's window.
+ */
+function commandContextOf(arg: TriggerRunArg): CommandContext {
+    if (!arg.origin) {
+        throw new Error('the trigger run carries no origin')
+    }
+    return { origin: arg.origin, signal: arg.signal, ownsWindow: arg.ownsWindow }
+}
+
+/** The context of a line typed in the composer of `char-0`'s chat: it owns the window the take opened. */
+function composerCommandContext(): CommandContext {
+    return { origin: draftKey(), ownsWindow: true }
+}
+
+/**
+ * Post File as the chat screen calls it: with the key of the chat it was
+ * clicked in and the objects that chat was read through.
+ */
+function postFile(query: Parameters<typeof postChatFile>[0]): ReturnType<typeof postChatFile> {
+    return postChatFile(query, draftKey(), { owner: DBState.db.characters[0], chat: theChat() })
+}
+
 /** A `.po` file with one entry per text, each ended by a blank line. */
 function poFile(...texts: string[]): { name: string, data: Uint8Array } {
     const body = texts.map((text) => `msgid "${text}"\nmsgstr ""\n\n`).join('')
@@ -705,7 +738,7 @@ beforeEach(() => {
         delete triggerHandlers[key]
     }
     runTriggerMock.mockReset()
-    runTriggerMock.mockImplementation(async (_char: unknown, mode: string) => triggerHandlers[mode]?.())
+    runTriggerMock.mockImplementation(async (_char: unknown, mode: string, arg: TriggerRunArg) => triggerHandlers[mode]?.(arg))
     isLastCharPunctuationMock.mockReset()
     isLastCharPunctuationMock.mockReturnValue(true)
     chatOutputListeners.clear()
@@ -869,7 +902,7 @@ describe('/multisend typed in the composer', () => {
     test('guard: a single | between two commands still runs both', async () => {
         installWorld()
 
-        const result = await processMultiCommand('/setvar key=a 1|/setvar key=b 2')
+        const result = await processMultiCommand('/setvar key=a 1|/setvar key=b 2', composerCommandContext())
 
         expect(result).not.toBe(false)
         expect(theChat().scriptstate).toMatchObject({ $a: '1', $b: '2' })
@@ -878,7 +911,7 @@ describe('/multisend typed in the composer', () => {
     test('guard: || between two commands still fails on the empty command between them', async () => {
         installWorld()
 
-        const result = await processMultiCommand('/setvar key=a 1||/setvar key=b 2')
+        const result = await processMultiCommand('/setvar key=a 1||/setvar key=b 2', composerCommandContext())
 
         expect(result).toBe(false)
         expect(theChat().scriptstate).toMatchObject({ $a: '1' })
@@ -890,8 +923,8 @@ describe('/multisend inside a send', () => {
     test('a plugin send whose output trigger runs /multisend x|||y posts both segments without a reply of their own', async () => {
         installWorld()
         mockReply('plugin reply')
-        triggerHandlers.output = async () => {
-            await processMultiCommand('/multisend x|||y')
+        triggerHandlers.output = async (arg) => {
+            await processMultiCommand('/multisend x|||y', commandContextOf(arg))
         }
 
         const result = await settledOutcome(makePluginApi().sendChat('plugin says'))
@@ -909,7 +942,7 @@ describe('.po Post File', () => {
         mockReply('reply one')
         mockReply('reply two')
 
-        await postChatFile(poFile('one', 'two'))
+        await postFile(poFile('one', 'two'))
 
         expect(get(doingChat)).toBe(false)
     })
@@ -919,7 +952,7 @@ describe('.po Post File', () => {
         mockReply('reply one')
         mockReply('reply two')
 
-        await postChatFile(poFile('one', 'two'))
+        await postFile(poFile('one', 'two'))
 
         expect(contents()).toEqual(['Hi', 'one', 'reply one', 'two', 'reply two'])
     })
@@ -933,7 +966,7 @@ describe('.po Post File', () => {
             betweenEntries.markReached()
             await betweenEntries.gate
         })
-        const job = postChatFile(poFile('one', 'two', 'three'))
+        const job = postFile(poFile('one', 'two', 'three'))
         await betweenEntries.reached
         const input = gateInputTrigger()
         seedDraft('hello')
@@ -966,7 +999,7 @@ describe('starters refused while a send runs', () => {
         const { running } = await startRunningSend()
         const before = contents()
 
-        const job = postChatFile(poFile('one', 'two'))
+        const job = postFile(poFile('one', 'two'))
         await settle()
         const after = contents()
         const requests = held.length
@@ -1070,7 +1103,7 @@ describe('the busy button during a generation started by something other than th
     test('aborts the .po entry that streams, pushes no further entry and leaves the flag false', async () => {
         installWorld()
         holdEveryRequest()
-        const job = postChatFile(poFile('one', 'two'))
+        const job = postFile(poFile('one', 'two'))
         const request = await requestHeld(1)
 
         abortChat()
@@ -1086,7 +1119,7 @@ describe('the busy button during a generation started by something other than th
         installWorld()
         holdEveryRequest()
         triggerHandlers.output = () => { abortChat() }
-        const job = postChatFile(poFile('one', 'two'))
+        const job = postFile(poFile('one', 'two'))
         const request = await requestHeld(1)
         request.source.close()
         await drain(job)
@@ -1182,8 +1215,8 @@ describe('the busy button during a /multisend', () => {
     test('run by the input trigger: aborts the running segment and posts no further segment', async () => {
         installWorld()
         holdEveryRequest()
-        triggerHandlers.input = async () => {
-            await processMultiCommand('/multisend x|||y')
+        triggerHandlers.input = async (arg) => {
+            await processMultiCommand('/multisend x|||y', commandContextOf(arg))
         }
         seedDraft('hello')
         const sending = send(makeSource())
@@ -1201,8 +1234,8 @@ describe('the busy button during a /multisend', () => {
         installWorld()
         holdEveryRequest()
         triggerHandlers.output = () => { abortChat() }
-        triggerHandlers.input = async () => {
-            await processMultiCommand('/multisend x|||y')
+        triggerHandlers.input = async (arg) => {
+            await processMultiCommand('/multisend x|||y', commandContextOf(arg))
         }
         seedDraft('hello')
         const sending = send(makeSource())
@@ -1243,8 +1276,8 @@ describe('the other endings of a /multisend typed in the composer', () => {
 
 describe('text typed with a leading / that is not a command, sent through an input trigger that runs /multisend', () => {
     function runMultisendFromInputTrigger(): void {
-        triggerHandlers.input = async () => {
-            await processMultiCommand('/multisend x|||y')
+        triggerHandlers.input = async (arg) => {
+            await processMultiCommand('/multisend x|||y', commandContextOf(arg))
         }
     }
 
@@ -1305,7 +1338,7 @@ describe('a loop whose entry\'s send throws', () => {
         installWorld()
         requestChatDataMock.mockRejectedValueOnce(new Error('provider down'))
 
-        const result = await settledOutcome(postChatFile(poFile('one', 'two')))
+        const result = await settledOutcome(postFile(poFile('one', 'two')))
 
         expect(result).toBeInstanceOf(Error)
         expect((result as Error).message).toBe('provider down')
@@ -1319,7 +1352,7 @@ describe('a loop whose entry\'s send throws', () => {
         mockReply('reply one')
         requestChatDataMock.mockRejectedValueOnce(new Error('provider down'))
 
-        const result = await settledOutcome(postChatFile(poFile('one', 'two', 'three')))
+        const result = await settledOutcome(postFile(poFile('one', 'two', 'three')))
 
         expect(result).toBeInstanceOf(Error)
         expect(downloadFileMock).toHaveBeenCalledTimes(1)

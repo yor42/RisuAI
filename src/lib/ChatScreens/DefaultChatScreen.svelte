@@ -41,7 +41,7 @@
         isAutoModeActive,
         type ComposerActionsSource
     } from 'src/ts/process/composerActions.svelte';
-    import { beginWork } from 'src/ts/process/chatOrigin';
+    import { beginWork, type OriginHint } from 'src/ts/process/chatOrigin';
     import * as composerDrafts from 'src/ts/process/composerDrafts.svelte';
     import type { ComposerDraftKey, ComposerDraftRecord } from 'src/ts/process/composerDrafts.svelte';
 
@@ -138,6 +138,17 @@
         const key: ComposerDraftKey = { chaId: handle.origin.chaId, chatId: handle.origin.chatId }
         handle.end()
         return key
+    }
+
+    /**
+     * The objects the on-screen chat is read through, for a job that goes on
+     * writing to that chat after a switch. Read alongside `resolveDraftKeyForWrite`,
+     * in the same synchronous stretch.
+     */
+    function resolveOriginHintForWrite(): OriginHint | null {
+        const char = currentCharacter
+        const chat = currentChatObj
+        return char && chat ? { owner: char, chat } : null
     }
 
     /** Writes to the record named by `key`, or the transient backstop when it is null. */
@@ -637,6 +648,7 @@
                                     // switch moves a different chat on
                                     // screen before it resolves.
                                     const key = resolveDraftKeyForWrite()
+                                    const hint = resolveOriginHintForWrite()
                                     const reader = new FileReader()
                                     reader.onload = async (e) => {
                                         const buf = e.target?.result as ArrayBuffer
@@ -644,7 +656,7 @@
                                         const results = await postChatFile({
                                             name: file.name,
                                             data: uint8
-                                        })
+                                        }, key, hint)
                                         if(!results) return
                                         writeDraftAt(key, (record) => {
                                             for(const res of results){
@@ -1066,7 +1078,8 @@
                         // even when a switch moves a different chat on
                         // screen before it resolves.
                         const key = resolveDraftKeyForWrite()
-                        const results = await postChatFile(composerDrafts.peek(key).messageInput)
+                        const hint = resolveOriginHintForWrite()
+                        const results = await postChatFile(composerDrafts.peek(key).messageInput, key, hint)
                         if(!results) return
                         writeDraftAt(key, (record) => {
                             for(const res of results){

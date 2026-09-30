@@ -1,16 +1,66 @@
 import { get } from "svelte/store";
-import { getCurrentCharacter, getCurrentChat, getDatabase, setDatabase } from "../storage/database.svelte";
-import { selectedCharID } from "../stores.svelte";
 import { alertInput, alertMd, alertNormal, alertSelect } from "../alert";
 import { sayTTS } from "./tts";
 import { risuChatParser } from "../parser/parser.svelte";
 import { doingChat, sendChat } from "./index.svelte";
 import { loadLoreBookV3Prompt } from "./lorebook.svelte";
 import { runTrigger } from "./triggers";
-import { beginWork } from "./chatOrigin";
-import { noteMultisendPush } from "./generationOwnership.svelte";
+import { createRunSubject, createSendSubject, registerWork, type Origin, type OriginHint, type RunSubject } from "./chatOrigin";
+import { isComposerWindowOpen } from "./generationOwnership.svelte";
 
-export async function processMultiCommand(command:string) {
+/**
+ * What a command line runs against. Every field is fixed when the line
+ * starts; the chat itself is found again by id at each command, segment or
+ * write, never through the selection and never through an object held across
+ * an `await`.
+ */
+export interface CommandContext {
+    /** The chat the line acts on. */
+    origin: Origin
+    /**
+     * The objects `origin` was read through: with them a chat whose id has
+     * more than one holder resolves to the one the line started from, and
+     * without them it does not resolve and the line stops.
+     */
+    hint?: OriginHint
+    /** When aborted, the line stops before its next command or `/multisend` segment. */
+    signal?: AbortSignal
+    /**
+     * True when the line is the work that opened the composer's window, or is
+     * nested under it, so its `/multisend` answers each segment while that
+     * window is open.
+     */
+    ownsWindow?: boolean
+    /**
+     * The invoking run's `recursiveCount`: the count it was started with, plus
+     * one for every run it has since started through `runtrigger`,
+     * `v2RunTrigger` or `/trigger`.
+     * Shared by reference, so every nested run started from the same run
+     * draws from one budget. A line with none starts from a count of 0 that
+     * its own `/trigger`s share.
+     */
+    recursion?: { count: number }
+    /** Whether the trigger that runs the line is exempt from the nesting bound. */
+    lowLevelAccess?: boolean
+    /**
+     * Called at the start of every command that can change chat state, before
+     * anything is awaited, whether or not that command then changes anything.
+     */
+    noteWrite?: () => void
+}
+
+// Mirrors the bound the `runtrigger` effect applies to nested runs; a change
+// to one must be made in both.
+const NESTED_TRIGGER_LIMIT = 10
+
+// Every command outside this set changes no chat state: `/speak`, `/echo`,
+// `/popup`, `/pass`, `/input`, `/buttons`, `/len`, `/getvar`, `/setinput`,
+// `/?` and an unknown command.
+const WRITING_COMMANDS = new Set([
+    'send', 'sendas', 'comment', 'cut', 'del', 'setvar', 'addvar', 'multisend', 'trigger', 'test_lorebook',
+])
+
+export async function processMultiCommand(command:string, ctx:CommandContext) {
     let pipe = ''
     const splited:string[] = []
     let lastIndex = 0
@@ -38,8 +88,10 @@ export async function processMultiCommand(command:string) {
     }
     splited.push(command.slice(lastIndex))
     console.log(splited)
+    const subject = ctx.hint ? createSendSubject(ctx.origin, ctx.hint) : createRunSubject(ctx.origin)
+    const recursion = ctx.recursion ?? { count: 0 }
     for(let i = 0; i<splited.length; i++){
-        const result = await processCommand(splited[i].trim(), pipe)
+        const result = await processCommand(splited[i].trim(), pipe, ctx, subject, recursion)
         console.log(pipe)
         if(result === false){
             return false
@@ -52,24 +104,37 @@ export async function processMultiCommand(command:string) {
 }
 
 
-async function processCommand(command:string, pipe:string):Promise<false | string>{
-    const db = getDatabase()
-    const currentChar = db.characters[get(selectedCharID)]
-    const currentChat = currentChar.chats[currentChar.chatPage]
+async function processCommand(command:string, pipe:string, ctx:CommandContext, subject:RunSubject, recursion:{ count: number }):Promise<false | string>{
+    // A cancelled line, or one whose chat is gone (or ambiguous with no hint
+    // to tell the holders apart), runs nothing more.
+    if(ctx.signal?.aborted){
+        return false
+    }
+    const resolved = subject.resolve()
+    if(!resolved){
+        return false
+    }
+    const currentChar = resolved.owner
     let {commandName, arg, namedArg} = commandParser(command, pipe)
+
+    if(WRITING_COMMANDS.has(commandName)){
+        ctx.noteWrite?.()
+    }
 
     if(!arg){
         arg = pipe
     }
 
     arg = risuChatParser(arg, {
-        chara: currentChar.type === 'character' ? currentChar : null
+        chara: currentChar.type === 'character' ? currentChar : null,
+        subject
     })
 
     const namedArgKeys = Object.keys(namedArg)
     for(const key of namedArgKeys){
         namedArg[key] = risuChatParser(namedArg[key], {
-            chara: currentChar.type === 'character' ? currentChar : null
+            chara: currentChar.type === 'character' ? currentChar : null,
+            subject
         })
     }
 
@@ -115,52 +180,71 @@ async function processCommand(command:string, pipe:string):Promise<false | strin
             return pipe
         }
         case 'send': {
-            currentChat.message.push({
+            resolved.chat.message.push({
                 role: "user",
                 data: arg
             })
-            setDatabase(db)
+            subject.mark()
             return pipe
         }
         case 'sendas': {
             //name not implemented
-            currentChat.message.push({
+            resolved.chat.message.push({
                 role: "char",
                 data: arg
             })
-            setDatabase(db)
+            subject.mark()
             return pipe
         }
         case 'comment': {
             //works differently, but its close enough
             const addition = `<Comment>\n${arg}\n</Comment>`
-            currentChat.message[currentChat.message.length-1].data += addition
-            setDatabase(db)
+            const last = resolved.chat.message.at(-1)
+            if(last){
+                last.data += addition
+                subject.mark()
+            }
             return pipe
         }
         case 'cut':{
-            if(arg.includes('-')){
-                const [start, end] = arg.split('-')
-                currentChat.message = currentChat.message.slice(parseInt(start), parseInt(end))
-                setDatabase(db)
+            const chat = resolved.chat
+            const spec = arg.trim()
+            if(/^-?\d+$/.test(spec)){
+                let index = parseInt(spec, 10)
+                if(index < 0){
+                    index += chat.message.length
+                }
+                if(index >= 0 && index < chat.message.length){
+                    chat.message = chat.message.filter((_, i) => i !== index)
+                    subject.mark()
+                }
             }
-            else if(!isNaN(parseInt(arg))){
-                const index = parseInt(arg)
-                currentChat.message = currentChat.message.splice(index, 1)
-                setDatabase(db)
+            else if(/^\d+\s*-\s*\d+$/.test(spec)){
+                const [start, end] = spec.split('-').map((part) => parseInt(part.trim(), 10))
+                if(start < end){
+                    chat.message = chat.message.filter((_, i) => i < start || i >= end)
+                    subject.mark()
+                }
             }
             else{ //For risu, doesn'ts work for STScript
-                const id = arg
-                currentChat.message = currentChat.message.filter((e)=>e.chatId !== id)
-                setDatabase(db)
+                const id = spec
+                const kept = chat.message.filter((e)=>e.chatId !== id)
+                if(kept.length !== chat.message.length){
+                    chat.message = kept
+                    subject.mark()
+                }
             }
             return pipe
         }
         case 'del': {
-            const size = parseInt(arg)
-            if(!isNaN(size)){
-                currentChat.message = currentChat.message.slice(currentChat.message.length-size)
-                setDatabase(db)
+            const chat = resolved.chat
+            const spec = arg.trim()
+            if(/^\d+$/.test(spec)){
+                const size = parseInt(spec, 10)
+                if(size > 0){
+                    chat.message = chat.message.slice(0, Math.max(0, chat.message.length - size))
+                    subject.mark()
+                }
             }
             return pipe
         }
@@ -180,21 +264,30 @@ async function processCommand(command:string, pipe:string):Promise<false | strin
                 clearMode = true
                 splited.shift()
             }
-            // Read once, before the first push. While it runs, either an
-            // enclosing send holds the flag throughout, or nothing can take
-            // it: no task runs between one segment's settling and the next
-            // push.
-            const generates = !get(doingChat)
+            // Read once, before the first push. Replies are generated only
+            // when no send holds the flag and none is starting, unless this
+            // line is the work that opened the composer's window. While it
+            // runs, either an enclosing send holds the flag throughout, or
+            // nothing can take it: no task runs between one segment's
+            // settling and the next push.
+            const generates = !get(doingChat) && (ctx.ownsWindow === true || !isComposerWindowOpen())
             for(const e of splited){
-                if(clearMode){
-                    currentChat.message = []
+                if(ctx.signal?.aborted){
+                    break
                 }
-                currentChat.message.push({
+                const target = subject.resolve()
+                if(!target){
+                    break
+                }
+                if(clearMode){
+                    target.chat.message = []
+                }
+                target.chat.message.push({
                     role: 'user',
                     data: e
                 })
-                noteMultisendPush()
-                if(generates && !(await sendChat(-1))){
+                subject.mark()
+                if(generates && !(await sendChat(-1, { origin: subject.origin, originHint: ctx.hint, signal: ctx.signal }))){
                     break
                 }
             }
@@ -202,67 +295,57 @@ async function processCommand(command:string, pipe:string):Promise<false | strin
         }
         case 'setvar':{
             console.log(namedArg, arg)
-            const db = getDatabase()
-            const selectedChar = get(selectedCharID)
-            const char = db.characters[selectedChar]
-            const chat = char.chats[char.chatPage]
+            const chat = resolved.chat
             chat.scriptstate = chat.scriptstate ?? {}
             chat.scriptstate['$' + namedArg['key']] = arg
             console.log(chat.scriptstate)
 
-            char.chats[char.chatPage] = chat
-            db.characters[selectedChar] = char
-            setDatabase(db)
+            subject.mark()
             return ''
         }
         case 'addvar':{
-            const db = getDatabase()
-            const selectedChar = get(selectedCharID)
-            const char = db.characters[selectedChar]
-            const chat = char.chats[char.chatPage]
+            const chat = resolved.chat
             chat.scriptstate = chat.scriptstate ?? {}
-            chat.scriptstate['$' + namedArg['key']] = (Number(chat.scriptstate['$' + namedArg['key']]) + Number(arg)).toString()
+            const current = chat.scriptstate['$' + namedArg['key']]
+            const base = current === undefined || current === null ? 0 : Number(current)
+            chat.scriptstate['$' + namedArg['key']] = (base + Number(arg)).toString()
 
-            char.chats[char.chatPage] = chat
-            db.characters[selectedChar] = char
-            setDatabase(db)
+            subject.mark()
             return ''
         }
         case 'getvar':{
-            const db = getDatabase()
-            const selectedChar = get(selectedCharID)
-            const char = db.characters[selectedChar]
-            const chat = char.chats[char.chatPage]
-            chat.scriptstate = chat.scriptstate ?? {}
-            pipe = (chat.scriptstate['$' + namedArg['key']]).toString() ?? 'null'
+            const value = resolved.chat.scriptstate?.['$' + namedArg['key']]
+            pipe = value === undefined || value === null ? 'null' : value.toString()
             return pipe
         }
         case 'test_lorebook':{
-            const p = await loadLoreBookV3Prompt()
+            const p = await loadLoreBookV3Prompt(subject)
             console.log(p)
             alertNormal(p.actives.map((e)=>e.prompt).join('§'))
             return JSON.stringify(p)
         }
         case 'trigger':{
-            const currentChar = getCurrentCharacter()
             if(currentChar.type === 'group'){
-                return;
+                return pipe
             }
-            const currentChat = getCurrentChat()
-            const workHandle = beginWork(currentChar, currentChat)
-            if(!workHandle){
-                return
+            if(recursion.count >= NESTED_TRIGGER_LIMIT && !ctx.lowLevelAccess){
+                return pipe
             }
+            recursion.count++
+            const workHandle = registerWork(subject.origin)
             try {
                 await runTrigger(currentChar, 'manual', {
-                    chat: currentChat,
+                    chat: resolved.chat,
                     manualName: arg,
-                    origin: workHandle.origin,
+                    origin: subject.origin,
+                    recursiveCount: recursion.count,
+                    signal: ctx.signal,
+                    ownsWindow: ctx.ownsWindow,
                 });
             } finally {
                 workHandle.end()
             }
-            return
+            return pipe
         }
         case '?':{
             alertMd(`
