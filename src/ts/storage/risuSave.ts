@@ -1031,7 +1031,10 @@ export class RisuSaveDecoder {
                         break;
                     }
                     case RisuSaveType.PLUGIN_STORAGE:{
-                        db.pluginCustomStorage = JSON.parse(this.blocks[key].content);
+                        // An empty block is how an absent field is written: JSON.stringify(undefined) returns undefined, which TextEncoder writes as zero bytes.
+                        if(this.blocks[key].content !== ''){
+                            db.pluginCustomStorage = JSON.parse(this.blocks[key].content);
+                        }
                         break;
                     }
                     case RisuSaveType.REMOTE:{

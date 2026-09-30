@@ -1052,6 +1052,69 @@ describe('units: what the clean-up keeps', () => {
     })
 })
 
+describe('a profile that never used plugin storage', () => {
+    test('REPRODUCER: proceeds when the committed main file and a snapshot hold an empty plugin storage block', async () => {
+        await setup()
+        await putUnit('main-only-unit')
+        await putUnit('snapshot-only-unit')
+        seedUnit('unreferenced-unit')
+        seedAsset('orphan.png')
+        setLive(makeDb([]))
+        await prime(makeDb(
+            [fullCharacter('char-a', 'Alice', { chats: [coldChat('chat-1', 'main-only-unit')] })],
+            { pluginCustomStorage: undefined },
+        ))
+        storeSnapshot(17000000001, await encodeTree(makeDb(
+            [fullCharacter('char-b', 'Bob', { chats: [coldChat('chat-2', 'snapshot-only-unit')] })],
+            { pluginCustomStorage: undefined },
+        )))
+
+        await run()
+
+        const after = await units()
+        expect(after).toContain('main-only-unit')
+        expect(after).toContain('snapshot-only-unit')
+        expect(after).not.toContain('unreferenced-unit')
+        expect(assetKeys()).not.toContain('assets/orphan.png')
+        expect(errorMessages()).toEqual([])
+    })
+
+    test('REPRODUCER: keeps a _coldplugin unit referenced only by a snapshot when another snapshot has an empty plugin storage block', async () => {
+        await setup()
+        await putUnit('plugin-unit', { some: 'plugin value' })
+        seedUnit('unreferenced-unit')
+        setLive(makeDb([]))
+        await prime()
+        storeSnapshot(17000000001, await encodeTree(makeDb([], { pluginCustomStorage: undefined })))
+        storeSnapshot(17000000002, await encodeTree(makeDb([], { pluginCustomStorage: { _coldplugin: { 'plugin-key': 'plugin-unit' } } })))
+
+        await run()
+
+        const after = await units()
+        expect(after).toContain('plugin-unit')
+        expect(after).not.toContain('unreferenced-unit')
+    })
+
+    test('guard: aborts and deletes nothing when a snapshot plugin storage block holds content that is not valid JSON', async () => {
+        await setup()
+        seedUnit('unreferenced-unit')
+        seedAsset('orphan.png')
+        setLive(makeDb([]))
+        await prime()
+        const parts = scaffoldParts(makeDb([])).map((part) =>
+            part.name === 'pluginStorage' ? { ...part, data: '{"_coldplugin"' } : part,
+        )
+        const damaged = await composeSave(new ctx.risuSave.RisuSaveEncoder(), [...parts, CONFIG_PART])
+        storeSnapshot(17000000001, damaged.bytes)
+
+        await run()
+
+        await expectUntouched(['unreferenced-unit'])
+        expect(assetKeys()).toContain('assets/orphan.png')
+        expect(errorMessages().length).toBeGreaterThan(0)
+    })
+})
+
 describe('units: the load-time listing bounds what may be deleted', () => {
     test('keeps a unit written after the load-time listing and deletes one that was present at load', async () => {
         await setup()

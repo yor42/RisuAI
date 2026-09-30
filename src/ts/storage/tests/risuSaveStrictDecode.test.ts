@@ -89,6 +89,8 @@ interface RawBlock {
     compression: number
     name: string
     payload: Uint8Array
+    /** The data checksum as stored in the parsed file; absent on a block built by hand. */
+    storedDataChecksum?: number
 }
 
 const crcTable = (() => {
@@ -133,19 +135,25 @@ function parseBlocks(file: Uint8Array): RawBlock[] {
         const length = readU32le(file, offset)
         offset += 4 + 4 // length field, then the header checksum
         const payload = file.slice(offset, offset + length)
+        const storedDataChecksum = readU32le(file, offset + length)
         offset += length + 4 // payload, then the data checksum
-        blocks.push({ type, compression, name, payload })
+        blocks.push({ type, compression, name, payload, storedDataChecksum })
     }
     return blocks
 }
 
-function serializeBlock(block: RawBlock, options: { breakDataChecksum?: boolean } = {}): Uint8Array {
+function serializeBlock(
+    block: RawBlock,
+    options: { breakDataChecksum?: boolean; keepStoredDataChecksum?: boolean } = {},
+): Uint8Array {
     const nameBytes = new TextEncoder().encode(block.name)
     const header = new Uint8Array(3 + nameBytes.length + 4)
     header.set([block.type, block.compression, nameBytes.length], 0)
     header.set(nameBytes, 3)
     header.set(u32le(block.payload.length), 3 + nameBytes.length)
-    const dataChecksum = (crc32(block.payload) ^ (options.breakDataChecksum ? 0xffffffff : 0)) >>> 0
+    const dataChecksum = options.keepStoredDataChecksum
+        ? block.storedDataChecksum!
+        : (crc32(block.payload) ^ (options.breakDataChecksum ? 0xffffffff : 0)) >>> 0
     const out = new Uint8Array(header.length + 4 + block.payload.length + 4)
     out.set(header, 0)
     out.set(u32le(crc32(header)), header.length)
@@ -157,10 +165,13 @@ function serializeBlock(block: RawBlock, options: { breakDataChecksum?: boolean 
 function assemble(
     file: Uint8Array,
     blocks: RawBlock[],
-    options: { breakDataChecksumOf?: string } = {},
+    options: { breakDataChecksumOf?: string; keepStoredDataChecksumOf?: string } = {},
 ): Uint8Array {
     const parts = blocks.map((block) =>
-        serializeBlock(block, { breakDataChecksum: block.name === options.breakDataChecksumOf }),
+        serializeBlock(block, {
+            breakDataChecksum: block.name === options.breakDataChecksumOf,
+            keepStoredDataChecksum: block.name === options.keepStoredDataChecksumOf,
+        }),
     )
     const total = FILE_HEADER_LENGTH + parts.reduce((sum, part) => sum + part.length, 0)
     const out = new Uint8Array(total)
@@ -186,6 +197,16 @@ function breakDataChecksum(file: Uint8Array, name: string): Uint8Array {
     const blocks = parseBlocks(file)
     expect(blocks.some((block) => block.name === name), `block ${name} is present`).toBe(true)
     return assemble(file, blocks, { breakDataChecksumOf: name })
+}
+
+/** Replaces a block's payload while leaving the data checksum the file stored for the old payload. */
+function replacePayloadKeepingChecksum(file: Uint8Array, name: string, payload: Uint8Array): Uint8Array {
+    const blocks = parseBlocks(file)
+    const target = blocks.find((block) => block.name === name)
+    expect(target, `block ${name} is present`).toBeTruthy()
+    target!.payload = payload
+    target!.compression = 0
+    return assemble(file, blocks, { keepStoredDataChecksumOf: name })
 }
 
 function retypeBlock(file: Uint8Array, name: string, type: number): Uint8Array {
@@ -227,13 +248,30 @@ interface Fixture {
     secondId: string
 }
 
+interface FixtureOptions {
+    remote?: boolean
+    compression?: boolean
+    /**
+     * The profile's plugin storage; `'absent'` leaves the field off the
+     * database, as for a profile that never used plugin storage. Defaults to
+     * an empty object.
+     */
+    pluginCustomStorage?: 'absent' | Record<string, unknown>
+    /**
+     * Which encoder passes write the file. `'init'` encodes once without a
+     * block directory; `'set'` adds the pass that writes the directory;
+     * `'set-marked'` does the same while marking plugin storage as changed.
+     */
+    passes?: 'init' | 'set' | 'set-marked'
+}
+
 /**
  * Encodes a two-character database. The remote-block store keys embed a hash
  * of the content, and the encoder remembers which remote files this page load
  * already wrote, so every fixture uses ids and content no other fixture in
  * this file has used.
  */
-async function buildFixture(options: { remote?: boolean; compression?: boolean } = {}): Promise<Fixture> {
+async function buildFixture(options: FixtureOptions = {}): Promise<Fixture> {
     const n = ++fixtureCounter
     const firstId = `strict-a-${n}`
     const secondId = `strict-b-${n}`
@@ -244,12 +282,14 @@ async function buildFixture(options: { remote?: boolean; compression?: boolean }
         modules: [],
         loadouts: [],
         plugins: [],
-        pluginCustomStorage: {},
         characters: [
             { chaId: firstId, type: 'character', name: `First ${n}`, chats: [] },
             { chaId: secondId, type: 'character', name: `Second ${n}`, chats: [] },
         ],
     } as unknown as Database
+    if (options.pluginCustomStorage !== 'absent') {
+        db.pluginCustomStorage = options.pluginCustomStorage ?? {}
+    }
 
     remoteFlag.enabled = options.remote === true
     const encoder = new RisuSaveEncoder()
@@ -258,7 +298,10 @@ async function buildFixture(options: { remote?: boolean; compression?: boolean }
         skipRemoteSavingOnCharacters: false,
     })
     // set() is what writes the root block's block directory.
-    await encoder.set(db, makeToSave())
+    const passes = options.passes ?? 'set'
+    if (passes !== 'init') {
+        await encoder.set(db, { ...makeToSave(), pluginCustomStorage: passes === 'set-marked' })
+    }
     remoteFlag.enabled = false
     const encoded = encoder.encode()
     expect(encoded).not.toBeNull()
@@ -440,3 +483,245 @@ describe('strict decoding of a RisuSave file', () => {
         })
     })
 })
+
+//#region plugin storage that was never written
+
+const EMPTY = new Uint8Array(0)
+const BLOCK_TYPE = { ROOT: 1, CHARACTER_WITH_CHAT: 2, PLUGIN_STORAGE: 11 } as const
+
+function text(value: string): Uint8Array {
+    return new TextEncoder().encode(value)
+}
+
+function hasPluginStorage(decoded: Database): boolean {
+    return 'pluginCustomStorage' in decoded
+}
+
+/** Encoder pass and compression combinations that each write the plugin storage block of a profile that never used it. */
+type EncoderPasses = NonNullable<FixtureOptions['passes']>
+const NEVER_WRITTEN_SHAPES: ReadonlyArray<[string, EncoderPasses, boolean]> = [
+    ['one encoder pass, uncompressed', 'init', false],
+    ['one encoder pass, compressed', 'init', true],
+    ['a directory pass, uncompressed', 'set', false],
+    ['a directory pass, compressed', 'set', true],
+    ['a directory pass marking plugin storage, uncompressed', 'set-marked', false],
+    ['a directory pass marking plugin storage, compressed', 'set-marked', true],
+]
+
+describe('a profile that never used plugin storage', () => {
+    describe.each(NEVER_WRITTEN_SHAPES)('written as %s', (_label, passes, compression) => {
+        test('REPRODUCER: strict decoding resolves to what default decoding reads, with the plugin storage field absent', async () => {
+            const { file, firstId, secondId } = await buildFixture({ pluginCustomStorage: 'absent', passes, compression })
+            const block = parseBlocks(file).find((candidate) => candidate.name === 'pluginStorage')
+            expect(block, 'the encoder writes a pluginStorage block').toBeTruthy()
+
+            const strict = await decodeRisuSave(file, { strict: true })
+            const lenient = await decodeRisuSave(file)
+
+            expect(hasPluginStorage(strict)).toBe(false)
+            expect(hasPluginStorage(lenient)).toBe(false)
+            expect(characterIds(strict).sort()).toEqual([firstId, secondId].sort())
+            expect(strict).toEqual(lenient)
+        })
+    })
+
+    test('REPRODUCER: strict decoding resolves when the compressed block decompresses to empty content', async () => {
+        const { file } = await buildFixture({ pluginCustomStorage: 'absent', compression: true })
+        const block = parseBlocks(file).find((candidate) => candidate.name === 'pluginStorage')!
+        expect(block.compression).toBe(1)
+        expect(fflate.gunzipSync(block.payload).length).toBe(0)
+        await expect(decodeRisuSave(file, { strict: true })).resolves.toBeTruthy()
+    })
+})
+
+describe('plugin storage that is written, removed and written again', () => {
+    test('REPRODUCER: strict decoding follows the field back to absent and then to new content', async () => {
+        const n = ++fixtureCounter
+        const db = {
+            formatversion: 5,
+            botPresets: [],
+            botPresetsId: 0,
+            modules: [],
+            loadouts: [],
+            plugins: [],
+            pluginCustomStorage: { a: 1 } as Record<string, unknown> | undefined,
+            characters: [{ chaId: `strict-origin-${n}`, type: 'character', name: `Origin ${n}`, chats: [] }],
+        } as unknown as Database
+        const encoder = new RisuSaveEncoder()
+        await encoder.init(db, { compression: false, skipRemoteSavingOnCharacters: false })
+        await encoder.set(db, makeToSave())
+        const snapshot = () => new Uint8Array(encoder.encode()!)
+
+        const withContent = await decodeRisuSave(snapshot(), { strict: true })
+        expect(withContent.pluginCustomStorage).toEqual({ a: 1 })
+
+        delete (db as { pluginCustomStorage?: unknown }).pluginCustomStorage
+        await encoder.set(db, { ...makeToSave(), pluginCustomStorage: true })
+        const removed = snapshot()
+        const removedStrict = await decodeRisuSave(removed, { strict: true })
+        expect(hasPluginStorage(removedStrict)).toBe(false)
+        expect(removedStrict).toEqual(await decodeRisuSave(removed))
+
+        ;(db as { pluginCustomStorage?: unknown }).pluginCustomStorage = { b: 2 }
+        await encoder.set(db, { ...makeToSave(), pluginCustomStorage: true })
+        const rewritten = await decodeRisuSave(snapshot(), { strict: true })
+        expect(rewritten.pluginCustomStorage).toEqual({ b: 2 })
+
+        delete (db as { pluginCustomStorage?: unknown }).pluginCustomStorage
+        await encoder.set(db, { ...makeToSave(), pluginCustomStorage: true })
+        const removedAgain = await decodeRisuSave(snapshot(), { strict: true })
+        expect(hasPluginStorage(removedAgain)).toBe(false)
+    })
+})
+
+describe('plugin storage content that is not valid', () => {
+    test('guard: strict decoding rejects a pluginStorage payload of the text "undefined"', async () => {
+        const { file } = await buildFixture()
+        const damaged = replacePayload(file, 'pluginStorage', text('undefined'))
+        await expect(decodeRisuSave(damaged, { strict: true })).rejects.toThrow(/JSON/)
+    })
+
+    test('guard: strict decoding rejects a truncated pluginStorage payload', async () => {
+        const { file } = await buildFixture()
+        const damaged = replacePayload(file, 'pluginStorage', text('{"a"'))
+        await expect(decodeRisuSave(damaged, { strict: true })).rejects.toThrow(/JSON/)
+    })
+
+    test('guard: strict decoding rejects a compressed pluginStorage payload whose content is truncated', async () => {
+        const { file } = await buildFixture({ compression: true })
+        const damaged = replacePayload(file, 'pluginStorage', fflate.gzipSync(text('{"a"')), 1)
+        await expect(decodeRisuSave(damaged, { strict: true })).rejects.toThrow(/JSON/)
+    })
+
+    test('guard: strict decoding rejects an empty pluginStorage block whose data checksum is broken', async () => {
+        const { file } = await buildFixture({ pluginCustomStorage: 'absent' })
+        const damaged = breakDataChecksum(file, 'pluginStorage')
+        await expect(decodeRisuSave(damaged, { strict: true })).rejects.toThrow(/checksum/i)
+    })
+
+    test('guard: strict decoding rejects a pluginStorage block whose content was emptied and whose stale checksum was kept', async () => {
+        const { file } = await buildFixture({ pluginCustomStorage: { a: 1 } })
+        const emptied = replacePayloadKeepingChecksum(file, 'pluginStorage', EMPTY)
+        await expect(decodeRisuSave(emptied, { strict: true })).rejects.toThrow(/checksum/i)
+    })
+
+    test.each([
+        ['an empty profile', 'absent' as const],
+        ['a profile with plugin storage', {} as Record<string, unknown>],
+    ])('guard: strict decoding rejects a file whose directory lists pluginStorage but whose blocks lack it, for %s', async (_label, pluginCustomStorage) => {
+        const { file } = await buildFixture({ pluginCustomStorage })
+        const damaged = removeBlock(file, 'pluginStorage')
+        await expect(decodeRisuSave(damaged, { strict: true })).rejects.toThrow(/pluginStorage/)
+    })
+
+    test('guard: strict decoding reads a stored null as null', async () => {
+        const { file } = await buildFixture()
+        const stored = replacePayload(file, 'pluginStorage', text('null'))
+        const strict = await decodeRisuSave(stored, { strict: true })
+        expect(strict.pluginCustomStorage).toBeNull()
+        expect((await decodeRisuSave(stored)).pluginCustomStorage).toBeNull()
+    })
+
+    test('guard: strict decoding reads stored content unchanged', async () => {
+        const { file } = await buildFixture({ pluginCustomStorage: { a: 1, _coldplugin: { key: 'unit' } } })
+        const strict = await decodeRisuSave(file, { strict: true })
+        expect(strict.pluginCustomStorage).toEqual({ a: 1, _coldplugin: { key: 'unit' } })
+    })
+})
+
+describe('empty content in every other block of a file', () => {
+    // Emptiness is only tolerated for the plugin storage block: each of these
+    // blocks is required to hold parseable JSON when a caller reads strictly.
+    const NAMED_BLOCKS = ['root', 'preset', 'modules', 'loadouts', 'plugins'] as const
+
+    test.each(NAMED_BLOCKS)('guard: strict decoding rejects an empty %s block even when plugin storage is intact', async (name) => {
+        const { file } = await buildFixture()
+        const damaged = replacePayload(file, name, EMPTY)
+        await expect(decodeRisuSave(damaged, { strict: true })).rejects.toThrow(/JSON/)
+    })
+
+    test('guard: strict decoding rejects an empty character block even when plugin storage is intact', async () => {
+        const { file, firstId } = await buildFixture()
+        const damaged = replacePayload(file, firstId, EMPTY)
+        await expect(decodeRisuSave(damaged, { strict: true })).rejects.toThrow(/JSON/)
+    })
+
+    test('guard: strict decoding rejects an empty character block even when plugin storage is empty', async () => {
+        const { file, firstId } = await buildFixture({ pluginCustomStorage: 'absent' })
+        const damaged = replacePayload(file, firstId, EMPTY)
+        await expect(decodeRisuSave(damaged, { strict: true })).rejects.toThrow(/JSON/)
+    })
+})
+
+describe('a version-0 RisuSave file in the upstream encoder\'s block framing', () => {
+    const VERSION_0_HEADER = new Uint8Array([...text('RISUSAVE'), 0])
+
+    /** Upstream's block layout has no checksums: [type][compression][nameLength][name][length u32][payload]. */
+    function buildVersion0File(blocks: Array<Pick<RawBlock, 'type' | 'compression' | 'name' | 'payload'>>): Uint8Array {
+        const parts = blocks.map((block) => {
+            const nameBytes = text(block.name)
+            const out = new Uint8Array(3 + nameBytes.length + 4 + block.payload.length)
+            out.set([block.type, block.compression, nameBytes.length], 0)
+            out.set(nameBytes, 3)
+            out.set(u32le(block.payload.length), 3 + nameBytes.length)
+            out.set(block.payload, 3 + nameBytes.length + 4)
+            return out
+        })
+        const out = new Uint8Array(VERSION_0_HEADER.length + parts.reduce((sum, part) => sum + part.length, 0))
+        out.set(VERSION_0_HEADER, 0)
+        let offset = VERSION_0_HEADER.length
+        for (const part of parts) {
+            out.set(part, offset)
+            offset += part.length
+        }
+        return out
+    }
+
+    function minimalVersion0File(pluginStoragePayload: Uint8Array): Uint8Array {
+        const root = { formatversion: 5, botPresetsId: 0, __directory: ['upstream-cha', 'pluginStorage'] }
+        const character = { chaId: 'upstream-cha', type: 'character', name: 'Upstream', chats: [] }
+        return buildVersion0File([
+            { type: BLOCK_TYPE.ROOT, compression: 0, name: 'root', payload: text(JSON.stringify(root)) },
+            { type: BLOCK_TYPE.CHARACTER_WITH_CHAT, compression: 0, name: 'upstream-cha', payload: text(JSON.stringify(character)) },
+            { type: BLOCK_TYPE.PLUGIN_STORAGE, compression: 0, name: 'pluginStorage', payload: pluginStoragePayload },
+        ])
+    }
+
+    test('guard: the hand-built layout is a readable version-0 file whose plugin storage content decodes in strict', async () => {
+        const file = minimalVersion0File(text('{"a":1}'))
+        expect(file[8]).toBe(0)
+        const strict = await decodeRisuSave(file, { strict: true })
+        expect(characterIds(strict)).toEqual(['upstream-cha'])
+        expect(strict.pluginCustomStorage).toEqual({ a: 1 })
+    })
+
+    test('guard: strict decoding of the hand-built layout rejects truncated plugin storage content', async () => {
+        const file = minimalVersion0File(text('{"a"'))
+        await expect(decodeRisuSave(file, { strict: true })).rejects.toThrow(/JSON/)
+    })
+
+    test('REPRODUCER: strict decoding resolves with the plugin storage field absent when the block is empty', async () => {
+        const file = minimalVersion0File(EMPTY)
+        const strict = await decodeRisuSave(file, { strict: true })
+        expect(characterIds(strict)).toEqual(['upstream-cha'])
+        expect(hasPluginStorage(strict)).toBe(false)
+        expect(hasPluginStorage(await decodeRisuSave(file))).toBe(false)
+    })
+
+    test('REPRODUCER: strict decoding resolves with the plugin storage field absent for a real-encoder file rewritten as version 0', async () => {
+        const { file, firstId, secondId } = await buildFixture({ pluginCustomStorage: 'absent' })
+        const version0 = buildVersion0File(parseBlocks(file))
+        expect(version0[8]).toBe(0)
+        const strict = await decodeRisuSave(version0, { strict: true })
+        expect(characterIds(strict).sort()).toEqual([firstId, secondId].sort())
+        expect(hasPluginStorage(strict)).toBe(false)
+    })
+
+    test('guard: a real-encoder file with plugin storage content rewritten as version 0 decodes in strict', async () => {
+        const { file } = await buildFixture({ pluginCustomStorage: { a: 1 } })
+        const strict = await decodeRisuSave(buildVersion0File(parseBlocks(file)), { strict: true })
+        expect(strict.pluginCustomStorage).toEqual({ a: 1 })
+    })
+})
+
+//#endregion
