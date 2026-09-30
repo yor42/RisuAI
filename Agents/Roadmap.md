@@ -1695,6 +1695,69 @@ amendment; live-checked, ledger row 299). Present at `688b13e8` as well.
   leaves the capacity alone. This chore is decided after the memory-footprint work that follows
   W2e (`MC-119`).
 
+### CHORE-46 — The self-hosted Node server cannot save a database larger than 100 MB
+
+**Status (2026-09-30):** filed from the memory-footprint stage's persistence-side investigation
+(ledger row 456), under `MC-069`. Present upstream. Not fixed and not scheduled.
+
+- **Mechanism (source read by the Orchestrator; not run):**
+  - `server/node/server.cjs` parses every `application/octet-stream` body with
+    `express.raw({ limit: '100mb' })`.
+  - `NodeStorage.setItem` (`nodeStorage.ts`) sends `database.bin` whole, as one such body, to
+    `/api/write`.
+  - A larger body is refused before the handler runs, so the save fails.
+- **Seen in practice:** the maintainer's runtime `database.bin` is about 155 MB, and they use the
+  Tauri build rather than self-hosting because of this limit (`MC-131` 3-4). They report the limit
+  is well known among long-time self-hosters, who are told to export and delete unused characters
+  regularly and keep chats and characters elsewhere. Local plain-HTTP hosting is the second most
+  common platform.
+- **Related:** the memory-footprint stage (`MC-119`, `MC-130`) moves chats out of `database.bin`
+  into their own units, which shrinks the main file and may make this moot. Decide there whether
+  the stage fixes it, or whether the limit is raised or the write split separately.
+  `senior-advisor` (ledger row 459) recommends both: the per-chat stage first, then a streamed
+  `/api/write` body into the temp file the handler already renames, rather than a higher limit,
+  because `express.raw` buffers the whole body in server memory and a Pi 3 is a target host.
+
+### CHORE-47 — A local backup silently leaves out every asset that is not a `.png` (DATA LOSS)
+
+**Status (2026-09-30):** **fixed** (Report 48, ledger rows 461-467; `MC-133` 3), committed as
+`d25a02fb`. Filed from the synthetic generator's format check (ledger row 458), under `MC-069`.
+Present upstream (`upstream/main` has the same filter). The mechanism below describes the code
+before the fix.
+
+- **Mechanism (source read by the Orchestrator; not run):**
+  - `saveAsset` in `globalApi.svelte.ts` names an asset `assets/<id>.<ext>`, taking the extension
+    from the file name when one is passed. Four sites pass one: the asset pickers in
+    `AssetInput.svelte`, `CharConfig.svelte` and `ModuleMenu.svelte`, and the risuext
+    `additionalAssets` import in `characterCards.ts` (hub and legacy V2 cards, extension taken from
+    the card unvalidated). An audio, video, WebP, JPEG, font or CSS asset added there keeps its
+    extension. `.charx` and module import always save as `.png`, whatever the content, so their
+    assets are backed up (ledger row 461).
+  - `SaveLocalBackup` in `backuplocal.ts` skips every key that does not end in `.png`, on Tauri
+    (the `readDir('assets')` loop) and on web (the `forageStorage.keys()` loop, where the filter
+    also keeps out non-asset keys). The partial backup has the same filter.
+- **Consequence:** those assets are missing after a restore, with no warning. Migration from and
+  to upstream is by this backup (`MC-080`).
+- **A likely shape:** include every key under `assets/` whatever its extension. Upstream's restore
+  stores any non-database entry as `assets/` plus its name, so the result stays upstream-restorable.
+- **Related:** the memory-footprint stage's backup work (stage 2 in `senior-advisor`'s sequence,
+  row 459). The restore loop also sleeps 10 ms after every entry (about 300 s at 30,000 entries)
+  and re-copies its pending buffer on every stream chunk.
+
+### CHORE-48 — Inlay images are never included in a local backup
+
+**Status (2026-09-30):** filed from CHORE-47's scoping (ledger row 461), under `MC-069`. Present
+upstream (its `backuplocal.ts` has no inlay handling either). Not fixed and not scheduled; whether
+upstream means this is unknown.
+
+- **Mechanism (source read by the Orchestrator; not run):** inlay images, videos and audio inserted
+  into chat messages are stored in their own LocalForage instance (`inlayStorage`, name `inlay`, in
+  `src/ts/process/files/inlays.ts`), on every platform. `SaveLocalBackup` reads the asset store,
+  the cold-storage payloads and the database, never the inlay store, so a backup restored on
+  another device or browser has chats whose inlays are missing.
+- **Open question for the maintainer:** should a backup carry inlays, and if so, how does upstream
+  read them (its restore would store an unknown entry as `assets/` plus its name)?
+
 ## Sequencing Summary
 
 ```

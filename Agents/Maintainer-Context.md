@@ -144,6 +144,16 @@ phones. The maintainer chose B." (see MC-035).
 
 No further detail on this claim (what was rolled back, or why) appears in the cited source.
 
+**Clarified by the maintainer (2026-09-30),** after the Q&A session found that upstream's main branch
+(`ca1345fc`) still has cold storage: "rollback" means it was **scaled down, not removed**. As the
+maintainer recalls, cold storage used to be on by default and more aggressive; problems since fixed
+in this fork in Phase 0 and later sessions (for example, a failed read that was never retried and
+was treated as corrupted) hit upstream's users, so upstream reduced it. In source today it defaults
+to off on first load when a plugin is installed (`data.coldstorage ??= data?.plugins?.length === 0`
+in `database.svelte.ts`; a user toggle, not a gate), and a character moves to cold storage only
+after sitting idle for 10 days. The 10-day threshold is unchanged since it was added upstream
+(`52aee0d1`), so what was "more aggressive" is not visible in source (doc-verifier, 2026-09-30).
+
 ---
 
 ### MC-006 — Maintainer runs 500+ characters; extreme users report 1000+
@@ -3808,3 +3818,135 @@ start, input or output trigger run its remaining effects before the send gave up
 delete stops them (a second stop signal); neither stops them (a trash then keeps receiving a
 trigger's later messages and model calls). Extends `MC-126` 1 from a trigger's `/` command lines to
 all of its effects.
+
+---
+
+### MC-130 — Memory footprint: stop the boot walk and store each chat separately; the full chat stays readable; upstream compatibility means an upstream-readable `.bin` backup
+
+- **Tag:** decision
+- **Date:** 2026-09-30
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, answering four questions the Orchestrator asked about the optimization
+  Q&A session's memory-footprint brief (options only; the maintainer had approved none of them).
+- **Reasoning:**
+  - both changes are wanted in the first stage;
+  - plugins expect to read every message of a chat;
+  - users move from upstream, and back, by `.bin` local backup (`MC-080`); the internal layout does
+    not need to match upstream's for that.
+- **Alternatives rejected:**
+  - only the boot walk first;
+  - older messages of the open chat hidden from the prompt, memory, Lua, triggers or plugins;
+  - every internal storage structure identical to upstream's.
+- **Extends:** `MC-119`.
+- **Related:** MC-005, MC-006, MC-025, MC-080, MC-081.
+
+**What was decided:**
+1. **The memory-footprint work covers two changes:** loading the database no longer walks the whole
+   of it at boot, and each chat is stored as its own unit, loaded when it is opened.
+2. **A limit on how many messages of the open chat are held applies to the display only.** The
+   prompt, memory, Lua, triggers and plugins keep access to every message in the chat, because the
+   plugin API expects it.
+3. **Upstream compatibility for storage means an option to create a local `.bin` backup that
+   upstream can restore**, alongside restoring upstream's backups. The fork's own internal storage
+   format need not match upstream's.
+4. **When creating a `.bin` backup would need more memory than the device has, a warning is enough
+   for now.** Streaming or chunking the `.bin` creation is to be looked into.
+
+---
+
+### MC-131 — The maintainer's real local backup is about 36 GB; synthetic images use NovelAI's 832x1216
+
+- **Tag:** stated
+- **Date:** 2026-09-30
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer, while asking for the synthetic save generator to add avatars, character
+  assets and module assets: "my real save data (in .bin) is around 36gb. so I think that can be a
+  good baseline for this"; and, on image sizes, that much community art is generated with NovelAI,
+  so its standard 832x1216 ("Normal Portrait") is the baseline size.
+- **Related:** MC-006, MC-119, MC-130.
+
+**What was stated:**
+1. **The maintainer's own local backup `.bin` is about 36 GB.** How it splits between the database
+   and assets was not stated. Synthetic profiles are calibrated to that total; real data is not used
+   in measurements.
+2. **832x1216 is the baseline size for synthetic avatars and character assets.** The mix: about 60%
+   of characters have only an avatar, 30% have 5-30 images and 10% have 50-200; about 5% of avatars
+   are animated. Modules with assets are an optional part of a profile.
+3. **The maintainer runs the Tauri desktop build on PC, and does not use the self-hosted Node
+   server because of its 100 MB limit** ("I am not using self-hosted version just for that 100mb
+   limit I am using tauri for PC"), said after the Orchestrator reported that the server's
+   `express.raw` limit is 100 MB while the client sends `database.bin` in one request (ledger row
+   456).
+4. **The maintainer's runtime `database.bin` (Tauri) is about 155 MB,** checked by the maintainer
+   on 2026-09-30. So nearly all of the 36 GB backup is assets.
+5. **The 100 MB limit is well known among long-time self-hosting users.** They are usually told to
+   export and delete unused characters from RisuAI regularly, and to keep chats and characters
+   elsewhere. Filed as `CHORE-46`.
+6. **Real module mix: a few big asset modules, and a majority of light modules** that hold only
+   lorebooks or scripts. A real asset module can hold **5,000+ WebP images** (consistent with
+   `MC-009`'s 1-2 GB). Said when the generator's 36 GB calibration needed about 60 images per
+   character at 500 characters; the maintainer's profile puts more of the bytes in modules.
+   Asked how the 36 GB splits (ledger row 462 needed 26 modules of 2,000-10,000 images), the
+   maintainer added: **a few modules are extremely big; as they recall, 3-5 of their modules hold
+   near or over 20,000 images each.**
+
+---
+
+### MC-132 — Per-chat storage: V3 plugins load on demand; chats stay loaded while a V2.1 plugin is enabled; snapshots restore chats fully
+
+- **Tag:** decision
+- **Date:** 2026-09-30
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on three questions the Orchestrator asked
+  after the consumer-side investigation (ledger row 457) found that plugins can read and write back
+  every chat of every character, and the persistence-side one (row 456) found that the internal
+  snapshots would stop covering chat content once chats leave the main file.
+- **Reasoning:**
+  - V3 host calls are already awaited, so loading costs no API change;
+  - V2.1 reads through a synchronous live object and cannot wait for a load;
+  - a snapshot is a recovery point, so it must bring back the chats as they were.
+- **Alternatives rejected:**
+  - V3 whole-character and whole-database calls returning labelled placeholders for chats that are
+    not open;
+  - V2.1 seeing labelled placeholders; ending V2.1 support;
+  - snapshots restoring only the main file, with chats at their latest version; fewer snapshots.
+- **Extends:** `MC-130`.
+- **Related:** MC-033, MC-036.
+
+**What was decided:**
+1. **A V3 plugin call that returns chats returns them loaded**, with full messages, loading them if
+   needed. The API does not change. A call such as `getDatabase('all')` may briefly load every chat.
+2. **While any V2.1 plugin is enabled, every chat stays loaded**, as today.
+3. **Every internal snapshot still restores chat content exactly.** Chat versions a kept snapshot
+   refers to are kept.
+
+---
+
+### MC-133 — Memory footprint stage 1 extends cold storage and leaves the boot pass alone; `CHORE-47` is fixed first, on its own
+
+- **Tag:** decision
+- **Date:** 2026-09-30
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on two questions the Orchestrator asked
+  after `senior-advisor`'s direction (ledger row 459) and the generator's format check (row 458).
+  The maintainer also said that other forks (HaejeokRisu, PocketRisu) feed ideas and are not code
+  to port, as was their own plan.
+- **Reasoning:**
+  - with a loaded chat inline in the main file and a closed one a pointer, memory and file always
+    agree, so no second store, per-chat dirty signal or encoder change is needed;
+  - the boot pass shrinks with what is in the file, and keeping it keeps repaired chat ids stable
+    across boots; whether a rewrite is still worth it is measured afterwards;
+  - `CHORE-47` loses user assets at restore, and the fix is small.
+- **Alternatives rejected:**
+  - rewrite the boot pass in stage 1 as well;
+  - fix `CHORE-47` inside the backup stage.
+- **Amends:** `MC-130` 1.
+- **Related:** MC-069, MC-080, MC-119, MC-132.
+
+**What was decided:**
+1. **Stage 1 turns cold storage into the per-chat store.** A chat is archived to its own unit when
+   it is no longer open, and loaded when it is opened. Open chats stay inside the main save file.
+2. **The boot pass (`RisuSaveEncoder.init` and the full-reload sites) is not rewritten in stage 1.**
+   It is measured on the smaller file afterwards and rewritten only if still costly.
+3. **`CHORE-47` (a local backup skips every non-`.png` asset) is fixed now, as its own change,**
+   before the memory stages.
