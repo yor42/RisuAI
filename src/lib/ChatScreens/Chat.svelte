@@ -533,7 +533,14 @@
 
     const unsubscribers:Unsubscriber[] = []
 
+    // The icon's {#await} block retains the batch it was created in for its whole life.
+    // Creating it in the batch that mounts this component would keep that batch's
+    // previous-value map (e.g. the previous chat's message array) reachable until the
+    // component is destroyed, so the await is only created after mounting has finished.
+    let iconMounted = $state(false)
+
     onMount(()=>{
+        queueMicrotask(() => { iconMounted = true })
         unsubscribers.push(ReloadGUIPointer.subscribe((v) => {
             updateDisplayedMessage()
         }))
@@ -1303,6 +1310,7 @@
                 {/if}
             </div>
         {:else}
+            {#if iconMounted}
             {#await img}
                 <div class="shadow-lg bg-textcolor2" style={options?.styleFix ??`height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`}
                 class:rounded-md={!options?.rounded} class:rounded-full={options?.rounded}></div>
@@ -1315,6 +1323,10 @@
                     class:rounded-md={!options?.rounded} class:rounded-full={options?.rounded}></div>
                 {/if}
             {/await}
+            {:else}
+                <div class="shadow-lg bg-textcolor2" style={options?.styleFix ??`height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`}
+                class:rounded-md={!options?.rounded} class:rounded-full={options?.rounded}></div>
+            {/if}
         {/if}
     {/if}
 {/snippet}
