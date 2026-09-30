@@ -13,9 +13,7 @@ STATUS block and its ledger rows.
 - **Authority.** Where this file and a Report, `Agents/Roadmap.md` or `Agents/Maintainer-Context.md`
   differ, they win. Sources are cited by name, not by line: the code moves.
 - **Checked against** the source, the Roadmap, the Reports' STATUS blocks and `git log` at HEAD
-  `1d6fa16b` (2026-09-29); the W2c section is updated through W2c-c (`d27a1ee4`), the W2d section
-  through W2d-b (`efd417b9`, 2026-09-30), the W3 section through W3 (`e07d32fb`, 2026-09-30), and the W2e section through W2e (`baf238e7`,
-  2026-09-30).
+  `7d4bc4b0` (2026-09-30).
 
 ## After W2c (the send's prompt)
 
@@ -119,11 +117,12 @@ STATUS block and its ledger rows.
 ## After W2e (the delete warning and backup loads during work)
 
 - **W2e is done** (`baf238e7`, Report 47). Every unit of work that writes into a chat across an
-  await is registered with a stop: the send (outer call), the composer take, auto mode, reroll,
-  `/trigger`, the trigger-button run and the Post File job. `stopWorkIn` in `chatOrigin.ts` snapshots
+  await is registered. The send (outer call), the composer take, auto mode, the trigger-button run
+  and the Post File job register with their own stop; reroll and `/trigger` register without one and
+  are stopped through the send they run or the line's signal. `stopWorkIn` in `chatOrigin.ts` snapshots
   its matches and runs each stop once; `hasWorkIn` matches the owner only; `isWorkInProgress` is any
   registration or the composer window. A new unit of work that writes after an await must register
-  with a stop, or a delete cannot reach it.
+  with a stop, or be reached by its owner's, or a delete cannot stop it.
 - **Deletes** go through `removeChatConfirmed` (the three chat handlers) and `removeChar` in
   `characters.ts`; the stop runs in the same synchronous stretch as the removal.
 - **Trigger runs** check their signal before each trigger and effect (`MC-129` amendment); an effect
@@ -137,23 +136,48 @@ STATUS block and its ledger rows.
   - The busy button still cannot cancel a trigger-button run (`MC-126` 1); a Lua button run is never
     interrupted; a trigger's own model or image request gets no signal.
   - `storageMaintenance.ts`'s OPFS migration reloads without a work check.
-  - `google.ts`'s Vertex token refresh calls `setDatabase(getDatabase())` mid-generation, clearing
+  - `src/ts/process/request/google.ts`'s Vertex token refresh calls `setDatabase(getDatabase())` mid-generation, clearing
     `isStreaming` on every chat (inferred, packet Q4).
   - Two redundant stops are not pinned by a test: auto mode's own stop (the tick abort and the chat
     check already end the loop) and `isWorkInProgress`'s composer-window clause (Gate 2, m12, m19).
   - The eight W2e test files copy about 9,000 lines of harness; a shared harness module would ease
     maintenance.
-  - The three new strings in `ko.ts` read literally; the maintainer may reword them.
+  - The translator flagged the three new strings in `ko.ts` as literal; the maintainer may reword
+    them.
 
 ## Wiki batch (owned by the Wiki session; W2 is done)
 
-- The composer and send wiki batch waits for W2. A source-line anchor in `RisuAI-Basics.md` shifts
-  with the composer's S2.
+- The composer and send wiki batch is unblocked: on 2026-09-30 the Wiki session was told that W2 and
+  W3 are done, with W3's and W2e's user-visible changes. The source-line anchors in
+  `RisuAI-Basics.md` (into `composerActions.svelte.ts` and `DefaultChatScreen.svelte`) have shifted
+  with every edit to those files since S2.
 - W1a's list of stale wiki claims is Report 33 section 13. The lists for W1b and the composer stage
   (`Settings-Hotkeys.md`, `RisuAI-Basics.md`) went to the Wiki session.
 
 ## Not scheduled
 
+- **Suspected by the Wiki session while documenting (2026-09-30, wiki `5b366746`); not verified
+  by this session.** Each needs an `investigator` check before it becomes a ticket.
+  - `prevChar`/`nextChar` in `hotkey.ts` sort all of `db.characters`, trashed ones included.
+  - `/multisend clear` empties the chat once per segment, not once overall (upstream the same).
+  - `doingChatInputTranslate` in `DefaultChatScreen.svelte` is never assigned, so its clause in the
+    busy condition is dead.
+  - A suggestion click during a reroll or auto-mode window overwrites the draft, then `send()` is
+    refused silently (`Suggestion.svelte` checks only `isComposerLocked()`).
+  - The message box's Ctrl+M reroll ignores the hotkey table and fires with Shift or Alt held.
+  - The translate box has no send key when Send with Enter is off.
+  - The `/?` help text disagrees with the code (`/buttons`, `/len`, `/cut`, `/del`; `/setinput`,
+    `/multisend` and `/test_lorebook` are missing).
+  - A `/` line's CBS runs before the command is known, so an unknown command's CBS side effects
+    fire and its text is then sent as a message.
+  - A comment in `index.svelte.ts` says hotkeys change the selection without checking `doingChat`;
+    `changeChar` does check it.
+  - From earlier batches: the Global Lorebook and Global Regex settings pages are unreachable; Easy
+    Panel's menu highlight checks index 16, which nothing sets; the Bug Report export's removal
+    list names a removed `account` field; inside a group member's trigger run, Lua `getName()`
+    returns the group's name while trigger effects write the member.
+  - (The late backup refusal leaving assets and cold-storage items is known and commented in
+    `backuplocal.ts`; see "After W2e".)
 - **CHORE-43** (Roadmap): the composer's reroll history is per instance, so unreroll can write one
   chat's reply into another.
 - **W2a's optional items** (Report 35 section 12): skip the image-prompt request when there is no

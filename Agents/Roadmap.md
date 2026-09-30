@@ -1268,9 +1268,9 @@ row 142). Traced to source, not fixed. Minor housekeeping only.
 - **W1b** (Report 34, committed in `22db8dfe`): a trigger's or script's reads (CBS, `#when`,
   the Lua read bindings, the lorebook scan and its flags, module selection, the `editinput`
   script) now take its origin, not the selection.
-- Still selection-bound until W2 (`MC-095`): the send's own parses, including `{{setvar}}`, which
-  writes only with `runVar`, and so only in the send (it is inert in a trigger's strings), plus its
-  lorebook call and graph memory.
+- **W2a to W2d** (Reports 35, 40, 42-45): the send's own parses, including `{{setvar}}` (which
+  writes only with `runVar`, so only in the send), its lorebook call and graph memory take the send's
+  origin, not the selection (`MC-095`).
 
 **Original status (2026-09-24):** found by Gate 1 round 1 of the composer-drafts plan
 (`Agents/Reports/22-composer-drafts-plan.md` sections 2.2 and 8; ledger row 158), Orchestrator

@@ -150,7 +150,8 @@ directory.
 - **`Agents/Evidences of Investigations/`** holds maintainer-supplied evidence. Only two
   subdirectories inside it are gitignored, because they contain third-party plugin
   bundles: `Community plugins to solve common pain points/` and
-  `Asset Cache/Community Mitigation_Webrowser Plugin/`. Never commit those two, and
+  `Asset Cache/Community Mitigation_Webrowser Plugin/` (the second is currently absent from the
+  working tree). Never commit those two, and
   never quote their code into publishable documentation. **The rest of the `Evidences`
   directory is tracked** — do not assume the whole directory is gitignored, that has
   already misled a session. This README does not open that directory; nor should you,

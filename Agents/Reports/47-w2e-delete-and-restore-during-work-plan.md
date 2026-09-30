@@ -3,7 +3,7 @@
 **STATUS:** plan rev 2.2, 2026-09-30. **Gate 1 passed:** round 2 [EDITORIAL] (ledger row 448), its
 corrections applied in rev 2.2. **Gate 2 passed** (row 451 [REJECT], test-only; remediation [APPROVE],
 row 452). **Live check passed** (row 453). Commit-message check (row 454). **Committed** as
-`baf238e7`, records the commit after it. Round 1 [REJECT] (ledger row 446) was answered in rev 2 with the
+`baf238e7`, records `7d4bc4b0`. Round 1 [REJECT] (ledger row 446) was answered in rev 2 with the
 `MC-129` amendment (a stop ends a trigger's remaining effects). Rev 2.1 records rev 2's rows executed
 at HEAD (ledger row 447): 53 tests, 37 FAIL on their named value, 16 PASS (14 guards and R4a/R4b,
 which pass by accident), identical on a second run.
@@ -480,7 +480,9 @@ write), n3 (section 6: a stopped trigger can leave a message edit half done).
   during the between-entry download stopped nothing. A red test was written first (entries two and
   three posted, three requests instead of one), then the job was registered with a stop.
 - Registry tests G1 and G2 were added to `chatOrigin.registry.svelte.test.ts`.
-- The three strings were translated into the six other languages (`translator`).
+- The three strings were translated into the six other languages (`translator`). The translator
+  listed every language's renderings as low-confidence for a native reviewer, the Korean most
+  (literal wording).
 - **Pre-gate run:** 198 files, 3,269 passed, 4 skipped; `pnpm check` clean; the build passes.
 
 ### Gate 2 (ledger row 451): [REJECT], test-only

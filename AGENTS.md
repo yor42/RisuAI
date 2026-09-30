@@ -159,7 +159,7 @@ You can safely apply Tailwind's opacity modifiers directly to these custom theme
 
 ### Testing
 
-- Unit tests use Vitest (`pnpm test` runs `vitest run`); there are 56 `*.test.ts` files as of 2026-09-23 — re-check with `git ls-files 'src/**/*.test.ts' | wc -l` rather than trusting this number, which has gone stale before. They are spread across `src/ts/process`, `src/ts/parser`, `src/ts/storage`, `src/ts/media`, `src/ts/network`, `src/ts/plugins`, `src/ts/translator`, `src/lib` and elsewhere — not exhaustive coverage, but a real and growing suite, not just a placeholder.
+- Unit tests use Vitest (`pnpm test` runs `vitest run`); there are 197 `*.test.ts` files under `src/` as of 2026-09-30 — re-check with `git ls-files 'src/**/*.test.ts' | wc -l` rather than trusting this number, which has gone stale before. They are spread across `src/ts/process`, `src/ts/parser`, `src/ts/storage`, `src/ts/media`, `src/ts/network`, `src/ts/plugins`, `src/ts/translator`, `src/lib` and elsewhere — not exhaustive coverage, but a real and growing suite, not just a placeholder.
 - Run `pnpm check` for type checking (svelte-check).
 - Test coverage is uneven: some areas (e.g. `src/ts/storage/remoteSaveCleanup.test.ts`) only exercise Tauri/Node-specific code paths and say nothing about the pure web build's behavior in that area. Don't assume a file has tests nearby means that exact runtime path is covered — check what the test actually exercises.
 
