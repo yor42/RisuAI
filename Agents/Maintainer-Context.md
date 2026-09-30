@@ -3649,3 +3649,115 @@ every other provider does; today it is handed the schema text and the reply come
 was used within the last few minutes; after that, the next tool activity shuts down any client the
 current selection and the current request do not use. A local (`stdio:`) tool process may linger
 that long after its character is left.
+
+---
+
+### MC-126 — W3: `/` commands, `/multisend` and Post File act on their own chat; a cancel stops a pipe at its next command
+
+- **Tag:** decision
+- **Date:** 2026-09-30
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on six questions the Orchestrator asked
+  after W3's scoping (ledger row 429; packet `w3/packet.md` in that session's scratchpad).
+- **Reasoning:** the recommended options, as offered:
+  - a trigger run's other effects and model calls already act on its own chat (`MC-075` 1,
+    `MC-121`); its command line was the part left on the selection;
+  - a pipe that goes on posting after its text went back repeats its posts on the next Send;
+  - a button that posts without replies while a send is starting never takes the flag from it
+    (`MC-106` 2 already does this while a send is running);
+  - a bound `/multisend` behaves like a send when the user leaves (`MC-103` 3);
+  - Post File already captures its draft key where it was clicked;
+  - a stopped pipe writes nothing elsewhere (`MC-075` 2).
+- **Alternatives rejected:**
+  - a cancel: also interrupt a step already running (`/speak`, `/trigger`, a prompt); leave the pipe
+    running after the text goes back;
+  - trigger-run `/` commands: stay on the selection;
+  - trigger buttons: refused while a send is starting or running; keep the disclosed contention;
+  - `/multisend` after the user leaves: stop at the next segment;
+  - Post File: the chat on screen when the file dialog closes;
+  - a gone chat mid-pipe: skip the writing commands and continue; stop with an alert.
+- **Settles:** `MC-103`'s deferred question on trigger-run `/` commands, and `MC-098` 2's binding of
+  Post File.
+- **Related:** MC-075, MC-078, MC-098, MC-099, MC-103, MC-104, MC-105, MC-106, MC-121, MC-127.
+
+**What was decided:**
+1. **A cancel stops a `/` pipe before its next command** and before the next `/multisend` segment.
+   A step already running finishes first. This applies to the composer's pipe and to the pipes of
+   a send's triggers. A trigger button's pipe has no cancel, as before.
+2. **A trigger run's `/` commands act on the run's own chat**, like its other effects. A button's
+   pipe acts on the chat whose button was pressed.
+3. **Trigger buttons stay usable while a send is starting or running.** A button's `/multisend`
+   treats a send that is starting as running: it posts its segments without replies.
+4. **A `/multisend` keeps going in its own chat when the user leaves it**, posting and answering
+   the remaining segments there.
+5. **Post File belongs to the chat where it was clicked.** Every entry and reply stays there. If
+   that chat is gone mid-job, the job stops and still downloads what it has built.
+6. **When a pipe's chat is gone mid-pipe, the pipe stops silently** at its next command. A chat
+   whose id has two holders follows the rule of the work the pipe runs in: the composer's pipe
+   writes to the chat it started from (`MC-104` 1); a trigger run already stops (`MC-078`).
+
+---
+
+### MC-127 — W3 fixes the `/` command bugs it found; `loadInternalBackup` during work goes to W2e
+
+- **Tag:** decision
+- **Date:** 2026-09-30
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose all four recommended fixes, and the recommended placement, on
+  two questions the Orchestrator asked after W3's scoping (ledger row 429).
+- **Reasoning:** W3 rewrites these lines anyway. All the bugs are identical upstream.
+- **Alternatives rejected:** leaving the bugs as upstream has them; guarding `loadInternalBackup`
+  in W3, or not at all.
+- **Not proposed:** the command parser turns any argument containing `=` into a named argument.
+  Changing it could break existing presets, so it stays.
+- **Related:** MC-075, MC-103, MC-126.
+
+**What was decided:**
+1. **`/cut` and `/del` delete what they name.** `/cut N` removes message N, `/cut a-b` removes
+   that range, and `/del N` removes the last N messages. Today each keeps what it names and drops
+   the rest.
+2. **No crash or `NaN`:** `/getvar` on an unset variable, `/addvar` on an unset variable,
+   `/comment` in an empty chat, and `/trigger` in a group chat (which passes `undefined` down the
+   pipe).
+3. **`/trigger` gets the 10-deep recursion bound** that the `runtrigger` effect already has.
+4. **Post File's parser:** a `#. Note =` line loses its prefix, and the job is no longer cut off
+   after about 100 lines.
+5. **`loadInternalBackup` while work is in flight** is handled in W2e, whose complete registration
+   provides the "anything in flight" check.
+
+---
+
+### MC-128 — A cancelled `/` pipe that has already written leaves the composer empty
+
+- **Tag:** decision
+- **Date:** 2026-09-30
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on a question the Orchestrator asked after
+  W3's Gate 1 round 1 (ledger row 432, finding B4).
+- **Reasoning:** the recommended option, as offered:
+  - With the text back, a resend replays what the pipe already wrote: `/send x` posts twice, `/cut 0`
+    cuts a different message, and `/addvar` adds twice.
+  - `MC-107` 1 already keeps the composer empty once a `/multisend` has posted.
+- **Alternatives rejected:**
+  - only visible message writes count, so variable writes replay;
+  - only `/multisend` counts, with the replay disclosed.
+- **Extends:** `MC-107` 1, from `/multisend` segments to every write of the pipe.
+- **Related:** MC-099, MC-107, MC-126.
+
+**What was decided:** when the busy button cancels a composer take during its `/` stage, the
+command text goes back only if the take's own pipe has not yet written anything.
+- Once any of its commands has written, the composer is left empty and what was written stays. The
+  commands that write are `/send`, `/sendas`, `/comment`, `/cut`, `/del`, `/setvar`, `/addvar` and
+  a `/multisend` segment.
+- A pipe still in its first non-writing step, for example `/speak`, gets its text back.
+- Writes by anything else, such as a trigger button or another chat, never count.
+
+**Amendment (2026-09-30, after W3's Gate 1 round 3, ledger row 436):** the maintainer chose the
+recommended option on two questions.
+1. **`/trigger` and `/test_lorebook` also count as writes.** They count from their start, whether or
+   not they then change anything. A resend would re-run the trigger, whose effects can write, and
+   the lore scan writes lore flags. Rejected: only `/trigger` counts; neither counts.
+2. **A command line that has written and then fails** (an unknown command, `/setinput`) has its
+   text handled: it is neither posted as a message nor put back. `/send x|/nosuchcommand` posts only
+   `x`. Upstream also posts the raw command text and generates a reply. Rejected: keep upstream's
+   behaviour. With no earlier write, an unknown command still sends its text as a message.

@@ -14,7 +14,7 @@ STATUS block and its ledger rows.
   differ, they win. Sources are cited by name, not by line: the code moves.
 - **Checked against** the source, the Roadmap, the Reports' STATUS blocks and `git log` at HEAD
   `1d6fa16b` (2026-09-29); the W2c section is updated through W2c-c (`d27a1ee4`), the W2d section
-  through W2d-b (`efd417b9`, 2026-09-30).
+  through W2d-b (`efd417b9`, 2026-09-30), and the W3 section through W3 (`e07d32fb`, 2026-09-30).
 
 ## After W2c (the send's prompt)
 
@@ -89,24 +89,32 @@ STATUS block and its ledger rows.
   request, including tools, and can hold a tool call or fail on demand; Echo as the auxiliary model.
   The fallback list is reached in the legacy GUI's prompt-template page.
 
-## W3 (`/` commands, `/multisend`, `sendPofile`)
+## After W3 (`/` commands, `/multisend`, Post File)
 
-- **Binding to an origin.** W2b-core leaves `/multisend`, `sendPofile` and trigger-run `/` commands
-  on the chat captured at each `sendChat`'s entry (Report 36, "Out"). Binding them is W3's.
-  `MC-098` sends `sendPofile` to W2/W3.
-- **Cancel and `/` commands.** Whether a cancel stops a running `/` command is W3's (`MC-103`,
-  Report 36). A cancel during a slow `/` command puts the composer's text back while the command
-  keeps running (composer stage, S1). A press during a command before a `/multisend` in the same
-  pipe, as in `/speak x|/multisend a|||b`, puts the text back, and the pipe then goes on to post and
-  generate (Report 36, disclosed).
-- **A trigger button's `/multisend`** pressed while the composer's action window is open, or during
-  auto mode's yield, can take the busy flag first. The composer's hand-off or auto mode's next tick
-  is then refused. If it posts during a composer take's `/` stage, the take's typed text is not put
-  back when the stage ends early (Report 36 section 3, D6). No two generations run at once and the
-  flag is never stolen or stuck (Report 36, disclosed).
-- **`MC-103` deferred** whether trigger-run `/` commands bind to the trigger run's origin, and a
-  `loadInternalBackup` during work. `MC-103` names no stage for the second, and no Report or
-  Roadmap entry places it.
+- **W3 is done** (`e07d32fb`, Report 46). A command line has one chat, fixed when it starts: the
+  composer take's (with its hint), a trigger run's, or, for Post File, the chat where it was
+  clicked. Every command resolves it by id at the moment it reads or writes, and marks it for save;
+  no command calls `setDatabase`. `processMultiCommand(command, ctx)` requires a `CommandContext`;
+  there is no caller without a chat.
+- **Cancel and the take's text** (`MC-126` 1, `MC-128`): a signal stops a line before its next
+  command or segment; the take's record is set at the start of any command outside the non-writing
+  set and is not forwarded into nested runs. Ownership of the composer's window and the signal are
+  forwarded through `/trigger`, `runtrigger`, `v2RunTrigger` and the input trigger.
+- **`/trigger`'s depth** shares the run's `recursiveCount` with `runtrigger`/`v2RunTrigger`
+  (the same check, increment and passed value). `NESTED_TRIGGER_LIMIT` in `command.ts` mirrors the
+  literal 10 in `triggers.ts`; importing it there breaks tests that mock `./command`.
+- **Left open, none scheduled:**
+  - `loadInternalBackup` during work: W2e (`MC-127` 5).
+  - A trigger button's command line has no cancel (`MC-126` 1).
+  - The busy button cannot be pressed while an `/input` or `/buttons` prompt is open (live check,
+    row 442), so such a step can only finish.
+  - `/multisend` resolves its chat per segment; no test pins it, because no production path
+    replaces the chat object mid-segment (Gate 2 O3).
+  - A composer line's `/trigger`s share one count, starting from 0; a fresh count per command is
+    not pinned (Gate 2 R7; matters only past ten `/trigger`s in one line).
+  - `/addvar` on an existing non-numeric value still writes `NaN`, as upstream.
+  - The command parser still makes any `key=value` token a named argument (`MC-127`).
+  - Post File was not exercised live (it needs a file dialog; the data-loss path is Tauri-only).
 
 ## W2e (the delete warning and complete registration)
 
