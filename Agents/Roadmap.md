@@ -1810,6 +1810,50 @@ upstream means this is unknown.
   gives an exact alternative for that case. The same residual exists today on a static web build
   served over plain HTTP (it boots and saves, ledger row 485), where there is no revision to compare.
 
+### CHORE-50 — The first run of a new self-hosted Node server fails until a reload
+
+**Status (2026-10-01):** filed from ledger row 501. Present upstream since its `61996dd2`
+(inferred from source; upstream not run). Not fixed and not scheduled.
+
+- **Observed (Orchestrator, built-in pane, fresh scratch `save/`, production build of `d199b07b`):**
+  - the app asks "Set your password to security";
+  - after a password is entered, the boot stops with the alert "getItem Error";
+  - network: `GET /api/test_auth` 200, `POST /api/crypto` 200, `POST /api/set_password` 200, then
+    `GET /api/read` 400 with `{"error":"Unknown Public Key"}`;
+  - after a reload the app asks "Input your password..." and the same password boots normally.
+- **Mechanism (source read by the Orchestrator; not run beyond the observation above):**
+  - Trigger: the server has no password set. `/api/test_auth` answers `unset` whenever the server's
+    in-memory password is empty, and `server.cjs` loads it only from `save/__password`. That is the
+    case on a first run.
+  - `NodeStorage.checkAuth` (`src/ts/storage/nodeStorage.ts`): when `/api/test_auth` answers `unset`,
+    it asks for a password, POSTs it to `/api/set_password`, and returns without calling `/api/login`
+    and without setting `authChecked`. The `incorrect` branch is the one that sends the tab's public
+    key to `/api/login`.
+  - The client ignores the `/api/set_password` response: the `fetch` result is not checked.
+  - `server/node/server.cjs`: `/api/set_password` only stores the password. `/api/login` is the only
+    route that adds the public key's hash to `knownPublicKeysHashes`
+    (`save/__known_public_key_hashes.json`). The JWT check on `/api/read` answers 400 "Unknown Public
+    Key" for a key not in that list.
+  - The private `readItem` (called by `getItem` and `peekItem`) turns the failed read into the thrown
+    string "getItem Error", which the boot shows as an alert.
+  - Origin: the client's set-password path is upstream `74f76255` (kwaroran, 2023-05-28, "[feat]
+    nodejs hosting password"). The public-key list is upstream `61996dd2` (kwaroran, 2026-03-03,
+    "change server.cjs to jwt based approch"). So upstream has had the same first-run failure since
+    2026-03-03 (inferred from the source; upstream not run).
+- **Who is affected:** anyone whose Node server has no password set, which includes anyone starting
+  a new self-hosted Node server, once, on first run. Workaround: reload and type the same password.
+  - **Empty `save/`:** nothing is lost (observed).
+  - **A `save/` that already holds data but has no `__password`** (for example an old upstream save
+    from before the 2023 password feature, or a deleted `__password`) takes the same branch. Source
+    read by the Orchestrator, not run with a populated save: in `bootstrap.ts` the web and Node
+    branch calls `forageStorage.getItem('database/database.bin')` before the decode `try`, so the
+    "getItem Error" throw is caught only by the boot's outer catch, which shows the error alert. The
+    boot ends before `setDatabase` and before the save loop starts, so nothing is written.
+- **Constraint for the fix:** it must not weaken authentication. The password must still be required
+  to register a key.
+- **Fix direction (non-normative):** after setting the password, log in with the same password so the
+  tab's key is registered, or have the server register the key sent with `set_password`.
+
 ## Sequencing Summary
 
 ```

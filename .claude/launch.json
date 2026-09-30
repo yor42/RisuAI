@@ -6,6 +6,11 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["dev"],
       "port": 5174
+    },
+    {
+      "name": "risuai-prod-scratch",
+      "url": "http://localhost:6011",
+      "port": 6011
     }
   ]
 }

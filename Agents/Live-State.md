@@ -28,9 +28,9 @@ These later commits are local and not pushed:
 
 Push only at the maintainer's request.
 
-The working tree is otherwise clean, apart from `Agents/Reports/37-chat-html-css-security-surface.md`
-(untracked). It belongs to another session (probably "Q&A"; its header says read-only Q&A). Never
-stage it.
+The working tree is otherwise clean.
+`Agents/Reports/37-chat-html-css-security-surface.md` is untracked. It belongs to another
+session (probably "Q&A"; its header says read-only Q&A). Never stage it.
 
 ## Parallel sessions (2026-09-30)
 
@@ -44,7 +44,7 @@ Several sessions work **in this same checkout**:
   build"** and **"Fork rebranding exploration"** are idle or done; see Report 39/41 and ledger
   row 428.
 
-**Next free numbers:** `MC-146`, Report 52, ledger row 499 and CHORE-50. Check the ledger's last row before taking
+**Next free numbers:** `MC-146`, Report 52, ledger row 504 and CHORE-51. Check the ledger's last row before taking
 one. `MC-114` and ledger rows 371-374 were reserved for W2c-a and left unused; nobody
 should fill them.
 
@@ -63,6 +63,12 @@ should fill them.
    ledger rows 487-491). **Step 2 is done:** the v2 stub and the shared restore (D6, D7, D9 restore
    side), committed as `db49aeeb` (Report 51; Gate 2 approved at round 2, then one editorial
    round, ledger rows 494-497). Steps 3-7 are not started.
+   - **Live check of steps 1 and 2 (ledger row 499):** the manual clean-up refused on a profile whose
+     `pluginStorage` block is empty (row 500; upstream writes the same empty block). The decoder fix
+     and its red-first tests are committed as `64f23154`. The fix passed its `opus-reviewer` gate
+     (`[EDITORIAL]`, corrections applied; row 502) and was re-checked live on a scratch Node
+     server; the manual clean-up then completed. CHORE-50
+     (the first run of a new Node server fails until a reload) was filed from the same session.
    - The round-5 verdict was `[EDITORIAL]`. Its corrections were applied to the plan by the
      Orchestrator and not re-verified; Report 49's section 3 marks what was added after Gate 1.
    - Design:
@@ -238,45 +244,72 @@ Escape on alerts stage 2 and W2c-a were merged as `1d6fa16b`.
   list button). Stop it by the PID listening on 4173. The localhost:4173 origin holds only
   throwaway test data.
 
-- **Use Claude in Chrome, not the built-in pane.** The service worker kills the boot in the pane.
-- **Build for production.** Run `pnpm run build` with `$env:VITE_RISU_LEGAL_CONFIGURED='TRUE'`
-  set for that one PowerShell command only, then start `pnpm run runserver` (port 6001) yourself
-  as a background process. The maintainer approved this on 2026-09-25.
-  - Do not use `preview_start`. It would open the app in the built-in pane on the same server
-    storage, making a second writer.
-- **The Node server's data is `save/`** (gitignored). It is a near-empty throwaway, not the
-  fixture.
-  - Before the check, copy it to the scratchpad.
-  - Afterwards, stop the server and restore it. Verify the restore by hash, and move any file the
-    test created out rather than deleting it.
+- **Default method: the built-in pane, on a scratch Node server.** Observed 2026-10-01 (ledger row
+  501).
+  1. **Build for production.** Run `pnpm run build` with `$env:VITE_RISU_LEGAL_CONFIGURED='TRUE'`
+     set for that one PowerShell command only. The maintainer approved this on 2026-09-25.
+  2. **Start the scratch server.** `server/node/server.cjs` resolves `dist` and `save` from its
+     working directory. Make a scratchpad folder holding a junction `dist` to the repo's `dist` and
+     an empty `save`. Set `PORT=6011` and run `node C:\Projects\RisuAI\server\node\server.cjs` from
+     that folder, as a background process. The repo's `save/` is not touched, so no backup or
+     restore is needed.
+  3. **Open the pane with `preview_start`** on the `risuai-prod-scratch` entry of
+     `.claude/launch.json` (attach-only: `http://localhost:6011`, port 6011, no command). **Never use
+     plain `navigate` for the first open.** A pane tab opened that way stops at "Checking Service
+     Worker..." with "Failed to register a ServiceWorker ... An unknown error occurred when fetching
+     the script"; the pane's network log shows no `sw.js` request, while `curl` gets `/sw.js` with
+     200 `application/javascript`. A tab opened with `preview_start` registers the service worker
+     and boots.
+  4. **Reload with `navigate` and `force: true`.** The Node build's leave-site prompt blocks a
+     plain reload; `force` passes it.
+  5. **First run on an empty `save`:** the app asks "Set your password to security", and after the
+     password is entered the boot stops with the alert "getItem Error" (CHORE-50, open). Reload,
+     and enter the same password at "Input your password..."; it then boots. Keep the test
+     password in the scratchpad, never in chat or in the docs.
+  6. **`tabs_context` reports whether the pane is displayed.** In a displayed pane the page is
+     `visible`, and `requestAnimationFrame` and `IntersectionObserver` callbacks fire.
+  7. **Stop the server by the PID listening on 6011** and confirm the port is closed.
 - **Model:** Echo needs no API key. In the model picker it sits under "For Developer" once "show
   unrecommended settings" is ticked.
-- **Settings:** restore any setting you change. The `save/` restore covers the Node server's
-  settings.
-- **The leave-site guard prompts on every reload of the Node build**, by design
-  (`preload.beforeUnload.test.ts`). A forced navigation does not get past it, and closing the tab
-  hangs the tool.
-  - Confirm the save reached `save/` (mtime and `__revisions.json`), then ask the maintainer to
-    refresh or close the tab.
-  - Close the tab before the server restarts, or it can write stale state back.
+- **Settings:** restore any setting you change, or use a fresh scratch `save` for the next check.
 - **Network:** do not probe upstream services (`MC-081`).
-- **Stopping the server.** `TaskStop` on `pnpm run runserver` kills only the pnpm wrapper. The
-  `node server/node/server.cjs` child keeps listening on port 6001. Stop it by PID, and confirm
-  the port is closed before restoring `save/`.
-- **Claude in Chrome opens its tab in the background**, so the page starts hidden. Ask the
-  maintainer to bring that window and tab to the front before the first click.
 - **A delayed model with no network:** register a probe with `__pluginApis__.addProvider(name, async
   (arg, abortSignal) => ...)` that records the call and its abort, then pick "Plugin Legacy" (behind
   "show unrecommended settings") and choose it in the plugin select; set the auxiliary model to Echo.
   A confirmation that must land during the wait goes in the same `browser_batch` as the send, and
   the delay must outlast every confirmation (W2e's first 10 s probe finished before the second one).
+- **Seeding test data.** Use `globalThis.__pluginApis__.getChar()` / `setChar()` on the main page
+  to set a field on the selected character; a fresh scratch `save` (or the `save/` restore, in the
+  fallback) undoes it. **Never switch the model this way.** `setDatabaseLite` did not reach the send
+  path, and a test message went to the profile's default provider (row 205). Use the model picker.
+
+### Fallback: Claude in Chrome, against the repo's `save/`
+
+Use it when the pane cannot do the check. Its caveats:
+- **Start the server yourself.** Run `pnpm run runserver` (port 6001) as a background process, after
+  the production build above.
+  - Do not point the built-in pane at this server (no `preview_start` on it). It would open the app
+    on the same server storage, making a second writer.
+- **The Node server's data is `save/`** (gitignored). It is a near-empty throwaway, not the
+  fixture.
+  - Before the check, copy it to the scratchpad.
+  - Afterwards, stop the server and restore it. Verify the restore by hash, and move any file the
+    test created out rather than deleting it.
+  - The `save/` restore also covers the Node server's settings.
+- **Claude in Chrome opens its tab in the background**, so the page starts hidden. Ask the
+  maintainer to bring that window and tab to the front before the first click.
+- **The leave-site guard prompts on every reload of the Node build**, by design
+  (`preload.beforeUnload.test.ts`). In Chrome a forced navigation does not get past it, and closing
+  the tab hangs the tool.
+  - Confirm the save reached `save/` (mtime and `__revisions.json`), then ask the maintainer to
+    refresh or close the tab.
+  - Close the tab before the server restarts, or it can write stale state back.
+- **Stopping the server.** `TaskStop` on `pnpm run runserver` kills only the pnpm wrapper. The
+  `node server/node/server.cjs` child keeps listening on port 6001. Stop it by PID, and confirm
+  the port is closed before restoring `save/`.
 - **A hidden Chrome window.** When `document.visibilityState` is `hidden`:
   - screenshots time out;
   - chained timers are throttled, so `waitAlert` loops can take up to about a minute.
 
   Page scripts still work. Clicks via `element.click()` and page reads were enough for 28B's and
   28C's checks.
-- **Seeding test data.** Use `globalThis.__pluginApis__.getChar()` / `setChar()` on the main page
-  to set a field on the selected character; the `save/` restore undoes it. **Never switch the
-  model this way.** `setDatabaseLite` did not reach the send path, and a test message went to the
-  profile's default provider (row 205). Use the model picker.
