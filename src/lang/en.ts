@@ -41,6 +41,26 @@ export const languageEnglish = {
         coldStorageCleanupAborted: (characterNames: string) =>
             `Cold storage cleanup was aborted: the cold storage data for ${characterNames || "an unknown character"} could not be verified, so nothing was deleted.`,
         coldStorageCleanupFailed: "Cold storage cleanup failed partway through. Some unused items may not have been removed; nothing else was affected.",
+        coldStorageCleanupBusy: "Cold storage cleanup was not started because a chat is still generating or something else is still writing. Wait for it to finish or stop it, then try again. Nothing was deleted.",
+        coldStorageCleanupSavingStopped: "Cold storage cleanup was not started because saving is stopped for this page. Resolve the save problem or reload the page, then try again. Nothing was deleted.",
+        coldStorageCleanupNoListing: "Cold storage cleanup was not started because the list of stored files taken when this page loaded is not available. Reload the page, then try again. Nothing was deleted.",
+        coldStorageCleanupOtherTab: "Cold storage cleanup was not started because another tab of this app appears to be open. Close every other tab of this app, then try again. Nothing was deleted.",
+        coldStorageCleanupMainChanged: "Cold storage cleanup was not started because the saved data changed since this page last read or saved it. Another tab or device may have saved. Reload the page, then try again. Nothing was deleted.",
+        coldStorageCleanupMainUnknown: "Cold storage cleanup was not started because this page has no usable record of the main data file: it has not read or saved it yet, or the record could not be computed. Wait for the page to finish saving, or reload the page, then try again. Nothing was deleted.",
+        coldStorageCleanupStoppedBusy: "Cold storage cleanup stopped because a chat started generating or something else started writing.",
+        coldStorageCleanupStoppedSavingStopped: "Cold storage cleanup stopped because saving was stopped for this page.",
+        coldStorageCleanupStoppedFrozen: (characterGroups: string) =>
+            `Cold storage cleanup stopped because the following character(s) now share an internal id with another character, and saving is paused for them: ${characterGroups || "a character"}.`,
+        coldStorageCleanupSourceLive: "the data open in this tab",
+        coldStorageCleanupSourceMain: "the saved main file (database.bin)",
+        coldStorageCleanupSaveUnreadable: (source: string) =>
+            `Cold storage cleanup was stopped because ${source} could not be read completely, so nothing was deleted. Reload the page and try again; if it keeps happening, do not run cleanup.`,
+        coldStorageCleanupBlobUnreadable: (characterName: string, source: string) =>
+            `Cold storage cleanup was stopped: the cold storage data of ${characterName || "an unknown character"} that is used by ${source} is missing or unreadable, so nothing was deleted.`,
+        coldStorageCleanupStopped: (reason: string, deleted: number, failed: number) =>
+            `${reason}\n\nThe cleanup stopped partway: ${deleted} item(s) were deleted${failed > 0 ? ` and ${failed} item(s) could not be deleted` : ""}.`,
+        coldStorageCleanupPartial: (deleted: number, failed: number) =>
+            `Cold storage cleanup finished, but ${failed} item(s) could not be deleted. ${deleted} item(s) were deleted.`,
         coldStorageBlockedByDuplicateChaId: (characterGroups: string) =>
             `Cold storage cleanup was skipped because the following character(s) share an internal id with another character, and saving is paused for them: ${characterGroups || "a character"}. Saving resumes once only one character holds each id -- for example, by permanently deleting the extra ones (move them to the trash, then delete them from the trash) -- then try cleanup again.`,
         coldStorageChatStillLoading: "This chat hasn't loaded from cold storage yet (it is still loading, or it could not be loaded — see the notice in the chat). Sending is disabled until it loads.",
@@ -1728,9 +1748,16 @@ export const languageEnglish = {
     nanoGPTManualInput: "Manual Input",
     nanoGPTManualModelSelect: "Manual Model Select",
     coldStorage: "Cold Storage",
-    cleanColdStorage: "Clean Unused Cold Storage",
+    cleanColdStorage: "Clean Unused Archived Data and Assets",
     customSidebarConfig: "Custom Sidebar Configuration",
-    cleanColdStorageConfirm: "This will permanently delete all unused cold storage data. This may contain data that isn't currently used but may be useful in the future. Do you want to continue?",
+    cleanColdStorageConfirm: "This will permanently delete all unused archived (cold storage) data and all unused asset files, meaning images and audio that no character, module, persona or setting uses any more. Some of it may still be useful in the future, and it cannot be recovered. Do you want to continue?",
+    coldStorageCleanupNoLockConfirm: "Your browser can't check whether another tab of this app is open. If another tab of this app is open while the cleanup runs, that tab can lose data. Close every other tab of this app first, then continue. Continue anyway?",
+    coldStorageCleanupNodeConfirm: "Do not run this cleanup while another device or browser is using the same server. Anything they save while it runs can be lost or deleted. Continue?",
+    coldStorageCleanupCheckingTabs: "Checking for other open tabs of this app before cleaning up...",
+    coldStorageCleanupReading: "Checking which stored data is still in use...",
+    coldStorageCleanupRemoving: (done: number, total: number) => `Removing unused stored data (${done} / ${total})...`,
+    coldStorageCleanupDone: (deleted: number) =>
+        deleted > 0 ? `Cold storage cleanup finished: ${deleted} unused item(s) were deleted.` : "Cold storage cleanup finished: there was nothing unused to delete.",
     moveInsteadOfCopyOnCMPConvert: "Move Instead of Copy on CMP Convert",
     successfullyConverted: "Successfully converted.",
     convertToModule: "Convert to Module",

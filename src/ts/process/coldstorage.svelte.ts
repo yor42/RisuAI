@@ -3,13 +3,12 @@ import {
     BaseDirectory,
     readFile,
     mkdir,
-    remove,
     readDir,
     exists
 } from "@tauri-apps/plugin-fs"
 import { forageStorage, requiresFullEncoderReload } from "../globalApi.svelte"
 import { isTauri, isNodeServer } from "src/ts/platform"
-import { DBState, selectedCharID, frozenSaveKeysStore } from "../stores.svelte"
+import { DBState, selectedCharID } from "../stores.svelte"
 import { get } from "svelte/store"
 import type { NodeStorage } from "../storage/nodeStorage"
 import { compress as fflateCompress, decompress as fflateDecompress } from "fflate"
@@ -17,7 +16,7 @@ import { v4 as uuidv4 } from "uuid"
 import { alertClear, alertConfirm, alertError, alertWait } from "../alert"
 import { language } from "src/lang"
 import type { Database, character } from "../storage/database.svelte"
-import { coldStorageHeader, getColdStorageAffectedCharacters, getColdStorageBackupName, isColdStorageBackupData, listColdDataKeysFromDb, listRecoverableErrorKeysFromDb, matchColdStorageLoadErrorKey, mergeRetriedColdChatSideFields } from "./coldstorageData"
+import { coldStorageHeader, getColdStorageAffectedCharacters, getColdStorageBackupName, isColdStorageBackupData, listColdDataKeysFromDb, matchColdStorageLoadErrorKey, mergeRetriedColdChatSideFields } from "./coldstorageData"
 import { doingChat } from "./index.svelte"
 
 export {
@@ -249,9 +248,9 @@ async function readLocalColdStorageValue(key: string): Promise<ColdStorageReadRe
  * why there is no shape check here.
  *
  * `getColdStorageItem` above keeps its existing callers' behaviour,
- * including the `null`-on-any-failure shape `backuplocal.ts` expects. Only
- * `preLoadChat` and the plugin-storage bridge (`v3.svelte.ts`) use this
- * reader instead.
+ * including the `null`-on-any-failure shape `backuplocal.ts` expects.
+ * `preLoadChat`, the plugin-storage bridge (`v3.svelte.ts`) and the manual
+ * clean-up (`storage/manualCleanup.ts`) use this reader instead.
  */
 export async function readColdStorageItem(key: string): Promise<ColdStorageReadResult> {
     return await readLocalColdStorageValue(key)
@@ -351,189 +350,13 @@ export async function listColdStorageItems():Promise<{items:string[]}> {
 }
 
 /**
- * Reads every cold-stored character's own blob and collects both its
- * pointer keys (chats already sent to cold storage) and its error-text
- * keys, so `cleanColdStorage` doesn't wrongly treat those blobs as unused.
- * The stub's own `coldStoragedChats` only captures chats
- * whose `message[0]` still started with `coldStorageHeader` at the moment
- * the character itself went cold (the `coldStoragedChats` scan in
- * `makeColdDataForCharacter`), so it misses both a chat later corrupted
- * into the error text and any stub written before `coldStoragedChats`
- * existed -- reading the full blob's `chats` directly avoids relying on
- * that stale snapshot.
- *
- * If any such read is unusable -- throws, is falsy, or fails the chaId
- * check -- that failure is counted and (when the character has an
- * identifiable name or chaId) its display name is recorded, and scanning
- * continues (rather than stopping at the first failure), so the caller can
- * report every affected character, not just the first. A character with
- * neither is left out of `failedNames` rather than filled in with an
- * untranslated placeholder here -- `cleanColdStorage`'s lang string
- * already has its own localized "unknown character(s)" fallback for an
- * empty `failedNames`, mirroring how `getColdStorageAffectedCharacters`
- * (`coldstorageData.ts`) names unknowns. Once the loop is done, if any
- * failures were counted, returns `{ status: 'aborted', failedNames }` so
- * the caller aborts the entire cleanup rather than delete anything based
- * on an incomplete view (the same "incomplete view means don't delete"
- * rule as the boot-time asset sweep).
- *
- * Discriminated on a string literal (`status`), not a boolean, because
- * this project's `tsconfig.json` has `strict: false` (so
- * `strictNullChecks` is off), under which TypeScript does not narrow a
- * boolean-literal-discriminated union on `if (!x.ok)` -- confirmed with a
- * throwaway repro against this exact tsconfig before choosing this shape.
+ * The manual clean-up of unused cold-storage units and assets. The work lives
+ * in `../storage/manualCleanup`, loaded on demand: that module reads this one,
+ * and nothing that only stores or loads cold data needs it.
  */
-async function collectColdCharacterKeysOrAbort(
-    db: Pick<Database, 'characters'> | null | undefined
-): Promise<{ status: 'ok', keys: Set<string> } | { status: 'aborted', failedNames: string[] }> {
-    const keys = new Set<string>()
-    const failedNames: string[] = []
-    let failureCount = 0
-    for (const cha of db?.characters ?? []) {
-        if (!cha?.coldstorage) {
-            continue
-        }
-        // Guarded with `typeof` rather than `cha.name?.trim()` directly so a
-        // non-string `name` can't throw here, outside the try/catch below.
-        const displayName = (typeof cha.name === 'string' ? cha.name.trim() : '') || cha.chaId
-        try {
-            const coldData = await getColdStorageItem(cha.coldstorage)
-            if (!coldData?.character || coldData.character.chaId !== cha.chaId) {
-                failureCount++
-                if (displayName) {
-                    failedNames.push(displayName)
-                }
-                continue
-            }
-            for (const chat of coldData.character.chats ?? []) {
-                const data = chat.message?.[0]?.data
-                if (typeof data === 'string' && data.startsWith(coldStorageHeader)) {
-                    keys.add(data.slice(coldStorageHeader.length))
-                    continue
-                }
-                const errorKey = matchColdStorageLoadErrorKey(data)
-                if (errorKey) {
-                    keys.add(errorKey)
-                }
-            }
-        } catch (error) {
-            failureCount++
-            if (displayName) {
-                failedNames.push(displayName)
-            }
-        }
-    }
-    if (failureCount > 0) {
-        return { status: 'aborted', failedNames }
-    }
-    return { status: 'ok', keys }
-}
-
-/** One group per duplicated chaId, each a list of the display names sharing that id, formatted for `language.errors.coldStorageBlockedByDuplicateChaId`. */
-function frozenSaveKeyGroups(): string {
-    return get(frozenSaveKeysStore).map((k) => k.names.join(' and ')).join('; ')
-}
-
 export async function cleanColdStorage(){
-    // A kept block can reference a cold-storage key that memory does not:
-    // the frozen character's own current, unsaved edits can drop a
-    // reference that the saved block on disk still points at. Refusing
-    // outright while any chaId is frozen is what keeps this cleanup from
-    // deleting something that block still needs.
-    if(get(frozenSaveKeysStore).length > 0){
-        alertError(language.errors.coldStorageBlockedByDuplicateChaId(frozenSaveKeyGroups()))
-        return
-    }
-
-    const db = DBState.db
-
-    const coldCharacterCount = (db?.characters ?? []).filter(cha => cha?.coldstorage).length
-    try {
-        if(coldCharacterCount > 0){
-            alertWait(`Verifying ${coldCharacterCount} cold-stored character(s)...`)
-        }
-        const coldCharacterKeys = await collectColdCharacterKeysOrAbort(db)
-        if(coldCharacterKeys.status === 'aborted'){
-            alertClear()
-            const names = coldCharacterKeys.failedNames.join(', ')
-            console.error(`Cold storage cleanup aborted: could not verify cold-stored character(s): ${names}`)
-            alertError(language.errors.coldStorageCleanupAborted(names))
-            return
-        }
-
-        const actualUsedKeys = new Set<string>([
-            ...listColdDataKeysFromDb(db),
-            ...listRecoverableErrorKeysFromDb(db),
-            ...coldCharacterKeys.keys,
-        ])
-        const allKeys = (await listColdStorageItems()).items
-        const unusedKeys = allKeys.filter(k => !actualUsedKeys.has(k))
-        console.log('Cleaning cold storage, actual used keys:', Array.from(actualUsedKeys), 'all keys:', allKeys, 'unused keys:', unusedKeys)
-
-        // Re-checked here, immediately before anything is removed, not only
-        // at entry: a chaId can become frozen while the verification and the
-        // listing above were in flight, and nothing must be removed once
-        // that has happened either.
-        if(get(frozenSaveKeysStore).length > 0){
-            alertClear()
-            alertError(language.errors.coldStorageBlockedByDuplicateChaId(frozenSaveKeyGroups()))
-            return
-        }
-
-        if(isNodeServer){
-            await removeColdStorageItems(unusedKeys)
-        }
-        else{
-            for(let i=0;i<unusedKeys.length;i++){
-                const key = unusedKeys[i]
-                alertWait(`Removing unused cold storage item: ${key} (${i + 1} / ${unusedKeys.length})`)
-                await removeColdStorageItems([key])
-            }
-        }
-
-        alertClear()
-    } catch (error) {
-        // Anything past this point that throws -- a rejected Node `keys()`,
-        // or anything else -- must not leave the "Verifying..."/"Removing..."
-        // wait indicator on screen, and must not attempt any further
-        // deletion.
-        alertClear()
-        console.error('Cold storage cleanup failed:', error)
-        alertError(language.errors.coldStorageCleanupFailed)
-    }
-}
-
-async function removeColdStorageItems(keys:string[]) {
-
-    if(isNodeServer){
-        try {
-            const storage = forageStorage.realStorage as NodeStorage
-            const deleteKeys = keys.map(k => 'coldstorage/' + k);
-            await (storage as NodeStorage).removeItem(deleteKeys)
-        } catch (error) {
-            console.error(error)
-        }
-    }
-    else if(isTauri){
-        try {
-            for(let i=0;i<keys.length;i++){
-                await remove('./coldstorage/'+keys[i]+'.json', { baseDir: BaseDirectory.AppData })
-            }
-        } catch (error) {
-            console.error(error)
-        }
-    }
-    else{
-        //use opfs
-        try {
-            const opfs = await navigator.storage.getDirectory()
-            for(let i=0;i<keys.length;i++){
-                await opfs.removeEntry('coldstorage_' + keys[i]+'.json')
-            }
-        } catch (error) {
-            console.error(error)
-        }
-    }
+    const { runManualCleanup } = await import("../storage/manualCleanup")
+    await runManualCleanup()
 }
 
 export async function listColdDataKeys(db: Pick<Database, 'characters'|'pluginCustomStorage'> = DBState.db): Promise<string[]> {

@@ -40,6 +40,26 @@ export const languageSpanish = {
         "coldStorageCleanupAborted": (characterNames: string) =>
             `La limpieza del almacenamiento frío fue cancelada: no se pudieron verificar los datos de almacenamiento frío de ${characterNames || "un personaje desconocido"}, por lo que no se eliminó nada.`,
         "coldStorageCleanupFailed": "La limpieza del almacenamiento frío falló a medio proceso. Es posible que algunos elementos no utilizados no se hayan eliminado; nada más se vio afectado.",
+        "coldStorageCleanupBusy": "La limpieza del almacenamiento frío no se inició porque un chat todavía está generando o algo más todavía está escribiendo. Espera a que termine o deténlo, y vuelve a intentarlo. No se eliminó nada.",
+        "coldStorageCleanupSavingStopped": "La limpieza del almacenamiento frío no se inició porque el guardado está detenido para esta página. Resuelve el problema de guardado o recarga la página y vuelve a intentarlo. No se eliminó nada.",
+        "coldStorageCleanupNoListing": "La limpieza del almacenamiento frío no se inició porque la lista de archivos almacenados obtenida al cargar esta página no está disponible. Recarga la página y vuelve a intentarlo. No se eliminó nada.",
+        "coldStorageCleanupOtherTab": "La limpieza del almacenamiento frío no se inició porque parece que hay otra pestaña de esta aplicación abierta. Cierra todas las demás pestañas de esta aplicación y vuelve a intentarlo. No se eliminó nada.",
+        "coldStorageCleanupMainChanged": "La limpieza del almacenamiento frío no se inició porque los datos guardados han cambiado desde la última vez que esta página los leyó o guardó. Es posible que otra pestaña o dispositivo haya guardado. Recarga la página y vuelve a intentarlo. No se eliminó nada.",
+        "coldStorageCleanupMainUnknown": "La limpieza del almacenamiento frío no se inició porque esta página no tiene un registro utilizable del archivo principal de datos: todavía no lo ha leído ni guardado, o no se pudo calcular el registro. Espera a que la página termine de guardar o recarga la página y vuelve a intentarlo. No se eliminó nada.",
+        "coldStorageCleanupStoppedBusy": "La limpieza del almacenamiento frío se detuvo porque un chat empezó a generar o algo más empezó a escribir.",
+        "coldStorageCleanupStoppedSavingStopped": "La limpieza del almacenamiento frío se detuvo porque el guardado se detuvo para esta página.",
+        "coldStorageCleanupStoppedFrozen": (characterGroups: string) =>
+            `La limpieza del almacenamiento frío se detuvo porque los siguientes personajes ahora comparten un ID interno con otro personaje, y el guardado está en pausa para ellos: ${characterGroups || "un personaje"}.`,
+        "coldStorageCleanupSourceLive": "el contenido abierto en esta pestaña",
+        "coldStorageCleanupSourceMain": "el archivo principal guardado (database.bin)",
+        "coldStorageCleanupSaveUnreadable": (source: string) =>
+            `La limpieza del almacenamiento frío se detuvo porque ${source} no se pudo leer por completo, por lo que no se eliminó nada. Recarga la página e inténtalo de nuevo; si sigue ocurriendo, no ejecutes la limpieza.`,
+        "coldStorageCleanupBlobUnreadable": (characterName: string, source: string) =>
+            `La limpieza del almacenamiento frío se detuvo: faltan o no se pueden leer los datos de almacenamiento frío de ${characterName || "un personaje desconocido"} que necesita ${source}, por lo que no se eliminó nada.`,
+        "coldStorageCleanupStopped": (reason: string, deleted: number, failed: number) =>
+            `${reason}\n\nLa limpieza se detuvo a medio proceso: se eliminaron ${deleted} elemento(s)${failed > 0 ? ` y ${failed} elemento(s) no se pudieron eliminar` : ""}.`,
+        "coldStorageCleanupPartial": (deleted: number, failed: number) =>
+            `La limpieza del almacenamiento frío terminó, pero ${failed} elemento(s) no se pudieron eliminar. Se eliminaron ${deleted} elemento(s).`,
         "coldStorageBlockedByDuplicateChaId": (characterGroups: string) =>
             `La limpieza del almacenamiento frío se omitió porque los siguientes personajes comparten un ID interno con otro personaje, y el guardado está en pausa para ellos: ${characterGroups || "un personaje"}. El guardado se reanudará cuando solo un personaje tenga cada ID — por ejemplo, eliminando permanentemente los personajes sobrantes (muévelos a la papelera y luego elimínalos de la papelera) — y luego intenta la limpieza de nuevo.`,
         "coldStorageChatStillLoading": "Este chat aún no se ha cargado desde el almacenamiento frío (todavía está cargando, o no se pudo cargar; consulta el aviso en el chat). El envío está deshabilitado hasta que se cargue.",
@@ -1584,9 +1604,17 @@ export const languageSpanish = {
     nanoGPTManualInput: "Entrada manual",
     nanoGPTManualModelSelect: "Selección manual de modelo",
     coldStorage: "Almacenamiento Frío",
-    cleanColdStorage: "Limpiar Almacenamiento Frío No Utilizado",
+    cleanColdStorage: "Limpiar Datos Archivados y Activos No Utilizados",
     customSidebarConfig: "Configuración Personalizada de la Barra Lateral",
-    cleanColdStorageConfirm: "Esto eliminará permanentemente todos los datos de almacenamiento frío no utilizados. Esto puede contener datos que no se usan actualmente, pero que podrían ser útiles en el futuro. ¿Quieres continuar?",
+    cleanColdStorageConfirm: "Esto eliminará permanentemente todos los datos archivados (almacenamiento frío) no utilizados y todos los archivos de activos no utilizados, es decir, las imágenes y el audio que ya no usa ningún personaje, módulo, persona ni ajuste. Parte de ello podría ser útil en el futuro y no se puede recuperar. ¿Quieres continuar?",
+    coldStorageCleanupNoLockConfirm: "Tu navegador no puede comprobar si hay otra pestaña de esta aplicación abierta. Si hay otra pestaña de esta aplicación abierta mientras se ejecuta la limpieza, esa pestaña puede perder datos. Cierra primero todas las demás pestañas de esta aplicación y luego continúa. ¿Continuar de todos modos?",
+    coldStorageCleanupNodeConfirm: "No ejecutes esta limpieza mientras otro dispositivo o navegador esté usando el mismo servidor. Todo lo que guarden mientras se ejecuta puede perderse o eliminarse. ¿Continuar?",
+    coldStorageCleanupCheckingTabs: "Comprobando si hay otras pestañas abiertas de esta aplicación antes de limpiar...",
+    coldStorageCleanupReading: "Comprobando qué datos almacenados siguen en uso...",
+    coldStorageCleanupRemoving: (done: number, total: number) =>
+        `Eliminando datos almacenados no utilizados (${done} / ${total})...`,
+    coldStorageCleanupDone: (deleted: number) =>
+        deleted > 0 ? `La limpieza del almacenamiento frío terminó: se eliminaron ${deleted} elemento(s) no utilizado(s).` : "La limpieza del almacenamiento frío terminó: no había nada sin usar que eliminar.",
     moveInsteadOfCopyOnCMPConvert: "Mover en Lugar de Copiar al Convertir CMP",
     successfullyConverted: "Convertido con éxito.",
     convertToModule: "Convertir a Módulo",

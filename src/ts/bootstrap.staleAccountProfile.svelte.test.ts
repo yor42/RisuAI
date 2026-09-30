@@ -89,6 +89,10 @@ const markAppInitiatedReloadMock = vi.hoisted(() => vi.fn())
 const setUsingSwMock = vi.hoisted(() => vi.fn())
 const setDatabaseMock = vi.hoisted(() => vi.fn((_data: Record<string, unknown>): void => { }))
 const getDatabaseMock = vi.hoisted(() => vi.fn(() => ({}) as Record<string, unknown>))
+const recordLoadTimeListingMock = vi.hoisted(() => vi.fn(async (): Promise<void> => { }))
+const sweepTauriAssetsMock = vi.hoisted(() => vi.fn(async (_deps: unknown) => { }))
+const sweepForageAssetKeyMock = vi.hoisted(() => vi.fn(async (_key: string, _deps: unknown) => { }))
+const getRemoteSavePayloadNameMock = vi.hoisted(() => vi.fn((_fileName: string): string | null => null))
 
 //#endregion
 
@@ -216,13 +220,18 @@ vi.mock(import('src/ts/storage/assetIntegrity'), () => ({
 
 vi.mock(import('src/ts/storage/remoteSaveCleanup'), () => ({
     getRemoteSaveCleanupAction: vi.fn(() => 'create-meta'),
-    getRemoteSavePayloadName: vi.fn(() => null),
+    getRemoteSavePayloadName: getRemoteSavePayloadNameMock,
 }) as unknown as typeof import('src/ts/storage/remoteSaveCleanup'))
 
 vi.mock(import('src/ts/storage/assetSweep'), () => ({
-    sweepTauriAssets: vi.fn(async () => { }),
-    sweepForageAssetKey: vi.fn(async () => { }),
+    sweepTauriAssets: sweepTauriAssetsMock,
+    sweepForageAssetKey: sweepForageAssetKeyMock,
 }) as unknown as typeof import('src/ts/storage/assetSweep'))
+
+vi.mock(import('src/ts/storage/loadTimeListing'), () => ({
+    recordLoadTimeListing: recordLoadTimeListingMock,
+    resetLoadTimeListingForTests: vi.fn(),
+}) as unknown as typeof import('src/ts/storage/loadTimeListing'))
 
 vi.mock(import('src/ts/media/avatarThumb'), () => ({
     startAvatarThumbSweep: vi.fn(async () => { }),
@@ -452,6 +461,10 @@ beforeEach(() => {
     setDatabaseMock.mockImplementation((data: Record<string, unknown>) => { dbState.current = { ...dbState.baseline(), ...data } })
     getDatabaseMock.mockClear()
     getDatabaseMock.mockImplementation(() => dbState.current)
+    recordLoadTimeListingMock.mockReset().mockResolvedValue(undefined)
+    sweepTauriAssetsMock.mockReset().mockResolvedValue(undefined)
+    sweepForageAssetKeyMock.mockReset().mockResolvedValue(undefined)
+    getRemoteSavePayloadNameMock.mockReset().mockReturnValue(null)
     vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 404 })))
     vi.stubGlobal('open', vi.fn())
     vi.spyOn(window.location, 'reload').mockImplementation(() => { })
@@ -949,4 +962,117 @@ describe('cleanChunks(): the checkCorruption integrity sample runs even when col
             expect(verifyAssetCacheEntryMock).not.toHaveBeenCalled()
         })
     }
+})
+
+describe('loadData(): the load-time listing is recorded before plugins start', () => {
+    const branches: Array<'decode' | 'nullish' | 'backup-fallback'> = ['decode', 'nullish', 'backup-fallback']
+
+    for (const branch of branches) {
+        test(`install branch "${branch}": the listing is recorded and has settled before loadPlugins is called`, async () => {
+            await armInstallBranch(branch, baseDb())
+            const order: string[] = []
+            recordLoadTimeListingMock.mockImplementation(async () => {
+                order.push('listing:start')
+                await new Promise((resolve) => setTimeout(resolve, 15))
+                order.push('listing:settled')
+            })
+            loadPluginsMock.mockImplementation(async () => {
+                order.push('loadPlugins')
+            })
+
+            const { loadData } = await freshLoadData()
+
+            await loadData()
+
+            expect(recordLoadTimeListingMock).toHaveBeenCalledTimes(1)
+            expect(loadPluginsMock).toHaveBeenCalledTimes(1)
+            expect(order).toEqual(['listing:start', 'listing:settled', 'loadPlugins'])
+        })
+    }
+})
+
+describe('cleanChunks(): the startup asset sweep does not run once a cold-storage stub exists', () => {
+    const ORPHAN_ASSET_KEY = 'assets/orphan.png'
+    const ORPHAN_REMOTE_KEY = 'remotes/orphan-char.local.bin'
+    const ORPHAN_REMOTE_META_KEY = `${ORPHAN_REMOTE_KEY}.meta`
+
+    const sharedKeys = sharedForageStorage as unknown as { keys: ReturnType<typeof vi.fn> }
+
+    afterEach(() => {
+        sharedKeys.keys.mockReset().mockResolvedValue([])
+    })
+
+    function stubCharacter() {
+        return { chaId: 'stub-char', type: 'character', name: 'Stub', chats: [], coldstorage: 'unit-of-stub-char' }
+    }
+
+    function plainCharacter() {
+        return { chaId: 'plain-char', type: 'character', name: 'Plain', chats: [] }
+    }
+
+    /** Boots the non-Tauri branch with a store holding one orphan asset and one orphan legacy remote file, and waits for the remote-file pass when the profile is one that reaches it. */
+    async function bootProfile(profile: { coldstorage: boolean, stub: boolean }) {
+        const db = baseDb()
+        db.coldstorage = profile.coldstorage
+        db.characters = [profile.stub ? stubCharacter() : plainCharacter()]
+        await armInstallBranch('decode', db)
+        sharedKeys.keys.mockResolvedValue([ORPHAN_ASSET_KEY, ORPHAN_REMOTE_KEY])
+        getRemoteSavePayloadNameMock.mockReturnValue('orphan-char')
+
+        const { loadData } = await freshLoadData()
+        await loadData()
+
+        if (profile.coldstorage) {
+            // The early return leaves nothing to wait for.
+            await new Promise((resolve) => setTimeout(resolve, 30))
+            return
+        }
+        await vi.waitFor(() => {
+            expect(sharedForageStorage.setItem).toHaveBeenCalledWith(ORPHAN_REMOTE_META_KEY, expect.anything())
+        }, { timeout: 500, interval: 5 })
+    }
+
+    test('flag off with a stub in the loaded tree: the asset keep-set is not built', async () => {
+        await bootProfile({ coldstorage: false, stub: true })
+        expect(buildAssetKeepSetMock).not.toHaveBeenCalled()
+    })
+
+    test('flag off with a stub in the loaded tree: no asset is offered to the sweep', async () => {
+        await bootProfile({ coldstorage: false, stub: true })
+        expect(sweepForageAssetKeyMock).not.toHaveBeenCalled()
+    })
+
+    test('guard: flag off with a stub in the loaded tree: the remote-file pass still runs', async () => {
+        await bootProfile({ coldstorage: false, stub: true })
+        expect(sharedForageStorage.setItem).toHaveBeenCalledWith(ORPHAN_REMOTE_META_KEY, expect.anything())
+    })
+
+    test('guard: flag off with no stub: the asset keep-set is built and the asset is offered to the sweep', async () => {
+        await bootProfile({ coldstorage: false, stub: false })
+        expect(buildAssetKeepSetMock).toHaveBeenCalledTimes(1)
+        expect(sweepForageAssetKeyMock).toHaveBeenCalledWith(ORPHAN_ASSET_KEY, expect.anything())
+    })
+
+    for (const stub of [true, false]) {
+        test(`guard: flag on ${stub ? 'with' : 'without'} a stub: startup returns before the keep-set, the sweep and the remote-file pass`, async () => {
+            await bootProfile({ coldstorage: true, stub })
+            expect(buildAssetKeepSetMock).not.toHaveBeenCalled()
+            expect(sweepForageAssetKeyMock).not.toHaveBeenCalled()
+            expect(sharedForageStorage.setItem).not.toHaveBeenCalledWith(ORPHAN_REMOTE_META_KEY, expect.anything())
+        })
+    }
+})
+
+describe('loadData(): a load-time listing that rejects does not stop boot', () => {
+    test('guard: loadPlugins is still called and the app still opens', async () => {
+        await armInstallBranch('decode', baseDb())
+        recordLoadTimeListingMock.mockRejectedValue(new Error('listing failed'))
+
+        const { loadData, loadedStore } = await freshLoadData()
+
+        await loadData()
+
+        expect(loadPluginsMock).toHaveBeenCalledTimes(1)
+        expect(get(loadedStore)).toBe(true)
+    })
 })

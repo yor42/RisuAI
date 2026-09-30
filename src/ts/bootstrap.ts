@@ -34,6 +34,8 @@ import { repairDatabaseIds } from "./process/chatIds";
 import { verifyAssetCacheEntry } from "./storage/assetIntegrity";
 import { getRemoteSaveCleanupAction, getRemoteSavePayloadName } from "./storage/remoteSaveCleanup";
 import { sweepTauriAssets, sweepForageAssetKey } from "./storage/assetSweep";
+import { recordLoadTimeListing } from "./storage/loadTimeListing";
+import { noteMainFileBytes } from "./storage/mainFileRecord";
 import { startAvatarThumbSweep } from "./media/avatarThumb";
 import {
     forageStorage,
@@ -101,6 +103,7 @@ export async function loadData() {
                         throw new Error(`Failed to load database: ${response.status}`);
                     }
                     const readed = new Uint8Array(await response.arrayBuffer());
+                    noteMainFileBytes(readed)
                     LoadingStatusState.text = "Cleaning Unnecessary Files..."
                     getDbBackups() //this also cleans the backups
                     LoadingStatusState.text = "Decoding Save File..."
@@ -149,6 +152,7 @@ export async function loadData() {
                     gotStorage = encodeRisuSaveLegacy({})
                     await forageStorage.setItem('database/database.bin', gotStorage)
                 }
+                noteMainFileBytes(gotStorage)
                 try {
                     const decoded = await decodeRisuSave(gotStorage)
                     console.log(decoded)
@@ -257,6 +261,15 @@ export async function loadData() {
             }
             try {
                 void localforage.createInstance({ name: 'risuaiAccountCached' }).dropInstance({ name: 'risuaiAccountCached' }).catch(() => { })
+            } catch (error) { }
+
+            // Taken before any plugin runs: a plugin can write cold-storage
+            // units from its first line, and a unit written after this point
+            // must never be deletable by the manual clean-up. Awaited so the
+            // listing has settled before that can happen.
+            LoadingStatusState.text = "Listing Stored Files..."
+            try {
+                await recordLoadTimeListing()
             } catch (error) { }
 
             LoadingStatusState.text = "Loading Plugins..."
@@ -610,19 +623,28 @@ async function cleanChunks(options:{
         return
     }
 
+    // A profile with any cold-storage stub never sweeps assets at startup;
+    // the manual clean-up is the only thing that deletes assets for it, after
+    // reading every blob a save can point at. This gate covers the asset sweep
+    // only: the remote-block cleanup below runs for every profile that gets
+    // past the flag check above.
+    const sweepAssets = !(db.characters ?? []).some((cha) => cha?.coldstorage)
+
     // `keepSet.complete` is false when any cold-stored character's blob
     // failed to read, was missing, or mismatched chaId -- see
     // globalApi.svelte.ts's `resolveUncleanableChars`. Both sweeps below
     // (never the remote-block cleanup that follows them) skip deleting
     // anything in that case, via the spread below.
-    const keepSet = await buildAssetKeepSet(db)
+    const keepSet = sweepAssets ? await buildAssetKeepSet(db) : null
     if (isTauri) {
-        await sweepTauriAssets({
-            ...keepSet,
-            listAssets: () => readDir('assets', { baseDir: BaseDirectory.AppData }),
-            removeAsset: (relativePath) => remove(relativePath, { baseDir: BaseDirectory.AppData }),
-            getBasename
-        })
+        if (keepSet) {
+            await sweepTauriAssets({
+                ...keepSet,
+                listAssets: () => readDir('assets', { baseDir: BaseDirectory.AppData }),
+                removeAsset: (relativePath) => remove(relativePath, { baseDir: BaseDirectory.AppData }),
+                getBasename
+            })
+        }
 
 
         if(!await exists('remotes', { baseDir: BaseDirectory.AppData })) {
@@ -683,16 +705,18 @@ async function cleanChunks(options:{
         const characterIds = new Set<string>(
             db.characters.map((v) => v.chaId)
         )
-        if (keepSet.complete === false) {
+        if (keepSet?.complete === false) {
             console.log('cleanChunks: cold-storage read was incomplete, skipping the forage asset sweep this run')
         }
         for (const asset of indexes) {
             if (asset.startsWith('assets/')) {
-                await sweepForageAssetKey(asset, {
-                    ...keepSet,
-                    removeAsset: (key) => forageStorage.removeItem(key),
-                    getBasename
-                })
+                if (keepSet) {
+                    await sweepForageAssetKey(asset, {
+                        ...keepSet,
+                        removeAsset: (key) => forageStorage.removeItem(key),
+                        getBasename
+                    })
+                }
             }
             else if (asset.endsWith('.meta')){
                 continue

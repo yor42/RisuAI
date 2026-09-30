@@ -1,0 +1,103 @@
+import { BaseDirectory, exists, readDir } from "@tauri-apps/plugin-fs"
+import { forageStorage } from "../globalApi.svelte"
+import { isNodeServer, isTauri } from "../platform"
+
+/**
+ * What is stored on the current backend, as two sets.
+ * - `units`: cold-storage unit keys, without any directory prefix or suffix.
+ * - `assets`: asset keys in the form `assets/<name>`, whatever the backend.
+ */
+export interface StorageListing {
+    units: ReadonlySet<string>
+    assets: ReadonlySet<string>
+}
+
+const UNIT_PREFIX = 'coldstorage/'
+const ASSET_PREFIX = 'assets/'
+const OPFS_UNIT_PREFIX = 'coldstorage_'
+const UNIT_JSON_SUFFIX = '.json'
+
+/** null until a complete listing has been recorded, and again after a listing failed. */
+let recorded: StorageListing | null = null
+
+/**
+ * Lists one Tauri app-data directory. A directory that does not exist is an
+ * empty listing (the units directory is only created by the first unit
+ * write); any other failure rejects, so a listing that could not be taken is
+ * never mistaken for an empty one. Whether the directory exists is decided by
+ * `exists()`, never by the wording or code of the read error, which differs
+ * per platform.
+ */
+async function listTauriDirectory(dir: string): Promise<string[]> {
+    try {
+        const entries = await readDir(dir, { baseDir: BaseDirectory.AppData })
+        return entries.filter((entry) => !entry.isDirectory).map((entry) => entry.name)
+    } catch (error) {
+        if (!await exists(dir, { baseDir: BaseDirectory.AppData })) {
+            return []
+        }
+        throw error
+    }
+}
+
+async function listOpfsUnits(): Promise<string[]> {
+    const opfs = await navigator.storage.getDirectory()
+    const keys: string[] = []
+    for await (const [name] of opfs.entries()) {
+        if (name.startsWith(OPFS_UNIT_PREFIX) && name.endsWith(UNIT_JSON_SUFFIX)) {
+            keys.push(name.slice(OPFS_UNIT_PREFIX.length, -UNIT_JSON_SUFFIX.length))
+        }
+    }
+    return keys
+}
+
+/**
+ * Lists the units and the assets on the current backend right now. Rejects
+ * when either listing cannot be taken. A Node server answers one directory
+ * listing that serves both.
+ */
+export async function takeStorageListing(): Promise<StorageListing> {
+    if (isTauri) {
+        const unitNames = await listTauriDirectory('coldstorage')
+        const assetNames = await listTauriDirectory('assets')
+        return {
+            units: new Set(unitNames.filter((name) => name.endsWith(UNIT_JSON_SUFFIX)).map((name) => name.slice(0, -UNIT_JSON_SUFFIX.length))),
+            assets: new Set(assetNames.map((name) => ASSET_PREFIX + name)),
+        }
+    }
+    const keys = await forageStorage.keys()
+    const assets = new Set(keys.filter((key) => key.startsWith(ASSET_PREFIX)))
+    if (isNodeServer) {
+        return {
+            units: new Set(keys.filter((key) => key.startsWith(UNIT_PREFIX)).map((key) => key.slice(UNIT_PREFIX.length))),
+            assets,
+        }
+    }
+    return { units: new Set(await listOpfsUnits()), assets }
+}
+
+/**
+ * Records what is stored at load time, so the manual clean-up only ever
+ * removes what already existed when this page loaded: anything written after
+ * this point, by this page or by another device, is not this listing's to
+ * delete. Never rejects: a failed listing records "no listing", and the
+ * clean-up then deletes nothing.
+ */
+export async function recordLoadTimeListing(): Promise<void> {
+    try {
+        recorded = await takeStorageListing()
+    } catch (error) {
+        console.error('Listing the stored units and assets at load failed:', error)
+        recorded = null
+    }
+}
+
+/** The listing taken at load, or null when none was recorded or it failed. */
+export function getLoadTimeListing(): StorageListing | null {
+    return recorded
+}
+
+/** Clears the recorded load-time listing between tests. */
+export function resetLoadTimeListingForTests(): void {
+    recorded = null
+}

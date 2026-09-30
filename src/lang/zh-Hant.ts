@@ -40,6 +40,26 @@ export const languageChineseTraditional = {
         "coldStorageCleanupAborted": (characterNames: string) =>
             `冷儲存清理已中止：無法驗證 ${characterNames || "未知角色"} 的冷儲存資料，因此未刪除任何內容。`,
         "coldStorageCleanupFailed": "冷儲存清理中途失敗。部分未使用的項目可能未被移除；其餘部分未受影響。",
+        "coldStorageCleanupBusy": "由於仍有對話正在產生，或仍有其他內容正在寫入，冷儲存清理未開始。請等待其完成或將其停止，然後再試一次。未刪除任何內容。",
+        "coldStorageCleanupSavingStopped": "由於此頁面的儲存已停止，冷儲存清理未開始。請解決儲存問題或重新載入頁面，然後再試一次。未刪除任何內容。",
+        "coldStorageCleanupNoListing": "由於無法取得此頁面載入時記錄的已儲存檔案清單，冷儲存清理未開始。請重新載入頁面，然後再試一次。未刪除任何內容。",
+        "coldStorageCleanupOtherTab": "由於似乎已開啟此應用程式的其他分頁，冷儲存清理未開始。請關閉此應用程式的所有其他分頁，然後再試一次。未刪除任何內容。",
+        "coldStorageCleanupMainChanged": "由於自此頁面上次讀取或儲存以來，已儲存的資料發生了變化，冷儲存清理未開始。可能是其他分頁或裝置進行了儲存。請重新載入頁面，然後再試一次。未刪除任何內容。",
+        "coldStorageCleanupMainUnknown": "由於此頁面沒有可用的主資料檔案記錄（尚未讀取或儲存過該檔案，或無法計算該記錄），冷儲存清理未開始。請等待頁面完成儲存，或重新載入頁面，然後再試一次。未刪除任何內容。",
+        "coldStorageCleanupStoppedBusy": "由於有對話開始產生，或有其他內容開始寫入，冷儲存清理已停止。",
+        "coldStorageCleanupStoppedSavingStopped": "由於此頁面的儲存已停止，冷儲存清理已停止。",
+        "coldStorageCleanupStoppedFrozen": (characterGroups: string) =>
+            `由於下列角色現在與另一個角色共用內部 ID，且已暫停為它們儲存，冷儲存清理已停止：${characterGroups || "一個角色"}。`,
+        "coldStorageCleanupSourceLive": "此分頁中開啟的資料",
+        "coldStorageCleanupSourceMain": "已儲存的主檔案（database.bin）",
+        "coldStorageCleanupSaveUnreadable": (source: string) =>
+            `由於無法完整讀取${source}，冷儲存清理已停止，未刪除任何內容。請重新載入頁面後再試；若問題持續發生，請勿執行清理。`,
+        "coldStorageCleanupBlobUnreadable": (characterName: string, source: string) =>
+            `冷儲存清理已停止：${source}所使用的 ${characterName || "未知角色"} 的冷儲存資料遺失或無法讀取，因此未刪除任何內容。`,
+        "coldStorageCleanupStopped": (reason: string, deleted: number, failed: number) =>
+            `${reason}\n\n清理在中途停止：已刪除 ${deleted} 個項目${failed > 0 ? `，另有 ${failed} 個項目無法刪除` : ""}。`,
+        "coldStorageCleanupPartial": (deleted: number, failed: number) =>
+            `冷儲存清理已完成，但有 ${failed} 個項目無法刪除。已刪除 ${deleted} 個項目。`,
         "coldStorageBlockedByDuplicateChaId": (characterGroups: string) =>
             `冷儲存清理已跳過，因為下列角色與另一個角色共用內部 ID，且已暫停為它們儲存：${characterGroups || "一個角色"}。當每個 ID 僅由一個角色持有時，儲存才會恢復——例如，永久刪除多餘的角色（先將其移至垃圾桶，再從垃圾桶中刪除）——然後再重試清理。`,
         "coldStorageChatStillLoading": "此對話尚未從冷儲存載入完成（仍在載入中，或載入失敗——請參閱對話中的提示）。在載入完成前無法傳送訊息。",
@@ -1630,9 +1650,17 @@ export const languageChineseTraditional = {
     "nanoGPTManualInput": "手動輸入",
     "nanoGPTManualModelSelect": "手動選擇模型",
     "coldStorage": "冷儲存",
-    "cleanColdStorage": "清理未使用的冷儲存",
+    "cleanColdStorage": "清理未使用的封存資料與資源",
     "customSidebarConfig": "自訂側邊欄配置",
-    "cleanColdStorageConfirm": "這將永久刪除所有未使用的冷儲存資料。其中可能包含目前未使用但未來可能有用的資料。是否要繼續？",
+    "cleanColdStorageConfirm": "這將永久刪除所有未使用的封存（冷儲存）資料，以及所有未使用的資源檔案，即不再被任何角色、模組、人設或設定使用的圖片和音訊。其中部分內容未來可能仍然有用，且刪除後無法復原。是否要繼續？",
+    "coldStorageCleanupNoLockConfirm": "您的瀏覽器無法檢查是否已開啟此應用程式的其他分頁。如果在清理執行期間此應用程式的其他分頁處於開啟狀態，該分頁可能會遺失資料。請先關閉此應用程式的所有其他分頁，然後再繼續。仍要繼續嗎？",
+    "coldStorageCleanupNodeConfirm": "當另一台裝置或瀏覽器正在使用同一個伺服器時，請勿執行此清理。它們在清理執行期間儲存的任何內容都可能遺失或被刪除。是否繼續？",
+    "coldStorageCleanupCheckingTabs": "清理前正在檢查此應用程式是否還有其他已開啟的分頁...",
+    "coldStorageCleanupReading": "正在檢查哪些已儲存的資料仍在使用中...",
+    "coldStorageCleanupRemoving": (done: number, total: number) =>
+        `正在移除未使用的已儲存資料（${done} / ${total}）...`,
+    "coldStorageCleanupDone": (deleted: number) =>
+        deleted > 0 ? `冷儲存清理已完成：已刪除 ${deleted} 個未使用的項目。` : "冷儲存清理已完成：沒有需要刪除的未使用項目。",
     "moveInsteadOfCopyOnCMPConvert": "轉換 CMP 時移動而非複製",
     "successfullyConverted": "轉換成功。",
     "convertToModule": "轉換為模組",

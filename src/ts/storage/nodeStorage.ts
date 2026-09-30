@@ -131,6 +131,23 @@ export class NodeStorage{
         }
     }
     async getItem(key:string):Promise<Buffer> {
+        const { data, revision } = await this.readItem(key)
+        if(revision !== undefined){
+            this.knownRevisions.set(key, revision)
+        }
+        return data
+    }
+    /**
+     * Reads `key` without adopting the revision the server reports for it.
+     * A reader that is not the writer of `key` uses this so the revision the
+     * next `setItem()` sends still reflects what this client last wrote or
+     * loaded; `getItem()` would replace it, and a write that another client
+     * made in between would then go through instead of conflicting.
+     */
+    async peekItem(key:string):Promise<Buffer> {
+        return (await this.readItem(key)).data
+    }
+    private async readItem(key:string):Promise<{ data: Buffer, revision: number | undefined }> {
         await this.checkAuth()
         const da = await fetch('/api/read', {
             method: "GET",
@@ -143,19 +160,20 @@ export class NodeStorage{
             throw "getItem Error"
         }
 
+        let revision: number | undefined
         const revisionHeader = da.headers.get('x-risu-revision')
         if(revisionHeader !== null){
-            const revision = parseInt(revisionHeader, 10)
-            if(Number.isFinite(revision)){
-                this.knownRevisions.set(key, revision)
+            const parsed = parseInt(revisionHeader, 10)
+            if(Number.isFinite(parsed)){
+                revision = parsed
             }
         }
 
         const data = Buffer.from(await da.arrayBuffer())
         if (data.length == 0){
-            return null
+            return { data: null, revision }
         }
-        return data
+        return { data, revision }
     }
     async keys():Promise<string[]>{
         await this.checkAuth()

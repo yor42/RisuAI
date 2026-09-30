@@ -40,6 +40,26 @@ export const languageGerman = {
         "coldStorageCleanupAborted": (characterNames: string) =>
             `Kaltlager-Bereinigung wurde abgebrochen: Die Kaltlagerdaten für ${characterNames || "einen unbekannten Charakter"} konnten nicht überprüft werden, daher wurde nichts gelöscht.`,
         "coldStorageCleanupFailed": "Die Kaltlager-Bereinigung ist auf halbem Weg fehlgeschlagen. Einige nicht verwendete Elemente wurden möglicherweise nicht entfernt; alles andere blieb unberührt.",
+        "coldStorageCleanupBusy": "Die Kaltlager-Bereinigung wurde nicht gestartet, weil noch ein Chat generiert oder etwas anderes noch schreibt. Warten Sie, bis es fertig ist, oder stoppen Sie es, und versuchen Sie es dann erneut. Es wurde nichts gelöscht.",
+        "coldStorageCleanupSavingStopped": "Die Kaltlager-Bereinigung wurde nicht gestartet, weil das Speichern für diese Seite gestoppt ist. Beheben Sie das Speicherproblem oder laden Sie die Seite neu, und versuchen Sie es dann erneut. Es wurde nichts gelöscht.",
+        "coldStorageCleanupNoListing": "Die Kaltlager-Bereinigung wurde nicht gestartet, weil die beim Laden dieser Seite erstellte Liste der gespeicherten Dateien nicht verfügbar ist. Laden Sie die Seite neu und versuchen Sie es dann erneut. Es wurde nichts gelöscht.",
+        "coldStorageCleanupOtherTab": "Die Kaltlager-Bereinigung wurde nicht gestartet, weil anscheinend ein anderer Tab dieser App geöffnet ist. Schließen Sie alle anderen Tabs dieser App und versuchen Sie es dann erneut. Es wurde nichts gelöscht.",
+        "coldStorageCleanupMainChanged": "Die Kaltlager-Bereinigung wurde nicht gestartet, weil sich die gespeicherten Daten seit dem letzten Lesen oder Speichern durch diese Seite geändert haben. Möglicherweise hat ein anderer Tab oder ein anderes Gerät gespeichert. Laden Sie die Seite neu und versuchen Sie es dann erneut. Es wurde nichts gelöscht.",
+        "coldStorageCleanupMainUnknown": "Die Kaltlager-Bereinigung wurde nicht gestartet, weil diese Seite keinen verwendbaren Nachweis der Hauptdatendatei hat: Sie hat die Datei noch nicht gelesen oder gespeichert, oder der Nachweis konnte nicht berechnet werden. Warten Sie, bis die Seite das Speichern abgeschlossen hat, oder laden Sie die Seite neu, und versuchen Sie es dann erneut. Es wurde nichts gelöscht.",
+        "coldStorageCleanupStoppedBusy": "Die Kaltlager-Bereinigung wurde gestoppt, weil ein Chat mit dem Generieren begonnen hat oder etwas anderes mit dem Schreiben begonnen hat.",
+        "coldStorageCleanupStoppedSavingStopped": "Die Kaltlager-Bereinigung wurde gestoppt, weil das Speichern für diese Seite angehalten wurde.",
+        "coldStorageCleanupStoppedFrozen": (characterGroups: string) =>
+            `Die Kaltlager-Bereinigung wurde gestoppt, weil die folgenden Charaktere nun eine interne ID mit einem anderen Charakter teilen und das Speichern für sie pausiert ist: ${characterGroups || "einen Charakter"}.`,
+        "coldStorageCleanupSourceLive": "die in diesem Tab geöffneten Daten",
+        "coldStorageCleanupSourceMain": "die gespeicherte Hauptdatei (database.bin)",
+        "coldStorageCleanupSaveUnreadable": (source: string) =>
+            `Die Kaltlager-Bereinigung wurde gestoppt, weil der Lesevorgang für ${source} nicht vollständig abgeschlossen werden konnte, daher wurde nichts gelöscht. Laden Sie die Seite neu und versuchen Sie es erneut; wenn das weiterhin auftritt, führen Sie die Bereinigung nicht aus.`,
+        "coldStorageCleanupBlobUnreadable": (characterName: string, source: string) =>
+            `Die Kaltlager-Bereinigung wurde gestoppt: Die Kaltlagerdaten für ${characterName || "einen unbekannten Charakter"} (benötigt für ${source}) fehlen oder sind nicht lesbar, daher wurde nichts gelöscht.`,
+        "coldStorageCleanupStopped": (reason: string, deleted: number, failed: number) =>
+            `${reason}\n\nDie Bereinigung wurde auf halbem Weg gestoppt: ${deleted} Element(e) wurden gelöscht${failed > 0 ? ` und ${failed} Element(e) konnten nicht gelöscht werden` : ""}.`,
+        "coldStorageCleanupPartial": (deleted: number, failed: number) =>
+            `Die Kaltlager-Bereinigung wurde abgeschlossen, aber ${failed} Element(e) konnten nicht gelöscht werden. ${deleted} Element(e) wurden gelöscht.`,
         "coldStorageBlockedByDuplicateChaId": (characterGroups: string) =>
             `Die Kaltlager-Bereinigung wurde übersprungen, weil die folgenden Charaktere eine interne ID mit einem anderen Charakter teilen und das Speichern für sie pausiert ist: ${characterGroups || "einen Charakter"}. Das Speichern wird fortgesetzt, sobald jede ID nur noch einem Charakter gehört — zum Beispiel, indem Sie die überzähligen Charaktere dauerhaft löschen (verschieben Sie sie in den Papierkorb und löschen Sie sie dann aus dem Papierkorb) — und versuchen Sie die Bereinigung danach erneut.`,
         "coldStorageChatStillLoading": "Dieser Chat wurde noch nicht aus dem Kaltlager geladen (er wird noch geladen oder konnte nicht geladen werden — siehe den Hinweis im Chat). Das Senden ist deaktiviert, bis er geladen ist.",
@@ -1584,9 +1604,17 @@ export const languageGerman = {
     nanoGPTManualInput: "Manuelle Eingabe",
     nanoGPTManualModelSelect: "Manuelle Modellauswahl",
     "coldStorage": "Kaltlager",
-    "cleanColdStorage": "Nicht verwendetes Kaltlager bereinigen",
+    "cleanColdStorage": "Nicht verwendete archivierte Daten und Assets bereinigen",
     "customSidebarConfig": "Benutzerdefinierte Seitenleisten-Konfiguration",
-    "cleanColdStorageConfirm": "Dadurch werden alle nicht verwendeten Kaltlagerdaten dauerhaft gelöscht. Dies kann Daten enthalten, die derzeit nicht verwendet werden, aber in Zukunft nützlich sein könnten. Möchten Sie fortfahren?",
+    "cleanColdStorageConfirm": "Dadurch werden alle nicht verwendeten archivierten Daten (Kaltlager) und alle nicht verwendeten Asset-Dateien dauerhaft gelöscht, also Bilder und Audiodateien, die kein Charakter, kein Modul, keine Persona und keine Einstellung mehr verwendet. Manches davon könnte in Zukunft noch nützlich sein, und es kann nicht wiederhergestellt werden. Möchten Sie fortfahren?",
+    "coldStorageCleanupNoLockConfirm": "Ihr Browser kann nicht prüfen, ob ein anderer Tab dieser App geöffnet ist. Ist während der Bereinigung ein anderer Tab dieser App geöffnet, können in diesem Tab Daten verloren gehen. Schließen Sie zuerst alle anderen Tabs dieser App und fahren Sie dann fort. Trotzdem fortfahren?",
+    "coldStorageCleanupNodeConfirm": "Führen Sie diese Bereinigung nicht aus, während ein anderes Gerät oder ein anderer Browser denselben Server verwendet. Alles, was dort während der Bereinigung gespeichert wird, kann verloren gehen oder gelöscht werden. Fortfahren?",
+    "coldStorageCleanupCheckingTabs": "Es wird geprüft, ob weitere Tabs dieser App geöffnet sind, bevor die Bereinigung beginnt...",
+    "coldStorageCleanupReading": "Es wird geprüft, welche gespeicherten Daten noch verwendet werden...",
+    "coldStorageCleanupRemoving": (done: number, total: number) =>
+        `Nicht verwendete gespeicherte Daten werden entfernt (${done} / ${total})...`,
+    "coldStorageCleanupDone": (deleted: number) =>
+        deleted > 0 ? `Die Kaltlager-Bereinigung wurde abgeschlossen: ${deleted} nicht verwendete Element(e) wurden gelöscht.` : "Die Kaltlager-Bereinigung wurde abgeschlossen: Es gab nichts Ungenutztes zu löschen.",
     "moveInsteadOfCopyOnCMPConvert": "Bei CMP-Konvertierung verschieben statt kopieren",
     "successfullyConverted": "Erfolgreich konvertiert.",
     "convertToModule": "In Modul konvertieren",

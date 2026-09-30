@@ -6,9 +6,9 @@
  * mismatched character never causes `sweepTauriAssets`, `sweepForageAssetKey`
  * or `cleanColdStorage` to delete an asset or a cold-storage key that a live
  * character or chat still needs (`resolveUncleanableChars`/`buildAssetKeepSet`
- * in globalApi.svelte.ts, `collectColdCharacterKeysOrAbort` in
- * coldstorage.svelte.ts). A blob that was never written, a read that throws,
- * or a `character.chaId` mismatch must all be treated as "keep, don't
+ * in globalApi.svelte.ts for the startup sweep, and the manual clean-up in
+ * storage/manualCleanup.ts). A blob that was never written, a read that
+ * throws, or a `character.chaId` mismatch must all be treated as "keep, don't
  * delete" -- never as proof that the underlying data is gone.
  *
  * Tests and assertions marked CHAR are compatibility guards: they hold
@@ -74,6 +74,10 @@ import type { Database } from '../../storage/database.svelte'
 // merged. See file header for why each group is mocked vs. left real.
 
 const platformState = vi.hoisted(() => ({ isTauri: true }))
+
+// The key/value store behind `forageStorage`: the committed main file that
+// `cleanColdStorage` reads lives here on the web build.
+const forageMem = vi.hoisted(() => new Map<string, Uint8Array>())
 
 vi.mock('localforage', () => ({
     default: {
@@ -213,6 +217,10 @@ vi.mock(import('src/ts/storage/dbChangeEffects.svelte'), () => ({
 vi.mock(import('src/ts/storage/autoStorage'), () => ({
     AutoStorage: class {
         realStorage: unknown = undefined
+        async getItem(key: string) { return forageMem.get(key) ?? null }
+        async setItem(key: string, value: Uint8Array) { forageMem.set(key, value) }
+        async keys() { return Array.from(forageMem.keys()) }
+        async removeItem(key: string) { forageMem.delete(key) }
     },
 }) as unknown as typeof import('src/ts/storage/autoStorage'))
 
@@ -452,6 +460,9 @@ import { isColdChat, formatColdStorageLoadError, mergeRetriedColdChatSideFields 
 import type { RetryLegacyColdChatSideFields } from '../coldstorageData'
 import { doingChat } from '../index.svelte'
 import { sweepTauriAssets, sweepForageAssetKey } from '../../storage/assetSweep'
+import { RisuSaveEncoder } from '../../storage/risuSave'
+import { recordLoadTimeListing } from '../../storage/loadTimeListing'
+import { noteMainFileBytes } from '../../storage/mainFileRecord'
 import { readDir, remove, BaseDirectory, readFile as tauriReadFile, exists as tauriExists } from '@tauri-apps/plugin-fs'
 import { DBState, selectedCharID, frozenSaveKeysStore } from '../../stores.svelte'
 import { alertError, alertClear } from 'src/ts/alert'
@@ -543,6 +554,22 @@ function makeRetryDb(chaId: string, chat: unknown): Database {
         chatPage: 0,
         chats: [chat],
     } as unknown as CharacterFixture])
+}
+
+/**
+ * The state a page is in when the manual clean-up may run: the live tree has
+ * been committed as the main file, this tab has recorded those bytes, and the
+ * load-time listing has been taken. Called after the test has seeded its units
+ * and set `DBState.db`, immediately before `cleanColdStorage()`.
+ */
+async function primeCleanupPreconditions(): Promise<void> {
+    forageMem.clear()
+    const encoder = new RisuSaveEncoder()
+    await encoder.init(DBState.db, {})
+    const committed = new Uint8Array(encoder.encode()!)
+    forageMem.set('database/database.bin', committed)
+    noteMainFileBytes(committed.slice())
+    await recordLoadTimeListing()
 }
 
 //#endregion
@@ -752,6 +779,7 @@ describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recover
         const beforeItems = (await listColdStorageItems()).items
         expect(beforeItems).toContain(MAIN_KEY)
 
+        await primeCleanupPreconditions()
         await cleanColdStorage()
 
         const afterItems = (await listColdStorageItems()).items
@@ -815,6 +843,7 @@ describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recover
         const beforeItems = (await listColdStorageItems()).items
         expect(beforeItems).toContain(CHAT_KEY)
 
+        await primeCleanupPreconditions()
         await cleanColdStorage()
 
         const afterItems = (await listColdStorageItems()).items
@@ -860,6 +889,7 @@ describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recover
         const beforeItems = (await listColdStorageItems()).items
         expect(beforeItems).toContain(ORPHAN_KEY)
 
+        await primeCleanupPreconditions()
         await cleanColdStorage()
 
         const afterItems = (await listColdStorageItems()).items
@@ -881,8 +911,8 @@ describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recover
         await setColdStorageItem(ORPHAN_KEY, { message: [{ time: 1, data: 'unrelated leftover data', role: 'user' }] })
 
         // The blob is readable, but for a DIFFERENT character -- this fails
-        // the chaId check in `collectColdCharacterKeysOrAbort`, exactly the
-        // way it fails resolveUncleanableChars's own check (a4).
+        // the manual clean-up's chaId check, exactly the way it fails
+        // resolveUncleanableChars's own check (a4).
         const MISMATCHED_CHAR_KEY = 'a12-mismatched-char-key'
         await setColdStorageItem(MISMATCHED_CHAR_KEY, {
             character: {
@@ -913,12 +943,13 @@ describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recover
         expect(beforeItems).toContain(ORPHAN_KEY)
         expect(beforeItems).toContain(MISMATCHED_CHAR_KEY)
 
+        await primeCleanupPreconditions()
         await cleanColdStorage()
 
         const afterItems = (await listColdStorageItems()).items
-        // CHAR: collectColdCharacterKeysOrAbort treats a chaId mismatch the
-        // same as an unreadable blob -- abort the whole cleanup, so even the
-        // unrelated genuinely-orphaned key survives this run.
+        // CHAR: a chaId mismatch is treated the same as an unreadable blob --
+        // the whole cleanup aborts, so even the unrelated genuinely-orphaned
+        // key survives this run.
         expect(afterItems).toContain(ORPHAN_KEY)
         expect(afterItems).toContain(MISMATCHED_CHAR_KEY)
     })
@@ -938,8 +969,7 @@ describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recover
 
         // The cold character's own blob has a chat whose message[0] is
         // STILL a live coldStorageHeader pointer (never corrupted) -- the
-        // pointer-key branch of `collectColdCharacterKeysOrAbort`, not the
-        // error-text branch a11 exercises.
+        // pointer-key case, not the error-text case a11 exercises.
         const CHAR_CHA_ID = 'a13-char'
         const COLD_CHAR_KEY = 'a13-cold-char-key'
         await setColdStorageItem(COLD_CHAR_KEY, {
@@ -971,29 +1001,15 @@ describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recover
             }],
         } as unknown as CharacterFixture])
 
+        await primeCleanupPreconditions()
         await cleanColdStorage()
 
         const afterItems = (await listColdStorageItems()).items
-        // CHAR: collectColdCharacterKeysOrAbort's pointer-key branch reads
-        // POINTER_CHAT_KEY straight from the cold character's own blob, so
-        // it survives even with no coldStoragedChats to consult.
-        //
-        // Reasoned, not verified by editing source (out of scope for this
-        // file): deleting the pointer-key branch of
-        // `collectColdCharacterKeysOrAbort` would leave only the error-text
-        // branch (matchColdStorageLoadErrorKey) in that function.
-        // POINTER_CHAT_KEY's message
-        // data starts with coldStorageHeader, not the error-text template,
-        // so matchColdStorageLoadErrorKey would return null for it and it
-        // would never be added to coldCharacterKeys.keys. Nothing else in
-        // cleanColdStorage's actualUsedKeys union would supply it either:
-        // listColdDataKeysFromDb only reads the STUB's own
-        // coldstorage/coldStoragedChats/chats (none of which mention this
-        // key here), and listRecoverableErrorKeysFromDb only matches the
-        // error-text template. So without that branch, POINTER_CHAT_KEY
-        // would be absent from actualUsedKeys, `unusedKeys` would include
-        // it, and this assertion would fail -- the branch is load-bearing
-        // for this test.
+        // CHAR: a pointer inside a cold character's own blob keeps its target
+        // unit alive. The stub lists no coldStoragedChats and carries no
+        // pointer of its own, so the only reference to POINTER_CHAT_KEY is the
+        // chat inside the blob; a clean-up that reads only the stub, or only
+        // the error-text form of a reference, would delete it.
         expect(afterItems).toContain(POINTER_CHAT_KEY)
     })
 
@@ -1023,6 +1039,7 @@ describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recover
             }],
         } as unknown as CharacterFixture])
 
+        await primeCleanupPreconditions()
         await cleanColdStorage()
 
         const afterItems = (await listColdStorageItems()).items
@@ -2341,6 +2358,7 @@ describe('cleanColdStorage refuses while a chaId is frozen against a save-file r
         const ORPHAN_KEY = 'g12-entry-orphan-key'
         await setColdStorageItem(ORPHAN_KEY, { message: [{ time: 1, data: 'unrelated leftover', role: 'user' }] })
         DBState.db = makeDb([])
+        await primeCleanupPreconditions()
         frozenSaveKeysStore.set([{ chaId: 'g12-dup-id', names: ['A', 'B'] }])
 
         await cleanColdStorage()
@@ -2377,6 +2395,7 @@ describe('cleanColdStorage refuses while a chaId is frozen against a save-file r
         } as unknown as CharacterFixture])
 
         // Entry check passes: nothing is frozen yet (reset in beforeEach).
+        await primeCleanupPreconditions()
         const originalGetFileHandle = mockDirectoryHandle.getFileHandle.bind(mockDirectoryHandle)
         const spy = vi.spyOn(mockDirectoryHandle, 'getFileHandle').mockImplementation(async (name: string, opts?: { create?: boolean }) => {
             if (name === opfsFilename(COLD_CHAR_KEY)) {
@@ -2406,6 +2425,7 @@ describe('cleanColdStorage refuses while a chaId is frozen against a save-file r
         DBState.db = makeDb([])
         frozenSaveKeysStore.set([])
 
+        await primeCleanupPreconditions()
         await cleanColdStorage()
 
         const afterItems = (await listColdStorageItems()).items

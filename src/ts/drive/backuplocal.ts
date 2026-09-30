@@ -4,6 +4,7 @@ import { LocalWriter, forageStorage, requiresFullEncoderReload, dbWriteLock, tab
 import { markAppInitiatedReload, isAppInitiatedReload } from "../reloadGuard";
 import { isTauri } from "src/ts/platform"
 import { decodeRisuSave, encodeRisuSaveLegacy } from "../storage/risuSave";
+import { noteMainFileBytes } from "../storage/mainFileRecord";
 import { getDatabase, setDatabase } from "../storage/database.svelte";
 import { repairDatabaseIds } from "../process/chatIds";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -652,6 +653,7 @@ export function LoadLocalBackup(){
                     await forageStorage.setItem('database/database.bin', db);
                 }
                 restoreWriteSucceeded = true;
+                noteMainFileBytes(db);
 
                 // Installed only now that the write has actually succeeded --
                 // a failed write above leaves this page on its pre-restore

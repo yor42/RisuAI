@@ -40,6 +40,26 @@ export const languageKorean = {
         "coldStorageCleanupAborted": (characterNames: string) =>
             `콜드 스토리지 정리가 중단되었습니다: ${characterNames || "알 수 없는 캐릭터"}의 콜드 스토리지 데이터를 확인할 수 없어 아무것도 삭제되지 않았습니다.`,
         "coldStorageCleanupFailed": "콜드 스토리지 정리가 도중에 실패했습니다. 일부 사용하지 않는 항목이 제거되지 않았을 수 있지만, 그 외에는 영향이 없습니다.",
+        "coldStorageCleanupBusy": "채팅이 아직 생성 중이거나 다른 작업이 아직 쓰기 중이어서 콜드 스토리지 정리를 시작하지 않았습니다. 작업이 끝날 때까지 기다리거나 중지한 뒤 다시 시도하세요. 삭제된 항목은 없습니다.",
+        "coldStorageCleanupSavingStopped": "이 페이지의 저장이 중지되어 있어 콜드 스토리지 정리를 시작하지 않았습니다. 저장 문제를 해결하거나 페이지를 새로고침한 뒤 다시 시도하세요. 삭제된 항목은 없습니다.",
+        "coldStorageCleanupNoListing": "이 페이지를 불러올 때 확인한 저장된 파일 목록을 사용할 수 없어 콜드 스토리지 정리를 시작하지 않았습니다. 페이지를 새로고침한 뒤 다시 시도하세요. 삭제된 항목은 없습니다.",
+        "coldStorageCleanupOtherTab": "이 앱의 다른 탭이 열려 있는 것으로 보여 콜드 스토리지 정리를 시작하지 않았습니다. 이 앱의 다른 탭을 모두 닫은 뒤 다시 시도하세요. 삭제된 항목은 없습니다.",
+        "coldStorageCleanupMainChanged": "이 페이지가 마지막으로 읽거나 저장한 이후 저장된 데이터가 변경되어 콜드 스토리지 정리를 시작하지 않았습니다. 다른 탭이나 기기에서 저장했을 수 있습니다. 페이지를 새로고침한 뒤 다시 시도하세요. 삭제된 항목은 없습니다.",
+        "coldStorageCleanupMainUnknown": "이 페이지에 메인 데이터 파일에 대한 사용 가능한 기록이 없어 콜드 스토리지 정리를 시작하지 않았습니다. 아직 파일을 읽거나 저장하지 않았거나, 기록을 계산하지 못했습니다. 페이지의 저장이 끝날 때까지 기다리거나 페이지를 새로고침한 뒤 다시 시도하세요. 삭제된 항목은 없습니다.",
+        "coldStorageCleanupStoppedBusy": "채팅 생성이 시작되었거나 다른 작업이 쓰기를 시작하여 콜드 스토리지 정리가 중지되었습니다.",
+        "coldStorageCleanupStoppedSavingStopped": "이 페이지의 저장이 중지되어 콜드 스토리지 정리가 중지되었습니다.",
+        "coldStorageCleanupStoppedFrozen": (characterGroups: string) =>
+            `다음 캐릭터가 이제 다른 캐릭터와 내부 ID를 공유하고 있고 해당 캐릭터의 저장이 일시 중지되어 콜드 스토리지 정리가 중지되었습니다: ${characterGroups || "캐릭터 한 개"}.`,
+        "coldStorageCleanupSourceLive": "이 탭에 열려 있는 데이터",
+        "coldStorageCleanupSourceMain": "저장된 메인 파일(database.bin)",
+        "coldStorageCleanupSaveUnreadable": (source: string) =>
+            `${source}을(를) 완전히 읽을 수 없어 콜드 스토리지 정리가 중단되었으며, 삭제된 항목은 없습니다. 페이지를 새로고침한 뒤 다시 시도하세요. 계속 발생하면 정리를 실행하지 마세요.`,
+        "coldStorageCleanupBlobUnreadable": (characterName: string, source: string) =>
+            `콜드 스토리지 정리가 중단되었습니다: ${source}에서 사용하는 ${characterName || "알 수 없는 캐릭터"}의 콜드 스토리지 데이터가 없거나 읽을 수 없어 삭제된 항목은 없습니다.`,
+        "coldStorageCleanupStopped": (reason: string, deleted: number, failed: number) =>
+            `${reason}\n\n정리가 도중에 중단되었습니다: ${deleted}개 항목이 삭제되었습니다${failed > 0 ? `, ${failed}개 항목은 삭제하지 못했습니다` : ""}.`,
+        "coldStorageCleanupPartial": (deleted: number, failed: number) =>
+            `콜드 스토리지 정리가 완료되었지만 ${failed}개 항목을 삭제하지 못했습니다. ${deleted}개 항목이 삭제되었습니다.`,
         "coldStorageBlockedByDuplicateChaId": (characterGroups: string) =>
             `콜드 스토리지 정리를 건너뛰었습니다: 다음 캐릭터가 다른 캐릭터와 내부 ID를 공유하고 있어 저장이 중단되었기 때문입니다: ${characterGroups || "캐릭터 한 개"}. 각 ID를 하나의 캐릭터만 갖게 되면 저장이 재개됩니다 — 예를 들어 나머지 캐릭터를 영구적으로 삭제하면 됩니다 (휴지통으로 이동한 뒤 휴지통에서 삭제하세요) — 그런 다음 정리를 다시 시도하세요.`,
         "coldStorageChatStillLoading": "이 채팅은 아직 콜드 스토리지에서 불러오지 못했습니다 (아직 불러오는 중이거나 불러오기에 실패했습니다 — 채팅 안의 안내를 확인하세요). 불러오기가 완료될 때까지 메시지를 보낼 수 없습니다.",
@@ -1584,9 +1604,17 @@ export const languageKorean = {
     nanoGPTManualInput: "수동 입력",
     nanoGPTManualModelSelect: "수동 모델 선택",
     coldStorage: "콜드 스토리지",
-    cleanColdStorage: "사용하지 않는 콜드 스토리지 정리",
+    cleanColdStorage: "사용하지 않는 보관 데이터 및 에셋 정리",
     customSidebarConfig: "사이드바 커스텀 설정",
-    cleanColdStorageConfirm: "이 작업은 사용하지 않는 모든 콜드 스토리지 데이터를 영구적으로 삭제합니다. 현재는 사용되지 않지만 나중에 유용할 수 있는 데이터가 포함되어 있을 수 있습니다. 계속하시겠습니까?",
+    cleanColdStorageConfirm: "이 작업은 사용하지 않는 모든 보관(콜드 스토리지) 데이터와 사용하지 않는 모든 에셋 파일(더 이상 어떤 캐릭터, 모듈, 페르소나, 설정에서도 사용하지 않는 이미지와 오디오)을 영구적으로 삭제합니다. 일부는 나중에 유용할 수 있으며, 삭제된 데이터는 복구할 수 없습니다. 계속하시겠습니까?",
+    coldStorageCleanupNoLockConfirm: "브라우저가 이 앱의 다른 탭이 열려 있는지 확인할 수 없습니다. 정리가 실행되는 동안 이 앱의 다른 탭이 열려 있으면 해당 탭에서 데이터가 손실될 수 있습니다. 먼저 이 앱의 다른 탭을 모두 닫은 뒤 계속하세요. 그래도 계속하시겠습니까?",
+    coldStorageCleanupNodeConfirm: "같은 서버를 다른 기기나 브라우저에서 사용 중일 때는 이 정리를 실행하지 마세요. 정리가 실행되는 동안 그쪽에서 저장한 내용은 손실되거나 삭제될 수 있습니다. 계속하시겠습니까?",
+    coldStorageCleanupCheckingTabs: "정리하기 전에 이 앱의 다른 열린 탭을 확인하는 중...",
+    coldStorageCleanupReading: "저장된 데이터 중 아직 사용 중인 것을 확인하는 중...",
+    coldStorageCleanupRemoving: (done: number, total: number) =>
+        `사용하지 않는 저장 데이터를 제거하는 중 (${done} / ${total})...`,
+    coldStorageCleanupDone: (deleted: number) =>
+        deleted > 0 ? `콜드 스토리지 정리가 완료되었습니다: 사용하지 않는 항목 ${deleted}개를 삭제했습니다.` : "콜드 스토리지 정리가 완료되었습니다: 삭제할 미사용 항목이 없었습니다.",
     moveInsteadOfCopyOnCMPConvert: "CMP 변환 시 복사 대신 이동",
     successfullyConverted: "성공적으로 변환되었습니다.",
     convertToModule: "모듈로 변환",

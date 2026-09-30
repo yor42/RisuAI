@@ -851,7 +851,12 @@ export class RisuSaveDecoder {
     // decodeRisuSave() from the file's own header byte before construction,
     // so old (v1) saves are decoded exactly as before — no checksum bytes to
     // read, nothing new to verify — while new (v2) saves get verified.
-    constructor(private hasChecksums: boolean = false) {}
+    // `strict` makes the decode all-or-nothing for callers that must not act on
+    // a partial reading of the file: any block that is dropped, unparseable,
+    // of an unknown type, or that names a remote file or a directory entry
+    // which cannot be read from the file itself, rejects the whole decode. No
+    // block is ever answered from the block cache in this mode.
+    constructor(private hasChecksums: boolean = false, private strict: boolean = false) {}
     async decode(data: Uint8Array): Promise<Database> {
         console.log('Decoding RisuSave data');
         let offset = magicRisuSaveHeaderV2.length;
@@ -917,8 +922,12 @@ export class RisuSaveDecoder {
                     await checkCompressionStreams();
                     const cs = new DecompressionStream('gzip');
                     const writer = cs.writable.getWriter();
-                    writer.write(blockData as any);
-                    writer.close();
+                    // A payload that is not valid gzip errors the stream; that
+                    // failure reaches this block's catch through the read below,
+                    // so the write and close results are not left to reject on
+                    // their own.
+                    writer.write(blockData as any).catch(() => {});
+                    writer.close().catch(() => {});
                     const buf = await new Response(cs.readable).arrayBuffer();
                     blockData = new Uint8Array(buf);
                 }
@@ -931,7 +940,7 @@ export class RisuSaveDecoder {
                     content: new TextDecoder().decode(blockData)
                 })   
             } catch (error) {
-                if (error instanceof CriticalBlockError) {
+                if (error instanceof CriticalBlockError || this.strict) {
                     throw error
                 }
                 continue
@@ -965,6 +974,9 @@ export class RisuSaveDecoder {
                                 console.log('RisuSave directory:', directory);
                                 for(const dirKey of directory){
                                     if(!loadedBlocks.has(dirKey)){
+                                        if(this.strict){
+                                            throw new Error(`Directory block "${dirKey}" is not present in the file.`);
+                                        }
                                         try {
                                             console.log(`Loading directory block ${dirKey} from cache`);
                                             const dirData:{
@@ -1046,6 +1058,9 @@ export class RisuSaveDecoder {
                             fileName = `remotes/${remoteInfo.name}.local.bin`
                         }
                         else{
+                            if(this.strict){
+                                throw new Error(`Remote pointer for "${remoteInfo.name}" has an unrecognized version (${remoteInfo.v}) or a v2 pointer missing its hash.`);
+                            }
                             console.warn(`Remote pointer for "${remoteInfo.name}" has an unrecognized version (${remoteInfo.v}) or a v2 pointer missing its hash; skipping.`);
                             break;
                         }
@@ -1056,6 +1071,9 @@ export class RisuSaveDecoder {
                                     remoteData = await readFile(fileName, { baseDir: BaseDirectory.AppData });
                                 }
                             } catch (error) {
+                                if(this.strict){
+                                    throw error;
+                                }
                                 console.error(`Error reading remote file ${fileName} in Tauri:`, error);
                             }
                         }
@@ -1067,6 +1085,9 @@ export class RisuSaveDecoder {
                         }
 
                         if(!remoteData){
+                            if(this.strict){
+                                throw new Error(`Remote file ${fileName} not found.`);
+                            }
                             console.warn(`Remote file ${fileName} not found.`);
                             break;
                         }
@@ -1090,12 +1111,18 @@ export class RisuSaveDecoder {
                         break;
                     }
                     default:{
+                        if(this.strict){
+                            throw new Error(`Not Implemented RisuSaveType: ${this.blocks[key].type} for ${this.blocks[key].name}`);
+                        }
                         console.warn(`Not Implemented RisuSaveType: ${this.blocks[key].type} for ${this.blocks[key].name}`);
                     }
-                }   
+                }
             } catch (error) {
                 console.error(`Error processing block ${this.blocks[key].name}:`, error);
 
+                if(this.strict){
+                    throw error;
+                }
                 if(this.blocks[key].type === RisuSaveType.ROOT){
                     throw new Error('Failed to decode root block, cannot proceed with decoding RisuSave data');
                 }
@@ -1125,7 +1152,7 @@ export class RisuSaveDecoder {
     }
 }
 
-export async function decodeRisuSave(data:Uint8Array){
+export async function decodeRisuSave(data:Uint8Array, options?: { strict?: boolean }){
     try {
         const header = checkHeader(data)
         switch(header){
@@ -1161,14 +1188,22 @@ export async function decodeRisuSave(data:Uint8Array){
                 if (versionByte !== 0 && versionByte !== 1) {
                     throw new Error(`Unrecognized RisuSave format version byte: ${versionByte}`);
                 }
-                const decoder = new RisuSaveDecoder(versionByte === 1);
+                const decoder = new RisuSaveDecoder(versionByte === 1, options?.strict === true);
                 return await decoder.decode(data);
             }
+        }
+        if (options?.strict) {
+            throw new Error('Unrecognized save data format');
         }
         return unpackr.decode(data)
     }
     catch (error) {
         console.error('Error decoding RisuSave data:', error);
+        if (options?.strict) {
+            // A strict caller must never act on whatever an older format's
+            // decoder happens to make of bytes the current decoder rejected.
+            throw error;
+        }
         try {
             console.log('risudecode')
             const risuSaveHeader = new Uint8Array(Buffer.from("\u0000\u0000RISU",'utf-8'))

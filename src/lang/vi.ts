@@ -40,6 +40,26 @@ export const languageVietnamese = {
         "coldStorageCleanupAborted": (characterNames: string) =>
             `Việc dọn dẹp bộ nhớ lạnh đã bị hủy: không thể xác minh dữ liệu bộ nhớ lạnh của ${characterNames || "nhân vật không xác định"}, nên không có gì bị xóa.`,
         "coldStorageCleanupFailed": "Việc dọn dẹp bộ nhớ lạnh đã thất bại giữa chừng. Một số mục không sử dụng có thể chưa được xóa; không có gì khác bị ảnh hưởng.",
+        "coldStorageCleanupBusy": "Việc dọn dẹp bộ nhớ lạnh chưa được bắt đầu vì một cuộc trò chuyện vẫn đang tạo phản hồi hoặc có thứ khác vẫn đang ghi dữ liệu. Hãy đợi cho đến khi xong hoặc dừng nó, rồi thử lại. Không có gì bị xóa.",
+        "coldStorageCleanupSavingStopped": "Việc dọn dẹp bộ nhớ lạnh chưa được bắt đầu vì việc lưu đã bị dừng cho trang này. Hãy khắc phục sự cố lưu hoặc tải lại trang, rồi thử lại. Không có gì bị xóa.",
+        "coldStorageCleanupNoListing": "Việc dọn dẹp bộ nhớ lạnh chưa được bắt đầu vì danh sách các tệp đã lưu được lấy khi trang này tải không khả dụng. Hãy tải lại trang, rồi thử lại. Không có gì bị xóa.",
+        "coldStorageCleanupOtherTab": "Việc dọn dẹp bộ nhớ lạnh chưa được bắt đầu vì dường như có một tab khác của ứng dụng này đang mở. Hãy đóng mọi tab khác của ứng dụng này, rồi thử lại. Không có gì bị xóa.",
+        "coldStorageCleanupMainChanged": "Việc dọn dẹp bộ nhớ lạnh chưa được bắt đầu vì dữ liệu đã lưu đã thay đổi kể từ lần trang này đọc hoặc lưu gần nhất. Có thể một tab hoặc thiết bị khác đã lưu. Hãy tải lại trang, rồi thử lại. Không có gì bị xóa.",
+        "coldStorageCleanupMainUnknown": "Việc dọn dẹp bộ nhớ lạnh chưa được bắt đầu vì trang này không có bản ghi khả dụng nào về tệp dữ liệu chính: nó chưa đọc hoặc lưu tệp này, hoặc không thể tính toán bản ghi. Hãy đợi trang lưu xong hoặc tải lại trang, rồi thử lại. Không có gì bị xóa.",
+        "coldStorageCleanupStoppedBusy": "Việc dọn dẹp bộ nhớ lạnh đã dừng vì một cuộc trò chuyện bắt đầu tạo phản hồi hoặc có thứ khác bắt đầu ghi dữ liệu.",
+        "coldStorageCleanupStoppedSavingStopped": "Việc dọn dẹp bộ nhớ lạnh đã dừng vì việc lưu đã bị dừng cho trang này.",
+        "coldStorageCleanupStoppedFrozen": (characterGroups: string) =>
+            `Việc dọn dẹp bộ nhớ lạnh đã dừng vì các nhân vật sau đây hiện dùng chung ID nội bộ với một nhân vật khác, và việc lưu đã bị tạm dừng cho chúng: ${characterGroups || "một nhân vật"}.`,
+        "coldStorageCleanupSourceLive": "dữ liệu đang mở trong tab này",
+        "coldStorageCleanupSourceMain": "tệp chính đã lưu (database.bin)",
+        "coldStorageCleanupSaveUnreadable": (source: string) =>
+            `Việc dọn dẹp bộ nhớ lạnh đã bị dừng vì không thể đọc hoàn chỉnh ${source}, nên không có gì bị xóa. Hãy tải lại trang và thử lại; nếu vẫn tiếp diễn, đừng chạy dọn dẹp.`,
+        "coldStorageCleanupBlobUnreadable": (characterName: string, source: string) =>
+            `Việc dọn dẹp bộ nhớ lạnh đã bị dừng: dữ liệu bộ nhớ lạnh của ${characterName || "nhân vật không xác định"} mà ${source} sử dụng bị thiếu hoặc không đọc được, nên không có gì bị xóa.`,
+        "coldStorageCleanupStopped": (reason: string, deleted: number, failed: number) =>
+            `${reason}\n\nViệc dọn dẹp đã dừng giữa chừng: đã xóa ${deleted} mục${failed > 0 ? ` và ${failed} mục không thể xóa` : ""}.`,
+        "coldStorageCleanupPartial": (deleted: number, failed: number) =>
+            `Việc dọn dẹp bộ nhớ lạnh đã hoàn tất, nhưng ${failed} mục không thể xóa. Đã xóa ${deleted} mục.`,
         "coldStorageBlockedByDuplicateChaId": (characterGroups: string) =>
             `Việc dọn dẹp bộ nhớ lạnh đã bị bỏ qua vì nhân vật sau đây dùng chung ID nội bộ với một nhân vật khác, và việc lưu đã bị tạm dừng cho chúng: ${characterGroups || "một nhân vật"}. Việc lưu sẽ tiếp tục khi chỉ còn một nhân vật giữ mỗi ID — ví dụ, bằng cách xóa vĩnh viễn các nhân vật thừa (chuyển chúng vào thùng rác, sau đó xóa khỏi thùng rác) — rồi thử dọn dẹp lại.`,
         "coldStorageChatStillLoading": "Cuộc trò chuyện này chưa được tải từ bộ nhớ lạnh (vẫn đang tải, hoặc không thể tải được — xem thông báo trong cuộc trò chuyện). Việc gửi tin nhắn bị vô hiệu hóa cho đến khi tải xong.",
@@ -1584,9 +1604,17 @@ export const languageVietnamese = {
     nanoGPTManualInput: "Nhập thủ công",
     nanoGPTManualModelSelect: "Chọn mô hình thủ công",
     coldStorage: "Bộ nhớ Lạnh",
-    cleanColdStorage: "Dọn dẹp Bộ nhớ Lạnh Không sử dụng",
+    cleanColdStorage: "Dọn dẹp Dữ liệu Lưu trữ và Tệp Tài sản Không sử dụng",
     customSidebarConfig: "Cấu hình Thanh bên Tùy chỉnh",
-    cleanColdStorageConfirm: "Thao tác này sẽ xóa vĩnh viễn toàn bộ dữ liệu bộ nhớ lạnh không sử dụng. Dữ liệu này có thể hiện không được sử dụng nhưng có thể hữu ích trong tương lai. Bạn có muốn tiếp tục không?",
+    cleanColdStorageConfirm: "Thao tác này sẽ xóa vĩnh viễn toàn bộ dữ liệu lưu trữ (bộ nhớ lạnh) không sử dụng và toàn bộ tệp tài sản không sử dụng, tức là hình ảnh và âm thanh mà không nhân vật, mô-đun, persona hay cài đặt nào còn sử dụng. Một số có thể vẫn hữu ích trong tương lai, và không thể khôi phục. Bạn có muốn tiếp tục không?",
+    coldStorageCleanupNoLockConfirm: "Trình duyệt của bạn không thể kiểm tra xem có tab khác của ứng dụng này đang mở hay không. Nếu một tab khác của ứng dụng này đang mở trong khi quá trình dọn dẹp chạy, tab đó có thể mất dữ liệu. Hãy đóng mọi tab khác của ứng dụng này trước, rồi tiếp tục. Vẫn tiếp tục chứ?",
+    coldStorageCleanupNodeConfirm: "Không chạy việc dọn dẹp này khi một thiết bị hoặc trình duyệt khác đang dùng cùng máy chủ. Mọi thứ họ lưu trong lúc dọn dẹp chạy có thể bị mất hoặc bị xóa. Tiếp tục chứ?",
+    coldStorageCleanupCheckingTabs: "Đang kiểm tra các tab khác của ứng dụng này đang mở trước khi dọn dẹp...",
+    coldStorageCleanupReading: "Đang kiểm tra dữ liệu đã lưu nào vẫn đang được sử dụng...",
+    coldStorageCleanupRemoving: (done: number, total: number) =>
+        `Đang xóa dữ liệu đã lưu không sử dụng (${done} / ${total})...`,
+    coldStorageCleanupDone: (deleted: number) =>
+        deleted > 0 ? `Việc dọn dẹp bộ nhớ lạnh đã hoàn tất: đã xóa ${deleted} mục không sử dụng.` : "Việc dọn dẹp bộ nhớ lạnh đã hoàn tất: không có mục nào không sử dụng để xóa.",
     moveInsteadOfCopyOnCMPConvert: "Di chuyển Thay vì Sao chép khi Chuyển đổi CMP",
     successfullyConverted: "Đã chuyển đổi thành công.",
     convertToModule: "Chuyển đổi sang Module",

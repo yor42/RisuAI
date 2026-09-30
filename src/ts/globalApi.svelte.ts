@@ -32,6 +32,7 @@ import { registerDbChangeEffects } from "./storage/dbChangeEffects.svelte";
 import { installCharacterSaveMarks } from "./storage/characterSaveMarks";
 import { AutoStorage } from "./storage/autoStorage";
 import { createStorageTabLocks } from "./storage/storageTabLocks";
+import { noteMainFileBytes } from "./storage/mainFileRecord";
 import { updateAnimationSpeed } from "./gui/animation";
 import { updateColorScheme, updateTextThemeAndCSS } from "./gui/colorscheme";
 import { save } from "@tauri-apps/plugin-dialog";
@@ -1362,6 +1363,9 @@ export async function saveDb() {
             } finally {
                 releaseWriteLock()
             }
+            // Reached only when the write above did not throw, so the record
+            // never claims bytes storage does not hold.
+            noteMainFileBytes(dbData)
             // The primary database write has landed. Everything after this point
             // (backup write, getDbBackups) is best-effort and must never be
             // able to resurrect and re-commit this payload — see the catch below.
