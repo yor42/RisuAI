@@ -19,6 +19,7 @@
   - [[Lua API Reference]]
 - [[Trigger Script]]
 - [[Regex Script]]
+- [[Chat Commands]]
 - [[Lorebook]]
 
 **Characters and prompts**

@@ -97,6 +97,20 @@ the lock and shows the error instead.
 
 <!-- src/lib/Setting/Pages/StorageMaintenanceSettings.svelte:3-46; src/ts/storage/storageMaintenance.ts:106-191; src/ts/storage/autoStorage.ts:140-236; src/ts/bootstrap.ts:185-193 -->
 
+## Restoring is refused while work is running
+
+**Load Backup Locally** and **Load Internal Backup** refuse to run while any work is registered against a chat (a reply, auto mode, a command line, `/multisend`, a Post File job, a reroll) in any chat, or while the composer's one-action window is open (a send, reroll, undo reroll or auto mode). You see the error: "Something is still writing into a chat, so the backup was not loaded. Wait for it to finish or stop it, then try again. Reloading the page also ends all work."
+
+When it is checked:
+
+- **Both buttons:** when you click, before the two confirms.
+- **Load Backup Locally:** again when the load starts, again after you pick a file, and once more just before the database is written. The last check comes after the file scan and after the other-tab check described below, so a send that starts while those are running still stops the restore.
+- **Load Internal Backup:** at the start, and again right before the restored database is installed.
+
+If the refusal comes at the last check of Load Backup Locally, the database is not written, but the assets and cold-storage entries that were already read from the file stay in storage (the same as for the other early exits of that restore). This refusal and the other-tab check are separate checks.
+
+<!-- src/ts/drive/backupWorkGuard.ts:12-18; src/ts/process/chatOrigin.ts:1042-1044; src/lib/Setting/Pages/UserSettings.svelte:33-55; src/ts/drive/backuplocal.ts:385,400,448-457,628-635; src/ts/globalApi.svelte.ts:3146,3188; src/lang/en.ts:775 -->
+
 ## Load Backup Locally
 
 1. Two confirms, as listed in the controls table above.

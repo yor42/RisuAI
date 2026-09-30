@@ -71,7 +71,7 @@ V1 is a flat list of `{comment, type, conditions, effect: [oneEffect]}` entries 
 | `setvar` | `operator: '='\|'+='\|'-='\|'*='\|'/='`, `var`, `value` | arithmetic/assign on a variable (non-numeric current value treated as 0) | any |
 | `systemprompt` | `location: 'start'\|'historyend'\|'promptend'`, `value` | appends text to one of three injection points for this round's prompt | any |
 | `impersonate` | `role: 'user'\|'char'`, `value` | appends a new chat message | any |
-| `command` | `value` | runs `value` through `processMultiCommand` — the same pipe-separated (`\|`) mini-language as the chat command bar | any |
+| `command` | `value` | runs `value` through `processMultiCommand` — the same pipe-separated (`\|`) mini-language as the chat command bar (see [[Chat Commands]]) | any |
 | `stop` | — | stops the AI from sending/generating this round | any |
 | `runtrigger` | `value` (target trigger's `comment`) | recursively runs a `manual` trigger by name (see recursion note above) | any |
 | `cutchat` | `start`, `end` | slices the chat message array | any |

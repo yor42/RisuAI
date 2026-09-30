@@ -21,6 +21,7 @@ How RisuAI works:
         - [[Lua API Reference]]
      - [[Trigger Script]]
      - [[Regex Script]]
+  - [[Chat Commands]]
   - [[Lorebook]]
   - [[Prompt Template]]
   - [[Modules]]
