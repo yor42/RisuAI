@@ -71,8 +71,9 @@ const inflightDraftKey = uuidv4()
 /**
  * A Send's or Continue's own pre-append span: the taken values, its work
  * handle and abort controller, and the origin they came from (`workHandle.origin`
- * is also the key every put-back writes to). `abortChat` sets `settled`
- * to true when the busy button cancels this record before its push; a
+ * is also the key every put-back writes to). `cancelInflight` sets `settled`
+ * to true when the busy button, or a delete of the take's chat or character, cancels this
+ * record before its push; a
  * successful push never sets it, and instead clears `inflight` directly (see
  * `clearInflightIfCurrent`'s call sites in `sendMain`), which is what stops a
  * later `abortChat` call from treating an already-pushed send as still
@@ -221,8 +222,10 @@ export async function sendMain(source: ComposerActionsSource, continueResponse: 
     }
 
     // beginWork captures the origin (and refuses to take anything when the
-    // character or chat cannot be found or given an id).
-    const workHandle = beginWork(char, startChat)
+    // character or chat cannot be found or given an id). The registration
+    // carries the stop a delete of this chat uses on the take.
+    const controller = new AbortController()
+    const workHandle = beginWork(char, startChat, undefined, () => stopTake(controller))
     if(!workHandle){
         return
     }
@@ -230,13 +233,12 @@ export async function sendMain(source: ComposerActionsSource, continueResponse: 
     // The take: the origin's per-chat record's three values move into the
     // module-level in-flight slot synchronously, leaving that record empty
     // (composerDrafts.take drops an all-empty record at once); the send's
-    // own abort controller is created; the window and the lock open.
+    // own abort controller is in place; the window and the lock open.
     const taken = composerDrafts.take(workHandle.origin)
     const takenMessageInput = taken.messageInput
     const takenMessageInputTranslate = taken.messageInputTranslate
     const takenFileInput = taken.fileInput
 
-    const controller = new AbortController()
     // Published here, at the take, not only inside sendChatMain's own later
     // assignment: a busy-button click in the gap between the append and the
     // hand-off to generation (sendMain's post-append sleep) reaches
@@ -580,6 +582,40 @@ export async function sendChatMain(source: ComposerActionsSource, target: Genera
     return completed
 }
 
+/**
+ * Cancels a Send/Continue that is still between its take and its push: its
+ * controller aborts, its registration ends, the taken values go back to the
+ * origin's own record, and the window and the lock close at once.
+ */
+function cancelInflight(record: InflightRecord): void {
+    record.settled = true
+    inflight = null
+    record.controller.abort()
+    record.workHandle.end()
+    unregisterDraft(inflightDraftKey)
+    composerDrafts.putBack(record.workHandle.origin, {
+        messageInput: textToPutBack(record),
+        messageInputTranslate: record.takenMessageInputTranslate,
+        fileInput: record.takenFileInput,
+    })
+    locked = false
+    setComposerWindow(false)
+}
+
+/**
+ * What a delete of the take's chat does to the Send/Continue owning
+ * `controller`, that one alone: before its push it is cancelled as the busy
+ * button cancels it; after the push its controller is aborted, so a hand-off
+ * that has not yet called `sendChat` finds the signal aborted and refuses.
+ */
+function stopTake(controller: AbortController): void {
+    if(inflight && inflight.controller === controller && !inflight.settled){
+        cancelInflight(inflight)
+        return
+    }
+    controller.abort()
+}
+
 export function abortChat(): void {
     // The send in progress and auto mode are stopped on every press, before
     // anything below can return early: a composer take that is still
@@ -595,19 +631,7 @@ export function abortChat(): void {
     // busy button can cancel it, whichever instance (or none) is showing
     // that record now.
     if(inflight && !inflight.settled){
-        const record = inflight
-        record.settled = true
-        inflight = null
-        record.controller.abort()
-        record.workHandle.end()
-        unregisterDraft(inflightDraftKey)
-        composerDrafts.putBack(record.workHandle.origin, {
-            messageInput: textToPutBack(record),
-            messageInputTranslate: record.takenMessageInputTranslate,
-            fileInput: record.takenFileInput,
-        })
-        locked = false
-        setComposerWindow(false)
+        cancelInflight(inflight)
         return
     }
     // Abort the module-level generation controller, not a per-instance one
@@ -660,8 +684,10 @@ export async function runAutoMode(source: ComposerActionsSource): Promise<void> 
     if(!char || !chat){
         return
     }
-    // Every tick generates into the chat auto mode was started in.
-    const workHandle = beginWork(char, chat)
+    // Every tick generates into the chat auto mode was started in. A delete of
+    // that chat switches the loop off; the tick in flight is a send of its own
+    // and is stopped through its own registration.
+    const workHandle = beginWork(char, chat, undefined, () => { autoModeRunning = false })
     if(!workHandle){
         return
     }

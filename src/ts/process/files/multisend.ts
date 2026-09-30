@@ -1,7 +1,7 @@
 import { get } from 'svelte/store';
 import { doingChat, sendChat } from '../index.svelte';
 import { isComposerWindowOpen } from '../generationOwnership.svelte';
-import { createSendSubject, type OriginHint, type RunSubject } from '../chatOrigin';
+import { createSendSubject, registerWork, type OriginHint, type RunSubject } from '../chatOrigin';
 import type { ComposerDraftKey } from '../composerDrafts.svelte';
 import { downloadFile } from 'src/ts/globalApi.svelte';
 import { isTauri } from "src/ts/platform"
@@ -19,8 +19,29 @@ type sendFileArg = {
  * hands over the file it builds. The chat is found again by id at every entry,
  * never through the selection and never through an object held across an
  * `await`; a chat that is gone stops the job.
+ *
+ * The job is registered against its chat for its whole duration, including the
+ * waits between entries, and ends that registration in a `finally`. The
+ * registration's stop aborts the job's signal: no further entry is posted and no
+ * further request starts, and a send running for the job is aborted with it.
  */
 async function sendPofile(arg:sendFileArg, subject:RunSubject, hint:OriginHint|undefined){
+    const controller = new AbortController()
+    const workHandle = registerWork(subject.origin, () => controller.abort())
+    try {
+        await sendPofileEntries(arg, subject, hint, controller.signal)
+    }
+    finally {
+        workHandle.end()
+    }
+}
+
+/**
+ * The job's entries. A stopped job takes the same exits as a job whose chat is
+ * gone or whose send returned false: it posts nothing more, and hands over the
+ * file it has built so far if it had already sent an entry.
+ */
+async function sendPofileEntries(arg:sendFileArg, subject:RunSubject, hint:OriginHint|undefined, signal:AbortSignal){
 
     let result = ''
     let msgId = ''
@@ -40,10 +61,10 @@ async function sendPofile(arg:sendFileArg, subject:RunSubject, hint:OriginHint|u
                 result += '\n'
                 continue
             }
-            if(get(doingChat) || isComposerWindowOpen()){
-                // Another send is in flight: post nothing more. A job that
-                // has already sent an entry still ends by handing over what
-                // it has built.
+            if(signal.aborted || get(doingChat) || isComposerWindowOpen()){
+                // The job was stopped, or another send is in flight: post
+                // nothing more. A job that has already sent an entry still
+                // ends by handing over what it has built.
                 if(sentEntries === 0){
                     return
                 }
@@ -71,7 +92,7 @@ async function sendPofile(arg:sendFileArg, subject:RunSubject, hint:OriginHint|u
             })
             subject.mark()
             sentEntries++
-            if(!(await sendChat(-1, { origin: subject.origin, originHint: hint }))){
+            if(!(await sendChat(-1, { origin: subject.origin, originHint: hint, signal }))){
                 break
             }
             const res = subject.resolve()?.chat.message.at(-1)

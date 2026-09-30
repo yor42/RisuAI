@@ -35,7 +35,7 @@ import { readImage } from "../globalApi.svelte";
 import { pluginV2 } from "../plugins/plugins.svelte";
 import { isColdChat } from "./coldstorageData";
 import { markCharacterForSave } from "../storage/characterSaveMarks";
-import { beginWork, createSendSubject, registerWork, resolveOriginWithHint, type Origin, type OriginContext, type SendSubject, type WorkHandle } from "./chatOrigin";
+import { beginWork, createSendSubject, registerWork, resolveOriginWithHint, type Origin, type OriginContext, type SendSubject, type WorkHandle, type WorkStop } from "./chatOrigin";
 import { noteTurnReached, publishUnit, releaseUnit } from "./generationOwnership.svelte";
 
 export interface OpenAIChat{
@@ -215,7 +215,7 @@ interface SendChatEntry {
  * nothing selected returns without a side effect. Returns null for every
  * refusal, and registers nothing for it.
  */
-function enterSendChat(chatProcessIndex: number, arg: SendChatArg): SendChatEntry | null {
+function enterSendChat(chatProcessIndex: number, arg: SendChatArg, stop?: WorkStop): SendChatEntry | null {
     let origin: Origin
     let hint: SendChatOriginHint
     let owner: character | groupChat
@@ -248,7 +248,7 @@ function enterSendChat(chatProcessIndex: number, arg: SendChatArg): SendChatEntr
         if(!selected || !selectedChat){
             return null
         }
-        handle = beginWork(selected, selectedChat)
+        handle = beginWork(selected, selectedChat, undefined, stop)
         if(!handle){
             return null
         }
@@ -262,7 +262,7 @@ function enterSendChat(chatProcessIndex: number, arg: SendChatArg): SendChatEntr
         handle?.end()
         handle = null
     }
-    handle ??= registerWork(origin)
+    handle ??= registerWork(origin, stop)
 
     return { context: { origin, hint, subject: createSendSubject(origin, hint) }, handle }
 }
@@ -305,11 +305,13 @@ export async function sendChat(chatProcessIndex = -1, arg: SendChatArg = {}): Pr
     if(get(doingChat) || arg.signal?.aborted){
         return false
     }
-    const entry = enterSendChat(chatProcessIndex, arg)
+    // The registration carries this unit's abort, so a delete of the chat it
+    // writes to stops this send alone, whatever else is running elsewhere.
+    const unit = new AbortController()
+    const entry = enterSendChat(chatProcessIndex, arg, () => unit.abort())
     if(!entry){
         return false
     }
-    const unit = new AbortController()
     const callerSignal = arg.signal
     const relayAbort = () => unit.abort()
     try {

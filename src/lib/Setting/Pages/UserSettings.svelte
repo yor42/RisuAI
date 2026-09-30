@@ -3,6 +3,7 @@
     import { alertConfirm} from "src/ts/alert";
     import { loadInternalBackup } from "src/ts/globalApi.svelte";
     import { LoadLocalBackup, SaveLocalBackup, SavePartialLocalBackup } from "src/ts/drive/backuplocal";
+    import { refuseBackupLoadWhileBusy } from "src/ts/drive/backupWorkGuard";
     import Button from "src/lib/UI/GUI/Button.svelte";
     import { exportAsDataset } from "src/ts/storage/exportAsDataset";
     import { cleanColdStorage } from "src/ts/process/coldstorage.svelte";
@@ -31,6 +32,9 @@
 
 <Button
     onclick={async () => {
+        if(refuseBackupLoadWhileBusy()){
+            return
+        }
         if((await alertConfirm(language.backupLoadConfirm)) && (await alertConfirm(language.backupLoadConfirm2))){
             LoadLocalBackup()
         }
@@ -40,6 +44,9 @@
 
 <Button
     onclick={async () => {
+        if(refuseBackupLoadWhileBusy()){
+            return
+        }
         if((await alertConfirm(language.backupLoadConfirm)) && (await alertConfirm(language.backupLoadConfirm2))){
             loadInternalBackup()
         }

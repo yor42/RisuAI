@@ -16,6 +16,7 @@ import { PngChunk } from "./pngChunk";
 import { getColdStorageItem } from "./process/coldstorage.svelte";
 import { getAvatarThumbSrc, isThumbEligible } from "./media/avatarThumb";
 import { markCharacterForSave } from "./storage/characterSaveMarks";
+import { hasWorkIn, stopWorkIn } from "./process/chatOrigin";
 
 export function createNewCharacter() {
     DBState.db.characters.push(createBlankChar())
@@ -855,7 +856,17 @@ function dataURLtoBuffer(string:string){
 export async function removeChar(identifier:string|number|character|groupChat,name:string, type:'normal'|'permanent'|'permanentForce' = 'normal'){
     const db = getDatabase()
     if(type !== 'permanentForce'){
-        const conf = await alertConfirm(language.removeConfirm + name)
+        // Advisory only: what is stopped is decided at the removal below. Work
+        // registered for a group's turn belongs to the group, so deleting a
+        // member of a busy group shows no warning.
+        const listed = db.characters
+        const asked = typeof identifier === 'string'
+            ? listed[findCharacterIndexbyId(identifier)]
+            : typeof identifier === 'number'
+            ? listed[identifier]
+            : identifier
+        const busy = !!asked?.chaId && hasWorkIn({ chaId: asked.chaId })
+        const conf = await alertConfirm(language.removeConfirm + name + (busy ? '\n' + language.removeCharacterWhileWorking : ''))
         if(!conf){
             return
         }
@@ -878,6 +889,13 @@ export async function removeChar(identifier:string|number|character|groupChat,na
     if (index === -1 || index >= chars.length) {
         return
     }
+    // Every unit of work owned by the character actually removed is stopped in
+    // this same synchronous stretch, whether or not the confirmation warned.
+    // A trashed character stays where it is, so a write that still lands goes
+    // into it; a removed one drops the write silently.
+    if (chars[index].chaId) {
+        stopWorkIn({ chaId: chars[index].chaId })
+    }
     if(type === 'normal'){
         chars[index].trashTime = Date.now()
     }
@@ -888,6 +906,41 @@ export async function removeChar(identifier:string|number|character|groupChat,na
     DBState.db.characters = chars
     requiresFullEncoderReload.state = true
     selectedCharID.set(-1)
+}
+
+/**
+ * A chat list's delete button. Asks for confirmation -- with a warning line
+ * when something is writing into the chat -- and then deletes the chat the
+ * user confirmed: it is found again in `owner.chats` by reference after the
+ * confirmation, so a list that shifted meanwhile never costs a neighbour its
+ * place. A chat that is gone, or has become the owner's only chat, is left
+ * alone and nothing is stopped. Otherwise the work owned by that chat is
+ * stopped in the same synchronous stretch as the removal, whether or not the
+ * warning was shown. Returns whether the chat was removed.
+ */
+export async function removeChatConfirmed(owner: character | groupChat, chat: Chat): Promise<boolean> {
+    if(owner.chats.length === 1){
+        alertError(language.errors.onlyOneChat)
+        return false
+    }
+    // Advisory only: what is stopped is decided at the removal below.
+    const busy = !!owner.chaId && !!chat.id && hasWorkIn({ chaId: owner.chaId, chatId: chat.id })
+    const conf = await alertConfirm(language.removeConfirm + chat.name + (busy ? '\n' + language.removeChatWhileWorking : ''))
+    if(!conf || owner.chats.length <= 1 || owner.chats.indexOf(chat) === -1){
+        return false
+    }
+    changeChatTo(0)
+    const index = owner.chats.indexOf(chat)
+    if(index === -1){
+        return false
+    }
+    if(owner.chaId && chat.id){
+        stopWorkIn({ chaId: owner.chaId, chatId: chat.id })
+    }
+    const chats = owner.chats
+    chats.splice(index, 1)
+    owner.chats = chats
+    return true
 }
 
 /**

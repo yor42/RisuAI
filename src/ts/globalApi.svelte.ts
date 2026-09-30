@@ -51,6 +51,7 @@ import { getNodeServerProxyAuth, NodeStorageConflictError } from "./storage/node
 import { getMultiTabAction, isRevisionAwareBackend, nextAutoReloadHistory, resolvePromptChoice, resolveRevisionAwarePromptChoice, readAutoReloadHistory, writeAutoReloadHistory, shouldRetainOtherTabSavedSignal, type AutoReloadHistory } from "./storage/multiTabReload";
 import { hasLocalDrafts } from "./localDrafts";
 import { draftContentOrphanGate } from "./draftContentOrphanGate";
+import { refuseBackupLoadWhileBusy } from "./drive/backupWorkGuard";
 
 export const forageStorage = new AutoStorage()
 
@@ -3140,6 +3141,12 @@ export class BlankWriter {
 
 export async function loadInternalBackup() {
 
+    // Refused before anything is asked, and again immediately before the
+    // decoded database is installed: work can start during any wait between.
+    if (refuseBackupLoadWhileBusy()) {
+        return
+    }
+
     const keys = isTauri ? (await readDir('database', { baseDir: BaseDirectory.AppData })).map((v) => {
         return v.name
     }) : (await forageStorage.keys())
@@ -3178,6 +3185,9 @@ export async function loadInternalBackup() {
     // anything is replaced, and an edit made after the object enters
     // `$state` is invisible once that property has been read.
     repairDatabaseIds(decoded)
+    if (refuseBackupLoadWhileBusy()) {
+        return
+    }
     setDatabase(decoded)
     // A backup load is an explicit user action to replace everything, so a
     // full reload (and dropping characters absent from the backup) is

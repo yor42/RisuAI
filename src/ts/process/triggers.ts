@@ -1096,9 +1096,10 @@ type RunTriggerDisplayArg = {
 // trigger, with the send's own decision on whether the first message is sent;
 // every run it starts through `runtrigger` or `v2RunTrigger` carries it on. The
 // system-prompt text of such a run is parsed as part of the prompt.
-// `signal` stops the run's command lines before their next command, and
-// `ownsWindow` marks work that opened the composer's window; both are carried
-// on by every run this one starts.
+// `signal` stops the run's command lines before their next command and the run
+// itself before its next trigger, effect or loop step (the effect already
+// running finishes), and `ownsWindow` marks work that opened the composer's
+// window; both are carried on by every run this one starts.
 export type RunTriggerArg = RunTriggerLiveArg | RunTriggerDisplayArg
 
 export async function runTrigger(char:character,mode:triggerMode, arg: RunTriggerArg){
@@ -1373,9 +1374,9 @@ export async function runTrigger(char:character,mode:triggerMode, arg: RunTrigge
         }
 
         // The run stops here, cleanly and silently (a warning only for an
-        // ambiguous origin), the moment its origin is gone or ambiguous:
-        // no further effect runs.
-        if(!refreshSubject()){
+        // ambiguous origin), the moment its origin is gone or ambiguous, or
+        // its signal is aborted: no further effect runs.
+        if(arg.signal?.aborted || !refreshSubject()){
             break triggerLoop
         }
 
@@ -1469,7 +1470,10 @@ export async function runTrigger(char:character,mode:triggerMode, arg: RunTrigge
                 continue
             }
 
-            if(!refreshSubject()){
+            // The effect already running when the signal aborts finishes. A loop
+            // step re-enters here, and a nested run carries the same signal, so
+            // both end at their next effect too.
+            if(arg.signal?.aborted || !refreshSubject()){
                 break triggerLoop
             }
 

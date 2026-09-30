@@ -11,6 +11,7 @@ import { sleep } from "../util";
 import { language } from "src/lang";
 import { collectColdStorageBackupPayloads, confirmIncompleteColdStorageOperation, getColdStorageBackupKey, getColdStorageItem, isColdStorageBackupData, listColdDataKeys, setColdStorageItem } from "../process/coldstorage.svelte";
 import { BACKUP_ENCRYPTION_MARKER_NAME, decodeEntryName, findEncryptionMarkerEntry, parseBackupEntryHeader, type BackupEntryHeader } from "./backupContainer";
+import { refuseBackupLoadWhileBusy } from "./backupWorkGuard";
 
 function getBasename(data:string){
     const baseNameRegex = /\\/g
@@ -377,6 +378,13 @@ export async function SavePartialLocalBackup(){
 const RESTORE_EXCLUSIVE_LOCK_TIMEOUT_MS = 2000;
 
 export function LoadLocalBackup(){
+    // A restore replaces the database under any work still writing into it.
+    // It is refused before the picker opens, again when the picker returns,
+    // and again immediately before the database write, since work can start
+    // during any of the waits in between.
+    if (refuseBackupLoadWhileBusy()) {
+        return;
+    }
     try {
         const input = document.createElement('input');
         input.type = 'file';
@@ -388,6 +396,10 @@ export function LoadLocalBackup(){
             }
             const file = input.files[0];
             input.remove();
+
+            if (refuseBackupLoadWhileBusy()) {
+                return;
+            }
 
             // Every write below -- an asset, a cold-storage item, or the
             // database itself -- must wait until the whole file is known to
@@ -611,6 +623,15 @@ export function LoadLocalBackup(){
                 // globalApi.svelte.ts's AsyncMutex/dbWriteLock).
                 if (!releaseExclusiveHold) {
                     releaseDbWriteLock = await dbWriteLock.acquire();
+                }
+
+                // No await between this check and the write below: work that
+                // began during any earlier wait is seen here, and a refusal
+                // writes nothing further: the assets and cold-storage items
+                // already read from the file stay, as on the other early exits.
+                // The finally releases what was taken above.
+                if (refuseBackupLoadWhileBusy()) {
+                    return;
                 }
 
                 writeAttempted = true;

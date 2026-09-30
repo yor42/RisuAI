@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from "uuid"
 import { DBState } from "../stores.svelte"
 import type { character, groupChat, Chat } from "../storage/database.svelte"
 import { markCharacterForSave } from "../storage/characterSaveMarks"
+import { isComposerWindowOpen } from "./generationOwnership.svelte"
 
 /**
  * The origin API: an opaque, re-resolved-on-every-use address for a chat
@@ -763,10 +764,20 @@ export interface WorkHandle {
     end: () => void
 }
 
+/**
+ * What stops one unit of work on behalf of a delete. It runs synchronously in
+ * the delete's own stretch, so it must not await, and must leave the character
+ * list alone: it only cancels or aborts the unit it belongs to.
+ */
+export type WorkStop = () => void
+
 interface Registration {
     chaId: string
     chatId: string
     memberChaId?: string
+    stop?: WorkStop
+    stopped: boolean
+    ended: boolean
 }
 
 // Plain module state, like `src/ts/localDrafts.ts` -- not a rune. Nothing
@@ -776,17 +787,23 @@ interface Registration {
 // leaves a stale "writing" answer, never a lost write.
 const registrations: Registration[] = []
 
-function registerOrigin(origin: Origin): WorkHandle {
-    const registration: Registration = { chaId: origin.chaId, chatId: origin.chatId, memberChaId: origin.memberChaId }
+function registerOrigin(origin: Origin, stop?: WorkStop): WorkHandle {
+    const registration: Registration = {
+        chaId: origin.chaId,
+        chatId: origin.chatId,
+        memberChaId: origin.memberChaId,
+        stop,
+        stopped: false,
+        ended: false,
+    }
     registrations.push(registration)
-    let ended = false
     return {
         origin,
         end: () => {
-            if (ended) {
+            if (registration.ended) {
                 return
             }
-            ended = true
+            registration.ended = true
             const index = registrations.indexOf(registration)
             if (index !== -1) {
                 registrations.splice(index, 1)
@@ -799,9 +816,10 @@ function registerOrigin(origin: Origin): WorkHandle {
  * Registers a unit of work against `origin` exactly as given -- for a caller
  * that already holds an origin and needs neither the id fill nor the
  * resolution `beginWork` makes. Registrations are counted like `beginWork`'s.
+ * `stop`, when given, is what `stopWorkIn` calls to end this unit early.
  */
-export function registerWork(origin: Origin): WorkHandle {
-    return registerOrigin(origin)
+export function registerWork(origin: Origin, stop?: WorkStop): WorkHandle {
+    return registerOrigin(origin, stop)
 }
 
 /**
@@ -915,8 +933,10 @@ function fillChatId(chat: Chat): { chatId: string, filled: boolean } {
  * `member` is typed `character | groupChat` because that is the element type
  * of `DBState.db.characters`, the array a caller reads it back from; a group
  * member is semantically always an ordinary character, never a nested group.
+ *
+ * `stop`, when given, is what `stopWorkIn` calls to end this unit early.
  */
-export function beginWork(character: character | groupChat, chat: Chat, member?: character | groupChat): WorkHandle | null {
+export function beginWork(character: character | groupChat, chat: Chat, member?: character | groupChat, stop?: WorkStop): WorkHandle | null {
     // Every object with a missing id must be findable live before any fill
     // runs: filling the owner and then discovering the chat cannot be found
     // would leave a fresh chaId written to the live database even though the
@@ -949,7 +969,7 @@ export function beginWork(character: character | groupChat, chat: Chat, member?:
     // one every later write already gets from resolveOrigin.
     resolveOrigin(origin)
 
-    return registerOrigin(origin)
+    return registerOrigin(origin, stop)
 }
 
 /**
@@ -968,4 +988,57 @@ export function isWriting(target: { chaId: string, chatId?: string }): boolean {
         }
         return target.chatId === undefined || registration.chatId === target.chatId
     })
+}
+
+function ownedBy(registration: Registration, target: { chaId: string, chatId?: string }): boolean {
+    return registration.chaId === target.chaId
+        && (target.chatId === undefined || registration.chatId === target.chatId)
+}
+
+/**
+ * True when a registered unit of work is owned by `target.chaId` -- and, when
+ * `target.chatId` is given, by that chat of it. Unlike `isWriting`, a unit
+ * registered for a group's turn counts for the group only, never for the
+ * member it speaks as: deleting the member deletes no chat the turn writes to.
+ */
+export function hasWorkIn(target: { chaId: string, chatId?: string }): boolean {
+    return registrations.some((registration) => ownedBy(registration, target))
+}
+
+/**
+ * Stops every unit of work owned by `target` (see `hasWorkIn`): the matching
+ * registrations are fixed first, then each one's stop is called once. A stop
+ * may end its own registration, or another matching one; a registration that
+ * has ended by the time its turn comes is skipped, and so is one whose stop
+ * has already run, so a second call does nothing. A throwing stop is logged
+ * and does not keep the others from running.
+ */
+export function stopWorkIn(target: { chaId: string, chatId?: string }): void {
+    const matching = registrations.filter((registration) => ownedBy(registration, target))
+    for (const registration of matching) {
+        if (registration.ended || registration.stopped) {
+            continue
+        }
+        registration.stopped = true
+        try {
+            registration.stop?.()
+        } catch (error) {
+            console.error(error)
+        }
+    }
+}
+
+/** True while any unit of work is registered, whatever chat it is bound to. */
+export function hasAnyWork(): boolean {
+    return registrations.length > 0
+}
+
+/**
+ * True while anything is generating or about to: a registered unit of work
+ * (which covers every send holding `doingChat`, since a send registers before
+ * it takes the flag and ends its registration after releasing it), or the
+ * composer's action window.
+ */
+export function isWorkInProgress(): boolean {
+    return hasAnyWork() || isComposerWindowOpen()
 }

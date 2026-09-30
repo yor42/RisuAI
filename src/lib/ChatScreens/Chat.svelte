@@ -575,7 +575,10 @@
         const btnEvent = origin.getAttribute('risu-btn')
 
         const currentChat = getCurrentChat()
-        const workHandle = beginWork(currentChar, currentChat)
+        // Aborted only by a delete of the chat this run writes to: the registration's
+        // stop is the run's one cancel path, and the busy button does not reach it.
+        const runController = new AbortController()
+        const workHandle = beginWork(currentChar, currentChat, undefined, () => runController.abort())
         if (!workHandle) {
             return
         }
@@ -589,6 +592,7 @@
                         manualName: triggerName,
                         triggerId: triggerId || undefined,
                         origin: workHandle.origin,
+                        signal: runController.signal,
                     }) :
                 btnEvent ?
                     await runLuaButtonTrigger(currentChar, btnEvent, workHandle.origin) :

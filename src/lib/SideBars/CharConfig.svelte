@@ -740,7 +740,8 @@
     {/if}
 
     <Button onclick={async () => {
-        removeChar($selectedCharID, DBState.db.characters[$selectedCharID].name)
+        const selected = DBState.db.characters[$selectedCharID]
+        removeChar(selected, selected.name)
     }} className="mt-2" size="sm">{ DBState.db.characters[$selectedCharID].type === 'group' ? language.removeGroup : language.removeCharacter}</Button>
     
 {:else if $CharConfigSubMenu === 5}

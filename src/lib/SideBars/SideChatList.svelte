@@ -12,8 +12,8 @@
     import Button from "../UI/GUI/Button.svelte";
     import TextInput from "../UI/GUI/TextInput.svelte";
 
-    import { exportChat, importChat, exportAllChats, createNewChat } from "src/ts/characters";
-    import { alertChatOptions, alertConfirm, alertError, alertNormal, alertSelect, alertStore } from "src/ts/alert";
+    import { exportChat, importChat, exportAllChats, createNewChat, removeChatConfirmed } from "src/ts/characters";
+    import { alertChatOptions, alertConfirm, alertNormal, alertSelect, alertStore } from "src/ts/alert";
     import { sleep, sortableOptions } from "src/ts/util";
     import { bookmarkListOpen } from "src/ts/stores.svelte";
     import { language } from "src/lang";
@@ -308,17 +308,8 @@
                                 }
                             }} class="text-textcolor2 hover:text-green-500 cursor-pointer" onclick={async (e) => {
                                 e.stopPropagation()
-                                if(chara.chats.length === 1){
-                                    alertError(language.errors.onlyOneChat)
-                                    return
-                                }
-                                const d = await alertConfirm(`${language.removeConfirm}${chat.name}`)
-                                if(d){
-                                    changeChatTo(0)
+                                if(await removeChatConfirmed(chara, chat)){
                                     $ReloadGUIPointer += 1
-                                    let chats = chara.chats
-                                    chats.splice(chara.chats.indexOf(chat), 1)
-                                    chara.chats = chats
                                 }
                             }}>
                                 <TrashIcon size={18}/>
@@ -416,17 +407,8 @@
                         }
                     }} class="text-textcolor2 hover:text-green-500 cursor-pointer" onclick={async (e) => {
                         e.stopPropagation()
-                        if(chara.chats.length === 1){
-                            alertError(language.errors.onlyOneChat)
-                            return
-                        }
-                        const d = await alertConfirm(`${language.removeConfirm}${chat.name}`)
-                        if(d){
-                            changeChatTo(0)
+                        if(await removeChatConfirmed(chara, chat)){
                             $ReloadGUIPointer += 1
-                            let chats = chara.chats
-                            chats.splice(i, 1)
-                            chara.chats = chats
                         }
                     }}>
                         <TrashIcon size={18}/>

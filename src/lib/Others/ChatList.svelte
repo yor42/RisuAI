@@ -1,11 +1,10 @@
 <script>
-    import { alertConfirm, alertError } from "../../ts/alert";
     import { language } from "../../lang";
-    
+
     import { DBState } from 'src/ts/stores.svelte';
     import { ReloadGUIPointer, selectedCharID } from "../../ts/stores.svelte";
     import { DownloadIcon, SquarePenIcon, HardDriveUploadIcon, PlusIcon, TrashIcon, XIcon } from "@lucide/svelte";
-    import { exportChat, importChat, createNewChat } from "../../ts/characters";
+    import { exportChat, importChat, createNewChat, removeChatConfirmed } from "../../ts/characters";
     import TextInput from "../UI/GUI/TextInput.svelte";
     import { changeChatTo } from "src/ts/globalApi.svelte";
 
@@ -47,17 +46,7 @@
                     </div>
                     <div class="text-textcolor2 hover:text-green-500 cursor-pointer" role="button" tabindex="0" onclick={async (e) => {
                         e.stopPropagation()
-                        if(DBState.db.characters[$selectedCharID].chats.length === 1){
-                            alertError(language.errors.onlyOneChat)
-                            return
-                        }
-                        const d = await alertConfirm(`${language.removeConfirm}${chat.name}`)
-                        if(d){
-                            changeChatTo(0)
-                            let chats = DBState.db.characters[$selectedCharID].chats
-                            chats.splice(i, 1)
-                            DBState.db.characters[$selectedCharID].chats = chats
-                        }
+                        await removeChatConfirmed(DBState.db.characters[$selectedCharID], chat)
                     }} onkeydown={() => {
                         
                     }}>
