@@ -20,6 +20,8 @@ These later commits are local and not pushed:
 - `d25a02fb`: CHORE-47's fix;
 - `bb3f9e7b`: CHORE-47's records;
 - `ccf45c53`: the chat-switch memory fix;
+- `211e7603`: the records of the memory stage 1 plan, its gates and the real-profile findings;
+- `2b3dd636`: memory stage 1 step 1, the exclusive manual clean-up (Report 50);
 - the records commit that carries this file.
 
 Push only at the maintainer's request.
@@ -40,8 +42,9 @@ Several sessions work **in this same checkout**:
   build"** and **"Fork rebranding exploration"** are idle or done; see Report 39/41 and ledger
   row 428.
 
-**Next free numbers:** `MC-146`, Report 50, ledger row 487 and CHORE-50. Check the ledger's last row
-before taking one. `MC-114` and ledger rows 371-374 were reserved for W2c-a and left unused; nobody
+**Next free numbers:** `MC-146`, Report 51, ledger row 494 (row 493 is reserved for the
+`doc-verifier` check of this batch of records) and CHORE-50. Check the ledger's last row before taking
+one. `MC-114` and ledger rows 371-374 were reserved for W2c-a and left unused; nobody
 should fill them.
 
 **Rules for every session:**
@@ -51,10 +54,12 @@ should fill them.
 
 ## Current work
 
-### Resume here (hand-off, 2026-09-30, memory stage 1 planned)
+### Resume here (hand-off, 2026-09-30, memory stage 1: step 1 done)
 
 1. **Memory-footprint stage 1 is planned and passed Gate 1** (Report 49, `MC-130` to `MC-145`,
-   ledger rows 455-486).
+   ledger rows 455-486). **Step 1 is done:** the exclusive manual clean-up (D11) and no startup asset
+   sweep once a stub exists (D12), committed as `2b3dd636` (Report 50; Gate 2 approved at round 3,
+   ledger rows 487-491). Steps 2-7 are not started.
    - The round-5 verdict was `[EDITORIAL]`. Its corrections were applied to the plan by the
      Orchestrator and not re-verified; Report 49's section 3 marks what was added after Gate 1.
    - Design:
@@ -64,9 +69,11 @@ should fill them.
      - there is no runtime archive engine (ledger row 475).
    - The working copy of the plan is in the session scratchpad (`memfoot/stage1c/plan.md`).
      Report 49 is the durable version.
-2. **Next: implementation step 1, the exclusive manual clean-up (D11, D12).** Red tests first, then
-   the coder, then Gate 2 with `opus-reviewer`. Steps 1-4 land before the boot pass (step 5), and the
-   idle reload (step 6) comes after it.
+2. **Next: implementation step 2, the stub v2 and restore module (D6, D7, D9).** Report 49 section 3.4
+   lists it as: `changeChar` and `coldMemberRestore` use the module, and the `MobileCharacters` count
+   and the `GridCatalog` description change. Red tests first, then the coder, then Gate 2 with
+   `opus-reviewer`. Steps 2-4 land before the boot pass (step 5), and the idle reload (step 6) comes
+   after it. Step 1's open follow-ups are in Report 50 section 6.
 3. **After stage 1** (`MC-145`):
    - the upstream-compatible inline-everything backup;
    - then archiving of modules that are not enabled;
@@ -83,7 +90,7 @@ should fill them.
 
 ## Work order
 
-1. **Memory stage 1** (Report 49), steps 1-7.
+1. **Memory stage 1** (Report 49), steps 2-7 (step 1 is done, Report 50).
 2. **The inline-everything backup, then module archiving** (`MC-145`).
 3. **The wiki's composer and send batch** (Wiki session; unblocked since W2 and W3 are done).
 4. **CHORE-35's opt-in stage:** the remaining upstream-infrastructure features (`MC-092`).
@@ -105,9 +112,12 @@ Not placed in the sequence:
 
 ## Open follow-ups, waiting on the maintainer
 
-1. **A native-speaker check on the new translations.** The translator suggested one for the German
-   and Vietnamese `restoreNoLockWarningConfirm` (a data-loss warning) and the German `{{slot}}`
-   phrasing.
+1. **A native-speaker check on the new translations.**
+   - The translator suggested one for the German and Vietnamese `restoreNoLockWarningConfirm` (a
+     data-loss warning) and the German `{{slot}}` phrasing.
+   - For the manual clean-up (step 1), the translator flagged the consent and warning strings in
+     every language; the maintainer accepted the Korean strings on 2026-09-30, so the native-speaker
+     check remains for cn, zh-Hant, vi, de and es (Report 50 section 6).
 2. **CHORE-41's console output** (ledger rows 201-202 and 206): why the edit button stays dead across
    repeated clicks.
 3. **The MC-091 workflow pilot:** evaluating it is the maintainer's.
@@ -202,8 +212,9 @@ Escape on alerts stage 2 and W2c-a were merged as `1d6fa16b`.
 
 ## Test suite
 
-- **W2e's final tree (`baf238e7`):** 198 files, 3,269 passed, 4 skipped, 0 failed (ledger row 452);
-  `pnpm check` clean, the build passes.
+- **Step 1's final tree (`2b3dd636`):** 205 files, 3,436 passed, 4 skipped; `pnpm check` 0 errors;
+  `pnpm build` exit 0 (ledger row 490). The previous baseline was W2e's `baf238e7`: 198 files, 3,269
+  passed, 4 skipped, 0 failed (row 452).
 - `cargo check` last ran on the removal stage.
 - Run the suite with plain `pnpm test` or `npx vitest run`. `vitest.config.ts` excludes
   `.claude/**` (`7b72b813`).

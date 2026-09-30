@@ -2,7 +2,7 @@
 
 **STATUS:** behaviour accepted at Gate 1 round 5 ([EDITORIAL], plan version r4), 2026-09-30; the
 corrections were applied to the plan text by the Orchestrator (plan section 10) and are not yet
-re-verified. **Nothing is implemented yet.** Gate 1 ran five rounds over five plan versions:
+re-verified. **Step 1 is implemented and committed as `2b3dd636` (Report 50); steps 2-7 are not started.** Gate 1 ran five rounds over five plan versions:
 [REJECT] on the per-chat plan, [REJECT] on the character-grain plan r1, [REJECT] on r2, [REJECT] on
 r3, then [EDITORIAL] on r4. Steps 1-7 (section 3) each get their own implementation and Gate 2,
 except step 7 (measurement), which has no Gate 2. The five rounds are ledger rows 478-482 (section
