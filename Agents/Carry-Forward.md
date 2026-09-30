@@ -14,7 +14,8 @@ STATUS block and its ledger rows.
   differ, they win. Sources are cited by name, not by line: the code moves.
 - **Checked against** the source, the Roadmap, the Reports' STATUS blocks and `git log` at HEAD
   `1d6fa16b` (2026-09-29); the W2c section is updated through W2c-c (`d27a1ee4`), the W2d section
-  through W2d-b (`efd417b9`, 2026-09-30), and the W3 section through W3 (`e07d32fb`, 2026-09-30).
+  through W2d-b (`efd417b9`, 2026-09-30), the W3 section through W3 (`e07d32fb`, 2026-09-30), and the W2e section through W2e (`baf238e7`,
+  2026-09-30).
 
 ## After W2c (the send's prompt)
 
@@ -104,7 +105,6 @@ STATUS block and its ledger rows.
   (the same check, increment and passed value). `NESTED_TRIGGER_LIMIT` in `command.ts` mirrors the
   literal 10 in `triggers.ts`; importing it there breaks tests that mock `./command`.
 - **Left open, none scheduled:**
-  - `loadInternalBackup` during work: W2e (`MC-127` 5).
   - A trigger button's command line has no cancel (`MC-126` 1).
   - The busy button cannot be pressed while an `/input` or `/buttons` prompt is open (live check,
     row 442), so such a step can only finish.
@@ -116,18 +116,36 @@ STATUS block and its ledger rows.
   - The command parser still makes any `key=value` token a named argument (`MC-127`).
   - Post File was not exercised live (it needs a file dialog; the data-loss path is Tauri-only).
 
-## W2e (the delete warning and complete registration)
+## After W2e (the delete warning and backup loads during work)
 
-- **The delete warning.** Confirming the delete of a chat, or of its character, while a reply is
-  being generated into it aborts that generation, with a warning (`MC-103` 2, `MC-075` 2). Report 35
-  leaves the abort to W2e.
-- **There are three chat-delete handlers**: two in `SideChatList.svelte` and one in
-  `Others/ChatList.svelte` (ledger row 306).
-- **Orchestrator defaults in `MC-103`**: the warning goes on the first confirmation, for trash and
-  permanent delete alike; auto mode still stops on a chat switch; the preview hotkey and DevTool
-  register as work.
+- **W2e is done** (`baf238e7`, Report 47). Every unit of work that writes into a chat across an
+  await is registered with a stop: the send (outer call), the composer take, auto mode, reroll,
+  `/trigger`, the trigger-button run and the Post File job. `stopWorkIn` in `chatOrigin.ts` snapshots
+  its matches and runs each stop once; `hasWorkIn` matches the owner only; `isWorkInProgress` is any
+  registration or the composer window. A new unit of work that writes after an await must register
+  with a stop, or a delete cannot reach it.
+- **Deletes** go through `removeChatConfirmed` (the three chat handlers) and `removeChar` in
+  `characters.ts`; the stop runs in the same synchronous stretch as the removal.
+- **Trigger runs** check their signal before each trigger and effect (`MC-129` amendment); an effect
+  in flight, including a model call or a Lua script, finishes.
+- **Backup loads** refuse through `refuseBackupLoadWhileBusy` (`src/ts/drive/backupWorkGuard.ts`).
+- **Left open, none scheduled:**
+  - A registry match is by id: while an id has two holders mid-session, deleting one holder warns
+    about, and stops, the other's send (Report 47 section 3).
+  - A stopped trigger leaves what its earlier effects did, including a message edit half done
+    (Report 47 section 6).
+  - The busy button still cannot cancel a trigger-button run (`MC-126` 1); a Lua button run is never
+    interrupted; a trigger's own model or image request gets no signal.
+  - `storageMaintenance.ts`'s OPFS migration reloads without a work check.
+  - `google.ts`'s Vertex token refresh calls `setDatabase(getDatabase())` mid-generation, clearing
+    `isStreaming` on every chat (inferred, packet Q4).
+  - Two redundant stops are not pinned by a test: auto mode's own stop (the tick abort and the chat
+    check already end the loop) and `isWorkInProgress`'s composer-window clause (Gate 2, m12, m19).
+  - The eight W2e test files copy about 9,000 lines of harness; a shared harness module would ease
+    maintenance.
+  - The three new strings in `ko.ts` read literally; the maintainer may reword them.
 
-## Wiki batch (owned by the Wiki session; waits for W2)
+## Wiki batch (owned by the Wiki session; W2 is done)
 
 - The composer and send wiki batch waits for W2. A source-line anchor in `RisuAI-Basics.md` shifts
   with the composer's S2.

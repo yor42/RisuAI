@@ -3761,3 +3761,50 @@ recommended option on two questions.
    text handled: it is neither posted as a message nor put back. `/send x|/nosuchcommand` posts only
    `x`. Upstream also posts the raw command text and generates a reply. Rejected: keep upstream's
    behaviour. With no earlier write, an unknown command still sends its text as a message.
+
+---
+
+### MC-129 — W2e: a confirmed delete stops all work in the chat; trash counts; a group member's delete does not warn; a backup load is refused while busy
+
+- **Tag:** decision
+- **Date:** 2026-09-30
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on four questions the Orchestrator asked
+  after W2e's scoping (ledger row 444).
+- **Reasoning:** the recommended options, as offered:
+  - a chat the user deletes should have nothing left running in it;
+  - trash is how most deletes happen, and `MC-103`'s default already puts the warning on it;
+  - deleting a group member deletes no chat, so nothing is lost, and `MC-103` 4 already skips a gone
+    member;
+  - refusing is the only option under which no work can straddle a restore.
+- **Alternatives rejected:**
+  - a confirmed delete aborts only the reply, and other work drops its writes;
+  - trash warns but stops nothing; trash makes the character gone to the resolver;
+  - deleting a member of a busy group warns and stops the group;
+  - a backup load asks, stops all work, then restores.
+- **Settles:** `MC-127` 5 (`loadInternalBackup` during work).
+- **Related:** MC-075, MC-078, MC-103, MC-126, MC-127.
+
+**What was decided:**
+1. **Confirming the delete of a chat, or of its character, while work is running in it stops all
+   the work bound to that chat:** the reply being generated, auto mode, a `/` command line,
+   `/multisend` and Post File. A step that cannot be interrupted (a trigger-button run's current
+   step) finishes, and any write it makes to a gone chat drops silently (`MC-075` 2).
+2. **Trash behaves the same as a permanent delete:** the same warning, and the work stops. A trashed
+   character is not treated as gone; a later restore brings it back as it was when the work
+   stopped, including a partly streamed reply.
+3. **Deleting a character that is a member of a group whose turn is being generated shows no
+   warning.** The group chat is not deleted. The current turn finishes, and later turns skip the
+   removed member (`MC-103` 4).
+4. **Restoring a backup while work is in progress is refused** with a message saying work is in
+   progress and to wait or stop it first. This covers the internal backup list and loading a `.bin`
+   file.
+
+**Amendment (2026-09-30, after W2e's Gate 1 round 1, ledger row 446):** the maintainer chose the
+recommended option on one question. **A stop ends a trigger's remaining effects**, for a confirmed
+delete and for the busy button alike: the effect already running finishes, and no later effect of
+that run, or of a run it started, begins. For the busy button this is new: it used to let a send's
+start, input or output trigger run its remaining effects before the send gave up. Rejected: only a
+delete stops them (a second stop signal); neither stops them (a trash then keeps receiving a
+trigger's later messages and model calls). Extends `MC-126` 1 from a trigger's `/` command lines to
+all of its effects.
