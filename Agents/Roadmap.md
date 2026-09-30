@@ -1758,6 +1758,35 @@ upstream means this is unknown.
 - **Open question for the maintainer:** should a backup carry inlays, and if so, how does upstream
   read them (its restore would store an unknown entry as `assets/` plus its name)?
 
+### CHORE-49 — The self-hosted Node server does not boot when opened over plain HTTP
+
+**Status (2026-09-30):** filed under `MC-144` from ledger row 485. It is present upstream since
+`v2026.3.330`. Not fixed and not scheduled.
+
+- **Observed (scratch production build, headless Chrome 154; ledger row 485):**
+  - opening the Node server at a plain-HTTP LAN address stops at "Cannot read properties of undefined
+    (reading 'generateKey')" during "Loading Local Save File";
+  - no `/api` request is sent;
+  - on localhost the app boots to the password prompt (first run and save not run); HTTPS was not
+    run.
+- **Mechanism (traced):**
+  - `AutoStorage` selects `NodeStorage` before any capability test.
+  - `NodeStorage` signs every request with a client-generated ES256 key through `crypto.subtle`,
+    which a non-secure context lacks.
+  - `server.cjs` requires that JWT on `/api/read`, `/api/write`, `/api/remove` and `/api/list`.
+  - Upstream `61996dd2` (2026-03-03, "change server.cjs to jwt based approch") introduced this. Before
+    it, the client hashed the password through the server, with no client `crypto.subtle`.
+- **Who is affected:** users who open the Node server over a LAN IP or VPN without HTTPS. The
+  maintainer reports these are most of the "local plain HTTP" group (`MC-143` 1, `MC-002`). From
+  source, such deployments should have worked on upstream up to `v2026.2.291` (traced, not run), so
+  users migrating from those versions would see the boot error.
+- **Constraints for the fix:**
+  - it must not weaken authentication on HTTPS or localhost;
+  - how much transport security a plain-HTTP deployment may give up is the maintainer's decision;
+  - a plain-HTTP origin also lacks Web Locks, OPFS and `crypto.randomUUID`, so any code that the fix
+    makes reachable there must not assume them. Memory stage 1's boot pass already archives nothing
+    without them (Report 49, D1).
+
 ## Sequencing Summary
 
 ```

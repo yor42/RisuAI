@@ -3950,3 +3950,396 @@ all of its effects.
    It is measured on the smaller file afterwards and rewritten only if still costly.
 3. **`CHORE-47` (a local backup skips every non-`.png` asset) is fixed now, as its own change,**
    before the memory stages.
+
+---
+
+### MC-134 — Stage 1 archiving: its own rule beside the old toggle, all at first boot, manual cleanup only, chats over about 16 KB
+
+- **Tag:** decision
+- **Date:** 2026-09-30
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on four questions the Orchestrator asked
+  after the stage 1 scoping investigation (ledger row 469).
+- **Reasoning:**
+  - upstream's `coldstorage` toggle defaults to off on first load for anyone with a plugin
+    installed, so tying the new archiving to it would leave many heavy users without it;
+  - the profile that runs out of memory today is the one that needs the whole first pass before
+    the app opens;
+  - automatic cleanup adds snapshot scanning and multi-tab cases to a stage that is already large;
+  - on synthetic data shaped like the maintainer's profile, the main file is about 13 MB at a 4 KB
+    threshold, 16 MB at 16 KB and 26 MB at 64 KB (row 468), so 16 KB keeps nearly all the saving
+    while small chats stay inline.
+- **Alternatives rejected:**
+  - one toggle for both kinds of archiving, whether kept as it is or reset to on once;
+  - archiving a bounded amount at boot and finishing during use;
+  - automatic cleanup of unused chat units in stage 1;
+  - archiving every closed chat; archiving only chats over about 64 KB.
+- **Extends:** `MC-132`, `MC-133`.
+- **Related:** MC-005.
+
+**What was decided:**
+1. **Archiving closed chats follows its own rule, not the `coldstorage` toggle.** Closed chats are
+   archived unless a V2.1 plugin is enabled (`MC-132` 2). The existing toggle keeps controlling only
+   the 10-day archiving of whole characters.
+2. **The first boot after updating archives every eligible closed chat before the app opens,** with a
+   progress screen.
+3. **Unused chat units are removed only by the existing manual clean-up button in stage 1,** which
+   must first be made safe for the units that kept snapshots still refer to. Automatic clean-up is
+   for a later stage.
+4. **A closed chat is archived when it is larger than about 16 KB.** Smaller chats stay in the main
+   file.
+
+Item 1 is superseded by MC-136 2 and MC-142; item 4 now applies to the later per-chat step (MC-136 1).
+
+---
+
+### MC-135 — The maintainer's real save is character-heavy; chats are kept short because long chats crash Chrome
+
+- **Tag:** stated
+- **Date:** 2026-09-30
+- **Sweep ref:** none (stated directly this session)
+- **Source:**
+  - the maintainer ran read-only scripts on a copy of their own `database.bin` (Tauri PC, upstream
+    build) and passed on the sizes and counts (ledger row 470);
+  - the maintainer answered a question about their chat usage.
+- **Related:** MC-131, MC-134.
+
+**What the maintainer stated:**
+1. **Their save is character-heavy, not chat-heavy.** The `database.bin` is 155.8 MB:
+   - 499 characters, but only 770 chats with 2,307 messages;
+   - character lorebooks are about 56.5 MB of it, and character asset lists about 16.9 MB;
+   - modules are 32.0 MB (164 modules; 116 of them are not in `enabledModules`,
+     `moduleIntergration`, any `character.modules` or any `chat.modules`, and persona-embedded
+     modules were not checked);
+   - there are 14 plugins, all API 3.0; none is an enabled V2/V2.1 plugin.
+2. **Chats are short by necessity, not by preference:** "I am having performance issue when
+   browsing my character list or scrolling through long chat (chrome straight up crashes if chat
+   gets long enough), so I kinda have to keep chats short."
+3. **Long chats are common across the community, so chat archiving stays in scope:** "while I only
+   have short chats, long chats that goes up to size of megabytes are common among the community. so
+   archiving chats should still be considered, not taken off the table entirely."
+4. **Their chats are nearly all message text, and the messages are long** (from a read-only script
+   the maintainer ran, ledger row 477). Messages are 93.6% of the chat bytes, HypaV2 memory is unused
+   and the other memory fields are small. The median message is 5.4 KB, and no chat is over 62
+   messages or 488 KB.
+
+---
+
+### MC-136 — Stage 1 archives whole characters when they are not open; the cold-storage toggle becomes an opt-out; `getDatabase('all')` returns placeholders; the retainer gets an in-app fix first
+
+- **Tag:** decision
+- **Date:** 2026-09-30
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on four questions. The Orchestrator asked
+  them after `senior-advisor` re-directed stage 1 (ledger row 472), once the maintainer's real
+  profile had shown the save is character-heavy (row 470, MC-135).
+- **Reasoning:**
+  - chats are about 12% of the maintainer's file, so archiving chats alone cannot bring such a
+    profile under the Node server's 100 MB limit;
+  - the character is already the save format's, the change tracker's and cold storage's unit, and
+    upstream already reads and restores the character stub form;
+  - long chats of characters that are not open archive together with their character (MC-135 3);
+  - loading every character on each `getDatabase('all')` call would hold the whole profile in
+    memory each time;
+  - the in-app fix is reviewable in the tree, and a dependency patch has to be re-checked on every
+    Svelte upgrade.
+- **Alternatives rejected:**
+  - per-chat archiving first, as planned under MC-134;
+  - both grains in stage 1;
+  - removing the toggle entirely;
+  - `getDatabase('all')` returning every character fully loaded;
+  - patching Svelte now; never patching dependencies.
+- **Amends:** `MC-133` 1 (the per-chat store becomes the second step), `MC-134` 1 (the toggle).
+- **Extends:** `MC-132` 1.
+- **Related:** MC-130, MC-134, MC-135.
+
+**What was decided:**
+1. **Stage 1 archives a whole character, with its chats, when it is not open,** using the existing
+   cold-storage character form. Archiving single chats inside the open character comes later, after
+   the long-chat display work. `MC-134` 2 (all at the first boot, with progress) and 3 (manual
+   clean-up only) apply to characters. `MC-134` 4 (about 16 KB) applies to the later per-chat step.
+2. **The `coldstorage` toggle becomes an opt-out that is on by default.** The 10-day idle rule goes.
+3. **A V3 `getDatabase('all')` call returns archived characters as placeholders, as upstream does.**
+   Calls for one character (`getCharacterFromIndex`, `getChar`) return it fully loaded.
+4. **The memory held by the chat screen after a switch is fixed in the app first.** A pnpm patch to
+   Svelte is considered only if a measurement shows other screens still hold memory.
+
+Item 2 is amended by MC-142 (the opt-out is a new setting; the `coldstorage` field is left untouched).
+
+---
+
+### MC-137 — Character archiving: a saved OFF is reset once with a notice; startup asset clean-up keeps working; opting out keeps existing archives; reuse of unchanged archives comes later
+
+- **Tag:** decision
+- **Date:** 2026-09-30
+- **Sweep ref:** none (stated directly this session)
+- **Source:**
+  - the maintainer chose the recommended option on three questions the Orchestrator asked after
+    the character-grain scoping (ledger row 473);
+  - on the fourth question, the maintainer answered "add existence check implementation on later
+    stage." The Orchestrator read this as accepting the orphans in stage 1, and the maintainer
+    confirmed that reading.
+- **Reasoning:**
+  - upstream saved `coldstorage: false` automatically for anyone with a plugin at first launch, so a
+    saved OFF is usually not a choice;
+  - while cold storage is on, startup skips the unused-asset clean-up (`bootstrap.ts`, the same
+    upstream), so turning archiving on for everyone would silently stop that clean-up;
+  - restoring every archive when a user opts out would bring memory back to today's level;
+  - reusing an unchanged archive needs a check that its unit still exists, which is safer to design
+    after stage 1.
+- **Alternatives rejected:**
+  - honouring a saved OFF;
+  - accepting that startup asset clean-up stops;
+  - restoring every archived character on opt-out;
+  - reuse of unchanged archives in stage 1.
+- **Extends:** `MC-136` 2, `MC-134` 3.
+- **Related:** MC-005.
+
+**What was decided:**
+1. **The first boot after the update switches a saved `coldstorage: false` to on once,** with a notice
+   saying so and where to turn it off. After that, the user's setting is honoured.
+2. **Startup's unused-asset clean-up keeps working when archiving is on.** Archived characters are
+   read one at a time to collect the assets they use. The clean-up deletes nothing if any archive
+   cannot be read.
+3. **Turning archiving off keeps existing archives.** They load when opened, as upstream does. Nothing
+   new is archived.
+4. **Stage 1 accepts one orphaned unit for each open-and-leave of a character,** until a manual
+   clean-up. Putting back an unchanged character's old unit, after checking that the unit still
+   exists, is for a later stage.
+
+Item 1 is replaced by MC-142; item 2 is reversed by MC-139 3; item 4 is amended by MC-140.
+
+---
+
+### MC-138 — Character archiving: the two-device Node case is accepted and documented; an unreadable archive pausing asset clean-up is shown with a notice
+
+- **Tag:** decision
+- **Date:** 2026-09-30
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on two questions the Orchestrator asked
+  after Gate 1 round 1 of the character-grain plan (`memfoot/stage1c/gate1/review-r1.md`, B4, NB6,
+  NB7).
+- **Reasoning:**
+  - archiving runs only when the app is open in a single tab, which closes the multi-tab cases on one
+    machine;
+  - two devices active at once on one Node server is rare, and the existing conflict prompt handles
+    it;
+  - a silent pause of the clean-up would leave assets piling up with no way for the user to find the
+    cause.
+- **Alternatives rejected:**
+  - skipping boot-time archiving on the Node server;
+  - pausing the clean-up silently.
+- **Extends:** `MC-137` 2.
+
+**What was decided:**
+1. **On a Node server used from two devices at once, the second device's boot may archive the
+   character open on the first.** The first device then gets the existing "another device saved"
+   conflict prompt. This is accepted and documented for users.
+2. **When startup asset clean-up is paused because an archived character cannot be read,** the user
+   sees a notice naming that character, once per boot.
+
+---
+
+### MC-139 — Characters must also be released during a session; the maintainer browses hundreds of characters per session; asset clean-up moves into the manual clean-up; the plugin-storage migration is retired
+
+- **Tag:** decision (1, 3, 4) and stated (2)
+- **Date:** 2026-09-30
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer answered four questions the Orchestrator asked after `senior-advisor`
+  recommended archiving only at startup (ledger row 475, `memfoot/advisor-3.md`):
+  - on startup-only archiving, the maintainer chose "No, need release while running" over the
+    recommended option;
+  - on usage, "Hundreds, browse a lot";
+  - on asset clean-up and the migration, the recommended option.
+- **Reasoning:**
+  - a user who browses hundreds of characters in one session would load most of the profile back
+    into memory if an opened character stayed loaded until restart;
+  - a startup asset sweep that runs while the app is in use kept failing review, and the manual
+    clean-up already reads every archive;
+  - the migration's only effect is to hide legacy plugin storage from V2/V2.1 plugins; profiles
+    with plugins never ran it.
+- **Alternatives rejected:**
+  - archiving only at startup, with opened characters kept loaded until restart;
+  - keeping the asset sweep at startup, before the app opens;
+  - keeping the migration but skipping it when V2/V2.1 plugins are installed.
+- **Amends:** `MC-137` 2.
+- **Related:** MC-135, MC-136, MC-137.
+
+**What was decided / stated:**
+1. **Stage 1 must also release characters during a session,** not only archive at startup.
+2. **The maintainer browses hundreds of characters in one session** (fact).
+3. **Unused-asset clean-up moves into the manual clean-up,** as one exclusive pass over all archives.
+   Startup runs no asset clean-up once characters are archived.
+4. **The plugin-storage migration into cold storage is retired.** Legacy inline plugin storage stays
+   in the main file.
+
+---
+
+### MC-140 — Characters opened during a session are released by an automatic reload at idle moments
+
+- **Tag:** decision
+- **Date:** 2026-09-30
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option when the Orchestrator asked how to satisfy
+  `MC-139` 1, after `senior-advisor` found that archiving a character at runtime swaps an object
+  that other code may still hold (ledger row 475).
+- **Reasoning:**
+  - archiving at startup is safe, because no other code holds a character yet;
+  - reloading reuses that startup pass, so releasing characters during a session adds no new
+    archiving mechanism;
+  - a runtime engine that archives on leave needs every holder of a character across a wait to
+    register itself, and that approach failed review three times.
+- **Alternatives rejected:**
+  - a runtime engine that archives a character when the user leaves it;
+  - the idle reload now and a runtime engine later.
+- **Implements:** `MC-139` 1.
+- **Amends:** `MC-136` 1 ("when it is not open" becomes "at startup, and again at each idle
+  reload"); `MC-137` 4 (orphans arise per character opened between reloads, not per visit).
+- **Related:** MC-135, MC-138.
+
+**What was decided:**
+1. **Characters are archived only by the startup pass,** under exclusive access from reading the main
+   file to committing it. Once opened, a character stays loaded until the next reload.
+2. **When the characters opened during a session add up past a threshold, and nothing is in
+   progress, the app saves and reloads itself,** reopening the same character and chat. "Nothing in
+   progress" means no reply generating, no prompt, picker or unsent draft. The threshold is
+   non-normative, about 50 MB.
+
+---
+
+### MC-141 — The idle reload is automatic but conservative; clean-up on a shared Node server accepts a short window, with a warning
+
+- **Tag:** decision
+- **Date:** 2026-09-30
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on two questions the Orchestrator asked
+  after Gate 1 of plan r3 (`memfoot/stage1c/gate1r3/review-r1.md`, B1 and B2).
+- **Reasoning:**
+  - a reload discards whatever is in memory and not yet saved, so the reload fires only when the user
+    has been idle long enough that nothing can be in progress;
+  - the Node window lasts only a few seconds, during another device's startup, and the dialog tells
+    the user not to run the clean-up while another device is using the server.
+- **Alternatives rejected:**
+  - asking before every reload;
+  - a banner plus a later automatic reload;
+  - never deleting archive files newer than a day.
+- **Extends:** `MC-140` 2, `MC-138` 1.
+
+**What was decided:**
+1. **The idle reload fires by itself only when all of these hold:**
+   - the user has not interacted for a while (non-normative: about 2 minutes);
+   - the window has focus;
+   - nothing has changed since the final save;
+   - nothing is running.
+2. **Clean-up on a Node server shared by two devices accepts a short window.** If the other device has
+   just archived a character and has not yet saved, the clean-up may delete that archive. The
+   clean-up dialog warns not to run it while another device is using the server.
+
+---
+
+### MC-142 — The opt-out is a new setting that is on when absent; the one-time reset of `coldstorage` is dropped
+
+- **Tag:** decision
+- **Date:** 2026-09-30
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option when the Orchestrator asked, after Gate 1
+  (`memfoot/stage1c/gate1/review-r2.md`, R2-B4) showed that a "reset once" marker can undo a user's
+  own first opt-out, and `senior-advisor` proposed a three-state key (`memfoot/advisor-3.md`).
+- **Reasoning:**
+  - a new key's three states (absent, true, false) encode "once" with nothing beside it: absent means
+    on with a one-time notice, and any later `false` is the user's choice;
+  - upstream's encoder and decoder copy unknown root keys, so the key survives a round trip;
+  - upstream's own `coldstorage` field stays exactly as upstream wrote it.
+- **Alternatives rejected:** resetting `coldstorage` once, with a marker written on the first boot.
+- **Amends:** `MC-137` 1, `MC-136` 2.
+- **Related:** MC-136 2, MC-137 3.
+
+**What was decided:**
+1. **Character archiving is controlled by a new root setting.** When the setting is absent, it is on,
+   with a one-time notice; any later off is honoured. The upstream `coldstorage` field is left
+   untouched, and its 10-day archiving is retired.
+
+---
+
+### MC-143 — Plain-HTTP users mostly run the Node server over a LAN IP or VPN; V3 not seeing legacy plugin storage is accepted; module archiving comes right after stage 1
+
+- **Tag:** decision (2, 3) and stated (1)
+- **Date:** 2026-09-30
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer answered three questions the Orchestrator asked after `doc-verifier`
+  checked Report 49 (ledger row 484).
+- **Reasoning:**
+  - the answer to 1 decides whether the Node server runs in a secure context, and so whether Web
+    Locks exist there (Report 49, D1);
+  - on 2: nothing that works today stops working, and the maintainer's own plugin storage is
+    0.08 MB;
+  - on 3: modules are about 32 of the estimated 41-46 MB the main file keeps after stage 1.
+- **Alternatives rejected:**
+  - keeping the migration for V3;
+  - widening stage 1 to include modules;
+  - keeping modules after the backup, display and per-chat work.
+- **Extends:** `MC-002`, `MC-139` 4.
+
+**What was decided / stated:**
+1. **"Local plain HTTP" users mostly run the Node server and open it over a LAN IP or a VPN,** in the
+   maintainer's words: "most uses node server via LAN IP or VPN. not sure about static builds but
+   pretty sure there are some of them."
+2. **Retiring the plugin-storage migration is accepted, knowing the consequence:** V3 plugins, which
+   read only `_coldplugin`, keep not seeing legacy inline plugin storage on profiles where the
+   migration never ran.
+3. **Archiving modules that are not enabled comes right after stage 1,** ahead of the backup and
+   per-chat work.
+
+Note: on this code the Node server does not boot over plain HTTP (ledger row 485). From source,
+such deployments should have worked on upstream up to `v2026.2.291` (traced, not run). See MC-144.
+Item 3 is amended by MC-145 (the inline backup comes before module archiving).
+
+---
+
+### MC-144 — Restore support for the Node server over plain HTTP, as its own ticket
+
+- **Tag:** decision
+- **Date:** 2026-09-30
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option after the Orchestrator reported ledger row
+  485: the self-hosted Node server opened over plain HTTP from a LAN IP does not boot on this code,
+  or on upstream since `v2026.3.330` (upstream `61996dd2`, JWT auth that needs `crypto.subtle`).
+- **Reasoning:**
+  - the maintainer reports that plain-HTTP users mostly run the Node server over a LAN IP or VPN
+    (`MC-143` 1);
+  - a user migrating from an older upstream install would hit a boot error;
+  - the fix is separate from the memory stages, which stay safe on hosts without Web Locks.
+- **Alternatives rejected:**
+  - supporting only HTTPS or localhost, with documentation;
+  - deferring the decision.
+- **Related:** MC-002, MC-011, MC-143, CHORE-49.
+
+**What was decided:**
+1. **The fork restores the Node server's ability to boot and save when opened over plain HTTP,** as
+   a Roadmap item (CHORE-49), gated and reviewed like any other change. Memory stage 1 does not wait
+   for it.
+
+---
+
+### MC-145 — After stage 1: the upstream-compatible inline backup first, then module archiving
+
+- **Tag:** decision
+- **Date:** 2026-09-30
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option after `doc-verifier` (ledger row 486)
+  noted that `MC-143` 3 put modules ahead of the backup work. Upstream has no archived-module
+  form, so a backup taken with archived modules restores on upstream only if it writes everything
+  inline.
+- **Reasoning:** `MC-130` requires an upstream-restorable `.bin` backup option; module archiving
+  without that option would break it. Upstream's restore expects no module units: it skips them,
+  gives no warning, and brings the module back as an empty stub. Its manual clean-up would later
+  delete those units as unused (`upstream/main` `coldstorageData.ts` and `backuplocal.ts`; checked by
+  `doc-verifier`, ledger row 486).
+- **Alternatives rejected:** archiving modules first, accepting that backups restore only on this fork
+  until the inline option lands.
+- **Amends:** `MC-143` 3.
+- **Related:** MC-130, MC-135.
+
+**What was decided:**
+1. **After stage 1, the upstream-compatible "inline everything" backup option comes first** (a part of
+   stage 2), **then archiving of modules that are not enabled,** then the rest of stage 2.

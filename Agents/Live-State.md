@@ -15,12 +15,17 @@ treat it as a log or history.
 
 ## Branch and commit state
 
-The branch is `fix/persistence-conflict-platform-hardening`. **It is pushed through `7d4bc4b0`**
-(W2e's records commit; pushed 2026-09-30 at the maintainer's request), and HEAD is that commit.
+The branch is `fix/persistence-conflict-platform-hardening`. **It is pushed through `7d4bc4b0`.**
+These later commits are local and not pushed:
+- `d25a02fb`: CHORE-47's fix;
+- `bb3f9e7b`: CHORE-47's records;
+- `ccf45c53`: the chat-switch memory fix;
+- the records commit that carries this file.
+
 Push only at the maintainer's request.
 
-**The working tree is clean** apart from `Agents/Reports/37-chat-html-css-security-surface.md`
-(untracked), which belongs to another session (probably "Q&A"; its header says read-only Q&A). Never
+The working tree is otherwise clean, apart from `Agents/Reports/37-chat-html-css-security-surface.md`
+(untracked). It belongs to another session (probably "Q&A"; its header says read-only Q&A). Never
 stage it.
 
 ## Parallel sessions (2026-09-30)
@@ -28,19 +33,16 @@ stage it.
 Several sessions work **in this same checkout**:
 - **"Main Campaign"** (this one) owns everything outside `wiki/`, including the `Agents/` records.
 - **"Wiki"** owns `wiki/**` only. It writes nothing to `Agents/`; its findings, suspected bugs and
-  questions go to the maintainer in its final report. On 2026-09-30 this session told it that W2 and
-  W3 are done, so its composer and send wiki batch is unblocked; the batch is its to schedule.
-- **"Fix Escape leaving a blocking alert unanswered"** did Escape on alerts stages 1 and 2, both
-  committed, and is idle. It took Report 39, `MC-109` and ledger rows 348-354, then Report 41,
-  `MC-115` and rows 375-381.
-- **"Q&A"** is read-only. It handed over the heap measurement (ledger row 383).
-- **"Fix Fullscreen setting error on web build"** is done; its fix was cherry-picked here as
-  `51e923eb` (ledger row 428). Its worktree is no longer registered with git.
-- **"Fork rebranding exploration"** also exists (seen 2026-09-30); its scope is not recorded here.
+  questions go to the maintainer in its final report.
+- **"Q&A"** is read-only. Its memory-footprint brief started the memory stages (`MC-130`), and it
+  handed over the maintainer's real-profile measurement (ledger row 470).
+- **"Fix Escape leaving a blocking alert unanswered"**, **"Fix Fullscreen setting error on web
+  build"** and **"Fork rebranding exploration"** are idle or done; see Report 39/41 and ledger
+  row 428.
 
-**Next free numbers:** `MC-130`, Report 48, and ledger row 455.
-Check the ledger's last row before taking one. `MC-114` and ledger rows 371-374 were reserved for
-W2c-a and left unused; nobody should fill them.
+**Next free numbers:** `MC-146`, Report 50, ledger row 487 and CHORE-50. Check the ledger's last row
+before taking one. `MC-114` and ledger rows 371-374 were reserved for W2c-a and left unused; nobody
+should fill them.
 
 **Rules for every session:**
 - stage by explicit path only;
@@ -49,60 +51,71 @@ W2c-a and left unused; nobody should fill them.
 
 ## Current work
 
-### Resume here (hand-off, 2026-09-30, after W2e)
+### Resume here (hand-off, 2026-09-30, memory stage 1 planned)
 
-1. **W2 is complete** (W2a to W2e and W3), committed and pushed (`7d4bc4b0`).
-2. **Next in the work order:** the memory footprint (`MC-119`). Ask the maintainer before starting.
-3. **The Chrome tab** from W2e's live check (localhost:6001) may still be open behind its leave-site
-   prompt; the server is stopped and `save/` is restored and hash-verified.
-4. **Korean strings:** the translator flagged the three new W2e strings in `ko.ts` as a bit
-   literal (Report 47, "Red tests and the fix"); the maintainer usually rewords `ko.ts` themselves.
+1. **Memory-footprint stage 1 is planned and passed Gate 1** (Report 49, `MC-130` to `MC-145`,
+   ledger rows 455-486).
+   - The round-5 verdict was `[EDITORIAL]`. Its corrections were applied to the plan by the
+     Orchestrator and not re-verified; Report 49's section 3 marks what was added after Gate 1.
+   - Design:
+     - characters are archived only by an exclusive boot pass;
+     - an opened character stays loaded until the next page load;
+     - an automatic idle reload releases what was opened (`MC-140`, `MC-141`);
+     - there is no runtime archive engine (ledger row 475).
+   - The working copy of the plan is in the session scratchpad (`memfoot/stage1c/plan.md`).
+     Report 49 is the durable version.
+2. **Next: implementation step 1, the exclusive manual clean-up (D11, D12).** Red tests first, then
+   the coder, then Gate 2 with `opus-reviewer`. Steps 1-4 land before the boot pass (step 5), and the
+   idle reload (step 6) comes after it.
+3. **After stage 1** (`MC-145`):
+   - the upstream-compatible inline-everything backup;
+   - then archiving of modules that are not enabled;
+   - then the rest of stage 2 (streamed backup);
+   - stage 3 (the Node streamed write, CHORE-46) is re-measured first.
+4. **Scratch tooling that stays useful:**
+   - the synthetic generator's `real2` preset reproduces the maintainer's profile (ledger rows 476
+     and 477);
+   - the retainer measurement harness (rows 471 and 474);
+   - the maintainer's read-only probe scripts (`shell-fields.cjs`, `profile-probe.cjs`,
+     `chat-split.cjs`).
 
-### The heap measurement (ledger row 383): done
-
-Report in the session scratchpad, `heap/report.md`; summary sent to the Q&A session. It feeds the
-memory-footprint stage after W2e (`MC-119`).
+   All of these live in the session scratchpad, `memfoot/`.
 
 ## Work order
 
-The W2 stages followed `MC-103`'s split (W2a, W2b, W2c, W2d, W3, W2e) and are all done. The Roadmap
-has no stage entries for them; it carries the tickets below, checked on 2026-09-30 against the
-entries for CHORE-35, 40, 41, 43 and 45.
-
-1. **The memory footprint** (`MC-119`): the savings being worked out in the Q&A session, from the
-   heap measurement (ledger row 383). CHORE-45 is decided after it.
-2. **The wiki's composer and send batch** (Wiki session; told on 2026-09-30 that W2 and W3 are
-   done).
-3. **CHORE-35's opt-in stage:** the remaining upstream-infrastructure features (`/proxy2`'s
-   static-web default, the transformers CDN, the Lua docs link, the MCP OAuth helper,
-   `#import=<url>`, `getProxyStreamJobBaseUrl`). Roadmap: "scheduled after W1", `MC-092`. W1 is done. It is
-   sequenced here after W2 by this file, not by the Roadmap.
+1. **Memory stage 1** (Report 49), steps 1-7.
+2. **The inline-everything backup, then module archiving** (`MC-145`).
+3. **The wiki's composer and send batch** (Wiki session; unblocked since W2 and W3 are done).
+4. **CHORE-35's opt-in stage:** the remaining upstream-infrastructure features (`MC-092`).
 
 Not placed in the sequence:
-- **CHORE-40** (the copy button's URL fetch): open, Roadmap gives no position.
+- **CHORE-40** (the copy button's URL fetch): open; the Roadmap gives no position.
 - **CHORE-41** (the edit-button bug): blocked on the maintainer's console output.
 - **CHORE-43** (unreroll can write one chat's reply into another) and **CHORE-45** (the script cache
-  misses every lookup on a repeat send in a long chat): both filed and not scheduled. CHORE-45 waits
-  for the memory-footprint work (`MC-119`).
+  misses on a repeat send in a long chat): filed, not scheduled. CHORE-45 waits for the memory work.
+- **CHORE-46** (the Node server's 100 MB body limit): re-measure after stage 1 (Report 49).
+- **CHORE-48** (inlays are never backed up): waits for the maintainer's answer.
+- **CHORE-49** (the Node server does not boot over plain HTTP; `MC-144`): filed, not scheduled.
+- **Follow-ups from the memory work** (Report 49, section 5):
+  - switching to a chat whose cold-storage unit is missing still retains the previous chat's
+    messages;
+  - a rejected avatar image shows no icon.
 
 `MC-089`: nothing ships until every open ticket clears.
 
 ## Open follow-ups, waiting on the maintainer
 
-1. **A native-speaker check on the new translations.** The maintainer reviewed the Korean
-   (`4cdb5ef1`). The translator suggested that the German and Vietnamese
-   `restoreNoLockWarningConfirm`, a data-loss warning, and the German `{{slot}}` phrasing get a
-   native check.
-2. **CHORE-41's console output.** The mechanism is found (ledger rows 201-202): `Chats.svelte` mounts
-   one `Chat` per visible message, keyed by a hash of the message's data, id, index and flags, plus
-   `ReloadChatPointer[index]`; `editMode` is local state, so any change to that hash remounts the
-   message and silently drops the editor. It is present in both upstream and this fork; the
-   maintainer's supplied plugins were ruled out (row 202). **Still
-   open:** why the button stays dead across repeated clicks. Ledger row 206 found a likely cause,
-   an uncaught synchronous error during the edit-mode branch's mount that no `<svelte:boundary>`
-   catches, but the throw site is not found. The maintainer's console output is needed.
-3. **The MC-091 workflow pilot.** Its window ("the next 5-10 comparable items") has passed; the
-   ledger's "Reading at row 385" says how many items. Evaluating it is the maintainer's.
+1. **A native-speaker check on the new translations.** The translator suggested one for the German
+   and Vietnamese `restoreNoLockWarningConfirm` (a data-loss warning) and the German `{{slot}}`
+   phrasing.
+2. **CHORE-41's console output** (ledger rows 201-202 and 206): why the edit button stays dead across
+   repeated clicks.
+3. **The MC-091 workflow pilot:** evaluating it is the maintainer's.
+4. **CHORE-48:** should a backup carry inlays?
+5. **Report 48's leads:**
+   - odd `risuext` extension names;
+   - the "missing" wording;
+   - a partial file after an entry of 4 GiB or more.
 
 ## Finished stages
 
@@ -138,6 +151,8 @@ dispatches; `Agents/Carry-Forward.md` holds what a stage left for later ones. Ea
 | Fullscreen on web (its own session and worktree) | none | `51e923eb` | `61b5a885` | 428 |
 | W3, `/` commands, `/multisend` and Post File on their own chat; the command bugs | 46 | `e07d32fb` | `26d57bdc` | 429-443 |
 | W2e, a delete warns about and stops the work in its chat; a backup load is refused while busy | 47 | `baf238e7` | `7d4bc4b0` | 444-454 |
+| CHORE-47, a local backup includes non-`.png` assets | 48 | `d25a02fb` | `bb3f9e7b` | 461-467 |
+| The chat-switch memory fix (the sender icon's `{#await}`; `MC-136` 4) | 49 (section 6) | `ccf45c53` | the records commit after `ccf45c53` | 471, 474, 483 |
 
 Escape on alerts stage 2 and W2c-a were merged as `1d6fa16b`.
 
