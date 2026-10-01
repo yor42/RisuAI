@@ -15,8 +15,8 @@ Your privacy is paramount. Because **yor42 Fork of RisuAI** ("the Software") is 
 * We do not control these servers. Please review the privacy policies of the individual node infrastructure you choose to interact with.
 
 ### 3. Upstream Services and Third Parties
-* The Software allows optional connections to services hosted by the upstream project (RisuRealm, Proxy Service, ETC). 
-* If you choose to log in or use their UGC platform, the Software will securely transmit the necessary data directly to them. This interaction is strictly governed by the upstream project's privacy policy, not ours.
+* The Software allows optional connections to services hosted by the upstream project (RisuRealm, Proxy Service, MCP OAuth, etc.). 
+* If you choose to use their UGC platform or other upstream services, the Software will securely transmit the necessary data directly to them. This interaction is strictly governed by the upstream project's privacy policy, not ours.
 * The Node server may write operational information to standard output, including connection information such as client IP addresses, timestamps, errors, and request-related diagnostics. Server operators decide how container or host logs are retained, exported, or deleted.
 
 ## 4. AI providers and services you choose
