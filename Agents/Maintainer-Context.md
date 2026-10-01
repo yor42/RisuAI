@@ -4843,3 +4843,63 @@ empty by default (`MC-155`).
 
 **Not changed by this entry:** the Realm consent prompt keeps linking upstream's Terms of Service and Privacy
 Policy (`src/lib/Others/AlertComp.svelte`), because Realm is upstream's service (`MC-087` 3, `MC-154` 3).
+
+*Extended by `MC-156`: the fork's own documents are linked from Settings, and the maintainer has stated that
+the flag is to be set by default after the documents exist. That is not yet a decision; this entry stands until
+the maintainer says so. Note on item 3 above: its clause "and the flag is set after that" is not a recorded
+maintainer decision. The maintainer's `MC-155` message said only to leave the flag unset and to provide their own
+documents before the fork ships; that the flag is then set is a later stated intention (`MC-156` 2).*
+
+---
+
+### MC-156 — The fork's own Terms of Service and Privacy Policy are linked from Settings, separate from the upstream agreement popup; setting the legal flag by default is a stated intention, not yet a decision
+
+- **Tag:** stated (1, 2; item 5 is carried from item 1) and decision (3, 4, 6)
+- **Date:** 2026-10-01
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer's messages on 2026-10-01 (items 1 and 2, and item 5 carried from item 1), and their
+  answers to the questions the Orchestrator asked with AskUserQuestion after the Orchestrator's finding below
+  (items 3, 4 and 6). On each of those questions they chose the option the Orchestrator recommended.
+- **Reasoning:** the maintainer's reason is in item 1: the two files and their location are final, so links to
+  them can be written now. For items 3 to 6 they gave no reason beyond the answers.
+- **Alternatives not chosen** (the other options the Orchestrator offered with each question):
+  - placement (item 3): a one-time notice at first launch; an accept-to-continue step at first launch;
+  - link target (item 4): the documents bundled in the app;
+  - visual check (item 6): the maintainer looks themselves; skip the visual check.
+- **Related:** MC-086, MC-154, MC-155, CHORE-60.
+
+**What was stated:**
+1. **Separate the fork's own documents from upstream's.** The maintainer, verbatim: "while we are at it, I think
+   it is worth to separate our tos and Upstream ToS. filename and location of ToS and Privacy policy is
+   final(2 files in docs folder) so i think its safe to make links within our own ToS and Privacy policy popup
+   to point here instead of upstream. of course, we should preserve the separate popup that appears when user
+   tries to access upstream services like realm with upstream eula."
+2. **The documents are being written, and the flag follows them.** The maintainer, verbatim: "I am currently
+   working on our own ToS and Privacy policy(Which is practically "We do not collect your data. and This
+   software is AS-IS. we do not control upstream services, so you would have to agree to upstream ToS
+   Separately") so don't be surprised if you see unexpected commit about it. after that I will tell you to set
+   the legal flag true by default as by then we would have our own ToS and Privacy policy as upstream rule
+   mandates."
+
+**The Orchestrator's finding that preceded the questions (not a decision):** the app had no popup for the fork's
+own documents. The only agreement popup was upstream's (`AlertComp` `'tos'`), which links upstream's documents.
+
+**What was decided** (items 3, 4 and 6, each the recommended option):
+3. **Settings links only, with no acceptance step.** The fork's two documents are opened from links in Settings;
+   nothing asks the user to accept them.
+4. **The links open the GitHub pages** `https://github.com/yor42/RisuAI/blob/HEAD/docs/Terms-of-Services.md` and
+   `https://github.com/yor42/RisuAI/blob/HEAD/docs/Privacy-Policy.md`. Until the maintainer commits and pushes the
+   two documents (`docs/` is untracked), these links show GitHub's not-found page, so the CHORE-60 blocker is not
+   met by the links alone.
+5. **The upstream agreement popup is unchanged. Carried from item 1, not an answer to a question:** the
+   maintainer's own statement in item 1 ("of course, we should preserve the separate popup ..."). The popup keeps
+   linking upstream's documents and keeps appearing before upstream services such as Realm.
+6. **The visual check is a local dev run with the legal flag set for that run only.** The flag is not changed
+   in any committed file or build setting.
+
+**Not decided:** setting the legal flag by default. The maintainer said in item 2 that they will tell the
+Orchestrator when; until then `MC-155` stands and the flag stays unset in every build. The documents in `docs/`
+are the maintainer's own, which they write and commit themselves (`MC-155` 4).
+
+The Settings links are committed as `696ba5de` (ledger rows 546 to 548). The mechanism is in those rows and in
+the commit, not here.

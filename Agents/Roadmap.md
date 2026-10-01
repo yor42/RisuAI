@@ -1549,6 +1549,14 @@ a donation, and upstream patreon feels off to be in a fork"), as part of the rem
 - **Observation (pre-existing, not Realm/Drive):** the Lua fetch ban-list checks
   `startsWith('https://risuai.xyz')`, so it does not catch `sv.risuai.xyz` or
   `nightly.sv.risuai.xyz`.
+- **Found in passing (2026-10-01):** the MCP OAuth sign-in goes through upstream's `account.sionyw.com` host.
+  In `oauthLogin` (`src/ts/process/mcp/mcplib.ts`) the redirect URL is `https://account.sionyw.com/oauthhelper`
+  (`:669`, with the source comment "Just a placeholder, should be replaced with actual redirect URL"), and
+  after the user pastes the authorization code the app POSTs it to `https://account.sionyw.com/oauthhelper/api`
+  (`:708`). Both lines re-read at `696ba5de`. The same host serves the upstream Terms of Service and Privacy
+  Policy that the agreement popup links (`src/lib/Others/AlertComp.svelte:243-245`). **Not checked:** whether
+  the upstream agreement prompt gates the MCP OAuth path. This is the "MCP OAuth helper" item in the list
+  above; this note adds the lines, not a new finding.
 
 ### CHORE-36 — Remove Google Drive backup
 
@@ -2509,14 +2517,20 @@ as `448962f4`.
 until every open ticket clears). The maintainer decided the updater part (`MC-154` 7: the updater is disabled
 until the first release, and a signing key and a release URL of the fork's own are set up before that
 release). That part is done and committed as `38583d3b` (below); the CI and Docker rework is `712a76ad`. The
-rest of the list has no maintainer decision. The position of step 5c in the work order is unchanged. Line
-numbers are those of the tree at `38583d3b` on 2026-10-01; the `tauri.conf.json` numbers after line 37 are two
-lower than at `57235222`, because the `endpoints` edit removed two lines. The in-progress step 5c edits in the
-working tree move `src/ts/bootstrap.ts` lines.
+rest of the list has no maintainer decision. The work order is unchanged (step 5c is committed, as `9b312962`;
+step 5d is next). Line numbers are those of the tree at `38583d3b` on 2026-10-01; the `tauri.conf.json` numbers
+after line 37 are two lower than at `57235222`, because the `endpoints` edit removed two lines. Step 5c moved
+`src/ts/bootstrap.ts` lines: the `checkRisuUpdate()` call there is at `:173` at `696ba5de` (Grep, 2026-10-01).
 
 **Release blockers still open on this ticket** (nothing ships until they clear, `MC-089`):
 - the maintainer's own Terms of Service and Privacy Policy published, and then the legal flag set through the
-  repository variable `VITE_RISU_LEGAL_CONFIGURED` (`MC-155`);
+  repository variable `VITE_RISU_LEGAL_CONFIGURED` (`MC-155`). **Progress (2026-10-01):** the fork's own links
+  are in Settings (`696ba5de`; `MC-156`); they open the GitHub pages for `docs/Terms-of-Services.md` and
+  `docs/Privacy-Policy.md`. The documents are the maintainer's, who writes and commits them. The flag change
+  waits for the maintainer's word: they have said they will tell the Orchestrator to set it by default once
+  the documents exist, and that is not yet a decision (`MC-156`). Until then the flag stays unset. **The links
+  show GitHub's not-found page until the maintainer commits and pushes the two documents** (`docs/` is
+  untracked), so `696ba5de` alone does not clear this blocker;
 - the rest of the identity list below, which has no decision yet.
 
 **Cleared on 2026-10-01:** the 16 inherited upstream pre-releases on the fork's GitHub Releases page
@@ -2528,7 +2542,7 @@ from upstream has been deleted."); afterwards `gh release list --repo yor42/Risu
 
 - **Done and committed as `38583d3b` (updater disabled; Gate 2 `[EDITORIAL]`, ledger row 539):**
   - `UPDATER_ENABLED = false` (`src/ts/update.ts:55`); `checkRisuUpdate` returns at its top (`:58-60`), before
-    any plugin call. Its one caller is `src/ts/bootstrap.ts:141` (at `38583d3b`).
+    any plugin call. Its one caller is `src/ts/bootstrap.ts:141` (at `38583d3b`; `:173` at `696ba5de`).
   - `endpoints` is `[]` (`src-tauri/tauri.conf.json:37`) and `createUpdaterArtifacts` is `false` (`:21`). The
     `pubkey` stays (`:36`): in `tauri-plugin-updater` 2.11.0 the plugin's config has no default for it, so the
     reviewer read that the registered plugin would fail to deserialise its config without one (read from the
@@ -2636,9 +2650,9 @@ from upstream has been deleted."); afterwards `gh release list --repo yor42/Risu
   name on `origin` would bring the old workflow files back. A `v*` tag pushed from upstream's tag set would
   also publish `:latest` of whatever commit it names; `origin` has no tags at all since the maintainer deleted
   the 16 inherited ones (`git ls-remote --tags origin`, 2026-10-01).
-- **Placement:** not scheduled. It must close before the first release (`MC-089`). Step 5c and the rest of the
+- **Placement:** not scheduled. It must close before the first release (`MC-089`). Step 5d and the rest of the
   work order are unchanged.
-- **Related:** `MC-011`, `MC-085`, `MC-086`, `MC-087`, `MC-089`, `MC-092`, `MC-153`, `MC-154`, `MC-155`; CHORE-35;
+- **Related:** `MC-011`, `MC-085`, `MC-086`, `MC-087`, `MC-089`, `MC-092`, `MC-153`, `MC-154`, `MC-155`, `MC-156`; CHORE-35;
   ledger rows 536 to 539.
 
 ## Sequencing Summary

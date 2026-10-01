@@ -55,16 +55,20 @@ These later commits are local and not pushed:
 - `712a76ad`: the CI and Docker rework (`MC-154`; ledger rows 536 and 537). The release step's legal flag now
   reads the opt-in repository variable `VITE_RISU_LEGAL_CONFIGURED`, as `docker-build.yml` does (`MC-155`);
 - `38583d3b`: the desktop updater disable (`MC-154` 7; ledger rows 538 and 539);
+- `9361ce1b`: the README rewrite for this fork, `MC-152` to `MC-155`, CHORE-59 and CHORE-60 (by its commit
+  subject);
+- `9b312962`: memory stage 1 step 5c, the boot archive pass (below);
+- `696ba5de`: the fork's own Terms of Service and Privacy Policy linked from Settings (`MC-156`);
 - the records commit that carries this file.
 
-Both of the last two were committed at the maintainer's approval ("commit the finished side works."). Push only
-at the maintainer's request.
+`712a76ad` and `38583d3b` were committed at the maintainer's approval ("commit the finished side works.");
+`9361ce1b` and `9b312962` at "commit the docs for now, and then 5c when ready."; `696ba5de` at "commit it, then
+do the records." Push only at the maintainer's request. None of these is pushed.
 
-The working tree is not clean. It holds uncommitted work from this session: the step 5c work in progress (the
-untracked `src/ts/storage/bootArchivePass.ts`, `characterDefaults.ts` and the test files, and edits to
-`src/ts/bootstrap.ts`, `src/ts/process/coldstorage.svelte.ts` and `src/lang/en.ts`), and the 2026-10-01 edits
-to `README.md` and the `Agents/` records. The untracked `docs/` folder holds the maintainer's WIP Terms of
-Service and Privacy Policy templates; agents do not edit it (`MC-155` 4).
+The working tree holds only this records batch's edits to the `Agents/` documents (until they are committed) and
+the untracked `docs/` folder. `docs/` holds the maintainer's own Terms of Service and Privacy Policy, which they
+write and commit themselves, so an unexpected commit touching it is theirs (`MC-156`); agents do not edit it
+(`MC-155` 4).
 
 ## Parallel sessions (2026-09-30)
 
@@ -78,7 +82,7 @@ Several sessions work **in this same checkout**:
   build"** and **"Fork rebranding exploration"** are idle or done; see Report 39/41 and ledger
   row 428.
 
-**Next free numbers:** `MC-156` (`MC-155` is used), Report 56, ledger row 541 and CHORE-61
+**Next free numbers:** `MC-157` (`MC-156` is used), Report 56, ledger row 551 and CHORE-61
 (`CHORE-60` is used). Check the ledger's last row before taking one. `MC-114` and ledger rows 371-374 were reserved for W2c-a and left unused; nobody
 should fill them.
 
@@ -89,7 +93,7 @@ should fill them.
 
 ## Current work
 
-### Resume here (hand-off, 2026-10-01, memory stage 1: steps 1, 2, 3a, 3b and 4 done)
+### Resume here (hand-off, 2026-10-01, memory stage 1: steps 1, 2, 3a, 3b, 4, 5a, 5b and 5c done)
 
 1. **Memory-footprint stage 1 is planned and passed Gate 1** (Report 49, `MC-130` to `MC-145`,
    ledger rows 455-486). **Step 1 is done:** the exclusive manual clean-up (D11) and no startup asset
@@ -114,7 +118,8 @@ should fill them.
    commit (`a6719e35`; Report 55; Gate 1 by `adversarial-reviewer`, round 1 [REJECT], round 2
    [EDITORIAL], ledger row 518; Gate 2 by `opus-reviewer`, round 1 [REJECT], round 2 [EDITORIAL], row 519;
    the investigation is row 517 and the records fact-check row 520; `MC-147`). No live check was run.
-   **Steps 5a and 5b are done** (`33545c2c`, `448962f4`; item 2). Steps 5c, 5d, 6 and 7 have no code yet.
+   **Steps 5a, 5b and 5c are done** (`33545c2c`, `448962f4`, `9b312962`; item 2). Steps 5d, 6 and 7 have no
+   code yet.
    **CHORE-16 PG-1 is done:** every character-list view (the grid, the mobile list, the group-member
    picker and the previous/next hotkeys; the sidebar's order already skipped both when `checkCharOrder`
    adds ids) skips `§playground` and `§temp`, and opening the Playground clears its `trashTime` and marks
@@ -137,8 +142,8 @@ should fill them.
      - there is no runtime archive engine (ledger row 475).
    - The working copy of the plan is in the session scratchpad (`memfoot/stage1c/plan.md`).
      Report 49 is the durable version.
-2. **Next: memory stage 1 step 5c, the boot pass** (5a and 5b are done; Report 49 section 3.4, step 5;
-   Gate 2 is `opus-reviewer`).
+2. **Next: memory stage 1 step 5d** (5a, 5b and 5c are done; Report 49 section 3.4, step 5; Gate 2 is
+   `opus-reviewer`). Its scope is listed under "5d" below.
    - **CHORE-16 PG-1 is done** (Report 54). The Wiki session has committed the Playground page
      (`wiki/Playground.md`, `6ad13bac`) to match it. The Main Campaign session does not touch `wiki/**`.
    - **A CI/Docker rework and the desktop updater disable are committed** (`712a76ad` and `38583d3b`;
@@ -147,7 +152,12 @@ should fill them.
      Check on GitHub, no desktop build or launch. The first manual run of PR Check is the first evidence that
      the checks are green on Linux. The rest of the release identity is **CHORE-60** (open, not scheduled, a
      release blocker). The legal flag stays unset in every build until the maintainer's own Terms of Service
-     and Privacy Policy exist (`MC-155`). The `origin/main` mirror that ran upstream's old workflows is
+     and Privacy Policy exist (`MC-155`). The fork's own links to those documents are now in Settings
+     (`696ba5de`, `MC-156`); the maintainer is writing the documents and has said they will tell the
+     Orchestrator when to set the flag by default, which is a stated intention and not yet a decision. Until
+     the maintainer commits and pushes the two documents (`docs/` is untracked), those links show GitHub's
+     not-found page, so `696ba5de` alone does not clear the CHORE-60 blocker. The
+     `origin/main` mirror that ran upstream's old workflows is
      deleted, with a stale unrelated branch; `origin` holds only this branch (CHORE-60, 2026-10-01).
    - **CHORE-51 is filed** (DATA LOSS, open): the manual clean-up's keep set never reads chat units, so
      a unit named only by error text inside a chat unit is deleted and that chat's Retry then fails. It
@@ -168,24 +178,64 @@ should fill them.
        the checkbox binds the new root key `archiveCharacters` (absent and `true` mean on); the
        label and help text are new in all seven languages; at restore the stub's trash state wins for
        every stub (`MC-149` 4). Gate 1 `adversarial-reviewer` [APPROVE]; Gate 2 `opus-reviewer` round 1
-       [EDITORIAL], round 2 [APPROVE]. Nothing archives until 5c. Root `coldstorage` still gates the
+       [EDITORIAL], round 2 [APPROVE]. Nothing archived until 5c (`9b312962`). Root `coldstorage` still gates the
        startup asset sweep and remote-block clean-up, with no UI (`MC-149` 2).
      - **5b, done** (`448962f4`): `loadInternalBackup` writes the snapshot and reloads, with
        `LoadLocalBackup`'s other-tab refusal. Gate 1 `adversarial-reviewer` round 1 [REJECT], round 2
        [EDITORIAL] (ledger row 527); Gate 2 `opus-reviewer` round 1 [REJECT], round 2 [APPROVE] (row 530).
-     - **5c:** the boot pass (exclusive hold, fenced commit, the one-time notice, the D1 capability gate,
-       `uuid` unit ids, an optional `enableRemoteSaving` encoder input, no commit when nothing changed,
-       no pass on backup-fallback boots). **Gate 1 is closed** (`opus-reviewer`: round 1 `[REJECT]`, round 2
-       `[EDITORIAL]`; ledger rows 534 and 535; the plan is `step5/5c/plan.md` in the session scratchpad,
-       sections 8 and 9 hold the dispositions). **The red tests are done** (76 red tests and 52 guards; the
-       Orchestrator re-ran them) and **the implementation is in progress.** The test files are untracked, under
-       `src/ts/storage/tests/`, `src/ts/bootstrap.archivePass*.test.ts` and `src/ts/process/tests/`. Gate 2 is
-       `opus-reviewer`.
-     - **5d:** the D18 breaker, the `MC-148` enrichment, the "unavailable" wording and the user docs.
+     - **5c, done** (`9b312962`): the boot pass (exclusive hold, fenced commit, the one-time notice, the D1
+       capability gate, `uuid` unit ids, an optional `enableRemoteSaving` encoder input, no commit when nothing
+       changed, no pass on backup-fallback boots). Gate 1 `opus-reviewer`: round 1 `[REJECT]`, round 2
+       `[EDITORIAL]` (ledger rows 534 and 535; the plan is `step5/5c/plan.md` in the session scratchpad,
+       sections 8 to 10 hold the dispositions). Gate 2 `opus-reviewer`: round 1 `[REJECT]`, round 2
+       `[EDITORIAL]` (ledger rows 541 to 544). The corrections: `test-warrior` wrote the B1 and B2 tests and the
+       N1, N2 and N6 guards; `sonnet-coder` fixed B1 and the comments E2 to E4; the Orchestrator fixed E1 and N7
+       (the commit message) and applied round 2's E5 to E7.
+       - **Gate 2 round 1's two blockers:** on web a re-read that threw after a failed commit fell back to an
+         automatic backup while the main file was intact (now the boot stops with the error and writes nothing,
+         on web and on the Node server alike); the Node server's "a re-read that returns nothing stops the
+         boot" rule had no test.
+       - **Tests** (from the commit message and `full-test-r2.txt`): 151 new tests in eight files; against a
+         placeholder pass module and HEAD's other files, 76 failed on their assertions and 52 guards passed;
+         of the tests added during review, four (a web re-read that fails or finds nothing) failed on their
+         assertions before the fix and the rest are guards. Full suite 239 files, 4077 passed, 4 skipped;
+         `pnpm check` 0 errors and 0 warnings; the build was run. Scratchpad mutants of each gate and failure
+         path are killed except two that the commit message names (a throwing variant of the `characters`-array
+         gate, and the shared-chaId rule, whose removal costs one orphan unit and no data). **Not run:** Tauri,
+         a real Node server, a browser's OPFS and Web Locks; no live check.
+       - **The Orchestrator's own 5c calls** (a partial list; the step 5 report records the rest). Reported to
+         the maintainer; not maintainer decisions:
+         - the one-time notice shows only on a boot where archiving can actually run (a capable host, a
+           main-file boot, a complete decode, `formatversion` 5 or higher, no enabled V2.1 plugin, not a stale
+           account-sync profile, and `characters` and `botPresets` both arrays), and a boot where it cannot
+           leaves the `archiveCharacters` key absent;
+         - the exclusive-hold grant timeout is about 1 s (`HOLD_TIMEOUT_MS`, `bootArchivePass.ts:139`) instead
+           of the 5 s default (`acquireExclusiveStorageMigrationLock`, `storageTabLocks.ts:283`), so a second
+           tab skips the pass rather than waiting;
+         - the optional `enableRemoteSaving` input on the save encoder's `init` is an `MC-091` amendment (a
+           technical prerequisite for implementing the accepted pass safely: a remote-saving profile has to keep
+           its remote blocks before the live database exists), to be recorded in the step 5 report.
+       - **Step 6 dependency** (Gate 1 round 2 N5): a pass skipped after an idle reload (the short timeout, or
+         another tab holding the lock) releases nothing, so step 6 must observe that the post-reload pass ran
+         before it treats the reload as having released memory.
+       - The step 5 report is not written yet (Report 56 is the next free number); it is to record the
+         Orchestrator's own implementation calls.
+     - **5d, next:**
+       - the D18 crash-loop breaker. It must also cover a pass that fails the same way on every boot and so
+         orphans a full unit set each time (Gate 2 round 1 N3; the inputs the reviewer named: a `chaId` equal to
+         a fixed block name such as `root`, `config`, `pluginStorage`, `preset` or `modules`, and a non-array
+         `modules` or `plugins`; Gate 2 round 2 adds a non-string `chaId` whose string form equals another
+         slot's `chaId`, which makes the block check refuse every commit while anything else is archived);
+       - Report 49 D1's Node upload-limit rule, assigned to 5d at Gate 1 (round 1 E3 and N8);
+       - the `MC-148` enrichment of upstream-made stubs;
+       - the "unavailable" restore wording;
+       - the user docs (`MC-138` 1).
      The plan working copies and gate records are in the session scratchpad (`step5/`); the step 5
      report records the Orchestrator's own implementation calls.
-   - **The 5c pass must pin these invariants with its own tests.** The tests deleted in 5a pinned them for
-     the old pass, and nothing tests them now:
+   - **The invariants the 5c tests were to pin** (the tests deleted in 5a pinned them for the old pass). Step
+     5c is committed with 151 new tests in eight files; this record did not check each of the nine below against a
+     named test (Gate 2 round 1 confirmed the first: a stub is built only from a read-back with status ok and an
+     equal `chaId`):
      1. a stub is built from the unit as read back, not from the live character;
      2. a stub is never archived twice;
      3. list order is preserved around an archived slot;
@@ -197,8 +247,8 @@ should fill them.
         stops the pass;
      8. a pointer chat or legacy error-text chat inside an archived character is carried unchanged;
      9. test on both the Node-server and OPFS in-memory backends; neither says anything about Tauri.
-     Two strings are unused until 5c: `errors.coldStorageWriteFailed` and
-     `errors.coldStorageVerifyFailed`.
+     The two strings that were unused until 5c, `errors.coldStorageWriteFailed` and
+     `errors.coldStorageVerifyFailed`, are removed (`9b312962`; no reference left in `src`, Grep 2026-10-01).
    - Step 5 lands before the idle reload (step 6). Step 6 has hang points for a backup-in-progress
      signal: the early `return`s of `SaveLocalBackup` and `SavePartialLocalBackup` and the `finally` of
      `LoadLocalBackup` (Report 55 section 7). Open follow-ups: step 1's in Report 50 section 6, step 2's
@@ -226,7 +276,7 @@ should fill them.
 1. **Memory stage 1** (Report 49), steps 5-7 (steps 1, 2, 3a, 3b and 4 are done, Reports 50-53 and 55),
    in this order:
    1. memory stage 1 step 5, the boot pass (the scoping is recorded: ledger row 522, `MC-148` and `MC-149`;
-      5a and 5b are done, `33545c2c` and `448962f4`; 5c and 5d follow);
+      5a, 5b and 5c are done, `33545c2c`, `448962f4` and `9b312962`; 5d follows);
    2. then **CHORE-53** (DATA LOSS: delete actions act on a stale target, and Enter clicks the control
       behind a confirm; ledger row 523; `MC-150` 4, the maintainer agreed to this position);
    3. then **CHORE-43** (unreroll can write one chat's reply into another) **with CHORE-54** (rerolling
@@ -267,7 +317,11 @@ Not placed in the sequence:
 - **CHORE-60** (release identity: the desktop build still carries upstream's identity; the updater part is
   done and committed as `38583d3b`; the rest has no decision): open, not scheduled. It must close before the
   first release (`MC-089`). Its release blockers include the maintainer's own Terms of Service and Privacy
-  Policy with the legal flag then set (`MC-155`). The 16 inherited upstream pre-releases and their tags were
+  Policy with the legal flag then set (`MC-155`); the fork's own links to those documents are in Settings
+  (`696ba5de`; they show GitHub's not-found page until the maintainer commits and pushes the documents, so the
+  commit alone does not clear the blocker), the maintainer is writing the documents, and the flag change waits
+  for their word (`MC-156`).
+  The 16 inherited upstream pre-releases and their tags were
   deleted by the maintainer on 2026-10-01; `origin` now has no release and no tag.
 - **CHORE-56** (under the beta mobile layout, a touch that ends on a button, input, select or textarea
   throws a TypeError in the swipe handler): suspected; TRACED, not run. The maintainer has not yet
@@ -322,6 +376,16 @@ Not placed in the sequence:
    - odd `risuext` extension names;
    - the "missing" wording;
    - a partial file after an entry of 4 GiB or more.
+7. **A native-speaker check on the strings added by step 5c and the Settings legal links** (ko, cn, zh-Hant, vi,
+   de, es). Step 5c added `archiveCharactersNotice` and `archiveCharactersStoppedNotice` and removed two unused
+   error strings; `696ba5de` added `forkTermsOfService`, `forkPrivacyPolicy` and `forkLegalLinksLabel`. The
+   reviewers read the translations as keeping the same meaning as English (Gate 2 round 1 of each, including
+   "Nothing is deleted" in the notice). The 5c translator's low-confidence notes: ko uses 보관 (the toggle's existing term) and 기본 저장 데이터 for "main
+   save"; de "im Haupt-Speicherstand" reads awkwardly (alternatives "in der Hauptspeicherdatei", "im regulären
+   Speicherstand"); cn 主存档 and zh-Hant 主存檔 are unverified guesses; vi "bản lưu chính" is unverified; es "guardado
+   principal" is unverified and uses tú, as the file's help.coldstorage does. The legal-links translator's only
+   low-confidence string is forkLegalLinksLabel ("Legal documents") in all six languages; the two document names
+   reuse each file's upstreamAgreement wording.
 Answered on 2026-10-01 and removed from this list:
 - the internal backup load refuses a snapshot with a damaged or missing block as a whole (it was item 7). The
   maintainer wants an option to load the intact data (`MC-152`); filed as CHORE-59 and placed in the work
@@ -348,7 +412,9 @@ Answered on 2026-10-01 and removed from this list:
 - `wiki/Settings-Advanced.md`, the Cold Storage row, uses the old label, the root key `coldstorage` and the
   old default. Since `33545c2c` the checkbox is "Archive characters at startup" (`coldStorage` in `en.ts`),
   bound to `archiveCharacters` (absent or `true` means on; `src/ts/setting/advancedSettingsData.ts`, id
-  `adv.coldstorage`), and at HEAD nothing reads it, until the step 5c boot pass lands.
+  `adv.coldstorage`). Since `9b312962` the boot pass reads it (`tree.archiveCharacters === false` stops the pass,
+  `src/ts/storage/bootArchivePass.ts:325`; an absent key is written as `true` on a boot where the pass can run,
+  with a one-time notice), so the row's old default and wording are stale in a second way.
 
 ## Finished stages
 
@@ -435,6 +501,15 @@ Escape on alerts stage 2 and W2c-a were merged as `1d6fa16b`.
 
 ## Test suite
 
+- **Step 5c's final tree (the step 5c fix commit, `9b312962`):** 239 files, 4,077 passed, 4 skipped; `pnpm check`
+  0 errors and 0 warnings; the build was run (`full-test-r2.txt`, `full-check-r2.txt` and the commit message;
+  Gate 2 round 2's reviewer re-ran the suite and `pnpm check` on the same tree and got the same numbers). Round
+  2's corrections touched comments, test titles and the commit message. Nothing was run on Tauri, a real Node
+  server, or a browser's OPFS and Web Locks.
+- **The Settings legal links (`696ba5de`):** Gate 2 round 1's reviewer ran the two touched test files (6 passed)
+  and `pnpm check` (0 and 0); the full-suite numbers for this commit are not recorded here. The app was run
+  once (dev server, legal flag set for that run only; commit message): the footer renders on desktop and at 375 px,
+  and the menu column stays 190.7 px with German labels.
 - **Step 4's final tree (the step 4 fix commit, `a6719e35`):** 229 files, 3,876 passed, 4 skipped;
   `pnpm check` 0 errors and 0 warnings; `pnpm build` exit 0 (Report 55 section 4; run on the snapshot
   Gate 2 round 2 reviewed). Round 2's editorial corrections touched comments and test titles only, and
