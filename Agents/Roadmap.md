@@ -493,6 +493,8 @@ and what happens to a trashed character's assets and remote blocks.
   block for one write. It heals on the next save, which reloads. Pre-existing, but more likely now
   that `toSave` can hold all N characters after a plugin `setDatabase`. Ledger row 68.
 
+- **The concrete held-Enter finding is CHORE-53** (2026-10-01; `MC-150`, ledger row 523).
+
 Relates to the Roadmap's closing "Should there be a Round 3?" question — this is a concrete,
 evidence-backed candidate area, which that note said was the missing ingredient.
 
@@ -1873,7 +1875,8 @@ upstream means this is unknown.
 ### CHORE-51 — The manual clean-up deletes a unit that only an error-text chat inside a chat unit names (DATA LOSS)
 
 **Status (2026-10-01):** filed from memory stage 1 step 4's Gate 1 (round 1, N6; ledger row 518; Report 55).
-Open and not scheduled. It predates step 4, and step 4 does not enlarge it.
+Open. Scheduled after memory stage 1 step 5 and before step 6 (`Agents/Live-State.md` work order,
+2026-10-01). It predates step 4, and step 4 does not enlarge it.
 
 - **Mechanism (the step 4 investigation and Gate 1, and the writer's reading of `KeepSet`; not run):**
   - `KeepSet` in `src/ts/storage/manualCleanup.ts` builds the set of units the clean-up must keep. For
@@ -1896,6 +1899,171 @@ Open and not scheduled. It predates step 4, and step 4 does not enlarge it.
 - **Cost of the fix:** following chat units means the clean-up reads chat units, where it now reads only
   blobs, so it changes the clean-up's read cost and step 1's gated design (Report 50). It is its own
   change, with its own gates.
+
+### CHORE-52 — Cold-storage keys are not shape-checked before they reach a storage path (integrity hardening)
+
+**Status (2026-10-01):** filed from memory stage 1 step 4's Gate 1 (round 1, N4; Report 55 section 7;
+ledger row 518) and sized by the investigation in ledger row 521. Open. Scheduled after memory stage 1
+step 5 and before step 6 (`Agents/Live-State.md` work order). **Severity: LOW.** This is integrity
+hardening, not security: the hosted build is private-only, and the maintainer's framing is that peer
+hardening is integrity.
+
+- **What the investigation found (the `investigator`'s packet; counts are Grep counts, no Bash or git
+  was available to it):**
+  - **The key is spliced into the path with no shape check on all three backends**, not on Tauri only
+    (TRACED, `src/ts/process/coldstorage.svelte.ts`: `getColdStorageItem`, `readLocalColdStorageBytes`
+    and `setColdStorageItem`). There is no LocalForage cold-storage branch; the backends are the Node
+    server, Tauri and OPFS.
+  - **No traversal was found on any of them:**
+    - Tauri: the fs plugin deserialises every path through `SafeFilePath::from_str`, which rejects a
+      `..` component (tauri-plugin-fs 2.5.2, `file_path.rs`, as **read by the investigator** in the cargo
+      registry copy; the Orchestrator did not re-open it). A rejected read is classified `error`, not
+      `missing`, by `classifyTauriColdRead`, and a rejected write returns `false` (TRACED).
+    - Node server: `/api/read`, `/api/write` and `/api/remove` accept only a hex `file-path`, and the
+      client hex-encodes the whole key (`nodeStorage.ts`), so the key is a flat file name (TRACED).
+    - OPFS: names carry the fixed prefix `coldstorage_` and suffix `.json` in a flat root. That
+      `getFileHandle` rejects a name holding `/` is from the File System spec, not from source in this
+      repo (INFERRED).
+  - **Only reads and writes are reachable from a pointer-supplied key.** Removal (`manualCleanup.ts`)
+    and listing take their keys from the directory listing, not from the database (TRACED).
+  - **Where the keys come from:**
+    - Fork writers make every unit key with `crypto.randomUUID()`, and V3 plugin storage with `v4()`
+      (TRACED by the investigator).
+    - Upstream does the same: `upstream/main:src/ts/process/coldstorage.svelte.ts` lines 394, 484 and 535
+      use `crypto.randomUUID()`, and `upstream/main:src/ts/plugins/apiV3/v3.svelte.ts` line 1291 uses
+      `v4()` (the Orchestrator's check, 2026-10-01). So every key that the fork and `upstream/main` write
+      today is a UUID; keys written by older upstream versions were not checked.
+    - A key that is not a UUID can still arrive: chat import pushes parsed chat objects into `chats`
+      unmodified, so `message[0].data` can carry any pointer or legacy error-text key
+      (`importChat` in `characters.ts`); the roots of a restored `.bin` are not filtered
+      (`backuplocal.ts`); and any plugin that calls `setDatabase` can set `_coldplugin` values
+      (`pluginCustomStorage` is in `allowedDbKeys`; the `db` permission gates only `getDatabase`, and V3
+      `setDatabase` asks for no permission, `v3.svelte.ts`, checked by `doc-verifier` and the Orchestrator). Card import does not carry `coldstorage` or
+      pointers on the V2/V3/charx path (TRACED); the RCC, old-Tavern and `.risum` paths were not read
+      line by line.
+- **The open question that a shape check does not fix: key aliasing.** A UUID-shaped key is valid, so a
+  shape check lets these through (TRACED by the investigator, `pluginColdStorage.ts` and `preLoadChat`):
+  - a crafted `_coldplugin` value equal to another unit's uuid makes the next plugin `setItem` overwrite
+    that unit with the plugin value (`writePluginStorageValue` reuses an existing mapping value as the
+    write target), and the plugin's `getItem` for that key returns the other unit's content
+    (`readPluginStorageValue`);
+  - a chat pointer equal to another unit's uuid makes `preLoadChat` restore that unit's messages into
+    the pointing chat.
+  - The mapping case is reachable from a crafted `.bin` or a plugin's `setDatabase`; the pointer case
+    from a crafted `.bin`, a chat import or a plugin's `setDatabase`. Any plugin that calls `setDatabase`
+    can already overwrite every character, so the plugin case adds damage to an archived
+    unit that the database-level checks do not see (the investigator's reading), not a new privilege.
+  - This needs ownership or provenance of a key, not shape validation. It is to be scoped when CHORE-52
+    is worked, and may become its own ticket. Do not promise that the shape check closes it.
+- **Fix direction (non-normative):**
+  - one check in the three I/O functions named above, in `coldstorage.svelte.ts`;
+  - a lenient "one safe filename segment" rule (non-empty; no `/`, `\` or NUL; not `.` or `..`) rather
+    than UUID-only. Test fixtures use non-UUID keys: about 200 keyed lines in four files
+    (`coldStorageDeletionGuards.svelte.test.ts`, `manualCleanup.svelte.test.ts`,
+    `coldStorageBackupCollect.svelte.test.ts`, `backuplocalUnitClosure.test.ts`; Grep line counts with an
+    approximate key pattern, not exact). 69 test files mention the cold-storage functions (Grep count);
+    59 of them mock the module whole and are unaffected, and the other 10 are the ones to check;
+  - a rejected key must read as `error`, never `missing` (the CHORE-07 contract), and write as `false`,
+    so step 4's backup prompt still reports it as unavailable instead of dropping it.
+- **Step 5 interaction:** the boot pass writes new units under `crypto.randomUUID()` keys, which pass
+  either rule. It also reads existing roots at boot, and that is where the choice of rule matters: under
+  a UUID-only rule a non-UUID legacy root would read as `error` (data kept, shown unreadable); under the
+  lenient rule it loads as today (the investigator's inference).
+- **Uncertain:** whether any real profile holds a non-UUID unit key (no data); OPFS and Windows
+  device-name behaviour (a key such as `NUL` or `a:b` on Windows; not traced, integrity-only).
+
+### CHORE-53 — Delete actions act on a stale target, and Enter clicks the control behind a confirm (DATA LOSS)
+
+**Status (2026-10-01):** filed from the community reports in `MC-150` and the investigation in ledger
+row 523. Open. Scheduled right after memory stage 1 step 5 and before CHORE-51 and CHORE-52
+(`MC-150` 4; `Agents/Live-State.md` work order). It is the concrete held-Enter finding behind CHORE-03.
+It is reported on upstream too: the community reports are observations of upstream builds (`MC-011`).
+
+- **The reports:** characters outside the trash were permanently lost when the user deleted from the
+  trash with Enter (held down, in report 3), one reporter thinks a few characters inside folders were
+  lost too, and lorebook entries below the deleted one were lost the same way. Report 1 says "emptied the
+  trash"; no bulk empty-trash action exists, so which path it was is unknown. The reports are quoted in
+  `MC-150`; "deleted" means permanently deleted.
+- **Already fixed: the character trash case** (ledger row 523; TRACED and EXECUTED on the real
+  components, with the keyboard modelled):
+  - upstream's `015848cf` ("character deletion reliability in trash (chaId based lookup)",
+    2026-07-22) looks the target up by `chaId` after the confirms;
+  - the fork's `2420d717` (2026-09-25) looks it up by object reference after the confirms, and
+    `c0b323b0` (2026-09-29) serialises prompts, one answer per prompt;
+  - on upstream before `015848cf` the symptom reproduced: ten flows each captured index 1, were answered,
+    and spliced index 1 in turn, leaving one live character of eight. On `upstream/main` (`f9728b14`) and
+    on the fork (HEAD `5f1ecdf9`) the same scenarios removed only the trashed character the user aimed at,
+    or nothing. Which upstream release the community had cannot be established from the repo.
+- **Open defects, on both trees** (`upstream/main` and the fork; the delete handlers in these files are
+  identical to `upstream/main`'s; the files differ elsewhere):
+  - **Enter answers a prompt and also clicks the control behind it.** The Enter block in
+    `src/ts/hotkey.ts:306-316` sets the alert store to answered and does not call `preventDefault`. The
+    dialog never takes focus (`btn` is declared and never bound, `AlertComp.svelte:67,139-140`), so the
+    focused delete button behind it keeps focus. EXECUTED in headless Chromium 154 on a minimal stand-in
+    page (not RisuAI): each keydown, auto-repeats included, is followed by `keypress` and a button
+    `click`, and `preventDefault` on the keydown stops both. WebKit and Firefox are INFERRED only. On the
+    fork `!ev.repeat` (`hotkey.ts:306`) stops a repeat from answering, but each repeat still clicks, so a
+    held Enter queues copies of the same delete flow.
+  - **Per-row deletes that splice a position.** Lists below; the lorebook entry delete is EXECUTED on the
+    real components, the others are read from source and **not run**:
+
+    | List | Delete code | Notes (the investigator's) |
+    |---|---|---|
+    | Lorebook entries, `LoreBookData.svelte:155-190` and `LoreBookList.svelte:372-401`, `:423-452`, `:474-503` | `lore.splice(i, 1)`, `i` the unkeyed `each` position, read after the confirm | EXECUTED: 8 entries, hold on the second; on `upstream/main` and `pre`, one answer after the hold leaves only the first entry; on the fork, held-then-tapped Enter or click-then-tapped Enter leave only the first entry; a held Enter alone, or a hold plus one mouse answer, removes only the second. A folder with children has two confirms |
+    | Regex scripts, `RegexData.svelte:98`, `RegexList.svelte:72-77` | `customscript.splice(i, 1)` | one confirm |
+    | Trigger V1, `TriggerV1Data.svelte:48`, `TriggerV1List.svelte:87-91` | `triggerscript.splice(i, 1)` | one confirm |
+    | Bot presets, `botpreset.svelte:250-254` | `botPresets.splice(i, 1)` | the row's trash is a `div` whose key handler clicks on every Enter keydown, repeats included, so held Enter fires clicks on both trees whatever `!ev.repeat` says; the `length===1` guard is before the await only |
+    | Lorebook presets, `lorepreset.svelte:40-44` | `loreBook.splice(ind, 1)` | same `onkeydown` as bot presets |
+    | Personas, `PersonaSettings.svelte:149-154` | `personas.splice(DBState.db.selectedPersona, 1)`, selection read after the await | a second flow deletes persona 0, and so on |
+    | hypaV3 presets, `OtherBotSettings.svelte:1107-1115`; translator presets, `TranslatorPresetSettings.svelte:93-100` | `presets.splice(id, 1)` | the `id` is read at `:1107` (hypaV3), before the await; one confirm |
+    | Chat messages, `Chat.svelte:266` and `:272` (range 257-275) | `msg.splice(idx, 1)` | `idx` is a prop; there is an await only when `askRemoval`, `instantRemove` or the `rec` argument is on; 1-2 confirms; a No on the instant-remove confirm truncates from `idx` onward |
+    | Chat folders, `SideChatList.svelte:209-215` | `folders.splice(i, 1)` | one confirm; same `onkeydown` Enter -> `click()` as bot presets (`SideChatList.svelte:203-206`) |
+  - **Instant-remove truncation (related).** In the chat-message delete above, a No on the instant-remove
+    confirm truncates the chat from `idx` onward. This is a related data-loss path, listed but not traced
+    (see Uncertain).
+  - **Module delete.** `ModuleSettings.svelte:126-134` reads `rmodule`, an unkeyed-each item that is a
+    live binding to whatever the slot holds, after the await, then finds it by id and splices. A repeated
+    flow on a non-last row removes the module that moved into the slot. If the old module is no longer in
+    the list (INFERRED for a last row whose block was destroyed), `findIndex` returns -1 and
+    `modules.splice(-1, 1)` removes the last module. TRACED plus compiled output (svelte 5.56.8), not run.
+  - **A pending permanent character delete does not re-check `trashTime`.** `removeChar` in
+    `src/ts/characters.ts` resolves its target by reference after the two confirms and, for
+    `'permanent'`, splices without checking that the character is still trashed. A character restored
+    while its confirms were pending is removed. EXECUTED at store level (T2); the keyboard path to it
+    (Shift+Tab to Undo, Enter) is INFERRED, and other ways to un-trash it in that window (a plugin's
+    `setDatabase`, a second tab's save) were not swept.
+- **Fix direction (non-normative; the investigator's opinion, three layers):**
+  1. The Enter that answers a prompt stops the keystroke (`preventDefault`), and held repeats are
+     swallowed while a prompt is up. This is the shared cause for every delete list above.
+  2. Every delete handler re-resolves its target after the await, by reference or id, and skips when it
+     is gone, as `removeChar` does for characters and `removeChatConfirmed` does for chats. Capture the
+     target object before the await; do not read an unkeyed-each item or index after it.
+  3. `removeChar('permanent')` re-checks `trashTime` after the confirms and returns before `stopWorkIn`,
+     so that a skipped delete does not abort work in the character (`MC-103`, `MC-129`: a confirmed delete
+     aborts all work in the entry actually removed, and warns when it is busy).
+  - A key-ordering change alone is not a substitute for layer 2: the fork's prompt queue still lets a
+    user answer several identical dialogs.
+  - The 400 ms answer guard and the prompt queue in `alertPrompts.ts` are what turn Enter-spam on the
+    fork from one answer resolving every pending flow into one answer per prompt. They must stay.
+  - `MC-115` 3 says Enter on the alert itself keeps `MC-109`'s behaviour, and `MC-067` leaves "Enter
+    confirming an open alert" unchanged. Layer 1 changes that block, so it needs its own decision.
+  - Layer 1 changes every confirm in the app, so it needs its own plan.
+- **Uncertain:**
+  - WebKit and Firefox key behaviour, and focus on Safari and mobile (INFERRED from the Chromium probe);
+    the settling observation is to open the trash with two trashed rows, focus a Trash button by keyboard,
+    press Enter once and record whether a second dialog queues on the next Enter, with synthetic data only
+    (`MC-131` 1).
+  - An Enter on the focused NO button writes `yes` before NO's click runs (INFERRED, not run).
+  - Whether the nine other lists besides the lorebook entry delete (eight rows of the table above; the
+    module delete is tracked separately) fail as the lorebook does: none of the nine was run.
+  - For the hypaV3 and translator presets, the `id` is captured before the await, so a second flow can
+    remove a different preset: the same stale-captured-index mechanism the pre-fix character delete had
+    (INFERRED, not run).
+  - `TODO(evidence)`: the instant-remove truncation path in the chat-message delete is listed, not traced.
+  - A replaced character object (a reload that swaps objects, a cold-storage restore at that slot) makes
+    the reference lookup in `removeChar` find nothing, so a confirmed delete does nothing: the safe
+    direction, but the user sees "I confirmed twice and nothing happened" (INFERRED, not tested).
+  - `TODO(evidence)`: which release the community build was.
 
 ## Sequencing Summary
 

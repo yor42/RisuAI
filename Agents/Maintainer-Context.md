@@ -4416,3 +4416,131 @@ Item 3 is amended by MC-145 (the inline backup comes before module archiving).
    Report 49 D13 names only blobs (character archives): "each blob's inner pointer keys and legacy
    error keys from the value it reads"; following every value the backup reads, chat archives
    included, is its intent.
+
+---
+
+### MC-148 — The boot pass enriches upstream-made stubs once; the stub keeps its own trash state
+
+- **Tag:** decision
+- **Date:** 2026-10-01
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer answered the Orchestrator's question on Report 51 section 6 item 1 (P1);
+  after the first answer the Orchestrator gave the pros and cons. The Orchestrator recommended keeping the stub's own trash state because
+  of the 3-day purge of trashed characters at startup (`checkNewFormat` in `bootstrap.ts`). The
+  maintainer's first answer, verbatim: "I think it should add those, but I'd like to know the pros and
+  con of this change." The second answer, after the pros and cons: "Agreed. let's add the type, group
+  members, last-used time, description and chat count, but keep the placeholder's own trash state."
+- **Reasoning** (the Orchestrator's pros and cons, which the maintainer agreed to):
+  - users who arrive from upstream hold v1 stubs, which show groups as characters, sort without a
+    last-used time, and show no description and a chat count of 1;
+  - a unit can carry an old `trashTime` that the stub lacks, and the startup purge deletes
+    characters that have been in the trash for more than 3 days.
+- **Alternatives rejected:**
+  - not enriching (stubs that are never opened stay wrong forever);
+  - copying the unit's trash state.
+- **Related:** Report 51 (P1, R5), Report 49 (D6, D7), MC-011.
+
+**What was decided:**
+1. **The boot pass adds the following to every upstream-made (v1) stub:** the real type, the group
+   member list, the last-used time, the description and the chat count.
+2. **The stub keeps its own trash state.** The unit's `trashTime` is not copied.
+
+Implied by 1, not stated by the maintainer: each stub is enriched once, marked so that a later boot
+does not repeat it; and a missing or unreadable unit, or a `chaId` mismatch, leaves the stub unchanged.
+
+---
+
+### MC-149 — Stage 1 step 5: four answers after the scoping investigation
+
+- **Tag:** decision
+- **Date:** 2026-10-01
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on four questions the Orchestrator asked
+  after the step 5 scoping investigation (ledger row 522).
+- **Reasoning:**
+  - item 2: the root `coldstorage` field still gates the whole startup clean-up after the checkbox is
+    rebound (`bootstrap.ts`, the check in the startup clean-up; ledger row 522, premise 8), so the
+    field's fate had to be decided;
+  - item 4: upstream archived trashed characters into stubs without `trashTime`, and the startup purge
+    deletes trash older than 3 days; the restore rule that step 2 set (Report 51) leaves the unit's old
+    `trashTime` on such a stub, which the scoping traced as a data-loss chain (ledger row 522). The fix
+    flips three guard tests that pinned the old rule;
+  - item 1 (the reason the Orchestrator's question gave; the maintainer gave none): a pass commit on a
+    fallback boot would rewrite the damaged main save with backup-derived data before the user has
+    touched anything;
+  - item 3 (likewise): a notice shown only when something was archived would leave users with nothing
+    eligible untold until they later find characters archived; the old help text describes the
+    retired 10-day archiving.
+- **Alternatives rejected** (the other options the Orchestrator offered on each question):
+  - item 1: "Run as normal", archiving on a recovery boot too;
+  - item 2: "Retire it" (startup clean-up runs for every profile) and "Follow the new setting"
+    (archiving on means no startup clean-up);
+  - item 3: "Only if something archived" and "Once; keep the old label";
+  - item 4: "Keep upstream's behaviour" (the character stays recoverable from its archive until a
+    manual clean-up, or from a snapshot).
+- **Amends:** by item 4, the restore trash rule that step 2 set (Report 51, P4), and Report 49 D7's
+  sentence that an upstream-made stub restores unchanged.
+- **Extends:** `MC-142`, by item 3.
+- **Related:** MC-139 3 (item 2), MC-142, MC-148, Report 51.
+
+**What was decided:**
+1. **Fallback boots.** When the main save cannot be read and the boot falls back to an automatic
+   backup copy, the boot pass does not run. Nothing is archived or committed by the pass on that boot.
+2. **The upstream `coldstorage` field keeps gating startup clean-up as upstream left it.** There is no
+   UI for it after the checkbox is rebound. A profile's existing value is kept. Asset clean-up for those
+   profiles is the manual clean-up's job (`MC-139` 3).
+3. **The one-time notice shows once,** on the first boot where the new key (`MC-142`) is absent,
+   whether or not anything was archived. The checkbox label is renamed (non-normative: "Archive
+   characters at startup"), with new help text in all seven languages. Whether the notice shows on a
+   boot where the pass does not run is an implementation call for the step 5 report.
+4. **The trash fix is made in step 5.** At restore, the stub's trash state wins for every stub: a
+   stub with no `trashTime` restores as not trashed. This differs from upstream. The reason is the
+   upstream behaviour above: it archived trashed characters into stubs without `trashTime`, and the
+   startup purge deletes trash older than 3 days.
+
+The Orchestrator made further implementation calls for step 5. They are recorded in the step 5 report
+and are not maintainer decisions.
+
+---
+
+### MC-150 — Community reports of characters lost when deleting from the trash; "deleted" means permanently deleted; CHORE-53 is scheduled right after step 5
+
+- **Tag:** stated (1-3) and decision (4)
+- **Date:** 2026-10-01
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer relayed community reports and answered the Orchestrator's question on where
+  the ticket belongs in the work order. The Orchestrator had investigated first (ledger row 523).
+- **Reasoning:**
+  - the reports describe upstream builds (`MC-011`): there is no fork userbase;
+  - the Orchestrator's reason for recommending the position (the maintainer gave none): it is the most
+    user-visible open data loss, and it does not touch the save or archive code that step 5 and
+    CHORE-51 work in.
+- **Alternatives rejected** (the other positions the Orchestrator offered):
+  - before finishing step 5 (pause after step 5a);
+  - after CHORE-51 and CHORE-52.
+- **Extends:** `MC-013`, by item 3.
+- **Related:** MC-011, MC-013, MC-103, MC-129, ledger row 523, CHORE-03, CHORE-53.
+
+**What was decided / stated:**
+1. **The community reports.** The maintainer relayed these, in Korean:
+   1. "휴지통 비우고 쓰던 봇 찾아가려는데 리스트에 검색해도 안 나와서 찾아보니까 휴지통 비울 때 왜인지는 모르겠는데 같이 삭제됐음"
+   2. "휴지통에서 봇 지울때 엔터 누르면 휴지통 밖에 있는 봇들도 지워지는 것 같음. 폴더 내부에 있는 봇은 안전하다는데 난 폴더 내부 봇도 몇개 날아간 것 같음"
+   3. (reply) "엔터 꾹 누르면 날아감. 로어북 지울때도 그럼"
+   4. (reply) "로어북 삭제 버그는 밑에 것만 지우는데, 휴지통 버그는 휴지통 밖에 있는것도 지움."
+
+   The Orchestrator's translation, which is not the maintainer's: (1) "I emptied the trash and went to
+   find a bot I'd been using, but searching the list didn't find it; it had been deleted along with the
+   trash, no idea why." (2) "When deleting bots in the trash, pressing Enter seems to delete bots
+   outside the trash too. People say bots inside folders are safe, but I think a few inside folders got
+   wiped too." (3) "Hold Enter down and they get wiped. Same when deleting lorebooks." (4) "The lorebook
+   delete bug only deletes the ones below; the trash bug deletes ones outside the trash too."
+2. **The reports are of upstream builds,** and the maintainer said: "this issue has been reported on
+   upstream, so it might have been already fixed in our fork, though." (`MC-011`: user-reported
+   symptoms are observations of upstream builds.)
+3. **"Deleted" means permanently deleted.** The maintainer: "deleted means deleted - report says that
+   its permanently gone." This is the community instability behind CHORE-03 (`MC-013`); the maintainer:
+   "yes, this is the main reason why I brought up CHORE-3."
+4. **CHORE-53 goes right after memory stage 1 step 5,** before CHORE-51 and CHORE-52. The maintainer:
+   "I agree that CHORE-53 should go right after step 5."
+
+The investigation is ledger row 523; the findings are filed as CHORE-53.
