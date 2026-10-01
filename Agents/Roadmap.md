@@ -981,7 +981,7 @@ button, dead code, and a settings field shared with live long-term-memory settin
 
 | Group | IDs (gist) | Status per Report 99 |
 |---|---|---|
-| Stray grid entry can lose saved chat history | PG-1 — the Playground character is excluded from the sidebar's `characterOrder` but not from the character grid, where it can be searched, opened and deleted | Orchestrator-confirmed |
+| Stray grid entry can lose saved chat history | PG-1 — the Playground character is excluded from the sidebar's `characterOrder` but not from the character grid, where it can be searched, opened and deleted | Orchestrator-confirmed; **fixed 2026-10-01** (commit `08e43e65`, Report 54) |
 | Dead / non-functional UI | PG-2 — Prompt Convertion's per-file Delete button has no `onclick`; PG-3 — a dead `PlaygroundStore === 2` branch and an empty `PlaygroundRegex.svelte` | PG-2 Orchestrator-confirmed; PG-3 Reported |
 | Shared live setting | PG-4 — the Embedding tool's OpenAI/Custom options bind directly to the same `supaMemoryKey`/`hypaCustomSettings` fields that long-term memory uses, so a change made while testing there silently changes chat memory too; may be intended, and the wiki page tells users | Orchestrator-confirmed |
 
@@ -1009,7 +1009,20 @@ button, dead code, and a settings field shared with live long-term-memory settin
   chat appears in the character grid) and PG-4 (the Embedding tool shares memory settings) as
   current behaviour; a fix to either must update the page.
 - **Scheduling (2026-10-01):** PG-1 is scheduled as its own small fix between memory stage 1 step 3b and
-  step 4, by the maintainer's approval of 2026-10-01 (`Agents/Live-State.md`, work order).
+  step 4, by the maintainer's approval of 2026-10-01 (`Agents/Live-State.md`, work order at the time).
+- **PG-1 fixed (2026-10-01; commit `08e43e65`; Report 54):** the grid (grid, list and trash tabs), the
+  mobile list, the group-member picker and the previous/next character hotkeys now skip `§playground` and
+  `§temp` through one shared rule (`isHiddenSystemCharacter`, `src/ts/hiddenCharacters.ts`), which
+  `checkCharOrder` also uses; its result is unchanged. Neither character is deleted, renamed or migrated
+  (`MC-083` decision 3 leaves a stray `§temp` alone; hiding it from lists is this change's reading of that).
+  Two parts went beyond "hide from the lists", as `MC-091` amendments, approved by the maintainer in chat
+  on 2026-10-01: the picker and the hotkeys also skip trashed characters, and opening the
+  Playground clears its `trashTime` and marks the character for save (defence in depth; Gate 2 round 2
+  executed a tracker test showing that the normal flow already tracks and marks it). Gate 2 was `[EDITORIAL]` in both
+  rounds (corrections applied). Not live-checked. Residue: a `§playground` trashed before the fix and
+  never opened still reaches the boot purge, and a stray `§temp` copy has no UI path now (Report 54 section
+  7). The Wiki session still has to update `wiki/Playground.md`.
+- **PG-2, PG-3 and PG-4 remain open.**
 
 ### CHORE-17 — Plugin `setDatabase` re-encodes every character (a cost, not data loss)
 

@@ -32,6 +32,9 @@ These later commits are local and not pushed:
 - `0e054956`: the step 3a records and `MC-146`;
 - `1b38b5d5`: memory stage 1 step 3b, groups, the Playground's restore, the dataset export, the
   asset-integrity check and the plugin documentation (Report 53);
+- `b4942db4`: the step 3b records;
+- `08e43e65`: CHORE-16 PG-1, every character list skips the Playground and `§temp` characters
+  (Report 54);
 - the records commit that carries this file.
 
 Push only at the maintainer's request.
@@ -52,7 +55,7 @@ Several sessions work **in this same checkout**:
   build"** and **"Fork rebranding exploration"** are idle or done; see Report 39/41 and ledger
   row 428.
 
-**Next free numbers:** `MC-147`, Report 54, ledger row 514 and CHORE-51. Check the ledger's last row before taking
+**Next free numbers:** `MC-147`, Report 55, ledger row 517 and CHORE-51. Check the ledger's last row before taking
 one. `MC-114` and ledger rows 371-374 were reserved for W2c-a and left unused; nobody
 should fill them.
 
@@ -81,6 +84,13 @@ should fill them.
    the character and chat API, committed as the step 3b fix commit (`1b38b5d5`; Report 53; Gate 2 by
    `adversarial-reviewer`: round 1 [REJECT], rounds 2 and 3 [APPROVE], ledger rows 510-512; the
    plugin-docs fact-check is row 509). No live check of 3a or 3b was run. Steps 4-7 are not started.
+   **CHORE-16 PG-1 is done:** every character-list view (the grid, the mobile list, the group-member
+   picker and the previous/next hotkeys; the sidebar's order already skipped both when `checkCharOrder`
+   adds ids) skips `§playground` and `§temp`, and opening the Playground clears its `trashTime` and marks
+   the character for save (defence in depth); committed as the PG-1 fix commit (`08e43e65`; Report 54;
+   Gate 2 by `adversarial-reviewer`, rounds 1 and 2 both `[EDITORIAL]`, corrections applied; ledger rows
+   514-516: the survey, Gate 2, the records fact-check). No live check was run. PG-2, PG-3 and PG-4 stay
+   open.
    - **Live check of steps 1 and 2 (ledger row 499):** the manual clean-up refused on a profile whose
      `pluginStorage` block is empty (row 500; upstream writes the same empty block). The decoder fix
      and its red-first tests are committed as `64f23154`. The fix passed its `opus-reviewer` gate
@@ -96,9 +106,10 @@ should fill them.
      - there is no runtime archive engine (ledger row 475).
    - The working copy of the plan is in the session scratchpad (`memfoot/stage1c/plan.md`).
      Report 49 is the durable version.
-2. **Next: CHORE-16 PG-1, then step 4.**
-   - **CHORE-16 PG-1** is already in the work order below: a small fix of its own, between 3b and step 4
-     (the maintainer's approval, 2026-10-01).
+2. **Next: memory stage 1 step 4.**
+   - **CHORE-16 PG-1 is done** (Report 54). **Pending with the Wiki session:** it updates
+     `wiki/Playground.md`, which documents PG-1 (the Playground chat appears in the character grid) as
+     current behaviour. The Main Campaign session does not touch `wiki/**`.
    - **Step 4 is the backup:** the backup collects each blob's inner pointer keys from the value it reads
      and drops `value` retention (D13); Gate 2 is `opus-reviewer` (Report 49 section 3.4, step 4).
    - Step 4 lands before the boot pass (step 5), and the idle reload (step 6) comes after it. Open
@@ -124,11 +135,11 @@ should fill them.
 ## Work order
 
 1. **Memory stage 1** (Report 49), steps 4-7 (steps 1, 2, 3a and 3b are done, Reports 50-53).
-   - **Between step 3b and step 4: CHORE-16 PG-1**, as its own small fix (maintainer's approval,
-     2026-10-01). Every character-list view skips `§playground` and `§temp`, as `checkCharOrder` already
-     does, so the Playground's "assistant" character can no longer be opened or deleted from the grid or
-     the mobile list. Confirm the full set of list views first; the wiki session updates
-     `wiki/Playground.md` afterwards.
+   - **CHORE-16 PG-1 is done** (Report 54, commit `08e43e65`), the small fix the maintainer approved on
+     2026-10-01 between step 3b and step 4. Every character-list view skips `§playground` and `§temp`, as
+     `checkCharOrder` does, so the Playground's "assistant" character can no longer be opened or deleted
+     from the grid or the mobile list. The Wiki session still has to update `wiki/Playground.md`. PG-2,
+     PG-3 and PG-4 are open.
 2. **The inline-everything backup, then module archiving** (`MC-145`).
 3. **The wiki's composer and send batch** (Wiki session; unblocked since W2 and W3 are done).
 4. **CHORE-35's opt-in stage:** the remaining upstream-infrastructure features (`MC-092`).
@@ -274,6 +285,10 @@ Escape on alerts stage 2 and W2c-a were merged as `1d6fa16b`.
 
 ## Test suite
 
+- **CHORE-16 PG-1's final tree (the PG-1 fix commit, `08e43e65`):** 227 files, 3,767 passed, 4 skipped;
+  `pnpm check` 0 errors and 0 warnings; `pnpm build` exit 0 (Report 54 section 4). The Gate 2 editorial
+  fixes (three comments in round 1, two in round 2) touched comments only, and the full checks were not
+  re-run after the round-2 rewordings.
 - **Step 3b's final tree (the step 3b fix commit, `1b38b5d5`):** 222 files, 3,724 passed, 4 skipped;
   `pnpm check` 0 errors and 0 warnings; `pnpm build` exit 0 (ledger row 512; the Orchestrator ran all
   three on the final tree after Gate 2 round 3; they replace an earlier run of 3,723).
