@@ -4648,3 +4648,198 @@ local-file character import and then placed two tickets from the investigation o
 
    The work order is now: memory stage 1 step 5; then CHORE-53; then CHORE-43 with CHORE-54; then CHORE-51,
    CHORE-52 and CHORE-55; then steps 6 and 7; then CHORE-58 (measure first).
+
+---
+
+### MC-152 — Load Internal Backup should offer to load the intact data of a partly damaged snapshot; filed as CHORE-59 and placed with CHORE-51, CHORE-52 and CHORE-55
+
+- **Tag:** decision
+- **Date:** 2026-10-01
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer answered an open question that the Orchestrator raised at memory stage 1
+  step 5b's plan gate (Gate 1 round 2, non-blocking finding N1; ledger row 527). It was recorded as
+  Live-State open follow-up 7: Load Internal Backup refuses a snapshot with a damaged or missing block
+  as a whole, so should it offer "load without the N affected characters" instead?
+- **Reasoning:**
+  - the maintainer gave no reason beyond the answer;
+  - the question was a product trade-off, which is why it was theirs to decide.
+- **Alternative not chosen:** keeping the current whole-snapshot refusal as the only behaviour.
+- **Related:** MC-011, MC-089, MC-149, MC-151, Report 49 section 3.3 D3 (the internal backup load writes
+  the snapshot and reloads; step 5b, commit `448962f4`), ledger row 527, CHORE-51, CHORE-52, CHORE-55,
+  CHORE-59.
+
+**What was decided:**
+1. **A partial load is offered.** The maintainer, verbatim: "5b: yes, there should be a option to load
+   other data that is intact." When Load Internal Backup finds a snapshot in which some data is damaged
+   or missing, it offers to load the data that is intact, instead of only refusing the whole snapshot.
+
+**Not stated by the maintainer.** These are for the item's own plan and gate:
+- what counts as "affected" (a character whose block or remote file is missing or undecodable is the
+  case the gate raised);
+- how the offer is worded;
+- whether the partial load is confirmed by the user;
+- how the omitted data is reported.
+
+**Placement (the Orchestrator's choice, not the maintainer's).** The Orchestrator filed this as CHORE-59
+and placed it with CHORE-51, CHORE-52 and CHORE-55, each its own change with its own gates, because it
+is backup and main-file integrity work like CHORE-55, and because the maintainer's own placements leave
+no earlier slot without overriding them: CHORE-53 right after step 5 (`MC-150` 4), and CHORE-43 with
+CHORE-54 right after CHORE-53 (`MC-151` 3). The code facts are under Roadmap CHORE-59.
+
+The work order is now: memory stage 1 step 5; then CHORE-53; then CHORE-43 with CHORE-54; then CHORE-51,
+CHORE-52, CHORE-55 and CHORE-59; then steps 6 and 7; then CHORE-58 (measure first).
+
+---
+
+### MC-153 — The README is rewritten for this fork: Docker builds from source under its own names, the screenshots are dropped, the changes are a short list, and it says there are no releases yet
+
+- **Tag:** stated (1) and decision (2)
+- **Date:** 2026-10-01
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer's own message about the README (item 1), then their answers to the follow-up
+  questions the Orchestrator asked with AskUserQuestion (item 2). On each question they chose the
+  option the Orchestrator recommended, except the release line, which they wrote themselves.
+- **Reasoning:**
+  - the maintainer's four reasons are in item 1;
+  - they gave no reason beyond the answers for the five choices.
+- **Alternatives not chosen:** the other options the Orchestrator offered are not recorded in this entry.
+- **Related:** MC-011, MC-080, MC-085, MC-087, MC-089, CHORE-49, CHORE-50. `MC-087` 1 keeps in-place upgrades
+  supported for an existing upstream profile; item 2 below makes the fork's default Docker compose use its own
+  names, so an upstream Docker volume is opened in place only if the user points the compose file at it
+  deliberately.
+
+**What was stated:**
+1. **Four problems with the README,** verbatim, from the maintainer on 2026-10-01: "outside of code, I
+   think readme.md also needs an update. it re-uses the one from the upstream, and it: 1. doesn't mention
+   the changes we've made 2. wiki, points to upstream 3. community and installation can be deleted as it
+   points to upstream and we do not have neither discord or public facing web hosted version 4.
+   prerequisites are probably stale"
+
+**What was decided:**
+2. **The README's shape.** The five answers:
+   1. `docker-compose.yml` builds this fork from source, instead of pulling upstream's published image.
+   2. The fork's Docker setup uses its own project, container and volume names, so an upstream Docker
+      install is never opened in place. Data moves between them by a `.bin` backup, as the wiki's
+      `Migrating-from-upstream.md` describes.
+   3. The screenshots are dropped. They are hotlinked images of upstream's interface.
+   4. The README carries a short list of what differs from upstream, with a link to the wiki's migration
+      page.
+   5. The README discloses that there are no releases yet and that the fork is experimental and heavily
+      work in progress. The maintainer wrote this answer, verbatim: "Disclose that we have no releases
+      yet. along with the mention that this is still experimental and heavily WIP."
+
+**Not decided.** How the Docker build handles the legal-documents notice (`MC-085`, `MC-086`). The
+README carries a visible `TODO(evidence)` for it.
+*Answered by `MC-154` and `MC-155`: the Docker build takes the flag as an opt-in build argument, unset by default (`MC-154` 6), and the README's `TODO(evidence)` is gone. The fork's own builds leave it unset until the maintainer's own Terms of Service and Privacy Policy exist (`MC-155`).*
+
+---
+
+### MC-154 — The CI and Docker setup is reworked for the fork, the desktop updater is disabled until the first release, and whether the fork's own builds set the legal flag is open
+
+- **Tag:** stated (1-3) and decision (4-7)
+- **Date:** 2026-10-01
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer's messages on 2026-10-01 (items 1 to 3), and their answers to the questions the
+  Orchestrator asked with AskUserQuestion after the CI survey and the updater investigation (items 4 to 7).
+  On each of those questions they chose the option the Orchestrator recommended.
+- **Reasoning:**
+  - the maintainer's reason for item 1 is in item 1; for items 4 to 7 they gave no reason beyond the answers;
+  - the Orchestrator's reasons, from the two investigations (ledger rows 536 and 538): on 2026-09-16 and
+    2026-09-18 a push to the `origin/main` mirror ran upstream's `docker-build` workflow, which published
+    `ghcr.io/yor42/risuai:<sha>` images of upstream's code under the fork's name, and `nightly-deploy` failed on
+    every push because the fork has no Cloudflare secrets (observed with `gh run list`, 2026-10-01); the
+    desktop updater's configuration named upstream's release endpoint and upstream's public key, and
+    `bootstrap.ts` runs the check on every Tauri boot, so a fork-built desktop app would have offered to
+    replace itself with upstream's build (TRACED);
+  - `App.svelte` shows the "legal documents not configured" screen unless the build sets
+    `VITE_RISU_LEGAL_CONFIGURED`, and the flag is read at build time, so a Docker build needs a way for the
+    builder to set it (item 6).
+- **Alternatives not chosen:** the other options the Orchestrator offered with each question are not recorded
+  in this entry.
+- **Related:** MC-011, MC-085, MC-086, MC-087, MC-089, MC-092, MC-153, MC-155, CHORE-35, CHORE-60.
+
+**What was stated:**
+1. **The workflows are a copy of upstream's.** The maintainer, verbatim, on 2026-10-01: "I think we should
+   dispatch the agent to clean up the workflow and fix `.dockerignore` too. they are literal fork of upstream
+   outside of wiki sync and probably needs some heavy rework."
+2. **The published images and the orphaned keystore secrets are gone.** The maintainer, verbatim: "docker
+   images and keystore has been cleaned." The Orchestrator's reading: the `ghcr.io/yor42/risuai` images of
+   upstream's code, and the repository secrets `KEYSTORE_FILE`, `KEYSTORE_PASSWORD`, `KEY_ALIAS` and
+   `KEY_PASSWORD`, which no workflow in this repo referenced (ledger row 536). Checked afterwards: `gh secret list
+   -R yor42/RisuAI` on 2026-10-01 shows only `TAURI_PRIVATE_KEY` and `TAURI_KEY_PASSWORD`, so the four
+   keystore secrets are gone. The images were not checked (`gh` here lacks the `read:packages` permission).
+3. **The fork does not process user data, and the upstream terms mostly concern RisuRealm.** On the legal
+   setup, the maintainer, verbatim: "legal setup is genuinely tricky question though: according to our plan,
+   We do not process any user data. unlike upstream, we do not have public facing web version that goes
+   through cloudflare. Terms of service is more for a RisuRealm, but those are meant for upstream, which we
+   display prompt that redirects user to upstream ToS and Privacy policy." This is stated, not checked.
+
+**What was decided** (each the recommended option):
+4. **Four upstream files are deleted:** `.github/workflows/nightly-deploy.yml`, `.github/FUNDING.yml`,
+   `.github/workflows/mod.yml` and `.github/pull_request_template.md`.
+5. **`docker-build` runs on a manual dispatch or on a `v*` tag only.** A push to a branch does not build or
+   publish an image.
+6. **The legal flag is an opt-in build argument, unset by default.** `VITE_RISU_LEGAL_CONFIGURED` reaches a
+   Docker build only when whoever builds sets it. With it unset the image keeps the legal-documents notice.
+7. **The desktop updater is disabled until the first release.** Before that release, a signing key of the
+   fork's own and the fork's release URL are set up. The work is Roadmap CHORE-60.
+
+The rework of `.dockerignore`, the Dockerfile, `docker-compose.yml` and the workflows, and the updater
+disable, followed. That work was accepted at its gates (ledger rows 536 to 539) and has since been committed
+as `712a76ad` (CI and Docker) and `38583d3b` (the updater). The mechanisms and the findings are in those rows
+and in Roadmap CHORE-60, not here.
+
+**Not decided, as of this entry's date: whether the fork's own builds set the flag.** *Answered later the same
+day by `MC-155`: the flag stays unset in every build until the maintainer's own Terms of Service and Privacy
+Policy exist. The text below is what was open when this entry was written.* The maintainer's
+statement in item 3 does not say whether the fork meets what the notice asks. The Orchestrator offered three
+ways forward, and the maintainer had not chosen:
+- (a) keep it as a per-builder opt-in, as items 5 and 6 leave it;
+- (b) ask upstream's author;
+- (c) the maintainer decides what compliance requires, and the fork's own builds then set the flag.
+
+The Orchestrator also offered an investigation: list every request the fork sends to upstream's servers and
+set it against what the consent prompt covers. Two examples it gave: `src/ts/process/transformers.ts:15` points
+the transformers model path at `https://sv.risuai.xyz/transformers/`, and Roadmap CHORE-35 lists the
+upstream-infrastructure features. As of this entry's first writing, one build still set the flag: the manual
+desktop release workflow passed `VITE_RISU_LEGAL_CONFIGURED: 'TRUE'` (`.github/workflows/github-actions-builder.yml`,
+at line 67 in the working tree then), as the survey found upstream's release workflow did (ledger row 536).
+Items 5 and 6 are about the Docker build and did not change it. **That is no longer true:** `712a76ad`
+changed the release step to read `${{ vars.VITE_RISU_LEGAL_CONFIGURED }}`, an opt-in repository variable that is
+empty by default (`MC-155`).
+
+---
+
+### MC-155 — The legal flag stays unset in every build; the maintainer writes their own Terms of Service and Privacy Policy before the fork ships
+
+- **Tag:** stated (1) and decision (2-4)
+- **Date:** 2026-10-01
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer's messages on 2026-10-01, in answer to the question left open in `MC-154` (the
+  first message arrived at about 08:55 UTC, per the fact-check of the records batch; the second followed it).
+- **Reasoning:** the maintainer's reason is in item 1: they looked at how other independent forks that ship
+  an installable desktop build handle it.
+- **Alternatives not chosen:** the three options the Orchestrator offered in `MC-154` (keep it a per-builder
+  opt-in, ask upstream's author, or the maintainer decides what compliance requires and the fork's builds
+  then set the flag) are not chosen as stated. The maintainer decided a fourth course, in item 2.
+- **Related:** MC-085, MC-086, MC-087, MC-089, MC-154, CHORE-60.
+
+**What was stated:**
+1. **How other forks handle it, and what the maintainer will do,** verbatim, from the maintainer on
+   2026-10-01: "just reviewed how other fork handled the legal flag. leave the legal flag unset for now. Other
+   independant forks that ships installable tauri build has simple ToS and privacy policy that says 'this
+   software provided as is, you are responsible for your own data, and we do not process your data'. so I'll
+   provide similar my own ToS and Privacy policy before this fork ships." This is the maintainer's
+   observation of other forks; no agent has checked it.
+
+**What was decided:**
+2. **The flag stays unset in every build for now.** The Docker build and both publishing workflows read it as
+   an opt-in setting that is empty by default (`docker-build.yml`, `github-actions-builder.yml`, as changed in
+   `712a76ad`), so a build keeps the legal-documents notice.
+3. **The maintainer writes their own Terms of Service and Privacy Policy before the fork ships, and the flag
+   is set after that.** This is a release blocker, listed in Roadmap CHORE-60.
+4. **Agents do not edit the template files in the `docs/` folder.** The maintainer, verbatim: "don't touch the
+   ToS and Privacy policy file in docs folder yet - these are WIP template."
+
+**Not changed by this entry:** the Realm consent prompt keeps linking upstream's Terms of Service and Privacy
+Policy (`src/lib/Others/AlertComp.svelte`), because Realm is upstream's service (`MC-087` 3, `MC-154` 3).

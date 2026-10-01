@@ -2473,6 +2473,174 @@ upstream not run).
 - **Related:** Maybe-Later QOL-04 (the investigation behind this ticket, ledger row 532; the semaphore for
   the PNG save loop is a separate idea there, E2) and QOL-08.
 
+### CHORE-59 — Load Internal Backup refuses a partly damaged snapshot as a whole
+
+**Status (2026-10-01):** open, not started; type: feature / recovery; **no design yet**. Filed from the
+maintainer's answer to Live-State open follow-up 7 (`MC-152`: "5b: yes, there should be a option to load
+other data that is intact."). Source of the question: memory stage 1 step 5b's Gate 1 round 2, non-blocking
+finding N1 (ledger row 527). Present on the fork at HEAD `57235222`; the loader was committed with step 5b
+as `448962f4`.
+
+- **Current behaviour (source read at HEAD `57235222`):**
+  - `readValidatedSnapshot` in `src/ts/drive/internalBackup.ts` reads the chosen snapshot and calls
+    `decodeRisuSave(bytes, { strict: true })` (`:34`) before anything is written. Its doc comment says the
+    strict decode exists so that a snapshot the default decode would load only in part (a missing remote
+    block, a damaged block) is refused whole instead of being written and then losing that part for good
+    (`:16-22`).
+  - `loadInternalBackup` calls it at `:147`, before the write (`:154-159`). Any throw before the write
+    attempt reaches the `catch`, which shows `language.internalBackupUnreadable` (`:187-188`). `en.ts:1674`
+    reads "This backup is damaged or incomplete, so it was not loaded. Your current data was not changed."
+  - So a snapshot with one bad block cannot be loaded at all; the user has no way to load the intact data
+    in it.
+- **Decision:** `MC-152`. The maintainer decided that Load Internal Backup should offer to load the data
+  that is intact.
+- **Not decided (for the item's own plan and gate):** what counts as "affected" (a character whose block
+  or remote file is missing or undecodable is the case the gate raised), how the offer is worded, whether
+  the partial load is confirmed by the user, and how the omitted data is reported.
+- **Placement (`MC-152`, the Orchestrator's choice, not the maintainer's):** with CHORE-51, CHORE-52 and
+  CHORE-55, each its own change with its own gates, before steps 6 and 7. It is backup and main-file
+  integrity work like CHORE-55.
+- **Related:** `MC-011`, `MC-089`, `MC-149`, `MC-151`; Report 49 section 3.3 D3 (the internal backup load
+  writes the snapshot and reloads); CHORE-55.
+
+### CHORE-60 — Release identity: the desktop build still carries upstream's identity
+
+**Status (2026-10-01):** open, **not scheduled**; a release blocker under `MC-089` and `MC-011` (nothing ships
+until every open ticket clears). The maintainer decided the updater part (`MC-154` 7: the updater is disabled
+until the first release, and a signing key and a release URL of the fork's own are set up before that
+release). That part is done and committed as `38583d3b` (below); the CI and Docker rework is `712a76ad`. The
+rest of the list has no maintainer decision. The position of step 5c in the work order is unchanged. Line
+numbers are those of the tree at `38583d3b` on 2026-10-01; the `tauri.conf.json` numbers after line 37 are two
+lower than at `57235222`, because the `endpoints` edit removed two lines. The in-progress step 5c edits in the
+working tree move `src/ts/bootstrap.ts` lines.
+
+**Release blockers still open on this ticket** (nothing ships until they clear, `MC-089`):
+- the maintainer's own Terms of Service and Privacy Policy published, and then the legal flag set through the
+  repository variable `VITE_RISU_LEGAL_CONFIGURED` (`MC-155`);
+- the rest of the identity list below, which has no decision yet.
+
+**Cleared on 2026-10-01:** the 16 inherited upstream pre-releases on the fork's GitHub Releases page
+(`164.1.2-20250723-184522` to `166.1.0-20250808-034121`, published 2025-07-23 to 2025-08-08 by
+`github-actions[bot]`, 28 assets each) and their tags. The maintainer deleted them ("tags and releases that came
+from upstream has been deleted."); afterwards `gh release list --repo yor42/RisuAI` listed none and
+`git ls-remote --tags origin` listed no tag. Upstream's tags still exist in local clones that fetched
+`upstream`, so a `git push --tags` to `origin` would publish them again, and a `v*` one would fire docker-build.
+
+- **Done and committed as `38583d3b` (updater disabled; Gate 2 `[EDITORIAL]`, ledger row 539):**
+  - `UPDATER_ENABLED = false` (`src/ts/update.ts:55`); `checkRisuUpdate` returns at its top (`:58-60`), before
+    any plugin call. Its one caller is `src/ts/bootstrap.ts:141` (at `38583d3b`).
+  - `endpoints` is `[]` (`src-tauri/tauri.conf.json:37`) and `createUpdaterArtifacts` is `false` (`:21`). The
+    `pubkey` stays (`:36`): in `tauri-plugin-updater` 2.11.0 the plugin's config has no default for it, so the
+    reviewer read that the registered plugin would fail to deserialise its config without one (read from the
+    cargo registry source; not run). With empty `endpoints` the plugin returns `EmptyEndpoints` before any
+    request, whichever caller (the reviewer read the `check` command; not executed). A raw IPC call from the
+    webview is covered by this, not by the front-end guard.
+  - `updater:default` stays in `src-tauri/capabilities/desktop.json:9` and `migrated.json:38`. With empty
+    `endpoints` it is inert (reviewer's reading). Removing it would be optional extra defence and one more thing
+    to restore at release (Gate 2 N1); it was left in place.
+  - Tests: `src/ts/update.test.ts` (regression reproducer; red against the unfixed `update.ts`) and
+    `src/ts/updaterConfig.test.ts` (two reproducers for `endpoints` and `createUpdaterArtifacts`, and a
+    `guard:` test that the `pubkey` stays non-empty).
+  - **Not run:** no `pnpm tauri build`, no `cargo` test and no app start with empty `endpoints`. A cheap check
+    for the maintainer: start the desktop dev build once and confirm the console shows no "Error
+    deserializing 'plugins.updater'" and no updater error at boot. The reviewer could not read `tauri-cli`
+    here, so "signing variables set while `createUpdaterArtifacts` is false" is reasoned, not verified. The
+    release run will print the `tauri-action` warning "Signature not found for the updater JSON. Skipping
+    upload..." on every matrix row (reviewer's reading of `tauri-action` v0.6.2); it is expected while the
+    updater is off.
+- **The updater re-enable set (all together, at release time):**
+  1. a new minisign key pair; its public key replaces `plugins.updater.pubkey` (`tauri.conf.json:36`, which is
+     byte-equal to the `pubkey` on the local `upstream/main`, `f9728b14`);
+  2. `endpoints` (`:37`) set to the fork's release `latest.json`;
+  3. `bundle.createUpdaterArtifacts` back to `true` (`:21`);
+  4. the signing secrets: the release workflow reads `secrets.TAURI_PRIVATE_KEY` and
+     `secrets.TAURI_KEY_PASSWORD` (`.github/workflows/github-actions-builder.yml:63-66`). Both secrets exist in
+     the repository (`gh api`, 2026-10-01); whether `TAURI_PRIVATE_KEY` matches the embedded `pubkey` is
+     UNKNOWN (a secret cannot be read from source; the maintainer knows);
+  5. `UPDATER_ENABLED` set to `true`.
+
+  An upstream `pubkey` with a fork endpoint, or the reverse, rejects every update on signature mismatch (the
+  comment on `UPDATER_ENABLED`; the reviewer read `verify_signature` against the config's `pubkey`). Nothing
+  enforces the five-way change; the two config reproducers in `updaterConfig.test.ts` go red when
+  `endpoints` or `createUpdaterArtifacts` is restored, which is the intended tripwire.
+- **App identity (no decision; each value is upstream's, read from the working tree):**
+  - **`identifier` `co.aiclient.risu`** (`tauri.conf.json:33`), the same value as on `upstream/main`. A test
+    fixture's asset path shows it in the data directory
+    (`src/ts/parser/tests/assetSrcSanitize.test.ts:54`: `.../Application%20Support/co.aiclient.risu/assets/...`).
+    INFERRED, from that fixture and the packet's reading of the Tauri identifier: a fork build with the same
+    identifier shares the app-data directory, the single-instance identity and the installer's upgrade lineage
+    with an installed upstream app; changing it later leaves the old data directory behind, so this is a
+    **one-way decision**. Which is wanted is the maintainer's call. `MC-087` 1 supports in-place swaps for
+    self-hosted installs only; no decision covers the desktop build.
+  - **`productName` and `mainBinaryName`** `RisuAI` (`tauri.conf.json:30-31`), the window `title` `Risuai`
+    (`:54`), `index.html:15` (`<title>Risuai</title>`) and `:36` ("Loading Risuai..."), and
+    `public/manifest.json:2` (`"name": "Risuai"`).
+  - **The deep-link scheme `risuailocal`** (`tauri.conf.json:44`), the same as on `upstream/main`. INFERRED:
+    an installed upstream app and a fork build would contend for the OS handler of that scheme. No file under
+    `src` or `src-tauri/src` contains the string (Grep, 2026-10-01).
+  - **The version `2026.8.250`** in three places that must move together: `tauri.conf.json:32`, `version.json:2`
+    and `src/ts/storage/database.svelte.ts:25` (`appVer`, marker `<APP_VERSION_POINT>`). It equals
+    `version.json` on the local `upstream/main` (`f9728b14`) and the local tag `v2026.8.250`. Readers:
+    `src/lib/Others/AlertComp.svelte:35` imports `version.json`; `appVer` reaches `src/ts/cbs.ts:1969`,
+    `src/ts/parser/parser.svelte.ts:1095` and the `x-risuai-info` header at `src/ts/characterCards.ts:1733`.
+    The release workflow no longer reads `version.json` (its `jq` step was removed). A fork release at this
+    number would equal upstream's, and (INFERRED, packet) an upstream install on a newer number would never
+    see the fork's build as an update.
+  - **A published release creates a `v*` tag, which fires `docker-build`.** The release workflow creates a
+    draft release with `tagName: 'v__VERSION__'` and `releaseDraft: true` (`github-actions-builder.yml:71,74`).
+    Gate 2 of the CI rework noted that publishing the draft creates the tag `v2026.8.250`, and that a `v*` tag
+    triggers `docker-build` (`on: push: tags: 'v*'`), which pushes `:<tag>` and `:latest` images; that is the
+    stated intent, and GitHub's tag creation was not exercised.
+  - **Cargo and package metadata:** `src-tauri/Cargo.toml:2-5` (`name = "risuai"`, `version = "0.0.0"`,
+    `description = "A Tauri App"`, `authors = ["you"]`) and `package.json:2,4` (`risuai`, `1.0.0`). Placeholder
+    metadata; not shown to users as far as the survey traced.
+  - **The legal flag in the desktop release workflow:** the release step reads
+    `VITE_RISU_LEGAL_CONFIGURED: ${{ vars.VITE_RISU_LEGAL_CONFIGURED }}` (`github-actions-builder.yml:69`, with a
+    comment at `:67-68`), an opt-in repository variable that is empty by default, as `docker-build.yml` does
+    (`712a76ad`). Until the maintainer's own Terms of Service and Privacy Policy exist the variable stays unset,
+    so a release build keeps the legal-documents notice (`MC-155`). The workflow set `'TRUE'` before
+    `712a76ad`, as upstream's did.
+  - **No macOS or Windows signing secrets:** the repository's secret list on 2026-10-01 held no `APPLE_*` or
+    Windows code-signing entry, so macOS and Windows artifacts would be unsigned and not notarised (INFERRED
+    from the list; no release was built).
+- **`src-tauri/key.txt` is tracked, and its role is not established.** The file is tracked (`git ls-files`),
+  32 bytes by file size, and was added in `a1a38d5a` (2024-01-14, "Add Python server setup and dependencies
+  installation"), so its contents have been public since then. **The contents were not opened or quoted.** What
+  the source shows:
+  - the bundled local model server, `src-tauri/src-python/main.py:14-21`, reads `key.txt` from the folder
+    of `sys.executable`, and writes a `uuid.uuid4()` there first when the file does not exist; it rejects a
+    request whose `x-risu-auth` header differs from that key (`main.py:107-120`);
+  - `src-tauri/src-python/run.py:6-8` writes a new `uuid.uuid4().hex` to `key.txt` in the working directory
+    each time it starts;
+  - the app fetches `http://localhost:10026/`, which returns the key file's path (`main.py:32-34`), reads that
+    file with `readTextFile` and sends its content as `x-risu-auth` (`src/ts/process/models/local.ts:128-131`
+    and `:162`);
+  - neither script names `src-tauri/key.txt` by its repository path, and `bundle.resources` lists only
+    `src-python/*` (`tauri.conf.json:17-19`).
+
+  So a per-install key is generated when the file is absent. Whether the tracked file ever reaches an
+  install, and whether it is a key from a developer run of `run.py`, is **UNCERTAIN** (not traced). If it
+  does reach an install, that install would use a key that is public. A likely shape, not decided: stop
+  tracking the file, and confirm the packaged sidecar generates its own.
+- **CI caveat (Gate 2 N1, ledger row 537): a push to the `origin/main` mirror still runs upstream's old
+  workflows.** GitHub reads a push-event workflow file from the pushed commit, and `origin/main` (`669b12ce`)
+  holds upstream's `docker-build.yml` (push to `main`), `nightly-deploy.yml` and `codeql.yml`. They fired on
+  2026-09-16 to 2026-09-18, and `docker-build` published `ghcr.io/yor42/risuai:<sha>` images of upstream's code
+  on 2026-09-16 and 2026-09-18 (a 2026-09-17 run was cancelled after about six hours, per Gate 2); the
+  maintainer has since deleted those images (`MC-154` 2). The edited workflows apply only to refs that carry
+  the new files, so syncing the mirror (`git push origin upstream/main:main`) would publish an image again.
+  The fix was a maintainer action, not a code change. **Closed on 2026-10-01:** the maintainer deleted the
+  `main` branch on `origin` ("remote/main branch has been deleted, as its identical to upstream."), and a stale
+  branch holding an unrelated earlier performance fix; afterwards `git ls-remote --heads origin` listed only
+  `fix/persistence-conflict-platform-hardening`, the default branch. Pushing an upstream ref to a new branch
+  name on `origin` would bring the old workflow files back. A `v*` tag pushed from upstream's tag set would
+  also publish `:latest` of whatever commit it names; `origin` has no tags at all since the maintainer deleted
+  the 16 inherited ones (`git ls-remote --tags origin`, 2026-10-01).
+- **Placement:** not scheduled. It must close before the first release (`MC-089`). Step 5c and the rest of the
+  work order are unchanged.
+- **Related:** `MC-011`, `MC-085`, `MC-086`, `MC-087`, `MC-089`, `MC-092`, `MC-153`, `MC-154`, `MC-155`; CHORE-35;
+  ledger rows 536 to 539.
+
 ## Sequencing Summary
 
 ```

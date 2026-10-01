@@ -50,11 +50,21 @@ These later commits are local and not pushed:
 - `756e8210`: the step 5a records, CHORE-52 and CHORE-53 (`MC-148` to `MC-150`, ledger rows 521-526);
 - `448962f4`: memory stage 1 step 5b, Load Internal Backup writes the snapshot as the main save and
   reloads, instead of installing it in memory;
+- `57235222`: the records of the reroll bugs, CHORE-54 to CHORE-58, `MC-151` and QOL-04 to QOL-09 (by its
+  commit subject);
+- `712a76ad`: the CI and Docker rework (`MC-154`; ledger rows 536 and 537). The release step's legal flag now
+  reads the opt-in repository variable `VITE_RISU_LEGAL_CONFIGURED`, as `docker-build.yml` does (`MC-155`);
+- `38583d3b`: the desktop updater disable (`MC-154` 7; ledger rows 538 and 539);
 - the records commit that carries this file.
 
-Push only at the maintainer's request.
+Both of the last two were committed at the maintainer's approval ("commit the finished side works."). Push only
+at the maintainer's request.
 
-The working tree is otherwise clean.
+The working tree is not clean. It holds uncommitted work from this session: the step 5c work in progress (the
+untracked `src/ts/storage/bootArchivePass.ts`, `characterDefaults.ts` and the test files, and edits to
+`src/ts/bootstrap.ts`, `src/ts/process/coldstorage.svelte.ts` and `src/lang/en.ts`), and the 2026-10-01 edits
+to `README.md` and the `Agents/` records. The untracked `docs/` folder holds the maintainer's WIP Terms of
+Service and Privacy Policy templates; agents do not edit it (`MC-155` 4).
 
 ## Parallel sessions (2026-09-30)
 
@@ -68,8 +78,8 @@ Several sessions work **in this same checkout**:
   build"** and **"Fork rebranding exploration"** are idle or done; see Report 39/41 and ledger
   row 428.
 
-**Next free numbers:** `MC-152` (`MC-151` is used), Report 56, ledger row 534 and CHORE-59
-(`CHORE-58` is used). Check the ledger's last row before taking one. `MC-114` and ledger rows 371-374 were reserved for W2c-a and left unused; nobody
+**Next free numbers:** `MC-156` (`MC-155` is used), Report 56, ledger row 541 and CHORE-61
+(`CHORE-60` is used). Check the ledger's last row before taking one. `MC-114` and ledger rows 371-374 were reserved for W2c-a and left unused; nobody
 should fill them.
 
 **Rules for every session:**
@@ -131,6 +141,14 @@ should fill them.
    Gate 2 is `opus-reviewer`).
    - **CHORE-16 PG-1 is done** (Report 54). The Wiki session has committed the Playground page
      (`wiki/Playground.md`, `6ad13bac`) to match it. The Main Campaign session does not touch `wiki/**`.
+   - **A CI/Docker rework and the desktop updater disable are committed** (`712a76ad` and `38583d3b`;
+     `MC-154`; ledger rows 536 to 539). The CI/Docker rework passed Gate 2 `[APPROVE]`; the updater disable
+     passed `[EDITORIAL]` and its correction is applied. Neither has had a real run: no Docker build, no PR
+     Check on GitHub, no desktop build or launch. The first manual run of PR Check is the first evidence that
+     the checks are green on Linux. The rest of the release identity is **CHORE-60** (open, not scheduled, a
+     release blocker). The legal flag stays unset in every build until the maintainer's own Terms of Service
+     and Privacy Policy exist (`MC-155`). The `origin/main` mirror that ran upstream's old workflows is
+     deleted, with a stale unrelated branch; `origin` holds only this branch (CHORE-60, 2026-10-01).
    - **CHORE-51 is filed** (DATA LOSS, open): the manual clean-up's keep set never reads chat units, so
      a unit named only by error text inside a chat unit is deleted and that chat's Retry then fails. It
      predates step 4. The new pure `listInnerColdStorageKeys` in `coldstorageData.ts` is written so the
@@ -157,7 +175,12 @@ should fill them.
        [EDITORIAL] (ledger row 527); Gate 2 `opus-reviewer` round 1 [REJECT], round 2 [APPROVE] (row 530).
      - **5c:** the boot pass (exclusive hold, fenced commit, the one-time notice, the D1 capability gate,
        `uuid` unit ids, an optional `enableRemoteSaving` encoder input, no commit when nothing changed,
-       no pass on backup-fallback boots).
+       no pass on backup-fallback boots). **Gate 1 is closed** (`opus-reviewer`: round 1 `[REJECT]`, round 2
+       `[EDITORIAL]`; ledger rows 534 and 535; the plan is `step5/5c/plan.md` in the session scratchpad,
+       sections 8 and 9 hold the dispositions). **The red tests are done** (76 red tests and 52 guards; the
+       Orchestrator re-ran them) and **the implementation is in progress.** The test files are untracked, under
+       `src/ts/storage/tests/`, `src/ts/bootstrap.archivePass*.test.ts` and `src/ts/process/tests/`. Gate 2 is
+       `opus-reviewer`.
      - **5d:** the D18 breaker, the `MC-148` enrichment, the "unavailable" wording and the user docs.
      The plan working copies and gate records are in the session scratchpad (`step5/`); the step 5
      report records the Orchestrator's own implementation calls.
@@ -211,8 +234,10 @@ should fill them.
       loss, save path inferred). The maintainer placed both right after CHORE-53 (ledger row 528;
       `MC-151` 3, "Right after CHORE-53"). The Orchestrator's recommendation (CHORE-54) is to fix them in
       one change, because both live in the reroll history's ownership;
-   4. then **CHORE-51** (DATA LOSS), **CHORE-52** (the unvalidated cold-storage key) and **CHORE-55**
-      (Tauri main-file writes are not atomic), each its own change with its own gates. The maintainer
+   4. then **CHORE-51** (DATA LOSS), **CHORE-52** (the unvalidated cold-storage key), **CHORE-55**
+      (Tauri main-file writes are not atomic) and **CHORE-59** (Load Internal Backup offers to load the
+      intact data of a partly damaged snapshot; `MC-152`; placement is the Orchestrator's choice), each
+      its own change with its own gates. The maintainer
       asked on 2026-10-01 for CHORE-51 and CHORE-52 to be added to the work order; their position is
       the Orchestrator's choice. Neither depends on step 5 or step 6, and CHORE-51 is DATA LOSS, so it
       should not wait behind the idle reload and the measurements. CHORE-55 goes in this stretch by
@@ -239,6 +264,11 @@ Not placed in the sequence:
 - **CHORE-46** (the Node server's 100 MB body limit): re-measure after stage 1 (Report 49).
 - **CHORE-48** (inlays are never backed up): waits for the maintainer's answer.
 - **CHORE-49** (the Node server does not boot over plain HTTP; `MC-144`): filed, not scheduled.
+- **CHORE-60** (release identity: the desktop build still carries upstream's identity; the updater part is
+  done and committed as `38583d3b`; the rest has no decision): open, not scheduled. It must close before the
+  first release (`MC-089`). Its release blockers include the maintainer's own Terms of Service and Privacy
+  Policy with the legal flag then set (`MC-155`). The 16 inherited upstream pre-releases and their tags were
+  deleted by the maintainer on 2026-10-01; `origin` now has no release and no tag.
 - **CHORE-56** (under the beta mobile layout, a touch that ends on a button, input, select or textarea
   throws a TypeError in the swipe handler): suspected; TRACED, not run. The maintainer has not yet
   confirmed or placed it.
@@ -292,9 +322,33 @@ Not placed in the sequence:
    - odd `risuext` extension names;
    - the "missing" wording;
    - a partial file after an entry of 4 GiB or more.
-7. **Internal backup load refuses a snapshot with a damaged or missing block as a whole.** Offer "load
-   without the N affected characters" instead? (Gate 1 round 2 N1 of step 5b, ledger row 527; a product
-   trade-off.)
+Answered on 2026-10-01 and removed from this list:
+- the internal backup load refuses a snapshot with a damaged or missing block as a whole (it was item 7). The
+  maintainer wants an option to load the intact data (`MC-152`); filed as CHORE-59 and placed in the work
+  order;
+- whether the fork's own builds set `VITE_RISU_LEGAL_CONFIGURED` (it was item 8). The flag stays unset in every
+  build until the maintainer's own Terms of Service and Privacy Policy exist (`MC-155`); the Docker build and
+  both publishing workflows read it as an opt-in setting that is empty by default. The maintainer's answer
+  does not mention the investigation of every request the fork sends to upstream's servers that the
+  Orchestrator had offered.
+
+**Wiki session hand-off (no edit to `wiki/**` was made by this session).** Checked against source on 2026-10-01:
+- `wiki/Migrating-from-upstream.md` (the "In-place upgrades" section, and the earlier sentence about the same
+  server folder or Docker volume) describes swapping an upstream Docker install for this fork on the same
+  volume as a supported route (`MC-087` 1). The fork's default `docker-compose.yml` now uses its own project,
+  container and volume names (`risuai-fork`, `risuai-fork-save`; `MC-153` 2), so an upstream Docker volume is
+  opened in place only if the user points the compose file at it deliberately. The `save/` folder route on a
+  Node server is not affected.
+- `wiki/Settings-Backup-and-Files.md`, the Load Internal Backup row, says it installs the restored database,
+  shows "Loaded backup" and "does not reload the app". Since `448962f4`, `loadInternalBackup`
+  (`src/ts/drive/internalBackup.ts:154-180`) writes the snapshot as the main save and reloads the page (or
+  relaunches on Tauri). The Clean Unused Cold Storage row uses the old label; the English label is now "Clean
+  Unused Archived Data and Assets" (`cleanColdStorage` in `src/lang/en.ts`), and the clean-up also deletes
+  unused asset files and has more refusals (`src/ts/storage/manualCleanup.ts`, `currentRefusal`).
+- `wiki/Settings-Advanced.md`, the Cold Storage row, uses the old label, the root key `coldstorage` and the
+  old default. Since `33545c2c` the checkbox is "Archive characters at startup" (`coldStorage` in `en.ts`),
+  bound to `archiveCharacters` (absent or `true` means on; `src/ts/setting/advancedSettingsData.ts`, id
+  `adv.coldstorage`), and at HEAD nothing reads it, until the step 5c boot pass lands.
 
 ## Finished stages
 
