@@ -7,12 +7,12 @@ import {
     readDir,
     remove
 } from "@tauri-apps/plugin-fs"
-import { changeFullscreen, checkNullish, sleep } from "./util"
+import { changeFullscreen, checkNullish, sleep, sleepForever } from "./util"
 import { markAppInitiatedReload } from "./reloadGuard"
 import localforage from "localforage"
 import { v4 as uuidv4 } from 'uuid';
 import { get } from "svelte/store";
-import { setDatabase, defaultSdDataFunc, getDatabase } from "./storage/database.svelte";
+import { setDatabase, defaultSdDataFunc, getDatabase, type Database } from "./storage/database.svelte";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { checkRisuUpdate } from "./update";
 import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, alertStore } from "./stores.svelte";
@@ -35,6 +35,8 @@ import { getRemoteSaveCleanupAction, getRemoteSavePayloadName } from "./storage/
 import { sweepTauriAssets, sweepForageAssetKey } from "./storage/assetSweep";
 import { recordLoadTimeListing } from "./storage/loadTimeListing";
 import { noteMainFileBytes } from "./storage/mainFileRecord";
+import { openBootArchiveSession, type BootArchiveNotice, type BootArchiveOutcome, type BootArchiveSession } from "./storage/bootArchivePass";
+import { applyCharacterDefaults } from "./storage/characterDefaults";
 import { recordStartupCleanup } from "./storage/startupCleanupState";
 import { startAvatarThumbSweep } from "./media/avatarThumb";
 import {
@@ -77,6 +79,14 @@ function waitForAlertCleared(): Promise<void> {
 export async function loadData() {
     const loaded = get(loadedStore)
     if (!loaded) {
+        // Opened after the storage is ready and before the main file is read,
+        // and released on every path out of the read, decode and install below,
+        // including the error path: a hold kept past a failed boot would block
+        // the next tab at its own storage init.
+        let archiveSession: BootArchiveSession | null = null
+        // Posted right after the install, once the language is set, and each
+        // awaited until dismissed.
+        let archiveNotices: BootArchiveNotice[] = []
         try {
             if (isTauri) {
                 LoadingStatusState.text = "Checking Files..."
@@ -94,6 +104,8 @@ export async function loadData() {
                     await writeFile('database/database.bin', encodeRisuSaveLegacy({}), { baseDir: BaseDirectory.AppData });
                 }
                 const appDataDirPath = await appDataDir();
+                archiveSession = await openBootArchiveSession('tauri')
+                let outcome: BootArchiveOutcome | null = null
                 try {
                     LoadingStatusState.text = "Reading Save File..."
                     const dbPath = await join(appDataDirPath, 'database/database.bin');
@@ -107,9 +119,28 @@ export async function loadData() {
                     LoadingStatusState.text = "Cleaning Unnecessary Files..."
                     getDbBackups() //this also cleans the backups
                     LoadingStatusState.text = "Decoding Save File..."
-                    const decoded = await decodeRisuSave(readed)
-                    setDatabase(decoded)
+                    const decoded = await decodeMainFile(readed)
+                    outcome = await resolveArchiveOutcome(archiveSession, decoded, readed)
                 } catch (error) {
+                    outcome = null
+                }
+                if (outcome?.kind === 'stop') {
+                    throw outcome.error
+                }
+                if (outcome?.kind === 'install') {
+                    try {
+                        setDatabase(outcome.tree)
+                        if (outcome.noteBytes) {
+                            noteMainFileBytes(outcome.noteBytes)
+                        }
+                        archiveNotices = outcome.notices
+                    } catch (error) {
+                        console.error(error)
+                        outcome = null
+                    }
+                }
+                await archiveSession.release()
+                if (outcome?.kind !== 'install') {
                     LoadingStatusState.text = "Reading Backup Files..."
                     const backups = await getDbBackups()
                     let backupLoaded = false
@@ -137,6 +168,7 @@ export async function loadData() {
                         throw "Your save file is corrupted"
                     }
                 }
+                await postArchiveNotices(archiveNotices)
                 LoadingStatusState.text = "Checking Update..."
                 await checkRisuUpdate()
                 await changeFullscreen()
@@ -144,21 +176,51 @@ export async function loadData() {
             }
             else {
                 await forageStorage.Init()
+                archiveSession = await openBootArchiveSession('web')
+                if (archiveSession.reloading) {
+                    // The hold was refused because this page is reloading; the
+                    // reload discards this boot.
+                    await sleepForever()
+                }
 
                 LoadingStatusState.text = "Loading Local Save File..."
-                let gotStorage: Uint8Array = await forageStorage.getItem('database/database.bin') as unknown as Uint8Array
+                let gotStorage: Uint8Array | null = await forageStorage.getItem('database/database.bin') as unknown as Uint8Array | null
                 LoadingStatusState.text = "Decoding Local Save File..."
                 if (checkNullish(gotStorage)) {
                     gotStorage = encodeRisuSaveLegacy({})
                     await forageStorage.setItem('database/database.bin', gotStorage)
                 }
-                noteMainFileBytes(gotStorage)
+                noteMainFileBytes(gotStorage as Uint8Array)
+                let outcome: BootArchiveOutcome | null = null
                 try {
-                    const decoded = await decodeRisuSave(gotStorage)
-                    console.log(decoded)
-                    setDatabase(decoded)
+                    const decoded = await decodeMainFile(gotStorage as Uint8Array)
+                    // The file's bytes are not kept past the decode: the pass
+                    // exists to bring memory down, and the main-file record
+                    // keeps its own reference only until it has hashed them.
+                    gotStorage = null
+                    console.log(decoded.tree)
+                    outcome = await resolveArchiveOutcome(archiveSession, decoded)
                 } catch (error) {
                     console.error(error)
+                    outcome = null
+                }
+                if (outcome?.kind === 'stop') {
+                    throw outcome.error
+                }
+                if (outcome?.kind === 'install') {
+                    try {
+                        setDatabase(outcome.tree)
+                        if (outcome.noteBytes) {
+                            noteMainFileBytes(outcome.noteBytes)
+                        }
+                        archiveNotices = outcome.notices
+                    } catch (error) {
+                        console.error(error)
+                        outcome = null
+                    }
+                }
+                await archiveSession.release()
+                if (outcome?.kind !== 'install') {
                     const backups = await getDbBackups()
                     let backupLoaded = false
                     for (const backup of backups) {
@@ -195,6 +257,11 @@ export async function loadData() {
                     alertNormal(message)
                     await waitForAlertCleared()
                 }
+
+                // The archive pass's notices follow the notice above (each is
+                // awaited, so none overwrites another in the single alert slot)
+                // and come before anything else that can post an alert.
+                await postArchiveNotices(archiveNotices)
 
                 // I6: a returning RisuAccount-sync profile (AutoStorage.Init()
                 // detected `accountst === 'able'`) never boots past this point
@@ -332,11 +399,58 @@ export async function loadData() {
             void handlePendingRealmLink()
 
         } catch (error) {
+            await archiveSession?.release().catch(() => { })
             alertError(error)
         }
     }
 }
 
+/**
+ * The main file decoded for boot: strictly first, so that the boot archive
+ * pass only ever works on a complete reading of the file. A strict decode that
+ * fails falls back to the decode boot has always used, whose tree may be
+ * missing blocks, and which never goes through the pass.
+ */
+async function decodeMainFile(bytes: Uint8Array): Promise<{ tree: Database, strict: boolean }> {
+    try {
+        return { tree: await decodeRisuSave(bytes, { strict: true }), strict: true }
+    } catch (error) {
+        return { tree: await decodeRisuSave(bytes), strict: false }
+    }
+}
+
+/**
+ * What boot installs from a decoded main file. The pass runs only on a strict
+ * decode and never rejects; if it does anyway, the tree it was given is
+ * installed (the pass only swaps a slot for a stub after that slot's unit was
+ * verified, so that tree is always safe to install), never a backup.
+ */
+async function resolveArchiveOutcome(
+    session: BootArchiveSession,
+    decoded: { tree: Database, strict: boolean },
+    prePassBytes?: Uint8Array,
+): Promise<BootArchiveOutcome> {
+    if (!decoded.strict) {
+        await session.release()
+        return { kind: 'install', tree: decoded.tree, noteBytes: null, notices: [] }
+    }
+    try {
+        return await session.run({ tree: decoded.tree, prePassBytes })
+    } catch (error) {
+        console.error(error)
+        return { kind: 'install', tree: decoded.tree, noteBytes: null, notices: [] }
+    }
+}
+
+/** Posts each notice of the boot archive pass in order, awaiting its acknowledgement before the next. */
+async function postArchiveNotices(notices: readonly BootArchiveNotice[]) {
+    for (const notice of notices) {
+        alertNormal(notice.kind === 'archive-enabled'
+            ? language.archiveCharactersNotice(language.settings, language.advancedSettings, language.coldStorage)
+            : language.archiveCharactersStoppedNotice(notice.characterName))
+        await waitForAlertCleared()
+    }
+}
 
 /**
  * Registers the service worker and initializes it.
@@ -410,28 +524,7 @@ async function checkNewFormat(): Promise<void> {
         if (!v) {
             return null;
         }
-        v.chaId ??= uuidv4();
-        v.type ??= 'character';
-        v.chatPage ??= 0;
-        v.chats ??= [];
-        v.customscript ??= [];
-        v.firstMessage ??= '';
-        v.globalLore ??= [];
-        v.name ??= '';
-        v.viewScreen ??= 'none';
-        v.emotionImages = v.emotionImages ?? [];
-
-        if (v.type === 'character') {
-            v.bias ??= [];
-            v.characterVersion ??= '';
-            v.creator ??= '';
-            v.desc ??= '';
-            v.utilityBot ??= false;
-            v.tags ??= [];
-            v.systemPrompt ??= '';
-            v.scenario ??= '';
-        }
-        return v;
+        return applyCharacterDefaults(v);
     }).filter((v) => {
         return v !== null;
     });

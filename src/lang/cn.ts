@@ -29,8 +29,6 @@ export const languageChinese = {
         "requestLogRemoved": "该请求记录已被删除。",
         "requestLogRemovedDesc": "当客户端刷新或加载时，该请求记录会被删除。",
         "vertexAuthError": "Vertex AI 身份验证详情缺失。",
-        "coldStorageWriteFailed": "冷存储写入失败。您的聊天数据已被保留。",
-        "coldStorageVerifyFailed": "冷存储验证失败。您的聊天数据已被保留。",
         "coldStorageRestoreFailed": "无法加载冷存储数据。受影响角色的数据可能已永久丢失。",
         "coldStorageRestoreUnreadable": "暂时无法加载此角色。未做任何更改。请重试。",
         "coldStorageNamedRestoreFailed": (characterName: string) =>
@@ -1621,6 +1619,10 @@ export const languageChinese = {
     nanoGPTManualInput: "手动输入",
     nanoGPTManualModelSelect: "手动模式选择",
     "coldStorage": "启动时归档角色",
+    "archiveCharactersNotice": (settings: string, advancedSettings: string, toggle: string) =>
+        `为了保持较低的内存占用，本应用现在会在启动时将每个角色的完整数据单独存储，并仅在您打开该角色时才加载。不会删除任何内容，您的角色外观和使用方式与之前一致。您可以在 ${settings} > ${advancedSettings} > ${toggle} 中关闭此功能。关闭后不会再归档任何新角色，已归档的角色仍可正常打开。`,
+    "archiveCharactersStoppedNotice": (characterName: string) =>
+        `归档在角色"${characterName}"处停止，因为无法单独存储该角色的数据。该角色仍保留在主存档中，在它之前已归档的角色不受影响。其余角色保持原样。下次启动应用时会再次尝试归档。`,
     "cleanColdStorage": "清理未使用的归档数据和资源",
     "customSidebarConfig": "自定义侧边栏配置",
     "cleanColdStorageConfirm": "这将永久删除所有未使用的归档（冷存储）数据，以及所有未使用的资源文件，即不再被任何角色、模块、人设或设置使用的图片和音频。其中部分内容将来可能仍然有用，且删除后无法恢复。是否要继续？",

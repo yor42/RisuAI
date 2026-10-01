@@ -1,0 +1,553 @@
+/**
+ * The boot archive pass, failures and the first-run notice
+ * (`src/ts/storage/bootArchivePass.ts`): a failed unit write or read-back, a
+ * lost or rejected commit, a fault in the encoded bytes, a throw inside the
+ * pass, the re-read that follows, and the one-time `archiveCharacters` key
+ * and notice.
+ *
+ * The real `RisuSaveEncoder`, `decodeRisuSave`, `NodeStorage` and
+ * `createStorageTabLocks` are used; the Node server is `FakeNodeServer`, the
+ * web units go to an in-memory OPFS directory and the web locks to
+ * `FakeLockManagerCore` (see `bootArchivePassHarness.ts`). Faults are injected
+ * at the dependency seams (unit writer, main-file writer, encoder) or at the
+ * stand-in server's `fetch`. These tests exercise the pass against those
+ * in-memory models; they say nothing about the Tauri file system, the real
+ * Node server, or a browser's Web Locks. The Tauri tests cover the pass's own
+ * seams only (the write-back of the pre-pass bytes).
+ *
+ * Tests titled `guard:` assert that something does not happen; they pass with
+ * and without the pass and protect behaviour the pass must keep. The others
+ * assert behaviour only the pass has.
+ */
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
+import {
+    MAIN_KEY,
+    baseTree,
+    bootOnce,
+    bytesEqual,
+    chaIdsOf,
+    charactersOf,
+    encodeAsSaveDb,
+    fullCharacter,
+    installedTree,
+    jsonOf,
+    mainFileRequests,
+    makeTab,
+    worldFor,
+    writeLockIsFree,
+    type BootResult,
+    type RemoteLike,
+    type World,
+    type WorldHost,
+    type WorldKit,
+} from './bootArchivePassHarness'
+import { BLOCK, composeSave, type FakeNodeServer } from './manualCleanupHarness'
+
+const h = vi.hoisted(() => ({
+    platform: { isTauri: false, isNodeServer: false },
+    db: {} as Record<string, unknown>,
+    remote: null as RemoteLike | null,
+    keyPair: null as CryptoKeyPair | null,
+}))
+
+vi.mock('localforage', () => ({
+    default: {
+        createInstance: () => ({
+            getItem: vi.fn(async () => null),
+            setItem: vi.fn(async () => { }),
+            removeItem: vi.fn(async () => { }),
+        }),
+    },
+}))
+
+vi.mock(import('src/ts/platform'), () => ({
+    get isTauri() { return h.platform.isTauri },
+    get isNodeServer() { return h.platform.isNodeServer },
+    isIOS: () => false,
+}) as unknown as typeof import('src/ts/platform'))
+
+vi.mock(import('src/ts/storage/database.svelte'), () => ({
+    getDatabase: vi.fn(() => h.db),
+    presetTemplate: { name: 'test-preset' },
+}) as unknown as typeof import('src/ts/storage/database.svelte'))
+
+vi.mock(import('src/ts/globalApi.svelte'), () => ({
+    forageStorage: {
+        getItem: (key: string) => (h.remote as RemoteLike).getItem(key),
+        setItem: (key: string, value: Uint8Array) => (h.remote as RemoteLike).setItem(key, value),
+        keys: () => (h.remote as RemoteLike).keys(),
+    },
+    isPlainHttpFileSrc: vi.fn(() => false),
+}) as unknown as typeof import('src/ts/globalApi.svelte'))
+
+vi.mock('@tauri-apps/plugin-fs', () => ({
+    writeFile: vi.fn(),
+    exists: vi.fn(async () => false),
+    mkdir: vi.fn(),
+    readFile: vi.fn(),
+    BaseDirectory: { AppData: 0 },
+}))
+
+vi.mock(import('src/ts/util'), () => ({
+    base64url: (source: Uint8Array | ArrayBuffer) => Buffer.from(source as Uint8Array).toString('base64url'),
+    getKeypairStore: vi.fn(async () => {
+        h.keyPair ??= await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify'])
+        return h.keyPair
+    }),
+    saveKeypairStore: vi.fn(async () => { }),
+}) as unknown as typeof import('src/ts/util'))
+
+vi.mock(import('src/ts/alert'), () => ({
+    alertError: vi.fn(),
+    alertInput: vi.fn(),
+    waitAlert: vi.fn(async () => { }),
+}) as unknown as typeof import('src/ts/alert'))
+
+import { RisuSaveEncoder, decodeRisuSave } from 'src/ts/storage/risuSave'
+import { NodeStorage } from 'src/ts/storage/nodeStorage'
+import { openBootArchiveSession } from 'src/ts/storage/bootArchivePass'
+
+const kit: WorldKit = {
+    Encoder: RisuSaveEncoder,
+    decodeRisuSave: decodeRisuSave as WorldKit['decodeRisuSave'],
+    openBootArchiveSession,
+    NodeStorage: NodeStorage as unknown as WorldKit['NodeStorage'],
+    setRemote: (remote) => { h.remote = remote },
+}
+
+function useHost(host: WorldHost): void {
+    h.platform.isNodeServer = host === 'node'
+    h.platform.isTauri = host === 'tauri'
+}
+
+beforeEach(() => {
+    localStorage.clear()
+    h.platform.isNodeServer = false
+    h.platform.isTauri = false
+    h.db = {}
+    h.remote = null
+})
+
+afterEach(() => {
+    vi.unstubAllGlobals()
+})
+
+/** The encoder whose bytes lose a character block, as an encoder fault would. */
+class DroppingEncoder extends RisuSaveEncoder {
+    override encode(arg: { compression?: boolean } = {}) {
+        delete (this as unknown as { blocks: Record<string, Uint8Array> }).blocks['b']
+        return super.encode(arg)
+    }
+}
+
+/** The re-reads that return no bytes at all. */
+const NOTHING_READ: [string, () => Uint8Array | null | undefined][] = [
+    ['null', () => null],
+    ['undefined', () => undefined],
+    ['empty bytes', () => new Uint8Array(0)],
+]
+
+function threeCharacters(extra: Record<string, unknown> = {}) {
+    return baseTree([fullCharacter('a', 'A'), fullCharacter('b', 'B'), fullCharacter('c', 'C')], { archiveCharacters: true, ...extra })
+}
+
+async function boot(host: WorldHost, tree: ReturnType<typeof baseTree> = threeCharacters()): Promise<World> {
+    useHost(host)
+    return worldFor(kit, host, tree)
+}
+
+function mainFileKey(init?: RequestInit): string {
+    const filePath = (init?.headers as Record<string, string> | undefined)?.['file-path'] ?? ''
+    return Buffer.from(filePath, 'hex').toString('utf-8')
+}
+
+/** The Node server accepts the commit, then the response never reaches the client. */
+function loseCommitResponse(world: World): void {
+    const server = world.server as FakeNodeServer
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+        const response = await server.fetch(input, init)
+        if (String(input) === '/api/write' && mainFileKey(init) === MAIN_KEY) {
+            throw new TypeError('Failed to fetch')
+        }
+        return response
+    })
+}
+
+/** The Node server bumps the main file's revision, then fails the write with a 500. */
+function failCommitAfterRevisionBump(world: World): void {
+    const server = world.server as FakeNodeServer
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+        if (String(input) === '/api/write' && mainFileKey(init) === MAIN_KEY) {
+            server.revisions.set(MAIN_KEY, server.revisionOf(MAIN_KEY) + 1)
+            server.requests.push({ path: '/api/write', method: 'POST', headers: { 'file-path': (init?.headers as Record<string, string>)['file-path'] } })
+            return new Response('write failed', { status: 500 })
+        }
+        return server.fetch(input, init)
+    })
+}
+
+/** Another device saves the main file while the pass is writing its units. */
+async function peerWritesDuringPass(world: World): Promise<Uint8Array> {
+    const peerBytes = await encodeAsSaveDb(RisuSaveEncoder, baseTree([fullCharacter('peer', 'Peer')], { archiveCharacters: true }))
+    world.units.failWrite = (attempt) => {
+        if (attempt === 2) {
+            ;(world.server as FakeNodeServer).peerWrite(MAIN_KEY, peerBytes)
+        }
+        return undefined
+    }
+    return peerBytes
+}
+
+/** The main file is exactly what it was before the pass, and the installed tree holds every slot as a full character. */
+function expectOriginalInstalled(world: World, result: BootResult, original: Uint8Array) {
+    expect(world.mainWrites.length).toBe(0)
+    expect(bytesEqual(world.currentMain(), original)).toBe(true)
+    expect(result.outcome.kind).toBe('install')
+    const tree = installedTree(result.outcome)
+    expect(chaIdsOf(tree)).toEqual(['a', 'b', 'c'])
+    expect(charactersOf(tree).some((c) => !!c.coldstorage)).toBe(false)
+}
+
+describe('boot archive pass: a unit that cannot be written or read back', () => {
+    test.each(['node', 'opfs'] as const)('C1 (%s): a failed write at the second of three keeps the first archived and committed, leaves the others full and names the second', async (host) => {
+        const world = await boot(host)
+        world.units.failWrite = (attempt) => (attempt === 2 ? 'false' : undefined)
+
+        const result = await bootOnce(world)
+
+        const slots = charactersOf(installedTree(result.outcome))
+        expect(slots.map((c) => !!c.coldstorage)).toEqual([true, false, false])
+        expect(world.units.attempts).toBe(2)
+        expect(world.mainWrites.length).toBe(1)
+        const committed = await decodeRisuSave(world.mainWrites[0], { strict: true })
+        expect(charactersOf(committed).map((c) => !!c.coldstorage)).toEqual([true, false, false])
+        expect(result.outcome.kind === 'install' && result.outcome.notices).toEqual([{ kind: 'archive-stopped', characterName: 'B' }])
+    })
+
+    test.each([
+        ['another chaId', async () => ({ status: 'ok' as const, value: { character: { chaId: 'someone-else' } } })],
+        ['nothing at the key', async () => ({ status: 'missing' as const })],
+        ['an error', async () => ({ status: 'error' as const, error: new Error('read failed') })],
+    ])('C2: a read-back with %s at the second unit stops archiving there and leaves that character full', async (_label, answer) => {
+        const world = await boot('opfs')
+        let reads = 0
+        world.units.readOverride = async (_key, real) => {
+            reads++
+            return reads === 2 ? answer() : real()
+        }
+
+        const result = await bootOnce(world)
+
+        const slots = charactersOf(installedTree(result.outcome))
+        expect(slots.map((c) => !!c.coldstorage)).toEqual([true, false, false])
+        expect(world.units.attempts).toBe(2)
+        expect(world.mainWrites.length).toBe(1)
+        expect(result.outcome.kind === 'install' && result.outcome.notices).toEqual([{ kind: 'archive-stopped', characterName: 'B' }])
+    })
+})
+
+describe('boot archive pass: the commit on the Node server', () => {
+    test('C3: a peer writing the main file during the pass makes the commit conflict, and the app installs the peer file with the next write accepted', async () => {
+        const world = await boot('node')
+        const peerBytes = await peerWritesDuringPass(world)
+
+        const result = await bootOnce(world)
+
+        expect(world.units.writes.length).toBe(3)
+        expect(mainFileRequests(world.server as FakeNodeServer)).toEqual(['read', 'write', 'read'])
+        expect(chaIdsOf(installedTree(result.outcome))).toEqual(['peer'])
+        expect(charactersOf(installedTree(result.outcome)).some((c) => !!c.coldstorage)).toBe(false)
+        expect(bytesEqual(world.currentMain(), peerBytes)).toBe(true)
+        expect(result.outcome.kind === 'install' && bytesEqual(result.outcome.noteBytes, peerBytes)).toBe(true)
+        expect((await world.units.keys()).length).toBe(3)
+        await expect((world.nodeStorage as NonNullable<World['nodeStorage']>).setItem(MAIN_KEY, peerBytes)).resolves.toBeUndefined()
+    })
+
+    test('C4: a commit that fails with a 500 after the server bumped the revision is followed by a re-read, so the next write is not rejected', async () => {
+        const world = await boot('node')
+        const original = world.currentMain() as Uint8Array
+        failCommitAfterRevisionBump(world)
+
+        const result = await bootOnce(world)
+
+        expect(mainFileRequests(world.server as FakeNodeServer)).toEqual(['read', 'write', 'read'])
+        expect(chaIdsOf(installedTree(result.outcome))).toEqual(['a', 'b', 'c'])
+        expect(charactersOf(installedTree(result.outcome)).some((c) => !!c.coldstorage)).toBe(false)
+        expect(bytesEqual(world.currentMain(), original)).toBe(true)
+        vi.unstubAllGlobals()
+        vi.stubGlobal('fetch', (world.server as FakeNodeServer).fetch)
+        await expect((world.nodeStorage as NonNullable<World['nodeStorage']>).setItem(MAIN_KEY, original)).resolves.toBeUndefined()
+    })
+
+    test('guard: a pass that throws, followed by a re-read that throws, stops the boot with the error and writes nothing', async () => {
+        const world = await boot('node')
+        const original = world.currentMain() as Uint8Array
+        world.units.failWrite = (attempt) => (attempt === 2 ? 'throw' : undefined)
+        world.readQueue.push(async () => { throw 'getItem Error' })
+
+        const result = await bootOnce(world)
+
+        expect(result.outcome.kind).toBe('stop')
+        expect(world.mainWrites.length).toBe(0)
+        expect(bytesEqual(world.currentMain(), original)).toBe(true)
+        expect(world.releaseArgs).toEqual([undefined])
+        expect(await writeLockIsFree(world.tab as NonNullable<World['tab']>)).toBe(true)
+    })
+
+    test.each(NOTHING_READ)('guard: a rejected commit followed by a re-read that returns %s stops the boot on the Node server, writing nothing and releasing the hold', async (_label, answer) => {
+        const world = await boot('node')
+        const original = world.currentMain() as Uint8Array
+        world.failNextMainWrite = new Error('commit rejected')
+        world.readQueue.push(async () => answer())
+
+        const result = await bootOnce(world)
+
+        expect(result.outcome.kind).toBe('stop')
+        expect(world.mainWrites.length).toBe(0)
+        expect(bytesEqual(world.currentMain(), original)).toBe(true)
+        expect(world.releaseArgs).toEqual([undefined])
+        expect(await writeLockIsFree(world.tab as NonNullable<World['tab']>)).toBe(true)
+    })
+
+    test('C7: a re-read whose bytes do not decode leaves the decision to the backup-fallback path', async () => {
+        const world = await boot('node')
+        world.units.failWrite = (attempt) => (attempt === 2 ? 'throw' : undefined)
+        world.readQueue.push(async () => new Uint8Array([1, 2, 3, 4]))
+
+        const result = await bootOnce(world)
+
+        expect(result.outcome.kind).toBe('backup-fallback')
+        expect(world.mainWrites.length).toBe(0)
+    })
+})
+
+describe('boot archive pass: a pass that cannot commit installs the main file as it is', () => {
+    test('C5: guard: encoded bytes that lose a character block are never written and the original tree is installed', async () => {
+        const world = await boot('opfs')
+        const original = world.currentMain() as Uint8Array
+        world.deps.createEncoder = () => new DroppingEncoder()
+
+        const result = await bootOnce(world)
+
+        expectOriginalInstalled(world, result, original)
+    })
+
+    test.each(['node', 'opfs'] as const)('C6 (%s): guard: a throw inside the pass writes nothing, installs the original tree and never takes the backup path', async (host) => {
+        const world = await boot(host)
+        const original = world.currentMain() as Uint8Array
+        world.units.failWrite = (attempt) => (attempt === 2 ? 'throw' : undefined)
+
+        const result = await bootOnce(world)
+
+        expect(result.outcome.kind).not.toBe('backup-fallback')
+        expect(result.outcome.kind).not.toBe('stop')
+        expectOriginalInstalled(world, result, original)
+    })
+
+    test('C7: a rejected commit followed by a re-read that throws stops the boot with that error on web, writing nothing and releasing the hold', async () => {
+        const world = await boot('opfs')
+        const original = world.currentMain() as Uint8Array
+        world.failNextMainWrite = new Error('commit rejected')
+        const readError = new Error('storage read failed')
+        world.readQueue.push(async () => { throw readError })
+
+        const result = await bootOnce(world)
+
+        expect(result.outcome).toEqual({ kind: 'stop', error: readError })
+        expect(world.mainWrites.length).toBe(0)
+        expect(bytesEqual(world.currentMain(), original)).toBe(true)
+        expect(world.releaseArgs).toEqual([undefined])
+        expect(await writeLockIsFree(world.tab as NonNullable<World['tab']>)).toBe(true)
+    })
+
+    test.each(NOTHING_READ)('C7: a rejected commit followed by a re-read that returns %s stops the boot on web, writing nothing and releasing the hold', async (_label, answer) => {
+        const world = await boot('opfs')
+        const original = world.currentMain() as Uint8Array
+        world.failNextMainWrite = new Error('commit rejected')
+        world.readQueue.push(async () => answer())
+
+        const result = await bootOnce(world)
+
+        expect(result.outcome.kind).toBe('stop')
+        expect(world.mainWrites.length).toBe(0)
+        expect(bytesEqual(world.currentMain(), original)).toBe(true)
+        expect(world.releaseArgs).toEqual([undefined])
+        expect(await writeLockIsFree(world.tab as NonNullable<World['tab']>)).toBe(true)
+    })
+
+    test('a re-read that decodes only non-strictly is installed as it is, with no second pass over it', async () => {
+        const world = await boot('opfs')
+        world.units.failWrite = (attempt) => (attempt === 2 ? 'throw' : undefined)
+        const root = { formatversion: 5, archiveCharacters: true, __directory: ['preset', 'a', 'b', 'config'] }
+        const partial = await composeSave(new RisuSaveEncoder(), [
+            { name: 'root', type: BLOCK.ROOT, data: JSON.stringify(root) },
+            { name: 'preset', type: BLOCK.BOTPRESET, data: '[{"name":"p"}]' },
+            { name: 'a', type: BLOCK.CHARACTER_WITH_CHAT, data: JSON.stringify(fullCharacter('a', 'A')) },
+            { name: 'b', type: BLOCK.REMOTE, data: JSON.stringify({ v: 2, type: BLOCK.CHARACTER_WITH_CHAT, name: 'b', hash: '0123456789abcdef' }) },
+            { name: 'config', type: BLOCK.CONFIG, data: '{"version":1}' },
+        ])
+        await expect(decodeRisuSave(partial.bytes, { strict: true })).rejects.toBeDefined()
+        world.readQueue.push(async () => partial.bytes)
+
+        const result = await bootOnce(world)
+
+        expect(world.units.attempts).toBe(2)
+        expect(result.outcome.kind).toBe('install')
+        expect(chaIdsOf(installedTree(result.outcome))).toEqual(['a'])
+        expect(world.mainWrites.length).toBe(0)
+    })
+
+    test('C7: a re-read whose bytes do not decode on web falls to the backup path', async () => {
+        const world = await boot('opfs')
+        world.units.failWrite = (attempt) => (attempt === 2 ? 'throw' : undefined)
+        world.readQueue.push(async () => new Uint8Array([9, 9, 9, 9]))
+
+        const result = await bootOnce(world)
+
+        expect(result.outcome.kind).toBe('backup-fallback')
+        expect(world.mainWrites.length).toBe(0)
+    })
+})
+
+describe('boot archive pass: Tauri seams (in-memory model, not the native file system)', () => {
+    test('writes the pre-pass bytes back when the re-read does not decode, then installs what the file holds', async () => {
+        const world = await boot('tauri')
+        const original = world.currentMain() as Uint8Array
+        world.units.failWrite = (attempt) => (attempt === 2 ? 'throw' : undefined)
+        world.readQueue.push(async () => new Uint8Array([7, 7, 7, 7]))
+
+        const result = await bootOnce(world)
+
+        expect(world.mainWrites.length).toBe(1)
+        expect(bytesEqual(world.mainWrites[0], original)).toBe(true)
+        expect(result.outcome.kind).toBe('install')
+        expect(chaIdsOf(installedTree(result.outcome))).toEqual(['a', 'b', 'c'])
+        expect(charactersOf(installedTree(result.outcome)).some((c) => !!c.coldstorage)).toBe(false)
+    })
+
+    test.each([
+        ['returns nothing', async () => null],
+        ['throws', async () => { throw new Error('read failed') }],
+    ] as const)('guard: a re-read that %s is followed by the write-back of the pre-pass bytes, then the file is read once more', async (_label, answer) => {
+        const world = await boot('tauri')
+        const original = world.currentMain() as Uint8Array
+        world.units.failWrite = (attempt) => (attempt === 2 ? 'throw' : undefined)
+        world.readQueue.push(answer)
+
+        const result = await bootOnce(world)
+
+        expect(world.mainWrites.length).toBe(1)
+        expect(bytesEqual(world.mainWrites[0], original)).toBe(true)
+        expect(result.outcome.kind).toBe('install')
+        expect(chaIdsOf(installedTree(result.outcome))).toEqual(['a', 'b', 'c'])
+    })
+
+    test('takes the backup-fallback path when the re-read still does not decode after the write-back', async () => {
+        const world = await boot('tauri')
+        world.units.failWrite = (attempt) => (attempt === 2 ? 'throw' : undefined)
+        world.readQueue.push(async () => new Uint8Array([7, 7, 7, 7]), async () => new Uint8Array([7, 7, 7, 7]))
+
+        const result = await bootOnce(world)
+
+        expect(result.outcome.kind).toBe('backup-fallback')
+    })
+})
+
+type Arrange = (world: World) => Promise<void> | void
+
+const RELEASE_SCENARIOS: [string, WorldHost, Arrange][] = [
+    ['a failed unit write', 'opfs', (w) => { w.units.failWrite = (n) => (n === 2 ? 'false' : undefined) }],
+    ['a read-back of another chaId', 'opfs', (w) => { w.units.readOverride = async () => ({ status: 'ok', value: { character: { chaId: 'x' } } }) }],
+    ['encoded bytes that lose a block', 'opfs', (w) => { w.deps.createEncoder = () => new DroppingEncoder() }],
+    ['a throw inside the pass', 'opfs', (w) => { w.units.failWrite = (n) => (n === 2 ? 'throw' : undefined) }],
+    ['a re-read that finds nothing', 'opfs', (w) => { w.units.failWrite = (n) => (n === 2 ? 'throw' : undefined); w.readQueue.push(async () => null) }],
+    ['a rejected commit', 'opfs', (w) => { w.failNextMainWrite = new Error('commit rejected') }],
+    ['a peer write during the pass', 'node', async (w) => { await peerWritesDuringPass(w) }],
+    ['a failed commit on the Node server', 'node', (w) => { failCommitAfterRevisionBump(w) }],
+    ['a rejected commit followed by a web re-read that throws', 'opfs', (w) => { w.failNextMainWrite = new Error('commit rejected'); w.readQueue.push(async () => { throw new Error('read failed') }) }],
+    ['a Node re-read that throws', 'node', (w) => { w.units.failWrite = (n) => (n === 2 ? 'throw' : undefined); w.readQueue.push(async () => { throw 'getItem Error' }) }],
+]
+
+describe('boot archive pass: the hold is released on every failure path', () => {
+    test.each(RELEASE_SCENARIOS)('C8: guard: after %s the write lock is free, the hold was released with no argument and another tab can take presence', async (_label, host, arrange) => {
+        const world = await boot(host)
+        await arrange(world)
+
+        await bootOnce(world)
+
+        expect(world.releaseArgs.every((arg) => arg === undefined)).toBe(true)
+        expect(await writeLockIsFree(world.tab as NonNullable<World['tab']>)).toBe(true)
+        const other = makeTab(world.core, 'B')
+        const granted = await Promise.race([
+            other.locks.tabPresenceLockAcquired.then(() => true),
+            new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 400)),
+        ])
+        expect(granted).toBe(true)
+    })
+})
+
+describe('boot archive pass: the one-time key and notice', () => {
+    const HOSTS = ['node', 'opfs'] as const
+
+    test.each(HOSTS)('D1 (%s): with the key absent and nothing eligible, the pass commits the key, raises the notice once, and a second boot raises none', async (host) => {
+        const tree = baseTree([fullCharacter('t1', 'T1', { trashTime: 1 })])
+        useHost(host)
+        const world = await worldFor(kit, host, tree)
+
+        const first = await bootOnce(world)
+
+        expect(first.outcome.kind === 'install' && first.outcome.notices).toEqual([{ kind: 'archive-enabled' }])
+        expect(installedTree(first.outcome).archiveCharacters).toBe(true)
+        expect(world.units.writes.length).toBe(0)
+        expect(world.mainWrites.length).toBe(1)
+        const committed = await decodeRisuSave(world.mainWrites[0], { strict: true })
+        expect(committed.archiveCharacters).toBe(true)
+
+        const second = await bootOnce(world)
+
+        expect(second.outcome.kind === 'install' && second.outcome.notices).toEqual([])
+        expect(world.mainWrites.length).toBe(1)
+    })
+
+    test('D1: with the key absent and characters to archive, the one notice is the archive notice', async () => {
+        useHost('opfs')
+        const world = await worldFor(kit, 'opfs', baseTree([fullCharacter('a', 'A'), fullCharacter('b', 'B')]))
+
+        const result = await bootOnce(world)
+
+        expect(result.outcome.kind === 'install' && result.outcome.notices).toEqual([{ kind: 'archive-enabled' }])
+        expect(installedTree(result.outcome).archiveCharacters).toBe(true)
+    })
+
+    test.each(HOSTS)('D2 (%s): guard: a commit that fails and leaves the file without the key writes no key and raises no notice', async (host) => {
+        useHost(host)
+        const world = await worldFor(kit, host, baseTree([fullCharacter('a', 'A'), fullCharacter('b', 'B')]))
+        const original = world.currentMain() as Uint8Array
+        world.failNextMainWrite = new Error('commit rejected')
+
+        const result = await bootOnce(world)
+
+        expect(result.outcome.kind).toBe('install')
+        expect(result.outcome.kind === 'install' && result.outcome.notices).toEqual([])
+        expect(installedTree(result.outcome)).not.toHaveProperty('archiveCharacters')
+        expect(bytesEqual(world.currentMain(), original)).toBe(true)
+    })
+
+    test('D2: a commit that landed on the Node server but whose response was lost is installed from the re-read, with the notice and the next write accepted', async () => {
+        useHost('node')
+        const world = await worldFor(kit, 'node', baseTree([fullCharacter('a', 'A'), fullCharacter('b', 'B')]))
+        loseCommitResponse(world)
+
+        const result = await bootOnce(world)
+
+        expect(mainFileRequests(world.server as FakeNodeServer)).toEqual(['read', 'write', 'read'])
+        expect(installedTree(result.outcome).archiveCharacters).toBe(true)
+        expect(charactersOf(installedTree(result.outcome)).map((c) => !!c.coldstorage)).toEqual([true, true])
+        expect(result.outcome.kind === 'install' && result.outcome.notices).toEqual([{ kind: 'archive-enabled' }])
+        const landed = world.currentMain() as Uint8Array
+        expect(jsonOf(charactersOf(await decodeRisuSave(landed, { strict: true })))).toEqual(jsonOf(charactersOf(installedTree(result.outcome))))
+        vi.unstubAllGlobals()
+        vi.stubGlobal('fetch', (world.server as FakeNodeServer).fetch)
+        await expect((world.nodeStorage as NonNullable<World['nodeStorage']>).setItem(MAIN_KEY, landed)).resolves.toBeUndefined()
+    })
+})

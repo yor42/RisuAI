@@ -29,8 +29,6 @@ export const languageVietnamese = {
         "requestLogRemoved": "Nhật ký yêu cầu này đã bị xóa.",
         "requestLogRemovedDesc": "Nhật ký yêu cầu này sẽ bị xóa khi client được làm mới hoặc tải lại.",
         "vertexAuthError": "Thiếu thông tin xác thực Vertex AI.",
-        "coldStorageWriteFailed": "Ghi vào bộ nhớ lạnh thất bại. Dữ liệu trò chuyện của bạn đã được bảo toàn.",
-        "coldStorageVerifyFailed": "Xác minh bộ nhớ lạnh thất bại. Dữ liệu trò chuyện của bạn đã được bảo toàn.",
         "coldStorageRestoreFailed": "Không thể tải dữ liệu bộ nhớ lạnh. Dữ liệu của nhân vật bị ảnh hưởng có thể đã bị mất vĩnh viễn.",
         "coldStorageRestoreUnreadable": "Hiện không thể tải nhân vật này. Không có gì bị thay đổi. Hãy thử lại.",
         "coldStorageNamedRestoreFailed": (characterName: string) =>
@@ -1621,6 +1619,10 @@ export const languageVietnamese = {
     nanoGPTManualInput: "Nhập thủ công",
     nanoGPTManualModelSelect: "Chọn mô hình thủ công",
     coldStorage: "Lưu trữ nhân vật khi khởi động",
+    "archiveCharactersNotice": (settings: string, advancedSettings: string, toggle: string) =>
+        `Để giữ mức sử dụng bộ nhớ thấp, ứng dụng hiện lưu riêng toàn bộ dữ liệu của từng nhân vật khi khởi động và chỉ tải khi bạn mở nhân vật đó. Không có gì bị xóa, và các nhân vật của bạn trông và hoạt động như trước. Bạn có thể tắt tính năng này trong ${settings} > ${advancedSettings} > ${toggle}. Khi tắt, sẽ không có nhân vật mới nào được lưu trữ, và các nhân vật đã được lưu trữ vẫn mở bình thường.`,
+    "archiveCharactersStoppedNotice": (characterName: string) =>
+        `Việc lưu trữ đã dừng ở nhân vật "${characterName}" vì không thể lưu riêng dữ liệu của nhân vật này. Nhân vật đó vẫn nằm trong bản lưu chính, và các nhân vật đã được lưu trữ trước đó không bị ảnh hưởng. Các nhân vật còn lại được giữ nguyên. Ứng dụng sẽ thử lưu trữ lại vào lần khởi động tiếp theo.`,
     cleanColdStorage: "Dọn dẹp Dữ liệu Lưu trữ và Tệp Tài sản Không sử dụng",
     customSidebarConfig: "Cấu hình Thanh bên Tùy chỉnh",
     cleanColdStorageConfirm: "Thao tác này sẽ xóa vĩnh viễn toàn bộ dữ liệu lưu trữ (bộ nhớ lạnh) không sử dụng và toàn bộ tệp tài sản không sử dụng, tức là hình ảnh và âm thanh mà không nhân vật, mô-đun, persona hay cài đặt nào còn sử dụng. Một số có thể vẫn hữu ích trong tương lai, và không thể khôi phục. Bạn có muốn tiếp tục không?",

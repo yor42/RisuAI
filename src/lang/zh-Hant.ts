@@ -29,8 +29,6 @@ export const languageChineseTraditional = {
         "requestLogRemoved": "此請求記錄已被移除",
         "requestLogRemovedDesc": "重新整理或重新載入用戶端後，請求記錄會被移除",
         "vertexAuthError": "缺少 Vertex AI 驗證資訊",
-        "coldStorageWriteFailed": "冷儲存寫入失敗。您的對話資料已被保留",
-        "coldStorageVerifyFailed": "冷儲存驗證失敗。您的對話資料已被保留",
         "coldStorageRestoreFailed": "無法載入冷儲存資料。受影響角色的資料可能已永久遺失",
         "coldStorageRestoreUnreadable": "暫時無法載入此角色。未做任何變更。請再試一次。",
         "coldStorageNamedRestoreFailed": (characterName: string) =>
@@ -1667,6 +1665,10 @@ export const languageChineseTraditional = {
     "nanoGPTManualInput": "手動輸入",
     "nanoGPTManualModelSelect": "手動選擇模型",
     "coldStorage": "啟動時封存角色",
+    "archiveCharactersNotice": (settings: string, advancedSettings: string, toggle: string) =>
+        `為了維持較低的記憶體用量，本應用程式現在會在啟動時將每個角色的完整資料單獨儲存，並僅在您開啟該角色時才載入。不會刪除任何內容，您的角色外觀與運作方式都和以往相同。您可以在 ${settings} > ${advancedSettings} > ${toggle} 中關閉此功能。關閉後不會再封存任何新角色，已封存的角色仍可正常開啟。`,
+    "archiveCharactersStoppedNotice": (characterName: string) =>
+        `封存在角色「${characterName}」處停止，因為無法單獨儲存該角色的資料。該角色仍保留在主存檔中，在它之前已封存的角色不受影響。其餘角色維持原樣。下次啟動應用程式時會再次嘗試封存。`,
     "cleanColdStorage": "清理未使用的封存資料與資源",
     "customSidebarConfig": "自訂側邊欄配置",
     "cleanColdStorageConfirm": "這將永久刪除所有未使用的封存（冷儲存）資料，以及所有未使用的資源檔案，即不再被任何角色、模組、人設或設定使用的圖片和音訊。其中部分內容未來可能仍然有用，且刪除後無法復原。是否要繼續？",

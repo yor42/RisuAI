@@ -29,8 +29,6 @@ export const languageKorean = {
         "requestLogRemoved": "요청 로그가 삭제되었습니다.",
         "requestLogRemovedDesc": "요청 로그는 앱이 재시작되거나 새로고침되면 삭제됩니다.",
         "vertexAuthError": "Vertex AI 인증 정보가 누락되었습니다.",
-        "coldStorageWriteFailed": "콜드 스토리지 저장에 실패했습니다. 채팅 데이터는 보존되었습니다.",
-        "coldStorageVerifyFailed": "콜드 스토리지 검증에 실패했습니다. 채팅 데이터는 보존되었습니다.",
         "coldStorageRestoreFailed": "콜드 스토리지 데이터를 불러올 수 없습니다. 해당 캐릭터의 데이터가 영구적으로 손실되었을 수 있습니다.",
         "coldStorageRestoreUnreadable": "지금은 이 캐릭터를 불러올 수 없습니다. 변경된 내용은 없습니다. 다시 시도하세요.",
         "coldStorageNamedRestoreFailed": (characterName: string) =>
@@ -1621,6 +1619,10 @@ export const languageKorean = {
     nanoGPTManualInput: "수동 입력",
     nanoGPTManualModelSelect: "수동 모델 선택",
     coldStorage: "시작 시 캐릭터 보관",
+    "archiveCharactersNotice": (settings: string, advancedSettings: string, toggle: string) =>
+        `메모리 사용량을 낮게 유지하기 위해, 이 앱은 이제 시작할 때 각 캐릭터의 전체 데이터를 별도로 저장하고 해당 캐릭터를 열 때만 불러옵니다. 삭제되는 데이터는 없으며, 캐릭터는 이전과 동일하게 보이고 동작합니다. ${settings} > ${advancedSettings} > ${toggle}에서 이 기능을 끌 수 있습니다. 끄면 새로 보관되는 캐릭터는 없으며, 이미 보관된 캐릭터는 그대로 정상적으로 열립니다.`,
+    "archiveCharactersStoppedNotice": (characterName: string) =>
+        `"${characterName}" 캐릭터에서 보관이 중단되었습니다. 해당 캐릭터의 데이터를 별도로 저장할 수 없었기 때문입니다. 이 캐릭터는 기본 저장 데이터에 그대로 남아 있으며, 그 이전에 보관된 캐릭터에는 영향이 없습니다. 나머지 캐릭터는 그대로 두었습니다. 보관은 앱을 다음에 시작할 때 다시 시도됩니다.`,
     cleanColdStorage: "사용하지 않는 보관 데이터 및 에셋 정리",
     customSidebarConfig: "사이드바 커스텀 설정",
     cleanColdStorageConfirm: "이 작업은 사용하지 않는 모든 보관(콜드 스토리지) 데이터와 사용하지 않는 모든 에셋 파일(더 이상 어떤 캐릭터, 모듈, 페르소나, 설정에서도 사용하지 않는 이미지와 오디오)을 영구적으로 삭제합니다. 일부는 나중에 유용할 수 있으며, 삭제된 데이터는 복구할 수 없습니다. 계속하시겠습니까?",

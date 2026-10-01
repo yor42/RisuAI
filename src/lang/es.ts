@@ -29,8 +29,6 @@ export const languageSpanish = {
         "requestLogRemoved": "Este registro de solicitud ha sido eliminado.",
         "requestLogRemovedDesc": "Este registro de solicitud se elimina cuando el cliente se actualiza o recarga.",
         "vertexAuthError": "Faltan los detalles de autenticación de Vertex AI.",
-        "coldStorageWriteFailed": "Error al escribir en almacenamiento frío. Sus datos de chat se han conservado.",
-        "coldStorageVerifyFailed": "Error en la verificación del almacenamiento frío. Sus datos de chat se han conservado.",
         "coldStorageRestoreFailed": "No se pudieron cargar los datos del almacenamiento frío. Los datos del personaje afectado pueden haberse perdido permanentemente.",
         "coldStorageRestoreUnreadable": "No se pudo cargar este personaje en este momento. No se cambió nada. Inténtalo de nuevo.",
         "coldStorageNamedRestoreFailed": (characterName: string) =>
@@ -1621,6 +1619,10 @@ export const languageSpanish = {
     nanoGPTManualInput: "Entrada manual",
     nanoGPTManualModelSelect: "Selección manual de modelo",
     coldStorage: "Archivar personajes al iniciar",
+    "archiveCharactersNotice": (settings: string, advancedSettings: string, toggle: string) =>
+        `Para mantener bajo el uso de memoria, la aplicación ahora guarda por separado los datos completos de cada personaje al iniciar y los carga solo cuando abres ese personaje. No se elimina nada y tus personajes se ven y funcionan igual que antes. Puedes desactivarlo en ${settings} > ${advancedSettings} > ${toggle}. Si lo desactivas, no se archiva ningún personaje nuevo y los personajes ya archivados se siguen abriendo con normalidad.`,
+    "archiveCharactersStoppedNotice": (characterName: string) =>
+        `El archivado se detuvo en el personaje "${characterName}" porque sus datos no se pudieron guardar por separado. Ese personaje permanece en el guardado principal y los personajes archivados antes no se ven afectados. El resto de los personajes se dejó como estaba. El archivado se intentará de nuevo la próxima vez que se inicie la aplicación.`,
     cleanColdStorage: "Limpiar Datos Archivados y Activos No Utilizados",
     customSidebarConfig: "Configuración Personalizada de la Barra Lateral",
     cleanColdStorageConfirm: "Esto eliminará permanentemente todos los datos archivados (almacenamiento frío) no utilizados y todos los archivos de activos no utilizados, es decir, las imágenes y el audio que ya no usa ningún personaje, módulo, persona ni ajuste. Parte de ello podría ser útil en el futuro y no se puede recuperar. ¿Quieres continuar?",

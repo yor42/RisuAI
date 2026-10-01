@@ -29,8 +29,6 @@ export const languageGerman = {
         "requestLogRemoved": "Dieses Anfrage-Protokoll wurde entfernt.",
         "requestLogRemovedDesc": "Dieses Anfrage-Protokoll wird entfernt, wenn der Client aktualisiert oder neu geladen wird.",
         "vertexAuthError": "Vertex AI-Authentifizierungsdetails fehlen.",
-        "coldStorageWriteFailed": "Kaltlager-Schreibvorgang fehlgeschlagen. Ihre Chat-Daten wurden beibehalten.",
-        "coldStorageVerifyFailed": "Kaltlager-Überprüfung fehlgeschlagen. Ihre Chat-Daten wurden beibehalten.",
         "coldStorageRestoreFailed": "Kaltlagerdaten konnten nicht geladen werden. Die Daten des betroffenen Charakters können dauerhaft verloren sein.",
         "coldStorageRestoreUnreadable": "Dieser Charakter konnte gerade nicht geladen werden. Es wurde nichts verändert. Versuchen Sie es bitte erneut.",
         "coldStorageNamedRestoreFailed": (characterName: string) =>
@@ -1621,6 +1619,10 @@ export const languageGerman = {
     nanoGPTManualInput: "Manuelle Eingabe",
     nanoGPTManualModelSelect: "Manuelle Modellauswahl",
     "coldStorage": "Charaktere beim Start archivieren",
+    "archiveCharactersNotice": (settings: string, advancedSettings: string, toggle: string) =>
+        `Um den Speicherverbrauch niedrig zu halten, speichert die App nun beim Start die vollständigen Daten jedes Charakters separat und lädt sie erst, wenn Sie diesen Charakter öffnen. Es wird nichts gelöscht, und Ihre Charaktere sehen aus und funktionieren wie bisher. Sie können dies unter ${settings} > ${advancedSettings} > ${toggle} ausschalten. Wenn Sie es ausschalten, werden keine neuen Charaktere archiviert, und bereits archivierte Charaktere lassen sich weiterhin normal öffnen.`,
+    "archiveCharactersStoppedNotice": (characterName: string) =>
+        `Das Archivieren wurde beim Charakter „${characterName}" gestoppt, weil dessen Daten nicht separat gespeichert werden konnten. Dieser Charakter bleibt im Haupt-Speicherstand, und die davor archivierten Charaktere sind nicht betroffen. Die übrigen Charaktere wurden unverändert gelassen. Das Archivieren wird beim nächsten Start der App erneut versucht.`,
     "cleanColdStorage": "Nicht verwendete archivierte Daten und Assets bereinigen",
     "customSidebarConfig": "Benutzerdefinierte Seitenleisten-Konfiguration",
     "cleanColdStorageConfirm": "Dadurch werden alle nicht verwendeten archivierten Daten (Kaltlager) und alle nicht verwendeten Asset-Dateien dauerhaft gelöscht, also Bilder und Audiodateien, die kein Charakter, kein Modul, keine Persona und keine Einstellung mehr verwendet. Manches davon könnte in Zukunft noch nützlich sein, und es kann nicht wiederhergestellt werden. Möchten Sie fortfahren?",

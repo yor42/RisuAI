@@ -54,7 +54,7 @@ const checkedRemoteExistence = new Set<string>();
  * inline in several other files in this codebase (e.g. mcplib.ts,
  * filesystemclient.ts).
  */
-async function hashRemoteBlockContent(data: Uint8Array): Promise<string> {
+export async function hashRemoteBlockContent(data: Uint8Array): Promise<string> {
     const digest = await crypto.subtle.digest('SHA-256', data as BufferSource)
     return Array.from(new Uint8Array(digest))
         .map((b) => b.toString(16).padStart(2, '0'))
@@ -218,7 +218,7 @@ export type toSaveType = {
     pluginCustomStorage: boolean;
 }
 
-enum RisuSaveType {
+export enum RisuSaveType {
     CONFIG = 0,
     ROOT = 1,
     CHARACTER_WITH_CHAT = 2,
@@ -281,6 +281,18 @@ export class RisuSaveEncoder {
     // below. Recomputed from scratch every pass; a key leaves this set the
     // moment a pass sees it with fewer than two holders.
     private frozenKeys = new Set<string>();
+    // The `enableRemoteSaving` input of the last `init()`. When defined it
+    // decides, in `init()` and in every later `set()`, whether character
+    // blocks may be written remote, in place of the live database's own flag
+    // (which holds nothing before the boot has installed a database). Undefined
+    // when `init()` was given none.
+    private enableRemoteSaving: boolean | undefined = undefined;
+
+    private remoteSavingDisabled(): boolean {
+        return this.enableRemoteSaving === undefined
+            ? disableRemoteSaving()
+            : !this.enableRemoteSaving;
+    }
 
     /** A snapshot of the chaId keys currently frozen against a rewrite. */
     getFrozenKeys(): Set<string> {
@@ -300,7 +312,15 @@ export class RisuSaveEncoder {
          * through to a first-holder write. `previous` itself is never
          * written to.
          */
-        previous?: RisuSaveEncoder
+        previous?: RisuSaveEncoder,
+        /**
+         * Whether character blocks are written remote, for the encoder's
+         * whole life: used by this `init()` and by every later `set()`. When
+         * absent the live database's `enableRemoteSaving` decides at the time
+         * each block is encoded, as it always has. Remote blocks are still
+         * only ever written on Tauri and on the Node server.
+         */
+        enableRemoteSaving?: boolean
     } = {}){
         const {
             compression = false,
@@ -308,6 +328,7 @@ export class RisuSaveEncoder {
             previous
         } = arg;
         this.compression = compression;
+        this.enableRemoteSaving = arg.enableRemoteSaving;
         this.encodedCharacterProxies = new Set();
         let obj:Record<any,any> = {}
         let keys = Object.keys(data)
@@ -665,7 +686,7 @@ export class RisuSaveEncoder {
                     isNodeServer
                 )
             ) &&
-            !disableRemoteSaving()
+            !this.remoteSavingDisabled()
         ){
             return await this.encodeRemoteBlock(arg);
         }
@@ -839,6 +860,102 @@ export class RisuSaveEncoder {
     }
 }
 
+/** One block's framing fields, as `parseBlockHeader` reads them. */
+interface BlockHeader {
+    type: RisuSaveType;
+    compression: boolean;
+    name: string;
+    /** The payload's byte length. Not yet checked against the buffer. */
+    length: number;
+    /** The offset of the first payload byte. */
+    dataStart: number;
+}
+
+/**
+ * Reads the framing of the block that starts at `blockStart` (type,
+ * compression flag, name, payload length) and, for a checksummed file, verifies
+ * the header checksum before the length is trusted: if type, compression, name
+ * or length were corrupted, no later block can be located either, so a mismatch
+ * aborts decoding with a `CriticalBlockError` rather than being skipped. Does
+ * not check that the payload fits in `data`, and does not look at the payload.
+ */
+function parseBlockHeader(data: Uint8Array, blockStart: number, hasChecksums: boolean): BlockHeader {
+    let offset = blockStart;
+    const type = data[offset];
+    const compression = data[offset + 1] === 1;
+    offset += 2;
+
+    const nameLength = data[offset];
+    offset += 1;
+    const name = new TextDecoder().decode(data.subarray(offset, offset + nameLength));
+    offset += nameLength;
+
+    const newArrayBuf = new ArrayBuffer(4);
+    const lengthSubUint8Buf = data.slice(offset, offset + 4);
+    new Uint8Array(newArrayBuf).set(lengthSubUint8Buf);
+    const length = new Uint32Array(newArrayBuf)[0];
+    offset += 4;
+
+    if (hasChecksums) {
+        // Verified BEFORE `length` is trusted enough to slice out
+        // `data` — if type/compression/name/length were
+        // corrupted, we cannot know where this block (or
+        // any later one) actually ends, so this must abort
+        // decoding entirely rather than continue at a
+        // now-unreliable offset.
+        const headerSpan = data.subarray(blockStart, offset);
+        const storedHeaderChecksum = readUint32LE(data, offset);
+        offset += 4;
+        const actualHeaderChecksum = crc32(headerSpan);
+        if (actualHeaderChecksum !== storedHeaderChecksum) {
+            throw new CriticalBlockError(`Header checksum mismatch for block at offset ${blockStart} (claimed name "${name}", type ${type}) — this block's framing is corrupted; cannot safely continue decoding.`);
+        }
+    }
+    return { type, compression, name, length, dataStart: offset };
+}
+
+/** One block of an encoded save: its framing fields and a view (not a copy) of its payload. */
+export interface EncodedBlockView {
+    type: RisuSaveType;
+    compression: boolean;
+    name: string;
+    data: Uint8Array;
+}
+
+/**
+ * The blocks of a save this encoder wrote (header version 1, every block
+ * checksummed), in file order, as views into `data`. Read-only: no payload is
+ * decompressed, parsed or copied, and no remote file or block cache is read.
+ * Verifies each block's header checksum and that each block fits in the buffer;
+ * payload checksums are not recomputed. Throws on any other file.
+ */
+export function listEncodedBlocks(data: Uint8Array): EncodedBlockView[] {
+    if (
+        data.length < magicRisuSaveHeaderV2.length ||
+        magicRisuSaveHeaderV2.some((byte, i) => data[i] !== byte)
+    ) {
+        throw new Error('Not a checksummed RisuSave block file.');
+    }
+    const blocks: EncodedBlockView[] = [];
+    let offset = magicRisuSaveHeaderV2.length;
+    while (offset < data.length) {
+        const header = parseBlockHeader(data, offset, true);
+        const dataEnd = header.dataStart + header.length;
+        // The payload plus its own 4-byte checksum must fit.
+        if (dataEnd + 4 > data.length) {
+            throw new Error(`Block "${header.name}" (type ${header.type}) claims a length of ${header.length} bytes, which exceeds the remaining buffer.`);
+        }
+        blocks.push({
+            type: header.type,
+            compression: header.compression,
+            name: header.name,
+            data: data.subarray(header.dataStart, dataEnd),
+        });
+        offset = dataEnd + 4;
+    }
+    return blocks;
+}
+
 export class RisuSaveDecoder {
     private blocks: {
         name: string;
@@ -866,36 +983,9 @@ export class RisuSaveDecoder {
         while (offset < data.length) {
             const blockStart = offset;
             try {
-                const type = data[offset];
-                const compression = data[offset + 1] === 1;
-                offset += 2;
-
-                const nameLength = data[offset];
-                offset += 1;
-                const name = new TextDecoder().decode(data.subarray(offset, offset + nameLength));
-                offset += nameLength;
-
-                const newArrayBuf = new ArrayBuffer(4);
-                const lengthSubUint8Buf = data.slice(offset, offset + 4);
-                new Uint8Array(newArrayBuf).set(lengthSubUint8Buf);
-                const length = new Uint32Array(newArrayBuf)[0];
-                offset += 4;
-
-                if (this.hasChecksums) {
-                    // Verified BEFORE `length` is trusted enough to slice out
-                    // `data` below — if type/compression/name/length were
-                    // corrupted, we can no longer know where this block (or
-                    // any later one) actually ends, so this must abort
-                    // decoding entirely rather than continue at a
-                    // now-unreliable offset.
-                    const headerSpan = data.subarray(blockStart, offset);
-                    const storedHeaderChecksum = readUint32LE(data, offset);
-                    offset += 4;
-                    const actualHeaderChecksum = crc32(headerSpan);
-                    if (actualHeaderChecksum !== storedHeaderChecksum) {
-                        throw new CriticalBlockError(`Header checksum mismatch for block at offset ${blockStart} (claimed name "${name}", type ${type}) — this block's framing is corrupted; cannot safely continue decoding.`);
-                    }
-                }
+                const header = parseBlockHeader(data, blockStart, this.hasChecksums);
+                const { type, compression, name, length } = header;
+                offset = header.dataStart;
 
                 if (offset + length > data.length) {
                     throw new CriticalBlockError(`Block "${name}" (type ${type}) claims a length of ${length} bytes, which exceeds the remaining buffer — framing is corrupted; cannot safely continue decoding.`);

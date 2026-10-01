@@ -30,8 +30,6 @@ export const languageEnglish = {
         networkFetchPlain: "This can be a plain fetch error. try disabling force plain fetch option in settings.",
         requestLogRemoved: "This request log is removed.",
         requestLogRemovedDesc: "This request log removes when client is refreshed or reloaded.",
-        coldStorageWriteFailed: "Cold storage write failed. Your chat data has been preserved.",
-        coldStorageVerifyFailed: "Cold storage verification failed. Your chat data has been preserved.",
         coldStorageRestoreFailed: "Cold storage data could not be loaded. The affected character's data may be permanently lost.",
         coldStorageRestoreUnreadable: "This character could not be loaded right now. Nothing was changed. Please try again.",
         coldStorageNamedRestoreFailed: (characterName: string) =>
@@ -1765,6 +1763,10 @@ export const languageEnglish = {
     nanoGPTManualInput: "Manual Input",
     nanoGPTManualModelSelect: "Manual Model Select",
     coldStorage: "Archive characters at startup",
+    archiveCharactersNotice: (settings: string, advancedSettings: string, toggle: string) =>
+        `To keep memory use low, this app now stores each character's full data separately at startup and loads it only when you open that character. Nothing is deleted, and your characters look and work as before. You can turn this off in ${settings} > ${advancedSettings} > ${toggle}. Turning it off archives nothing new, and characters that are already archived still open normally.`,
+    archiveCharactersStoppedNotice: (characterName: string) =>
+        `Archiving stopped at the character "${characterName}" because its data could not be stored separately. That character stays in the main save, and the characters archived before it are not affected. The remaining characters were left as they are. Archiving is tried again the next time the app starts.`,
     cleanColdStorage: "Clean Unused Archived Data and Assets",
     customSidebarConfig: "Custom Sidebar Configuration",
     cleanColdStorageConfirm: "This will permanently delete all unused archived (cold storage) data and all unused asset files, meaning images and audio that no character, module, persona or setting uses any more. Some of it may still be useful in the future, and it cannot be recovered. Do you want to continue?",

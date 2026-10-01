@@ -277,7 +277,9 @@ async function compressColdStorageValue(value:any):Promise<Uint8Array | null> {
 }
 
 export async function setColdStorageItem(key:string, value:any):Promise<boolean> {
-    console.log("setting cold storage item", key, value)
+    // The key only: a unit holds a whole character, and a console keeps every
+    // logged object reachable for as long as it is open.
+    console.log("setting cold storage item", key)
 
     const compressed = await compressColdStorageValue(value)
     if(!compressed){
