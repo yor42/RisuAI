@@ -50,8 +50,8 @@ export function isColdChat(chat: Pick<Chat, 'message'> | null | undefined): bool
  * prefix/suffix text around an otherwise-exact match -- the captured key
  * text itself is never rejected by its format.
  */
-export function matchColdStorageLoadErrorKey(text: string | null | undefined): string | null {
-    if (!text) {
+export function matchColdStorageLoadErrorKey(text: unknown): string | null {
+    if (!text || typeof text !== 'string') {
         return null
     }
     if (!text.startsWith(coldStorageLoadErrorPrefix) || !text.endsWith(coldStorageLoadErrorSuffix)) {
@@ -233,6 +233,17 @@ export function getColdStorageBackupKey(name: string): string | null {
     return match?.[1] ?? null
 }
 
+/**
+ * True when a restore would place a unit under `key`, i.e. the entry name the
+ * backup writer produces for it is one `getColdStorageBackupKey` maps back to
+ * the same key. A key that fails this and was found inside an archive or named
+ * by load-error text is never read or written by a backup; the keys the
+ * database itself points at are read as listed.
+ */
+export function isRestorableColdStorageKey(key: string): boolean {
+    return getColdStorageBackupKey(getColdStorageBackupName(key)) === key
+}
+
 export function getColdStorageBackupName(key: string): string {
     return `coldstorage_${key}.json`
 }
@@ -247,19 +258,126 @@ export function isColdStorageBackupData(data: unknown): boolean {
         && ('character' in data || 'message' in data)
 }
 
+/**
+ * Whether a restore stores the parsed body of a backup entry as a unit.
+ * Under the name the backup writer produces (`coldstorage_<uuid>.json`) any
+ * JSON body is a unit: plugin storage holds values of every shape. Under any
+ * other accepted name (bare `<uuid>.json`, `coldstorage/<uuid>.json`) the body
+ * must still be chat or character shaped.
+ */
+export function isAcceptedColdStorageBackupEntry(name: string, data: unknown): boolean {
+    if (name.startsWith('coldstorage_') && getColdStorageBackupKey(name) !== null) {
+        return true
+    }
+    return isColdStorageBackupData(data)
+}
+
+export type ColdStorageInnerKey = {
+    key: string
+    kind: 'pointer' | 'errorText'
+}
+
+function classifyFirstMessage(message: unknown): ColdStorageInnerKey | null {
+    if (!message || typeof message !== 'object') {
+        return null
+    }
+    const data = (message as { data?: unknown }).data
+    if (typeof data !== 'string') {
+        return null
+    }
+    if (data.startsWith(coldStorageHeader)) {
+        return { key: data.slice(coldStorageHeader.length), kind: 'pointer' }
+    }
+    const errorKey = matchColdStorageLoadErrorKey(data)
+    return errorKey ? { key: errorKey, kind: 'errorText' } : null
+}
+
+function classifyChatFirstMessage(chat: unknown): ColdStorageInnerKey | null {
+    if (!chat || typeof chat !== 'object') {
+        return null
+    }
+    const message = (chat as { message?: unknown }).message
+    return Array.isArray(message) ? classifyFirstMessage(message[0]) : null
+}
+
+/**
+ * The cold-storage keys an archive value refers to: the pointer in, or the
+ * legacy load-error text naming, the first message of every chat it holds.
+ * Handles a character blob (`{character: {chats}}`), a chat unit
+ * (`{message: [...]}`) and a legacy bare message array. Total: whatever else
+ * the value holds, or however malformed an inner field is, that part
+ * contributes no key and nothing throws. A key reached both ways is a pointer.
+ */
+export function listInnerColdStorageKeys(value: unknown): ColdStorageInnerKey[] {
+    const found = new Map<string, ColdStorageInnerKey>()
+    const add = (inner: ColdStorageInnerKey | null) => {
+        if (inner && found.get(inner.key)?.kind !== 'pointer') {
+            found.set(inner.key, inner)
+        }
+    }
+
+    if (Array.isArray(value)) {
+        add(classifyFirstMessage(value[0]))
+    }
+    else if (value && typeof value === 'object') {
+        const archive = value as { character?: unknown, message?: unknown }
+        if (Array.isArray(archive.message)) {
+            add(classifyFirstMessage(archive.message[0]))
+        }
+        const character = archive.character
+        if (character && typeof character === 'object') {
+            const chats = (character as { chats?: unknown }).chats
+            if (Array.isArray(chats)) {
+                for (const chat of chats) {
+                    add(classifyChatFirstMessage(chat))
+                }
+            }
+        }
+    }
+    return Array.from(found.values())
+}
+
 function listColdDataKeysFromCharacter(character: character | groupChat): string[] {
     const keys: string[] = []
     if (character.coldstorage) {
         keys.push(character.coldstorage)
-        keys.push(...(character.coldStoragedChats ?? []))
+        if (Array.isArray(character.coldStoragedChats)) {
+            keys.push(...character.coldStoragedChats)
+        }
     }
-    for (const chat of character.chats ?? []) {
-        const firstMessage = chat.message?.[0]
-        if (firstMessage?.data?.startsWith(coldStorageHeader)) {
-            keys.push(firstMessage.data.slice(coldStorageHeader.length))
+    const chats: unknown = character.chats
+    if (Array.isArray(chats)) {
+        for (const chat of chats) {
+            const inner = classifyChatFirstMessage(chat)
+            if (inner?.kind === 'pointer') {
+                keys.push(inner.key)
+            }
         }
     }
     return keys
+}
+
+function listColdErrorKeysFromCharacter(character: character | groupChat): string[] {
+    const keys: string[] = []
+    const chats: unknown = character.chats
+    if (Array.isArray(chats)) {
+        for (const chat of chats) {
+            const inner = classifyChatFirstMessage(chat)
+            if (inner?.kind === 'errorText') {
+                keys.push(inner.key)
+            }
+        }
+    }
+    return keys
+}
+
+/** The unit ids the plugin storage mapping (`_coldplugin`) points at. */
+export function listColdPluginStorageKeys(db: Pick<Database, 'pluginCustomStorage'> | null | undefined): string[] {
+    const mapping: unknown = db?.pluginCustomStorage?._coldplugin
+    if (!mapping || typeof mapping !== 'object') {
+        return []
+    }
+    return Object.values(mapping).filter((key): key is string => typeof key === 'string')
 }
 
 export function listColdDataKeysFromDb(db: Pick<Database, 'characters'|'pluginCustomStorage'> | null | undefined): string[] {
@@ -273,18 +391,57 @@ export function listColdDataKeysFromDb(db: Pick<Database, 'characters'|'pluginCu
         }
     }
 
-    const coldPluginStorageKeys = (Object.values((db?.pluginCustomStorage?._coldplugin as {[key:string]:string}) ?? {}))
-
-    for(const key of coldPluginStorageKeys){
+    for (const key of listColdPluginStorageKeys(db)) {
         keys.add(key)
     }
 
     return Array.from(keys)
 }
 
+/**
+ * Where a backup starts reading from. `normal` roots are the keys the
+ * database points at (stub, `coldStoragedChats`, a live chat's pointer);
+ * `errorText` roots are the keys a live chat's legacy load-error text names;
+ * `plugin` roots are plugin storage units, whose content is carried but never
+ * searched for further references. `owner` is the display name of the
+ * character the root was found on.
+ */
+export type ColdBackupRoot = {
+    key: string
+    kind: 'normal' | 'errorText' | 'plugin'
+    owner?: string
+}
+
+function getColdStorageCharacterLabel(character: character | groupChat): string {
+    const name = typeof character.name === 'string' ? character.name.trim() : ''
+    const chaId = typeof character.chaId === 'string' ? character.chaId : ''
+    return name || chaId || language.errors.coldStorageUnknownCharacterName
+}
+
+export function listColdBackupRoots(db: Pick<Database, 'characters'|'pluginCustomStorage'> | null | undefined): ColdBackupRoot[] {
+    const roots: ColdBackupRoot[] = []
+    for (const character of db?.characters ?? []) {
+        if (!character) {
+            continue
+        }
+        const owner = getColdStorageCharacterLabel(character)
+        for (const key of listColdDataKeysFromCharacter(character)) {
+            roots.push({ key, kind: 'normal', owner })
+        }
+        for (const key of listColdErrorKeysFromCharacter(character)) {
+            roots.push({ key, kind: 'errorText', owner })
+        }
+    }
+    for (const key of listColdPluginStorageKeys(db)) {
+        roots.push({ key, kind: 'plugin' })
+    }
+    return roots
+}
+
 export function getColdStorageAffectedCharacters(
     db: Pick<Database, 'characters'> | null | undefined,
     unavailableKeys: Iterable<string>,
+    ownersByKey?: ReadonlyMap<string, readonly string[]>,
 ): {
     characterNames: string[]
     unresolvedKeys: string[]
@@ -307,7 +464,25 @@ export function getColdStorageAffectedCharacters(
         }
 
         if (isAffected) {
-            characterNames.push(character.name?.trim() || character.chaId || language.errors.coldStorageUnknownCharacterName)
+            characterNames.push(getColdStorageCharacterLabel(character))
+        }
+    }
+
+    // A key found only inside an archive, or named only by a live chat's
+    // load-error text, is not in any character's own list; the collector
+    // recorded which characters' roots and archives led to it.
+    if (ownersByKey) {
+        for (const key of targetKeys) {
+            const owners = resolvedKeys.has(key) ? undefined : ownersByKey.get(key)
+            if (!owners?.length) {
+                continue
+            }
+            resolvedKeys.add(key)
+            for (const owner of owners) {
+                if (!characterNames.includes(owner)) {
+                    characterNames.push(owner)
+                }
+            }
         }
     }
 

@@ -1049,14 +1049,15 @@ describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recover
         expect(afterItems).not.toContain(NEAR_MISS_KEY)
     })
 
-    test('a9 CHAR: collectColdStorageBackupPayloads ignores error-text keys, unaffected by stage 7a', async () => {
+    test("a9: collectColdStorageBackupPayloads carries the unit a live chat's legacy error text names", async () => {
         platformState.isTauri = false
         resetOpfs()
 
-        const REAL_KEY = 'a9-real-key'
+        // Real unit ids are UUIDs, the only names a restore places.
+        const REAL_KEY = '00000000-0000-4000-8000-0000000000a1'
         await setColdStorageItem(REAL_KEY, { message: [{ time: 1, data: 'kept', role: 'user' }] })
-        const ERROR_KEY = 'a9-error-key'
-        await setColdStorageItem(ERROR_KEY, { message: [{ time: 1, data: 'would be recoverable, but never a backup target', role: 'user' }] })
+        const ERROR_KEY = '00000000-0000-4000-8000-0000000000a2'
+        await setColdStorageItem(ERROR_KEY, { message: [{ time: 1, data: 'still referenced by the visible error text', role: 'user' }] })
 
         const db = makeDb([{
             chaId: 'a9-char',
@@ -1072,12 +1073,13 @@ describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recover
         const { payloads, missingKeys, invalidKeys } = await collectColdStorageBackupPayloads(db)
         const allSeenKeys = new Set([...payloads.map((p) => p.key), ...missingKeys, ...invalidKeys])
 
-        // CHAR: ERROR_KEY is never derived from an error-text message[0], so
-        // it never enters listColdDataKeys and never reaches the backup
-        // collector -- unaffected by stage 7a, which deliberately leaves
-        // backups untouched.
-        expect(allSeenKeys.has(ERROR_KEY)).toBe(false)
-        expect(allSeenKeys.has(REAL_KEY)).toBe(true)
+        // A chat whose message[0] holds the legacy error text still refers to
+        // ERROR_KEY's unit, so the backup carries it beside the pointer's unit.
+        expect(payloads.map((p) => p.key)).toContain(ERROR_KEY)
+        expect(payloads.map((p) => p.key)).toContain(REAL_KEY)
+        expect(allSeenKeys.size).toBe(2)
+        expect(missingKeys).toEqual([])
+        expect(invalidKeys).toEqual([])
     })
 })
 

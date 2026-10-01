@@ -15,7 +15,7 @@ import { compress as fflateCompress, decompress as fflateDecompress } from "ffla
 import { alertClear, alertConfirm, alertError, alertWait } from "../alert"
 import { language } from "src/lang"
 import type { Database, character, groupChat } from "../storage/database.svelte"
-import { coldStorageHeader, getColdStorageAffectedCharacters, getColdStorageBackupName, isColdStorageBackupData, listColdDataKeysFromDb, matchColdStorageLoadErrorKey, mergeRetriedColdChatSideFields } from "./coldstorageData"
+import { coldStorageHeader, getColdStorageAffectedCharacters, getColdStorageBackupName, isColdStorageBackupData, isRestorableColdStorageKey, listColdBackupRoots, listColdDataKeysFromDb, listInnerColdStorageKeys, matchColdStorageLoadErrorKey, mergeRetriedColdChatSideFields, type ColdBackupRoot } from "./coldstorageData"
 import { doingChat } from "./index.svelte"
 import { buildColdStub, isArchivableCharacter } from "./coldCharacter"
 import { hasEnabledV21Plugin } from "../plugins/v21Plugins"
@@ -248,10 +248,14 @@ async function readLocalColdStorageValue(key: string): Promise<ColdStorageReadRe
  * Classifies I/O and decoding only -- see `ColdStorageReadResult` above for
  * why there is no shape check here.
  *
- * `getColdStorageItem` above keeps its existing callers' behaviour,
- * including the `null`-on-any-failure shape `backuplocal.ts` expects.
- * `preLoadChat`, the plugin-storage bridge (`v3.svelte.ts`) and the manual
- * clean-up (`storage/manualCleanup.ts`) use this reader instead.
+ * `getColdStorageItem` above keeps the `null`-on-any-failure shape its
+ * callers (the asset keep-set scan, `resolveUncleanableChars` in
+ * `globalApi.svelte.ts`, and the write-then-verify steps in this file) rely
+ * on. `preLoadChat`, the
+ * plugin-storage bridge (`v3.svelte.ts`), the manual clean-up
+ * (`storage/manualCleanup.ts`), the backup collector
+ * (`collectColdStorageBackupPayloads`) and the restore's final check in
+ * `backuplocal.ts` use this reader instead.
  */
 export async function readColdStorageItem(key: string): Promise<ColdStorageReadResult> {
     return await readLocalColdStorageValue(key)
@@ -367,59 +371,232 @@ export async function listColdDataKeys(db: Pick<Database, 'characters'|'pluginCu
 export type ColdStorageBackupPayload = {
     key: string
     backupName: string
-    value: unknown
     encoded: Uint8Array
 }
 
-export async function collectColdStorageBackupPayloads(db: Pick<Database, 'characters'|'pluginCustomStorage'> = DBState.db): Promise<{
+export type ColdStorageBackupCollection = {
     payloads: ColdStorageBackupPayload[]
+    /** Keys the backup could not carry and the user must be told about. */
     missingKeys: string[]
     invalidKeys: string[]
-}> {
-    const coldKeys = await listColdDataKeys(db)
+    /** For each unavailable key, the display names of the characters whose live chats, stubs or archives led to it. */
+    owners?: Map<string, string[]>
+    /** Every key this collection carried or reported as unavailable. */
+    settledKeys?: Set<string>
+}
+
+export type ColdStorageBackupCollectOptions = {
+    /** Roots listed beforehand; listed from `db` when absent. */
+    roots?: ColdBackupRoot[]
+    /** Keys an earlier collection already settled; they are not read again. */
+    settledKeys?: ReadonlySet<string>
+}
+
+function addToSetMap(map: Map<string, Set<string>>, key: string, value: string): boolean {
+    let set = map.get(key)
+    if (!set) {
+        set = new Set()
+        map.set(key, set)
+    }
+    if (set.has(value)) {
+        return false
+    }
+    set.add(value)
+    return true
+}
+
+/**
+ * Carries every cold-storage unit the database refers to, and every unit
+ * those units refer to in turn (each key read once, one parsed value held at
+ * a time).
+ *
+ * A key reached by any pointer, stub, `coldStoragedChats` or plugin mapping
+ * is a normal key: when its unit is absent or invalid, the key is reported. A
+ * key reached only through legacy load-error text is left out silently when
+ * its unit is absent, and reported when its unit exists but cannot be read or
+ * is not chat or character shaped. A key found inside an archive or named by
+ * load-error text that a restore could not place is never read: it is reported
+ * when it was found as a pointer and left out when named by error text. The
+ * keys the database itself points at are read as listed.
+ */
+export async function collectColdStorageBackupPayloads(
+    db: Pick<Database, 'characters'|'pluginCustomStorage'> = DBState.db,
+    options: ColdStorageBackupCollectOptions = {},
+): Promise<ColdStorageBackupCollection> {
+    const roots = options.roots ?? listColdBackupRoots(db)
+    const alreadySettled = options.settledKeys
+
     const payloads: ColdStorageBackupPayload[] = []
-    const missingKeys: string[] = []
-    const invalidKeys: string[] = []
+    const queue: string[] = []
+    const scheduled = new Set<string>()
+    const normalKeys = new Set<string>()
+    // Keys whose unit is searched for further references; plugin storage content is not.
+    const searchable = new Set<string>()
+    const unplaceable = new Set<string>()
+    const absentKeys: string[] = []
+    const invalidUnitKeys: string[] = []
+    const unreadableKeys: string[] = []
+    const rootOwners = new Map<string, Set<string>>()
+    const references = new Map<string, string[]>()
 
-    for (const key of coldKeys) {
+    const schedule = (key: string) => {
+        if (scheduled.has(key) || alreadySettled?.has(key)) {
+            return
+        }
+        scheduled.add(key)
+        queue.push(key)
+    }
+
+    for (const root of roots) {
+        if (root.kind === 'errorText') {
+            if (!isRestorableColdStorageKey(root.key)) {
+                continue
+            }
+        } else {
+            normalKeys.add(root.key)
+        }
+        if (root.kind !== 'plugin') {
+            searchable.add(root.key)
+        }
+        if (root.owner) {
+            addToSetMap(rootOwners, root.key, root.owner)
+        }
+        schedule(root.key)
+    }
+
+    for (let i = 0; i < queue.length; i++) {
+        const key = queue[i]
+        let result: ColdStorageReadResult
         try {
-            const value = await getColdStorageItem(key)
-            if (!value) {
-                missingKeys.push(key)
-                continue
-            }
-
-            if (!isColdStorageBackupData(value)) {
-                invalidKeys.push(key)
-                continue
-            }
-
-            payloads.push({
-                key,
-                backupName: getColdStorageBackupName(key),
-                value,
-                encoded: new TextEncoder().encode(JSON.stringify(value))
-            })
+            result = await readColdStorageItem(key)
         } catch (error) {
-            console.error(`Failed to read cold storage item ${key}:`, error)
+            result = { status: 'error', error }
+        }
+
+        if (result.status === 'missing') {
+            absentKeys.push(key)
+            continue
+        }
+        if (result.status === 'error') {
+            console.error(`Failed to read cold storage item ${key}:`, result.error)
+            unreadableKeys.push(key)
+            continue
+        }
+
+        const value = result.value
+        const isSearchable = searchable.has(key)
+        if (isSearchable && !isColdStorageBackupData(value)) {
+            invalidUnitKeys.push(key)
+            continue
+        }
+
+        payloads.push({
+            key,
+            backupName: getColdStorageBackupName(key),
+            encoded: new TextEncoder().encode(JSON.stringify(value)),
+        })
+
+        if (!isSearchable) {
+            continue
+        }
+        let inner: ReturnType<typeof listInnerColdStorageKeys> = []
+        try {
+            inner = listInnerColdStorageKeys(value)
+        } catch (error) {
+            console.error(`Failed to list the units referred to by cold storage item ${key}:`, error)
+        }
+        if (inner.length > 0) {
+            references.set(key, inner.map((entry) => entry.key))
+        }
+        for (const entry of inner) {
+            if (entry.kind === 'pointer') {
+                normalKeys.add(entry.key)
+            }
+            if (isRestorableColdStorageKey(entry.key)) {
+                searchable.add(entry.key)
+                schedule(entry.key)
+            } else if (entry.kind === 'pointer') {
+                unplaceable.add(entry.key)
+            }
+        }
+    }
+
+    const missingKeys: string[] = []
+    const invalidKeys: string[] = [...invalidUnitKeys]
+    for (const key of absentKeys) {
+        if (normalKeys.has(key)) {
+            missingKeys.push(key)
+        }
+    }
+    missingKeys.push(...unreadableKeys)
+    for (const key of unplaceable) {
+        if (!scheduled.has(key) && !alreadySettled?.has(key)) {
             missingKeys.push(key)
         }
     }
 
-    return { payloads, missingKeys, invalidKeys }
+    const settledKeys = new Set<string>([...payloads.map((payload) => payload.key), ...missingKeys, ...invalidKeys])
+    const owners = missingKeys.length + invalidKeys.length > 0
+        ? resolveColdStorageOwners([...missingKeys, ...invalidKeys], rootOwners, references)
+        : undefined
+
+    return { payloads, missingKeys, invalidKeys, owners, settledKeys }
+}
+
+/**
+ * The characters whose roots lead to each of `keys`, following the references
+ * recorded while reading archives. Independent of the order keys were read in.
+ */
+function resolveColdStorageOwners(
+    keys: string[],
+    rootOwners: Map<string, Set<string>>,
+    references: Map<string, string[]>,
+): Map<string, string[]> {
+    const reached = new Map<string, Set<string>>()
+    for (const [key, names] of rootOwners) {
+        reached.set(key, new Set(names))
+    }
+    const pending = Array.from(reached.keys())
+    while (pending.length > 0) {
+        const key = pending.pop() as string
+        const names = reached.get(key)
+        const children = references.get(key)
+        if (!names || !children) {
+            continue
+        }
+        for (const child of children) {
+            let grew = false
+            for (const name of names) {
+                grew = addToSetMap(reached, child, name) || grew
+            }
+            if (grew) {
+                pending.push(child)
+            }
+        }
+    }
+
+    const owners = new Map<string, string[]>()
+    for (const key of keys) {
+        const names = reached.get(key)
+        if (names?.size) {
+            owners.set(key, Array.from(names))
+        }
+    }
+    return owners
 }
 
 export async function confirmIncompleteColdStorageOperation(
     db: Pick<Database, 'characters'>,
     unavailableKeys: Iterable<string>,
     operation: 'backup' | 'restore',
+    ownersByKey?: ReadonlyMap<string, readonly string[]>,
 ): Promise<boolean> {
     const uniqueUnavailableKeys = Array.from(new Set(unavailableKeys))
     if (uniqueUnavailableKeys.length === 0) {
         return true
     }
 
-    const affected = getColdStorageAffectedCharacters(db, uniqueUnavailableKeys)
+    const affected = getColdStorageAffectedCharacters(db, uniqueUnavailableKeys, ownersByKey)
     const characterNames = affected.characterNames.join(', ')
     const message = operation === 'backup'
         ? language.errors.coldStorageIncompleteBackupConfirm(

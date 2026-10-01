@@ -242,6 +242,7 @@ vi.mock(import('src/ts/process/coldstorage.svelte'), async () => {
     const { getColdStorageBackupKey } = await import('src/ts/process/coldstorageData')
     return {
         collectColdStorageBackupPayloads: vi.fn(async () => ({ payloads: [], missingKeys: [], invalidKeys: [] })),
+        readColdStorageItem: vi.fn(async () => ({ status: 'missing' })),
         confirmIncompleteColdStorageOperation: vi.fn(async () => true),
         getColdStorageBackupKey,
         getColdStorageItem: vi.fn(async () => null),
