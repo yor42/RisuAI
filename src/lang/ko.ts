@@ -41,6 +41,10 @@ export const languageKorean = {
             `플러그인을 위해 보관된 캐릭터를 불러오는 중... ${leftCount}개 남음`,
         "coldStoragePluginRestoreIncomplete": (characterNames: string) =>
             `모든 캐릭터를 메모리에 불러와야 하는 플러그인이 활성화되어 있지만, 보관된 다음 캐릭터를 불러올 수 없었습니다: ${characterNames}. 이 캐릭터들은 보관된 상태로 남으므로 플러그인이 해당 데이터를 볼 수 없습니다.`,
+        "coldStorageGroupMembersNotLoaded": (characterNames: string) =>
+            `이 그룹의 보관된 다음 캐릭터를 불러올 수 없었습니다: ${characterNames}. 이 캐릭터들은 보관된 상태로 남으며, 새 채팅에서 첫 메시지가 표시되지 않으며, 그룹이 대화할 때 건너뜁니다.`,
+        "coldStorageDatasetExportSkipped": (characterNames: string) =>
+            `보관된 다음 캐릭터를 불러올 수 없어 데이터셋에 포함되지 않았습니다: ${characterNames}.`,
         "coldStorageUnknownCharacterName": "알 수 없는 캐릭터",
         "coldStorageIncompleteBackupConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
             `${characterNames || "알 수 없는 캐릭터"}의 콜드 스토리지 데이터가 없거나 손상되었습니다.${unresolvedCount > 0 ? ` 데이터를 확인할 수 없는 항목이 ${unresolvedCount}개 있습니다.` : ""}\n\n계속하면 이 백업에서 콜드 스토리지 항목 ${unavailableCount}개가 누락되며, 해당 캐릭터 또는 채팅 데이터를 이 백업으로 복구하지 못할 수 있습니다.\n\n그래도 불완전한 백업을 생성하시겠습니까?`,
@@ -1647,12 +1651,14 @@ export const languageKorean = {
     possibleAssetCorruptionToast: (target: string) => `에셋 손상이 의심됩니다 (${target}). 백업 & 파일 → 에셋 캐시 무결성에서 확인하세요.`,
     assetIntegrityNoAssets: "확인할 에셋이 없습니다.",
     assetIntegrityVerifyingProgress: (done: number, total: number) => `에셋 캐시 검증 중... (${done} / ${total})`,
+    assetIntegrityReadingArchivedProgress: (done: number, total: number) => `보관된 캐릭터 읽는 중... (${done} / ${total})`,
     assetIntegrityUnsupported: "이 브라우저는 여기 필요한 검사를 지원하지 않습니다 (Cache API를 사용할 수 없음).",
     assetIntegrityEvictConfirm: (count: number) => `손상된 캐시 항목 ${count}개를 발견했습니다. 지금 캐시에서 제거하시겠습니까? 수정 사항을 적용하려면 이후 페이지를 새로고침해야 합니다.`,
     assetIntegrityReportTitle: "## 에셋 캐시 무결성 보고서\n\n",
     assetIntegrityReportChecked: (checked: number, total: number) => `- 확인됨: ${checked} / ${total}\n`,
     assetIntegrityReportNotCached: (n: number) => `- 아직 캐시되지 않음 (정상, 문제 아님): ${n}\n`,
     assetIntegrityReportNotContentAddressed: (n: number) => `- 콘텐츠 주소 지정 방식이 아님 (이 방법으로는 검증 불가): ${n}\n`,
+    assetIntegrityReportArchivedNotChecked: (characterNames: string) => `- 에셋을 검사하지 못한 보관된 캐릭터 (데이터를 불러올 수 없음): ${characterNames}\n`,
     assetIntegrityReportMismatchCount: (n: number) => `- **불일치 발견: ${n}개**\n`,
     assetIntegrityReportEvicted: (n: number) => `\n손상된 캐시 항목 ${n}개를 제거했습니다. 수정 사항을 적용하려면 앱을 새로고침하세요.`,
     assetIntegrityReportLeftInCache: "\n요청하신 대로 캐시에 남겨두었습니다.",

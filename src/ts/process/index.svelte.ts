@@ -608,20 +608,15 @@ async function sendChatBody(chatProcessIndex = -1,arg:SendChatArg = {}, callCtx:
                 // would be a load-time cycle.
                 const { restoreColdCharacterByChaId } = await import('./coldMemberRestore')
                 if(!(await restoreColdCharacterByChaId(memberChaId))){
-                    const afterRestore = subject.resolve()
-                    if(!afterRestore){
+                    if(!subject.resolve()){
                         return endGone()
                     }
-                    // A member deleted, or taken out of the group, while being
-                    // restored has no turn; only a failure for a member who
-                    // still exists stops the group. The restore shows its own
-                    // alert for the failures it reports; a member whose only
-                    // holder now points at another unit stops the turn silently.
-                    if(afterRestore.owner.type !== 'group' || !afterRestore.owner.characters.includes(memberChaId)
-                        || !DBState.db.characters.some((c) => c.chaId === memberChaId)){
-                        return true
-                    }
-                    return false
+                    // A member that could not be restored has no turn, whether
+                    // it was deleted or taken out of the group meanwhile (no
+                    // alert) or its archive failed (`restoreColdCharacterByChaId`
+                    // named it in an alert); the group's other members still
+                    // speak, and a later turn tries the restore again.
+                    return true
                 }
                 if(!subject.resolve()){
                     return endGone()

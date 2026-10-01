@@ -731,6 +731,25 @@ await Risuai.setDatabaseLite(db);
 
 `getDatabase()` returns `null` if the user has not granted database access consent.
 
+**Fork-specific note (not upstream RisuAI):** a character can be archived. As upstream does, `getDatabase()` returns a placeholder for an archived character, not its data. A placeholder has `coldstorage` set (truthy). Every placeholder carries its real `name`, `image` and `chaId`, `coldstorage`, and one empty dummy chat. Placeholders built by this fork also carry `lastInteraction` and `trashTime` when they are set, a shortened description in `creatorNotes`, the real chat count in `coldChatCount`, a real `type`, and a group's `characters`. Placeholders made by upstream RisuAI, which a save brought over from upstream may contain, carry only the first set, plus internal fields (`chatPage`, `firstMsgIndex`, `coldStoragedChats`), and their `type` is always `'character'`, even for a group. Do not rely on the fork-only fields being present. Treat any element with `coldstorage` set as a placeholder, and call `getCharacterFromIndex()` for its full data:
+
+```javascript
+const db = await Risuai.getDatabase(['characters']);
+if (!db) return;
+for (let i = 0; i < db.characters.length; i++) {
+  const entry = db.characters[i];
+  let full = entry;
+  if (entry.coldstorage) {
+    // Indices can shift between awaits, so check what you got back.
+    full = await Risuai.getCharacterFromIndex(i);
+    if (!full || full.chaId !== entry.chaId) continue;
+  }
+  // ...
+}
+```
+
+**Fork-specific note (not upstream RisuAI):** `setDatabase()` and `setDatabaseLite()` do not let a placeholder replace a character. If `characters` holds a placeholder that may not take the place, the call does not reject. It puts back the live character with the same `chaId` (matched by `chaId`, not by index), or leaves the placeholder out when no character in the list has that `chaId`, and logs a console warning. A placeholder is refused when the character with the same `chaId` is loaded in full, is archived under a different unit, or does not exist. A placeholder you read from `getDatabase()` and hand back unchanged is accepted while the live character is still archived under that unit, and so is a full character in place of a placeholder.
+
 **Allowed database keys:**
 - `characters`
 - `modules`
@@ -806,6 +825,12 @@ await Risuai.setChatToIndex(charIndex, chatIndex, chat);
 ```
 
 `chat.id` and a character's `chaId` must be unique across the database, so a copy of a chat or character passed to any of the APIs above must drop or regenerate them rather than carry over the original's. Keep the original `chat.id` or `chaId` when you are replacing that same chat or character; an object installed without one gets a fresh id, so it is treated as a different chat or character from anything that already existed.
+
+**Fork-specific note (not upstream RisuAI):** these calls treat an archived character (one whose entry in `getDatabase()` has `coldstorage` set) differently from upstream. A character can be archived.
+
+- `getCharacterFromIndex()` and `getChatFromIndex()` return the full data, read from the archive as an independent copy. The character is not loaded into the app. Upstream returns the placeholder: for `getChatFromIndex()`, its own dummy chat for chat index 0 and `null` for any other index. If the archive is missing, unreadable, or does not hold that character, the call rejects and the user sees one alert naming the character.
+- `setChatToIndex()` loads the character first, then writes to it. If the archive is missing, unreadable, or does not hold that character, nothing is written, the call rejects, and the user sees one alert naming the character. It also rejects if the character is no longer in the list or can no longer be loaded. As upstream does, an out-of-range chat index does nothing, so a call that resolves does not guarantee the write.
+- `setCharacter()` (and the legacy `setChar()`) and `setCharacterToIndex()` reject, and write nothing, when you pass a placeholder (`coldstorage` set) that may not take the place. A placeholder is refused when the character with the same `chaId` is loaded in full, is archived under a different unit, or does not exist. The same placeholder you read from `getDatabase()` is accepted while the live character is still archived under that unit, and so is a full character. An out-of-range index passed to `setCharacterToIndex()` does nothing and does not reject.
 
 ## Advanced Features
 

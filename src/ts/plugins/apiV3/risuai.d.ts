@@ -1328,6 +1328,14 @@ interface RisuaiPluginAPI {
      * char.name = 'New Name';
      * await risuai.setCharacter(char);
      * ```
+     *
+     * **Fork-specific note (not upstream RisuAI):** this rejects, and writes
+     * nothing, when `character` is an archived-character placeholder (`coldstorage`
+     * set) that may not take the place. A placeholder is refused when the
+     * character with the same `chaId` is loaded in full, is archived under a
+     * different unit, or does not exist. The same placeholder you read from
+     * `getDatabase` is accepted while the live character is still archived
+     * under that unit, and so is a full character.
      */
     setCharacter(character: any): Promise<void>;
 
@@ -1338,6 +1346,15 @@ interface RisuaiPluginAPI {
 
     /**
      * @deprecated Use setCharacter() instead
+     *
+     * **Fork-specific note (not upstream RisuAI):** this is the same call as
+     * `setCharacter`. It rejects, and writes nothing, when `character` is an
+     * archived-character placeholder (`coldstorage` set) that may not take the
+     * place. A placeholder is refused when the character with the same `chaId`
+     * is loaded in full, is archived under a different unit, or does not exist.
+     * The same placeholder you read from `getDatabase` is accepted while the
+     * live character is still archived under that unit, and so is a full
+     * character.
      */
     setChar(character: any): Promise<void>;
 
@@ -1345,6 +1362,13 @@ interface RisuaiPluginAPI {
      * Gets a character by index
      * @param index - Character index
      * @returns Character object or null if not found
+     *
+     * **Fork-specific note (not upstream RisuAI):** if the character is
+     * archived, this returns its full data, read from the archive as an
+     * independent copy. The character is not loaded into the app. Upstream
+     * returns the placeholder. If the archive is missing, unreadable, or does
+     * not hold that character, the promise rejects and the user sees one alert
+     * naming the character.
      */
     getCharacterFromIndex(index: number): Promise<any|null>;
 
@@ -1352,6 +1376,15 @@ interface RisuaiPluginAPI {
      * Saves a character at a specific index
      * @param index - Character index
      * @param character - Character object to save
+     *
+     * **Fork-specific note (not upstream RisuAI):** this rejects, and writes
+     * nothing, when `character` is an archived-character placeholder (`coldstorage`
+     * set) that may not take the place. A placeholder is refused when the
+     * character with the same `chaId` is loaded in full, is archived under a
+     * different unit, or does not exist. The same placeholder you read from
+     * `getDatabase` is accepted while the live character is still archived
+     * under that unit, and so is a full character. An out-of-range `index` does
+     * nothing and does not reject.
      */
     setCharacterToIndex(index: number, character: any): Promise<void>;
 
@@ -1360,6 +1393,14 @@ interface RisuaiPluginAPI {
      * @param characterIndex - Character index
      * @param chatIndex - Chat index
      * @returns Chat object or null if not found
+     *
+     * **Fork-specific note (not upstream RisuAI):** if the character is
+     * archived, the chat is read from its archive, as for
+     * `getCharacterFromIndex`, and the character is not loaded into the app.
+     * If the archive is missing, unreadable, or does not hold that character,
+     * the promise rejects and the user sees one alert naming the character.
+     * Upstream returns the placeholder's own dummy chat for chat index 0 and
+     * null for any other index.
      */
     getChatFromIndex(characterIndex: number, chatIndex: number): Promise<any|null>;
 
@@ -1409,6 +1450,15 @@ interface RisuaiPluginAPI {
      * @param characterIndex - Character index
      * @param chatIndex - Chat index
      * @param chat - Chat object to save
+     *
+     * **Fork-specific note (not upstream RisuAI):** if the character is
+     * archived, this loads it first and then writes to the loaded character. If
+     * the archive is missing, unreadable, or does not hold that character,
+     * nothing is written, the promise rejects, and the user sees one alert
+     * naming the character. It also rejects if the character is no longer in
+     * the list or can no longer be loaded. As upstream does, an out-of-range
+     * chat index does nothing, so a call that resolves does not guarantee the
+     * write.
      */
     setChatToIndex(characterIndex: number, chatIndex: number, chat: any): Promise<void>;
 
@@ -1507,18 +1557,57 @@ interface RisuaiPluginAPI {
      *   console.log(db.characters);
      * }
      * ```
+     *
+     * **Fork-specific note (not upstream RisuAI):** a character can be
+     * archived. As upstream does, `getDatabase` returns a placeholder for an
+     * archived character, not its data. A placeholder has `coldstorage` set
+     * (truthy). Every placeholder carries its real `name`, `image` and
+     * `chaId`, `coldstorage`, and one empty dummy chat. Placeholders built by
+     * this fork also carry `lastInteraction` and `trashTime` when they are
+     * set, a shortened description in `creatorNotes`, the real chat count in
+     * `coldChatCount`, a real `type`, and a group's `characters`.
+     * Placeholders made by upstream RisuAI, which a save brought over from
+     * upstream may contain, carry only the first set, plus internal fields
+     * (`chatPage`, `firstMsgIndex`, `coldStoragedChats`), and their `type` is
+     * always `'character'`, even for a group. Do not rely on the fork-only
+     * fields being present. Treat any element with `coldstorage` set as a
+     * placeholder, and call `getCharacterFromIndex` for its full data.
      */
     getDatabase(includeOnly:string[]|'all' = 'all'): Promise<DatabaseSubset|null>;
 
     /**
      * Sets the database (lightweight save)
      * @param db - DatabaseSubset object to save
+     *
+     * **Fork-specific note (not upstream RisuAI):** if `characters` holds an
+     * archived-character placeholder (an element with `coldstorage` set) that
+     * may not replace the live character, this call does not reject. It puts
+     * back the live character with the same `chaId` (matched by `chaId`, not by
+     * index), or leaves the placeholder out when no character in the list has
+     * that `chaId`, and logs a console warning.
+     * A placeholder is refused when the character with the same `chaId` is
+     * loaded in full, is archived under a different unit, or does not exist.
+     * A placeholder you read from `getDatabase` and hand back unchanged is
+     * accepted while the live character is still archived under that unit, and
+     * so is a full character in place of a placeholder.
      */
     setDatabaseLite(db: DatabaseSubset): Promise<void>;
 
     /**
      * Sets the database (full save with sync)
      * @param db - DatabaseSubset object to save
+     *
+     * **Fork-specific note (not upstream RisuAI):** if `characters` holds an
+     * archived-character placeholder (an element with `coldstorage` set) that
+     * may not replace the live character, this call does not reject. It puts
+     * back the live character with the same `chaId` (matched by `chaId`, not by
+     * index), or leaves the placeholder out when no character in the list has
+     * that `chaId`, and logs a console warning.
+     * A placeholder is refused when the character with the same `chaId` is
+     * loaded in full, is archived under a different unit, or does not exist.
+     * A placeholder you read from `getDatabase` and hand back unchanged is
+     * accepted while the live character is still archived under that unit, and
+     * so is a full character in place of a placeholder.
      */
     setDatabase(db: DatabaseSubset): Promise<void>;
 

@@ -300,14 +300,14 @@ describe('restoreColdCharacterByChaId', () => {
 })
 
 describe('restoreColdCharacterByChaId -- what the user is told', () => {
-    test('a missing unit shows the data-loss warning once', async () => {
+    test('a missing unit shows the data-loss warning once, naming the character', async () => {
         installDb([coldPlaceholder('member')])
         readColdStorageItemMock.mockResolvedValueOnce({ status: 'missing' })
 
         await restoreColdCharacterByChaId('member')
 
         expect(alertErrorMock).toHaveBeenCalledTimes(1)
-        expect(alertErrorMock).toHaveBeenCalledWith(language.errors.coldStorageRestoreFailed)
+        expect(alertErrorMock).toHaveBeenCalledWith(language.errors.coldStorageNamedRestoreFailed('member'))
     })
 
     test('a read error asks to try again and never claims the data may be lost', async () => {
@@ -316,11 +316,11 @@ describe('restoreColdCharacterByChaId -- what the user is told', () => {
 
         await restoreColdCharacterByChaId('member')
 
-        const unreadable = language.errors.coldStorageRestoreUnreadable
+        const unreadable = language.errors.coldStorageNamedRestoreUnreadable('member')
         expect(typeof unreadable).toBe('string')
         expect(alertErrorMock).toHaveBeenCalledTimes(1)
         expect(alertErrorMock).toHaveBeenCalledWith(unreadable)
-        expect(alertErrorMock).not.toHaveBeenCalledWith(language.errors.coldStorageRestoreFailed)
+        expect(alertErrorMock).not.toHaveBeenCalledWith(language.errors.coldStorageNamedRestoreFailed('member'))
     })
 
     test('a unit for another character is refused with an alert, and the log names both ids, the key and the name', async () => {
@@ -331,7 +331,7 @@ describe('restoreColdCharacterByChaId -- what the user is told', () => {
 
         expect(restored).toBe(false)
         expect(alertErrorMock).toHaveBeenCalledTimes(1)
-        expect(alertErrorMock).toHaveBeenCalledWith(language.errors.coldStorageRestoreFailed)
+        expect(alertErrorMock).toHaveBeenCalledWith(language.errors.coldStorageNamedRestoreFailed('Member Name'))
         expect(consoleErrorSpy).toHaveBeenCalled()
         const logged = loggedErrorText(consoleErrorSpy)
         expect(logged).toContain('member')
@@ -350,7 +350,7 @@ describe('restoreColdCharacterByChaId -- what the user is told', () => {
         expect(restored).toBe(false)
         expect(readColdStorageItemMock).not.toHaveBeenCalled()
         expect(alertErrorMock).toHaveBeenCalledTimes(1)
-        expect(alertErrorMock).toHaveBeenCalledWith(language.errors.coldStorageRestoreFailed)
+        expect(alertErrorMock).toHaveBeenCalledWith(language.errors.coldStorageNamedRestoreFailed('member'))
     })
 
     test('guard: the placeholder deleted during the read installs nothing and shows no alert', async () => {
@@ -447,7 +447,7 @@ describe('restoreColdCharacterByChaId -- who holds the chaId once the read is do
 
         expect(restored).toBe(false)
         expect(alertErrorMock).toHaveBeenCalledTimes(1)
-        expect(alertErrorMock).toHaveBeenCalledWith(language.errors.coldStorageRestoreFailed)
+        expect(alertErrorMock).toHaveBeenCalledWith(language.errors.coldStorageNamedRestoreFailed('member'))
         expect(DBState.db.characters.map((c) => c.chaId)).toEqual(['member', 'before', 'member', 'after'])
         expect((DBState.db.characters[0] as unknown as character).desc).toBe('the other holder')
         expect((DBState.db.characters[2] as unknown as character).coldstorage).toBe('cold-key-member')

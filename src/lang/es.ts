@@ -41,6 +41,10 @@ export const languageSpanish = {
             `Cargando personajes archivados para un plugin... quedan ${leftCount} elementos`,
         "coldStoragePluginRestoreIncomplete": (characterNames: string) =>
             `Hay un plugin habilitado que necesita todos los personajes en memoria, pero no se pudieron cargar estos personajes archivados: ${characterNames}. Siguen archivados, por lo que el plugin no verá sus datos.`,
+        "coldStorageGroupMembersNotLoaded": (characterNames: string) =>
+            `No se pudieron cargar estos personajes archivados de este grupo: ${characterNames}. Siguen archivados, no tienen primer mensaje en un chat nuevo y se omiten cuando el grupo habla.`,
+        "coldStorageDatasetExportSkipped": (characterNames: string) =>
+            `No se pudieron cargar estos personajes archivados y no están en el conjunto de datos: ${characterNames}.`,
         "coldStorageUnknownCharacterName": "Personaje desconocido",
         "coldStorageIncompleteBackupConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
             `Faltan datos del almacenamiento frío de ${characterNames || "personajes desconocidos"} o no son válidos.${unresolvedCount > 0 ? ` No se pudieron asociar ${unresolvedCount} elemento(s) con un personaje.` : ""}\n\nSi continúa, a esta copia de seguridad le faltarán ${unavailableCount} elemento(s) del almacenamiento frío y puede que no sea posible recuperar los datos de los personajes o chats afectados.\n\n¿Crear de todos modos la copia de seguridad incompleta?`,
@@ -1647,12 +1651,14 @@ export const languageSpanish = {
     possibleAssetCorruptionToast: (target: string) => `Se detectó posible corrupción de activos (${target}). Consulta Respaldo y Archivos → Integridad de la Caché de Activos.`,
     assetIntegrityNoAssets: "No hay activos que comprobar.",
     assetIntegrityVerifyingProgress: (done: number, total: number) => `Verificando caché de activos... (${done} / ${total})`,
+    assetIntegrityReadingArchivedProgress: (done: number, total: number) => `Leyendo personajes archivados... (${done} / ${total})`,
     assetIntegrityUnsupported: "Este navegador no admite la comprobación necesaria aquí (Cache API no disponible).",
     assetIntegrityEvictConfirm: (count: number) => `Se encontraron ${count} entradas de caché dañadas. ¿Deseas eliminarlas de la caché ahora? Después será necesario recargar la página para que la corrección surta efecto.`,
     assetIntegrityReportTitle: "## Informe de Integridad de la Caché de Activos\n\n",
     assetIntegrityReportChecked: (checked: number, total: number) => `- Comprobados: ${checked} / ${total}\n`,
     assetIntegrityReportNotCached: (n: number) => `- Aún no está en caché (normal, no es un problema): ${n}\n`,
     assetIntegrityReportNotContentAddressed: (n: number) => `- No direccionado por contenido (no se puede verificar de esta forma): ${n}\n`,
+    assetIntegrityReportArchivedNotChecked: (characterNames: string) => `- Personajes archivados cuyos activos no se comprobaron (no se pudieron cargar sus datos): ${characterNames}\n`,
     assetIntegrityReportMismatchCount: (n: number) => `- **Discrepancias encontradas: ${n}**\n`,
     assetIntegrityReportEvicted: (n: number) => `\nSe eliminaron ${n} entradas de caché dañadas. Recarga la aplicación para que la corrección surta efecto.`,
     assetIntegrityReportLeftInCache: "\nSe dejaron en la caché, tal como solicitaste.",

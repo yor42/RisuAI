@@ -712,7 +712,7 @@ describe('a by-chaId restore that joins a click restore of the same placeholder'
 
         expect(await byChaId).toBe(false)
         expect(vi.mocked(alertError)).toHaveBeenCalledTimes(1)
-        expect(vi.mocked(alertError)).toHaveBeenCalledWith(language.errors.coldStorageRestoreFailed)
+        expect(vi.mocked(alertError)).toHaveBeenCalledWith(language.errors.coldStorageNamedRestoreFailed('member name'))
         expect(get(selectedCharID)).toBe(1)
     })
 

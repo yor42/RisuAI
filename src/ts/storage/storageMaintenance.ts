@@ -12,14 +12,61 @@ import { language } from "src/lang"
 import localforage from "localforage"
 
 /**
+ * The assets the current database references, plus those of every archived
+ * character (a placeholder in `DBState.db.characters`), taken from a copy of
+ * its cold-storage unit read one at a time. Each copy is dropped after its
+ * assets are collected; the placeholders stay in their slots and nothing is
+ * marked for save. `unchecked` names the archived characters whose unit could
+ * not be read.
+ */
+async function collectIntegrityTargets(): Promise<{ targets: string[], unchecked: string[] }> {
+    const targets = new Set(getUncleanablesSync(DBState.db))
+    const unchecked: string[] = []
+    const archived = Array.from(DBState.db.characters ?? []).filter((c) => c.coldstorage)
+    if (archived.length === 0) {
+        return { targets: Array.from(targets), unchecked }
+    }
+    // Loaded only when an archived character exists, so the check does not
+    // load the cold-storage restore modules otherwise.
+    const { readColdCharacterCopy } = await import("../process/coldCharacterRestore")
+    try {
+        for (let i = 0; i < archived.length; i++) {
+            alertStore.set({ type: 'wait', msg: language.assetIntegrityReadingArchivedProgress(i, archived.length) })
+            const copy = await readColdCharacterCopy(archived[i])
+            if (copy.status !== 'ok') {
+                unchecked.push(archived[i].name || language.errors.coldStorageUnknownCharacterName)
+                continue
+            }
+            for (const target of getUncleanablesSync(DBState.db, { chars: [copy.character] })) {
+                targets.add(target)
+            }
+        }
+    } finally {
+        // The blocking 'wait' state is never left up, whatever happened above.
+        alertStore.set({ type: 'none', msg: '' })
+    }
+    return { targets: Array.from(targets), unchecked }
+}
+
+/**
  * Scans every asset the current database references against its own
  * content hash, and offers to evict any cached copy whose content does not match.
- * Read-only unless the user accepts the eviction confirm.
+ * Read-only unless the user accepts the eviction confirm. Archived characters
+ * are read as copies (see `collectIntegrityTargets`); the report names those
+ * that could not be.
  */
 export async function verifyAssetIntegrity(): Promise<void> {
-    const targets = getUncleanablesSync(DBState.db)
+    const { targets, unchecked } = await collectIntegrityTargets()
+    const uncheckedLine = unchecked.length > 0
+        ? language.assetIntegrityReportArchivedNotChecked(unchecked.join(', '))
+        : ''
     if (targets.length === 0) {
-        alertNormal(language.assetIntegrityNoAssets)
+        if (uncheckedLine) {
+            alertMd(language.assetIntegrityReportTitle + language.assetIntegrityNoAssets + '\n\n' + uncheckedLine)
+        }
+        else {
+            alertNormal(language.assetIntegrityNoAssets)
+        }
         return
     }
     let summary
@@ -68,6 +115,7 @@ export async function verifyAssetIntegrity(): Promise<void> {
     report += language.assetIntegrityReportChecked(summary.checked, targets.length)
     report += language.assetIntegrityReportNotCached(summary.notCached)
     report += language.assetIntegrityReportNotContentAddressed(summary.notContentAddressed)
+    report += uncheckedLine
     report += language.assetIntegrityReportMismatchCount(summary.mismatches.length)
     if (summary.mismatches.length > 0) {
         report += `\n`

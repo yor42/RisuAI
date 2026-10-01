@@ -42,6 +42,10 @@ export const languageEnglish = {
             `Loading archived characters for a plugin... ${leftCount} items left`,
         coldStoragePluginRestoreIncomplete: (characterNames: string) =>
             `A plugin that needs every character in memory is enabled, but these archived characters could not be loaded: ${characterNames}. They stay archived, so the plugin will not see their data.`,
+        coldStorageGroupMembersNotLoaded: (characterNames: string) =>
+            `These archived characters of this group could not be loaded: ${characterNames}. They stay archived, get no first message in a new chat, and are skipped when the group talks.`,
+        coldStorageDatasetExportSkipped: (characterNames: string) =>
+            `These archived characters could not be loaded and are not in the dataset: ${characterNames}.`,
         coldStorageUnknownCharacterName: "Unknown character",
         coldStorageIncompleteBackupConfirm: (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
             `Cold storage data for ${characterNames || "unknown characters"} is missing or invalid.${unresolvedCount > 0 ? ` ${unresolvedCount} item(s) could not be linked to a character.` : ""}\n\nIf you continue, this backup will be missing ${unavailableCount} cold storage item(s), and the affected character or chat data may not be recoverable from it.\n\nCreate the incomplete backup anyway?`,
@@ -1790,12 +1794,14 @@ export const languageEnglish = {
     possibleAssetCorruptionToast: (target: string) => `Possible asset corruption detected (${target}). Check Backup & Files → Asset Cache Integrity.`,
     assetIntegrityNoAssets: "No assets to check.",
     assetIntegrityVerifyingProgress: (done: number, total: number) => `Verifying asset cache... (${done} / ${total})`,
+    assetIntegrityReadingArchivedProgress: (done: number, total: number) => `Reading archived characters... (${done} / ${total})`,
     assetIntegrityUnsupported: "This browser does not support the check needed here (Cache API unavailable).",
     assetIntegrityEvictConfirm: (count: number) => `Found ${count} corrupted cache entries. Remove them from the cache now? A page reload will be needed afterward for the fix to take effect.`,
     assetIntegrityReportTitle: "## Asset Cache Integrity Report\n\n",
     assetIntegrityReportChecked: (checked: number, total: number) => `- Checked: ${checked} / ${total}\n`,
     assetIntegrityReportNotCached: (n: number) => `- Not yet cached (normal, not an issue): ${n}\n`,
     assetIntegrityReportNotContentAddressed: (n: number) => `- Not content-addressed (can't be verified this way): ${n}\n`,
+    assetIntegrityReportArchivedNotChecked: (characterNames: string) => `- Archived characters whose assets were not checked (their data could not be loaded): ${characterNames}\n`,
     assetIntegrityReportMismatchCount: (n: number) => `- **Mismatches found: ${n}**\n`,
     assetIntegrityReportEvicted: (n: number) => `\nRemoved ${n} corrupted cache entries. Reload the app for the fix to take effect.`,
     assetIntegrityReportLeftInCache: "\nLeft in the cache, as requested.",

@@ -5,6 +5,7 @@ import { language } from "src/lang";
 import { get } from "svelte/store";
 import { getDatabase, setDatabase } from "../storage/database.svelte";
 import { DBState, selectedCharID } from "../stores.svelte";
+import { restoreArchivedForWrite } from "./coldCharacterAccess";
 
 export async function addGroupChar(){
     let selectedId = get(selectedCharID)
@@ -16,7 +17,28 @@ export async function addGroupChar(){
                 alertError(language.errors.alreadyCharInGroup)
             }
             else{
-                if(await alertConfirm(language.askLoadFirstMsg)){
+                // An archived character's own `firstMessage` is not data until
+                // its unit is restored. One that cannot be restored is still
+                // added, without a greeting; the user is told its name.
+                let greetingAvailable = true
+                if(findCharacterbyId(res).coldstorage){
+                    // Loaded on demand: `characters.ts` imports `doingChat` from
+                    // `index.svelte.ts`, which imports this module. Loaded
+                    // before the restore so no further await sits between the
+                    // restore and the format update that uses its index.
+                    const { characterFormatUpdate } = await import('../characters')
+                    const target = await restoreArchivedForWrite(res)
+                    if(target.status === 'gone'){
+                        return
+                    }
+                    if(target.status === 'ready'){
+                        characterFormatUpdate(target.index)
+                    }
+                    else{
+                        greetingAvailable = false
+                    }
+                }
+                if(greetingAvailable && await alertConfirm(language.askLoadFirstMsg)){
                     group.chats[group.chatPage].message.push({
                         role:'char',
                         data: findCharacterbyId(res).firstMessage,

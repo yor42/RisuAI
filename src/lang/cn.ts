@@ -41,6 +41,10 @@ export const languageChinese = {
             `正在为插件加载已归档的角色... 还剩 ${leftCount} 项`,
         "coldStoragePluginRestoreIncomplete": (characterNames: string) =>
             `已启用需要将所有角色载入内存的插件，但以下已归档的角色无法加载：${characterNames}。它们仍保持归档状态，因此插件将无法看到其数据。`,
+        "coldStorageGroupMembersNotLoaded": (characterNames: string) =>
+            `该群组中已归档的以下角色无法加载：${characterNames}。它们仍保持归档状态，在新对话中不会有初始消息，并且在群组发言时会被跳过。`,
+        "coldStorageDatasetExportSkipped": (characterNames: string) =>
+            `以下已归档的角色无法加载，因此不在数据集中：${characterNames}。`,
         "coldStorageUnknownCharacterName": "未知角色",
         "coldStorageIncompleteBackupConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
             `${characterNames || "未知角色"}的冷存储数据缺失或无效。${unresolvedCount > 0 ? `有 ${unresolvedCount} 个项目无法关联到角色。` : ""}\n\n如果继续，此备份将缺少 ${unavailableCount} 个冷存储项目，受影响的角色或聊天数据可能无法从该备份恢复。\n\n仍要创建不完整的备份吗？`,
@@ -1647,12 +1651,14 @@ export const languageChinese = {
     "possibleAssetCorruptionToast": (target: string) => `检测到可能的资源损坏 (${target})。请查看 备份 & 文件 → 资源缓存完整性。`,
     "assetIntegrityNoAssets": "没有需要检查的资源。",
     "assetIntegrityVerifyingProgress": (done: number, total: number) => `正在验证资源缓存...(${done} / ${total})`,
+    "assetIntegrityReadingArchivedProgress": (done: number, total: number) => `正在读取已归档的角色...(${done} / ${total})`,
     "assetIntegrityUnsupported": "此浏览器不支持此处所需的检查（Cache API 不可用）。",
     "assetIntegrityEvictConfirm": (count: number) => `发现 ${count} 个已损坏的缓存条目。是否立即将其从缓存中移除？之后需要重新加载页面才能使修复生效。`,
     "assetIntegrityReportTitle": "## 资源缓存完整性报告\n\n",
     "assetIntegrityReportChecked": (checked: number, total: number) => `- 已检查：${checked} / ${total}\n`,
     "assetIntegrityReportNotCached": (n: number) => `- 尚未缓存（正常，无需担心）：${n}\n`,
     "assetIntegrityReportNotContentAddressed": (n: number) => `- 非内容寻址（无法通过此方式验证）：${n}\n`,
+    "assetIntegrityReportArchivedNotChecked": (characterNames: string) => `- 未检查资源的已归档角色（无法加载其数据）：${characterNames}\n`,
     "assetIntegrityReportMismatchCount": (n: number) => `- **发现不匹配项：${n}**\n`,
     "assetIntegrityReportEvicted": (n: number) => `\n已移除 ${n} 个已损坏的缓存条目。请重新加载应用以使修复生效。`,
     "assetIntegrityReportLeftInCache": "\n按照您的要求，保留在缓存中。",

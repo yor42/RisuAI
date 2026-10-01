@@ -41,6 +41,10 @@ export const languageChineseTraditional = {
             `正在為外掛載入已封存的角色... 剩餘 ${leftCount} 項`,
         "coldStoragePluginRestoreIncomplete": (characterNames: string) =>
             `已啟用需要將所有角色載入記憶體的外掛，但以下已封存的角色無法載入：${characterNames}。這些角色仍維持封存狀態，因此外掛將無法看到其資料。`,
+        "coldStorageGroupMembersNotLoaded": (characterNames: string) =>
+            `該群組中已封存的以下角色無法載入：${characterNames}。這些角色仍維持封存狀態，在新對話中不會有開局訊息，並且在群組發言時會被略過。`,
+        "coldStorageDatasetExportSkipped": (characterNames: string) =>
+            `以下已封存的角色無法載入，因此不在資料集中：${characterNames}。`,
         "coldStorageUnknownCharacterName": "未知角色",
         "coldStorageIncompleteBackupConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
             `${characterNames || "未知角色"} 的冷儲存資料遺失或無效。${unresolvedCount > 0 ? `有 ${unresolvedCount} 個項目無法連結到角色。` : ""}\n\n若繼續，此備份將缺少 ${unavailableCount} 個冷儲存項目，受影響的角色或對話資料可能無法從此備份復原。\n\n仍要建立不完整的備份嗎？`,
@@ -1693,12 +1697,14 @@ export const languageChineseTraditional = {
     "possibleAssetCorruptionToast": (target: string) => `偵測到可能的資源損毀 (${target})。請查看 備份 & 檔案 → 資源快取完整性。`,
     "assetIntegrityNoAssets": "沒有需要檢查的資源。",
     "assetIntegrityVerifyingProgress": (done: number, total: number) => `正在驗證資源快取...(${done} / ${total})`,
+    "assetIntegrityReadingArchivedProgress": (done: number, total: number) => `正在讀取已封存的角色...(${done} / ${total})`,
     "assetIntegrityUnsupported": "此瀏覽器不支援此處所需的檢查（Cache API 無法使用）。",
     "assetIntegrityEvictConfirm": (count: number) => `發現 ${count} 個已損毀的快取項目。是否立即將其從快取中移除？之後需要重新載入頁面，修復才會生效。`,
     "assetIntegrityReportTitle": "## 資源快取完整性報告\n\n",
     "assetIntegrityReportChecked": (checked: number, total: number) => `- 已檢查：${checked} / ${total}\n`,
     "assetIntegrityReportNotCached": (n: number) => `- 尚未快取（正常，非問題）：${n}\n`,
     "assetIntegrityReportNotContentAddressed": (n: number) => `- 非內容定址（無法以此方式驗證）：${n}\n`,
+    "assetIntegrityReportArchivedNotChecked": (characterNames: string) => `- 未檢查資源的已封存角色（無法載入其資料）：${characterNames}\n`,
     "assetIntegrityReportMismatchCount": (n: number) => `- **發現不符項目：${n}**\n`,
     "assetIntegrityReportEvicted": (n: number) => `\n已移除 ${n} 個已損毀的快取項目。請重新載入應用程式，修復才會生效。`,
     "assetIntegrityReportLeftInCache": "\n依您的要求，保留於快取中。",

@@ -1,22 +1,27 @@
 /**
- * Group turns write into the group's chat, each as its own member, whatever
- * moves between one turn and the next.
+ * A group turn whose member is archived: a placeholder (the "stub") in
+ * `DBState.db.characters` whose full data lives in a cold-storage unit.
  *
- * Drives the REAL, unmocked `sendChat` (`../index.svelte`) against a real
- * `$state` database, with the same module mocks as
- * `sendChatOrigin.svelte.test.ts` (copied, not shared: each suite mocks its
- * own graph). `findCharacterbyId` is a faithful fake: the live character
- * holding the id (a cold-storage placeholder included), or a blank one with a
- * fresh `chaId` on a miss, as production does. The helper that restores a
- * cold-storage member (`../coldMemberRestore`) is mocked: a test simulates a
- * successful restore by replacing the member's slot with the full character
- * and resolving true, or a failed one by resolving false.
+ * Drives the REAL, unmocked `sendChat` (`../index.svelte`) and the real restore
+ * of an archived member (`../coldMemberRestore`, `../coldCharacterRestore`)
+ * against a real `$state` database. Only the unit read
+ * (`readColdStorageItem`), the character-format step and the alerts are
+ * mocked, so what the user is told comes from the code under test. The other
+ * module mocks are copied from `sendChatGroupOrigin.svelte.test.ts`.
  *
- * Tests whose title starts with `guard:` pass with or without the origin
- * binding: they pin behaviour that must be preserved.
+ * Invariants exercised here:
+ * - A member whose archive cannot be restored is passed over: the walk goes on
+ *   to the next member, the send resolves true, and the user is told once, by
+ *   name, with the missing or unreadable wording that fits.
+ * - The failed member stays archived and a later send tries its restore again.
+ * - A member deleted from the list while being restored is passed over without
+ *   an alert.
+ *
+ * Tests whose title starts with `guard:` pass before and after the rule that
+ * passes a failed member over: they pin behaviour that must be preserved.
  */
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
-import { writable, get } from 'svelte/store'
+import { writable } from 'svelte/store'
 import type { Database, Chat, Message } from '../../storage/database.svelte'
 // Installs the real `globalThis.safeStructuredClone`, the same way
 // `src/main.ts` does (`import "./ts/polyfill"`).
@@ -34,6 +39,8 @@ interface ChatOutputArg {
 
 const requestChatDataMock = vi.hoisted(() => vi.fn())
 const alertErrorMock = vi.hoisted(() => vi.fn())
+const alertNormalMock = vi.hoisted(() => vi.fn())
+const alertMdMock = vi.hoisted(() => vi.fn())
 const runTriggerMock = vi.hoisted(() => vi.fn())
 const sayTTSMock = vi.hoisted(() => vi.fn())
 const runInlayScreenMock = vi.hoisted(() => vi.fn())
@@ -42,7 +49,7 @@ const hypaMemoryV3Mock = vi.hoisted(() => vi.fn())
 const supaMemoryMock = vi.hoisted(() => vi.fn())
 const isLastCharPunctuationMock = vi.hoisted(() => vi.fn())
 const chatOutputListeners = vi.hoisted(() => new Set<(arg: ChatOutputArg) => unknown>())
-const restoreColdCharacterMock = vi.hoisted(() => vi.fn())
+const readColdStorageItemMock = vi.hoisted(() => vi.fn())
 const saveMarkHook = vi.hoisted(() => ({ run: null as (() => void) | null }))
 
 vi.mock('localforage', () => ({
@@ -96,6 +103,8 @@ vi.mock(import('../../tokenizer'), () => ({
 vi.mock(import('../../alert'), () => ({
     alertError: alertErrorMock,
     alertToast: vi.fn(),
+    alertNormal: alertNormalMock,
+    alertMd: alertMdMock,
 }) as unknown as typeof import('../../alert'))
 
 vi.mock(import('../../parser/chatML'), () => ({
@@ -252,16 +261,22 @@ vi.mock(import('../../storage/characterSaveMarks'), () => ({
     resetCharacterSaveMarksForTest: vi.fn(),
 }) as unknown as typeof import('../../storage/characterSaveMarks'))
 
-// The helper that brings a cold-storage group member back into memory.
-vi.mock('../coldMemberRestore', () => ({
-    restoreColdCharacterByChaId: restoreColdCharacterMock,
-}))
+// The cold-storage unit read: the restore of an archived member is the real
+// one, so what the user is told comes from the code under test.
+vi.mock(import('../coldstorage.svelte'), () => ({
+    readColdStorageItem: readColdStorageItemMock,
+}) as unknown as typeof import('../coldstorage.svelte'))
+
+vi.mock(import('../../characters'), () => ({
+    characterFormatUpdate: vi.fn(),
+}) as unknown as typeof import('../../characters'))
 
 //#endregion
 
 import { sendChat, doingChat } from '../index.svelte'
 import { DBState, selectedCharID } from '../../stores.svelte'
-import { isWriting, writeAt, type Origin } from '../chatOrigin'
+import { isWriting } from '../chatOrigin'
+import { language } from '../../../lang'
 
 //#region fixtures
 
@@ -344,10 +359,6 @@ function installDb(characters: CharacterFixture[], overrides: Record<string, unk
     } as unknown as Database
 }
 
-function snap<T>(value: T): T {
-    return $state.snapshot(value) as T
-}
-
 function charById(chaId: string): CharacterFixture {
     return DBState.db.characters.find((c) => c.chaId === chaId)!
 }
@@ -387,7 +398,9 @@ beforeEach(() => {
     isLastCharPunctuationMock.mockReset()
     isLastCharPunctuationMock.mockReturnValue(true)
     chatOutputListeners.clear()
-    restoreColdCharacterMock.mockReset()
+    readColdStorageItemMock.mockReset()
+    alertNormalMock.mockReset()
+    alertMdMock.mockReset()
     doingChat.set(false)
 })
 
@@ -398,12 +411,6 @@ afterEach(() => {
 //#endregion
 
 //#region group fixtures
-
-interface GroupLists {
-    characters: string[]
-    characterActive: boolean[]
-    characterTalks: number[]
-}
 
 function makeGroup(chaId: string, memberIds: string[], chats: Chat[]): CharacterFixture {
     return {
@@ -420,10 +427,6 @@ function makeGroup(chaId: string, memberIds: string[], chats: Chat[]): Character
         supaMemory: false,
         chats,
     } as unknown as CharacterFixture
-}
-
-function groupLists(chaId: string): GroupLists {
-    return charById(chaId) as unknown as GroupLists
 }
 
 function makeMember(chaId: string, description = `${chaId} description`): CharacterFixture {
@@ -464,313 +467,107 @@ function sayings(): Array<string | undefined> {
     return groupChat().message.filter((m) => m.role === 'char').map((m) => m.saying)
 }
 
-/** Runs `action` the first time a reply has been written, that is, between two turns. */
-function afterFirstReply(action: () => void): void {
-    let done = false
-    chatOutputListeners.add(() => {
-        if (!done) {
-            done = true
-            action()
-        }
-    })
+/** Names the archived member in slot order, so an alert naming it can be told from any other text. */
+function nameMember(chaId: string, name: string): void {
+    charById(chaId).name = name
 }
 
-/** Installs a restore that swaps the placeholder in the member's slot for the full character. */
-function restoreByReplacingSlot(beforeInstall: () => void = () => {}): void {
-    restoreColdCharacterMock.mockImplementation(async (chaId: string) => {
-        beforeInstall()
-        const index = indexOfCharacter(chaId)
-        DBState.db.characters[index] = makeMember(chaId, `restored ${chaId} description`)
-        return true
-    })
+function ok(restored: CharacterFixture) {
+    return { status: 'ok', value: { character: restored } }
+}
+
+function shownAlerts(): string[] {
+    return [alertErrorMock, alertNormalMock, alertMdMock].flatMap((fn) => fn.mock.calls.map((args) => String(args[0])))
 }
 
 //#endregion
 
-describe('group turns', () => {
-    test('guard: every active member speaks once, in order, as itself', async () => {
-        installGroupWorld()
-        mockReply('reply 1')
+describe('a group turn whose archived member cannot be restored', () => {
+    test('a missing unit passes the member over, lets the others speak, and shows one alert naming the member', async () => {
+        installGroupWorld(['member-1'])
+        nameMember('member-1', 'Alice')
+        readColdStorageItemMock.mockResolvedValue({ status: 'missing' })
         mockReply('reply 2')
         mockReply('reply 3')
 
         const result = await settled(() => sendChat())
 
         expect(result).toBe(true)
-        expect(datas(groupChat())).toEqual(['Hi', 'reply 1', 'reply 2', 'reply 3'])
-        expect(sayings()).toEqual(['member-1', 'member-2', 'member-3'])
-    })
-
-    test('guard: a send to member i of the selected group speaks as that member only', async () => {
-        installGroupWorld()
-        mockReply('reply from the second member')
-
-        const result = await settled(() => sendChat(1))
-
-        expect(result).toBe(true)
-        expect(requestChatDataMock).toHaveBeenCalledTimes(1)
-        expect(datas(groupChat())).toEqual(['Hi', 'reply from the second member'])
-        expect(sayings()).toEqual(['member-2'])
-    })
-
-    test('a character switch between two turns leaves both turns in the group chat, each as its own member', async () => {
-        installGroupWorld()
-        mockReply('reply 1')
-        mockReply('reply 2')
-        mockReply('reply 3')
-        afterFirstReply(() => { selectedCharID.set(indexOfCharacter('member-1')) })
-        const firstMemberBefore = snap(charById('member-1'))
-
-        const result = await settled(() => sendChat())
-
-        expect(result).toBe(true)
-        expect(sayings()).toEqual(['member-1', 'member-2', 'member-3'])
-        expect(datas(groupChat())).toEqual(['Hi', 'reply 1', 'reply 2', 'reply 3'])
-        expect(snap(charById('member-1'))).toEqual(firstMemberBefore)
-    })
-
-    test('the group and the speaking member are registered as being written to during their turn and released afterwards', async () => {
-        installGroupWorld()
-        const seen: Array<Record<string, boolean>> = []
-        for (let turn = 0; turn < 3; turn++) {
-            requestChatDataMock.mockImplementationOnce(async () => {
-                seen.push({
-                    group: isWriting({ chaId: 'group-1', chatId: 'group-chat' }),
-                    member1: isWriting({ chaId: 'member-1' }),
-                    member2: isWriting({ chaId: 'member-2' }),
-                    member3: isWriting({ chaId: 'member-3' }),
-                })
-                return { type: 'success', result: `reply ${turn + 1}` }
-            })
-        }
-
-        const result = await settled(() => sendChat())
-
-        expect(result).toBe(true)
-        expect(seen).toEqual([
-            { group: true, member1: true, member2: false, member3: false },
-            { group: true, member1: false, member2: true, member3: false },
-            { group: true, member1: false, member2: false, member3: true },
-        ])
-        for (const id of ['group-1', 'member-1', 'member-2', 'member-3']) {
-            expect(isWriting({ chaId: id })).toBe(false)
-        }
-    })
-})
-
-describe('a member who is gone when their turn comes', () => {
-    test('a member removed from the group between turns is skipped and the other turns run', async () => {
-        installGroupWorld()
-        mockReply('reply 1')
-        mockReply('reply 2')
-        mockReply('reply 3')
-        afterFirstReply(() => {
-            const lists = groupLists('group-1')
-            lists.characters.splice(1, 1)
-            lists.characterActive.splice(1, 1)
-            lists.characterTalks.splice(1, 1)
-        })
-
-        const result = await settled(() => sendChat())
-
-        expect(result).toBe(true)
-        expect(sayings()).toEqual(['member-1', 'member-3'])
-        expect(datas(groupChat())).toEqual(['Hi', 'reply 1', 'reply 2'])
+        expect(sayings()).toEqual(['member-2', 'member-3'])
+        expect(datas(groupChat())).toEqual(['Hi', 'reply 2', 'reply 3'])
         expect(requestChatDataMock).toHaveBeenCalledTimes(2)
-    })
-
-    test('a member deleted permanently between turns is skipped and the other turns run', async () => {
-        installGroupWorld()
-        mockReply('reply 1')
-        mockReply('reply 2')
-        mockReply('reply 3')
-        afterFirstReply(() => {
-            DBState.db.characters.splice(indexOfCharacter('member-2'), 1)
-        })
-
-        const result = await settled(() => sendChat())
-
-        expect(result).toBe(true)
-        expect(sayings()).toEqual(['member-1', 'member-3'])
-        expect(datas(groupChat())).toEqual(['Hi', 'reply 1', 'reply 2'])
-        expect(requestChatDataMock).toHaveBeenCalledTimes(2)
-    })
-
-    test('a member whose chaId has two holders when their turn comes is skipped and the other turns run', async () => {
-        installGroupWorld()
-        mockReply('reply 1')
-        mockReply('reply 2')
-        mockReply('reply 3')
-        afterFirstReply(() => {
-            DBState.db.characters.push(snap(charById('member-2')))
-        })
-
-        const result = await settled(() => sendChat())
-
-        expect(result).toBe(true)
-        expect(sayings()).toEqual(['member-1', 'member-3'])
-        expect(datas(groupChat())).toEqual(['Hi', 'reply 1', 'reply 2'])
-        expect(requestChatDataMock).toHaveBeenCalledTimes(2)
-    })
-})
-
-describe('a member who is in cold storage when their turn comes', () => {
-    test('they are restored, and their turn runs as the restored character', async () => {
-        installGroupWorld(['member-2'])
-        restoreByReplacingSlot()
-        mockReply('reply 1')
-        mockReply('reply 2')
-        mockReply('reply 3')
-
-        const result = await settled(() => sendChat())
-
-        expect(result).toBe(true)
-        expect(sayings()).toEqual(['member-1', 'member-2', 'member-3'])
-        expect(restoreColdCharacterMock).toHaveBeenCalledTimes(1)
-        expect(restoreColdCharacterMock).toHaveBeenCalledWith('member-2')
-        expect(requestChatDataMock.mock.calls[1][0].currentChar.desc).toBe('restored member-2 description')
-        expect(charById('member-2').coldstorage).toBeUndefined()
-    })
-
-    test('a character inserted below them during the restore does not stop their turn', async () => {
-        installGroupWorld(['member-2'])
-        restoreByReplacingSlot(() => {
-            DBState.db.characters.splice(1, 0, makeMember('inserted-during-restore'))
-        })
-        mockReply('reply 1')
-        mockReply('reply 2')
-        mockReply('reply 3')
-
-        const result = await settled(() => sendChat())
-
-        expect(result).toBe(true)
-        expect(sayings()).toEqual(['member-1', 'member-2', 'member-3'])
-        expect(restoreColdCharacterMock).toHaveBeenCalledWith('member-2')
-        expect(requestChatDataMock.mock.calls[1][0].currentChar.desc).toBe('restored member-2 description')
-    })
-
-    // What the user is told about the failed member is covered with the real
-    // restore in `sendChatGroupColdMember.svelte.test.ts`.
-    test('a restore that fails passes the member over and the other members speak', async () => {
-        installGroupWorld(['member-2'])
-        restoreColdCharacterMock.mockResolvedValue(false)
-        mockReply('reply 1')
-        mockReply('reply 3')
-
-        const result = await settled(() => sendChat())
-
-        expect(result).toBe(true)
-        expect(restoreColdCharacterMock).toHaveBeenCalledWith('member-2')
-        expect(sayings()).toEqual(['member-1', 'member-3'])
-        expect(requestChatDataMock).toHaveBeenCalledTimes(2)
-        expect(charById('member-2').coldstorage).toBe('cold-key-member-2')
+        expect(shownAlerts()).toEqual([language.errors.coldStorageNamedRestoreFailed('Alice')])
+        expect(charById('member-1').coldstorage).toBe('cold-key-member-1')
         expect(isWriting({ chaId: 'group-1' })).toBe(false)
     })
-})
 
-describe('a first member whose reply goes missing', () => {
-    test('guard: an output trigger that rebuilds the chat without message ids leaves the second member their turn', async () => {
-        installGroupWorld()
-        let rebuilt = false
-        runTriggerMock.mockImplementation(async (_char: unknown, mode: string, arg: { origin: Origin }) => {
-            if (mode === 'output' && !rebuilt) {
-                rebuilt = true
-                writeAt(arg.origin, (ctx) => {
-                    ctx.chat.message = ctx.chat.message.map((v) => ({ role: v.role, data: v.data }) as Message)
-                })
-            }
-            return undefined
-        })
-        mockReply('reply 1')
-        mockReply('reply 2')
-        mockReply('reply 3')
-
-        const result = await settled(() => sendChat())
-
-        expect(result).toBe(true)
-        expect(rebuilt).toBe(true)
-        expect(alertErrorMock).not.toHaveBeenCalled()
-        expect(datas(groupChat())).toEqual(['Hi', 'reply 1', 'reply 2', 'reply 3'])
-        expect(groupChat().message.slice(-2).map((m) => m.saying)).toEqual(['member-2', 'member-3'])
-    })
-
-    test('guard: the user deleting the reply during the first member\'s turn leaves the second member their turn', async () => {
-        installGroupWorld()
-        let deleted = false
-        runTriggerMock.mockImplementation(async (_char: unknown, mode: string, arg: { origin: Origin }) => {
-            if (mode === 'output' && !deleted) {
-                deleted = true
-                writeAt(arg.origin, (ctx) => {
-                    ctx.chat.message.pop()
-                })
-            }
-            return undefined
-        })
-        mockReply('reply 1')
-        mockReply('reply 2')
-        mockReply('reply 3')
-
-        const result = await settled(() => sendChat())
-
-        expect(result).toBe(true)
-        expect(deleted).toBe(true)
-        expect(alertErrorMock).not.toHaveBeenCalled()
-        expect(datas(groupChat())).toEqual(['Hi', 'reply 2', 'reply 3'])
-        expect(sayings()).toEqual(['member-2', 'member-3'])
-    })
-})
-
-describe('a cold member deleted during their own restore', () => {
-    test('their turn is skipped without an alert and the other members speak', async () => {
+    test('an unreadable unit passes the member over, lets the others speak, and shows one alert naming the member with the unreadable wording', async () => {
         installGroupWorld(['member-2'])
-        restoreColdCharacterMock.mockImplementation(async (chaId: string) => {
-            DBState.db.characters.splice(indexOfCharacter(chaId), 1)
-            return false
-        })
+        nameMember('member-2', 'Alice')
+        readColdStorageItemMock.mockResolvedValue({ status: 'error', error: new Error('disk unavailable') })
         mockReply('reply 1')
-        mockReply('reply 2')
         mockReply('reply 3')
 
         const result = await settled(() => sendChat())
 
-        expect(restoreColdCharacterMock).toHaveBeenCalledWith('member-2')
-        expect(alertErrorMock).not.toHaveBeenCalled()
         expect(result).toBe(true)
         expect(sayings()).toEqual(['member-1', 'member-3'])
-        expect(datas(groupChat())).toEqual(['Hi', 'reply 1', 'reply 2'])
+        expect(requestChatDataMock).toHaveBeenCalledTimes(2)
+        expect(shownAlerts()).toEqual([language.errors.coldStorageNamedRestoreUnreadable('Alice')])
+        expect(charById('member-2').coldstorage).toBe('cold-key-member-2')
+    })
+
+    test('guard: a later send tries the archived member\'s restore again, and the member speaks when it works', async () => {
+        installGroupWorld(['member-1'])
+        nameMember('member-1', 'Alice')
+        readColdStorageItemMock.mockResolvedValueOnce({ status: 'missing' })
+        mockReply('reply 2')
+        mockReply('reply 3')
+        await settled(() => sendChat())
+        readColdStorageItemMock.mockResolvedValueOnce(ok(makeMember('member-1', 'restored member-1 description')))
+        mockReply('reply 1 again')
+        mockReply('reply 2 again')
+        mockReply('reply 3 again')
+
+        const result = await settled(() => sendChat())
+
+        expect(result).toBe(true)
+        expect(readColdStorageItemMock).toHaveBeenCalledTimes(2)
+        expect(sayings().slice(-3)).toEqual(['member-1', 'member-2', 'member-3'])
+        expect(charById('member-1').coldstorage).toBeUndefined()
     })
 })
 
-describe('a group chat deleted between two turns', () => {
-    test('the send ends quietly and clears doingChat itself', async () => {
-        installGroupWorld()
-        const group = charById('group-1')
-        group.chats.push(makeChat('group-other-chat', [msg('user', 'other-1')]))
+describe('a group turn whose archived member is restored or deleted during the restore', () => {
+    test('guard: a restore that succeeds lets the member speak as the restored character, with no alert', async () => {
+        installGroupWorld(['member-2'])
+        readColdStorageItemMock.mockResolvedValue(ok(makeMember('member-2', 'restored member-2 description')))
         mockReply('reply 1')
         mockReply('reply 2')
         mockReply('reply 3')
-        // The first turn has fully settled once its member is not
-        // registered any more; the chat is deleted then, before the second turn starts.
-        let deleted = false
-        saveMarkHook.run = () => {
-            if (!deleted && requestChatDataMock.mock.calls.length === 1 && !isWriting({ chaId: 'member-1' })) {
-                deleted = true
-                const chats = charById('group-1').chats
-                chats.splice(chats.findIndex((c) => c.id === 'group-chat'), 1)
-            }
-        }
-        try {
-            const result = await settled(() => sendChat())
 
-            expect(deleted).toBe(true)
-            expect(result).toBe(false)
-            expect(alertErrorMock).not.toHaveBeenCalled()
-            expect(requestChatDataMock).toHaveBeenCalledTimes(1)
-            expect(get(doingChat)).toBe(false)
-            expect(datas(chatById('group-1', 'group-other-chat'))).toEqual(['other-1'])
-            expect(isWriting({ chaId: 'group-1' })).toBe(false)
-        } finally {
-            saveMarkHook.run = null
-        }
+        const result = await settled(() => sendChat())
+
+        expect(result).toBe(true)
+        expect(sayings()).toEqual(['member-1', 'member-2', 'member-3'])
+        expect(requestChatDataMock.mock.calls[1][0].currentChar.desc).toBe('restored member-2 description')
+        expect(shownAlerts()).toEqual([])
+    })
+
+    test('guard: a member deleted during its own restore is passed over without an alert', async () => {
+        installGroupWorld(['member-2'])
+        readColdStorageItemMock.mockImplementation(async () => {
+            DBState.db.characters.splice(indexOfCharacter('member-2'), 1)
+            return ok(makeMember('member-2', 'restored member-2 description'))
+        })
+        mockReply('reply 1')
+        mockReply('reply 3')
+
+        const result = await settled(() => sendChat())
+
+        expect(result).toBe(true)
+        expect(sayings()).toEqual(['member-1', 'member-3'])
+        expect(shownAlerts()).toEqual([])
     })
 })
+

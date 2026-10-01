@@ -41,6 +41,10 @@ export const languageGerman = {
             `Archivierte Charaktere werden für ein Plugin geladen... noch ${leftCount} Element(e)`,
         "coldStoragePluginRestoreIncomplete": (characterNames: string) =>
             `Ein Plugin, das alle Charaktere im Speicher benötigt, ist aktiviert, aber diese archivierten Charaktere konnten nicht geladen werden: ${characterNames}. Sie bleiben archiviert, daher wird das Plugin ihre Daten nicht sehen.`,
+        "coldStorageGroupMembersNotLoaded": (characterNames: string) =>
+            `Diese archivierten Charaktere dieser Gruppe konnten nicht geladen werden: ${characterNames}. Sie bleiben archiviert, erhalten in einem neuen Chat keine erste Nachricht und werden übersprungen, wenn die Gruppe spricht.`,
+        "coldStorageDatasetExportSkipped": (characterNames: string) =>
+            `Diese archivierten Charaktere konnten nicht geladen werden und sind nicht im Datensatz enthalten: ${characterNames}.`,
         "coldStorageUnknownCharacterName": "Unbekannter Charakter",
         "coldStorageIncompleteBackupConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
             `Kaltlagerdaten für ${characterNames || "unbekannte Charaktere"} fehlen oder sind ungültig.${unresolvedCount > 0 ? ` ${unresolvedCount} Element(e) konnten keinem Charakter zugeordnet werden.` : ""}\n\nWenn Sie fortfahren, fehlen in dieser Sicherung ${unavailableCount} Kaltlagerelement(e). Die betroffenen Charakter- oder Chatdaten können daraus möglicherweise nicht wiederhergestellt werden.\n\nTrotzdem eine unvollständige Sicherung erstellen?`,
@@ -1647,12 +1651,14 @@ export const languageGerman = {
     "possibleAssetCorruptionToast": (target: string) => `Mögliche Asset-Beschädigung erkannt (${target}). Prüfen Sie Backup & Dateien → Asset-Cache-Integrität.`,
     "assetIntegrityNoAssets": "Keine Assets zum Überprüfen.",
     "assetIntegrityVerifyingProgress": (done: number, total: number) => `Asset-Cache wird überprüft... (${done} / ${total})`,
+    "assetIntegrityReadingArchivedProgress": (done: number, total: number) => `Archivierte Charaktere werden gelesen... (${done} / ${total})`,
     "assetIntegrityUnsupported": "Dieser Browser unterstützt die hier benötigte Prüfung nicht (Cache API nicht verfügbar).",
     "assetIntegrityEvictConfirm": (count: number) => `${count} beschädigte Cache-Einträge gefunden. Sollen sie jetzt aus dem Cache entfernt werden? Danach ist ein Neuladen der Seite erforderlich, damit die Korrektur wirksam wird.`,
     "assetIntegrityReportTitle": "## Asset-Cache-Integritätsbericht\n\n",
     "assetIntegrityReportChecked": (checked: number, total: number) => `- Geprüft: ${checked} / ${total}\n`,
     "assetIntegrityReportNotCached": (n: number) => `- Noch nicht zwischengespeichert (normal, kein Problem): ${n}\n`,
     "assetIntegrityReportNotContentAddressed": (n: number) => `- Nicht inhaltsadressiert (kann auf diese Weise nicht überprüft werden): ${n}\n`,
+    "assetIntegrityReportArchivedNotChecked": (characterNames: string) => `- Archivierte Charaktere, deren Assets nicht geprüft wurden (ihre Daten konnten nicht geladen werden): ${characterNames}\n`,
     "assetIntegrityReportMismatchCount": (n: number) => `- **Abweichungen gefunden: ${n}**\n`,
     "assetIntegrityReportEvicted": (n: number) => `\n${n} beschädigte Cache-Einträge entfernt. Laden Sie die App neu, damit die Korrektur wirksam wird.`,
     "assetIntegrityReportLeftInCache": "\nWie gewünscht im Cache belassen.",

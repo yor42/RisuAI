@@ -13,7 +13,7 @@ import { translateHTML } from "./translator/translator";
 import { doingChat } from "./process/index.svelte";
 import { importCharacter } from "./characterCards";
 import { PngChunk } from "./pngChunk";
-import { restoreColdCharacter } from "./process/coldCharacterRestore";
+import { findChaIdHolders, restoreColdCharacter } from "./process/coldCharacterRestore";
 import { getAvatarThumbSrc, isThumbEligible } from "./media/avatarThumb";
 import { markCharacterForSave } from "./storage/characterSaveMarks";
 import { hasWorkIn, stopWorkIn } from "./process/chatOrigin";
@@ -59,8 +59,9 @@ export function createNewGroup(){
  * Creates the New Chat button's chat: unshifts a chat literal onto
  * `cha.chats` at index 0, then, for a group, pushes each member's greeting
  * into that new chat. The new chat always has an id from the moment it
- * enters `cha.chats`, and no other chat is touched. Returns 0, the index of
- * the new chat.
+ * enters `cha.chats`, and no other chat is touched. A member that is still
+ * archived (a placeholder in `DBState.db.characters`) gets no greeting.
+ * Returns 0, the index of the new chat.
  */
 export function createNewChat(cha: character | groupChat): number {
     const newChat: Chat = {
@@ -71,10 +72,16 @@ export function createNewChat(cha: character | groupChat): number {
     chats.unshift(newChat)
     if(cha.type === 'group'){
         cha.characters.map((c) => {
+            const member = findCharacterbyId(c)
+            if(member.coldstorage){
+                // An archived member's `firstMessage` is not data, and a new
+                // chat is created synchronously: it gets no greeting.
+                return
+            }
             chats[0].message.push({
                 saying: c,
                 role: 'char',
-                data: findCharacterbyId(c).firstMessage
+                data: member.firstMessage
             })
         })
     }
@@ -1003,6 +1010,65 @@ export async function addCharacter(arg:{
 }
 
 /**
+ * The `chaId`s in `group.characters`, each once, that have a placeholder among
+ * their holders. A `chaId` no character holds is not one of them.
+ */
+function archivedMemberIds(group: groupChat): string[] {
+    const found: string[] = []
+    for(const chaId of new Set(group.characters)){
+        if(findChaIdHolders(chaId).some((i) => DBState.db.characters[i].coldstorage)){
+            found.push(chaId)
+        }
+    }
+    return found
+}
+
+/**
+ * Restores the archived members of `group` into their slots, one at a time,
+ * and returns the names of those that could not be loaded, which stay exactly
+ * as they were. A restored member is format-updated but its `lastInteraction`
+ * is not changed: the user opened the group, not the member. A member whose
+ * `chaId` is held by several characters, one of them archived, counts as not
+ * loaded.
+ */
+async function restoreGroupMembers(group: groupChat): Promise<string[]> {
+    const failed: string[] = []
+    for(const chaId of archivedMemberIds(group)){
+        // Looked up again for each member: the list may change while an
+        // earlier member was being restored.
+        const holders = findChaIdHolders(chaId)
+        const archivedIndex = holders.find((i) => DBState.db.characters[i].coldstorage)
+        if(archivedIndex === undefined){
+            continue
+        }
+        const stub = DBState.db.characters[archivedIndex]
+        const name = stub.name || language.errors.coldStorageUnknownCharacterName
+        if(holders.length > 1){
+            failed.push(name)
+            continue
+        }
+        const outcome = await restoreColdCharacter(stub, { byChaId: true, quiet: true })
+        if(outcome.status === 'refused'){
+            failed.push(name)
+        }
+        else if(outcome.status === 'restored' && outcome.installedHere){
+            const restoredIndex = DBState.db.characters.indexOf(outcome.character)
+            if(restoredIndex !== -1){
+                characterFormatUpdate(restoredIndex)
+            }
+        }
+    }
+    return failed
+}
+
+/** One notice naming every member `restoreGroupMembers` could not load; nothing for none. */
+function alertGroupMembersNotLoaded(names: string[]){
+    if(names.length > 0){
+        alertError(language.errors.coldStorageGroupMembersNotLoaded(names.join(', ')))
+    }
+}
+
+/**
  * Counts the `changeChar` calls that got past the `doingChat` guard. Only the
  * most recent one may select a character, so a slow restore of an archived
  * character cannot override a later choice.
@@ -1037,10 +1103,37 @@ export async function changeChar(index: number, arg:{
               updateInteraction: true,
             });
         }
+        let failedMembers: string[] = []
+        if(outcome.character.type === 'group'){
+            failedMembers = await restoreGroupMembers(outcome.character)
+        }
         if(callId !== latestChangeChar || get(doingChat)){
             return
         }
-        selectedCharID.set(restoredIndex);
+        const selectedIndex = DBState.db.characters.indexOf(outcome.character)
+        if(selectedIndex === -1){
+            return
+        }
+        alertGroupMembersNotLoaded(failedMembers)
+        selectedCharID.set(selectedIndex);
+        return
+    }
+    if(clicked?.type === 'group' && archivedMemberIds(clicked).length > 0){
+        // Members are restored before the group is selected; the group is
+        // formatted and its interaction bumped once they are in memory.
+        const failedMembers = await restoreGroupMembers(clicked)
+        if(callId !== latestChangeChar || get(doingChat)){
+            return
+        }
+        const groupIndex = DBState.db.characters.indexOf(clicked)
+        if(groupIndex === -1){
+            return
+        }
+        alertGroupMembersNotLoaded(failedMembers)
+        characterFormatUpdate(groupIndex, {
+          updateInteraction: true,
+        });
+        selectedCharID.set(groupIndex);
         return
     }
     characterFormatUpdate(index, {

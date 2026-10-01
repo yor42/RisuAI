@@ -26,7 +26,12 @@ export interface ColdAccessFailure {
     message: string
 }
 
-function fail(stub: Slot, reason: ColdRestoreFailure): ColdAccessFailure {
+/**
+ * Shows the user one alert naming `stub`, with the wording that fits `reason`,
+ * and returns it as a failure. For a caller that restored with `quiet` and
+ * reports the failure itself.
+ */
+export function alertNamedRestoreFailure(stub: Slot, reason: ColdRestoreFailure): ColdAccessFailure {
     const name = stub.name || language.errors.coldStorageUnknownCharacterName
     const message = reason === 'unreadable'
         ? language.errors.coldStorageNamedRestoreUnreadable(name)
@@ -46,7 +51,7 @@ export async function readArchivedCharacter(stub: Slot): Promise<{ status: 'ok',
     if (copy.status === 'ok') {
         return copy
     }
-    return fail(stub, copy.status)
+    return alertNamedRestoreFailure(stub, copy.status)
 }
 
 export type ColdWriteTarget =
@@ -82,7 +87,7 @@ export async function restoreArchivedForWrite(chaId: string): Promise<ColdWriteT
         return before
     }
     if (before.status === 'ambiguous') {
-        return fail(before.holder, 'ambiguous')
+        return alertNamedRestoreFailure(before.holder, 'ambiguous')
     }
     if (before.holder.coldstorage) {
         const outcome = await restoreColdCharacter(before.holder, { byChaId: true, quiet: true })
@@ -90,7 +95,7 @@ export async function restoreArchivedForWrite(chaId: string): Promise<ColdWriteT
             return { status: 'gone' }
         }
         if (outcome.status === 'refused') {
-            return fail(before.holder, outcome.reason)
+            return alertNamedRestoreFailure(before.holder, outcome.reason)
         }
     }
     const after = soleHolder(chaId)
@@ -98,7 +103,7 @@ export async function restoreArchivedForWrite(chaId: string): Promise<ColdWriteT
         return after
     }
     if (after.status === 'ambiguous') {
-        return fail(after.holder, 'ambiguous')
+        return alertNamedRestoreFailure(after.holder, 'ambiguous')
     }
     if (after.holder.coldstorage) {
         // A placeholder has no full data to write into.

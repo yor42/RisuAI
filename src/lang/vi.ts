@@ -41,6 +41,10 @@ export const languageVietnamese = {
             `Đang tải các nhân vật đã lưu trữ cho plugin... còn ${leftCount} mục`,
         "coldStoragePluginRestoreIncomplete": (characterNames: string) =>
             `Một plugin cần tất cả nhân vật trong bộ nhớ đang được bật, nhưng không thể tải các nhân vật đã lưu trữ sau: ${characterNames}. Chúng vẫn ở trạng thái lưu trữ, nên plugin sẽ không thấy dữ liệu của chúng.`,
+        "coldStorageGroupMembersNotLoaded": (characterNames: string) =>
+            `Không thể tải các nhân vật đã lưu trữ sau của nhóm này: ${characterNames}. Chúng vẫn ở trạng thái lưu trữ, không có tin nhắn đầu tiên trong cuộc trò chuyện mới và bị bỏ qua khi nhóm trò chuyện.`,
+        "coldStorageDatasetExportSkipped": (characterNames: string) =>
+            `Không thể tải các nhân vật đã lưu trữ sau nên chúng không có trong tập dữ liệu: ${characterNames}.`,
         "coldStorageUnknownCharacterName": "Nhân vật không xác định",
         "coldStorageIncompleteBackupConfirm": (characterNames: string, unavailableCount: number, unresolvedCount: number) =>
             `Dữ liệu bộ nhớ lạnh của ${characterNames || "nhân vật không xác định"} bị thiếu hoặc không hợp lệ.${unresolvedCount > 0 ? ` Có ${unresolvedCount} mục không thể liên kết với nhân vật.` : ""}\n\nNếu tiếp tục, bản sao lưu này sẽ thiếu ${unavailableCount} mục bộ nhớ lạnh và dữ liệu nhân vật hoặc cuộc trò chuyện bị ảnh hưởng có thể không thể khôi phục từ bản sao lưu.\n\nVẫn tạo bản sao lưu không đầy đủ?`,
@@ -1647,12 +1651,14 @@ export const languageVietnamese = {
     possibleAssetCorruptionToast: (target: string) => `Phát hiện khả năng tài sản bị hỏng (${target}). Kiểm tra Sao lưu & Tệp → Tính toàn vẹn Bộ nhớ đệm Tài sản.`,
     assetIntegrityNoAssets: "Không có tài sản nào để kiểm tra.",
     assetIntegrityVerifyingProgress: (done: number, total: number) => `Đang xác minh bộ nhớ đệm tài sản... (${done} / ${total})`,
+    assetIntegrityReadingArchivedProgress: (done: number, total: number) => `Đang đọc các nhân vật đã lưu trữ... (${done} / ${total})`,
     assetIntegrityUnsupported: "Trình duyệt này không hỗ trợ kiểm tra cần thiết ở đây (Cache API không khả dụng).",
     assetIntegrityEvictConfirm: (count: number) => `Đã tìm thấy ${count} mục bộ nhớ đệm bị hỏng. Xóa chúng khỏi bộ nhớ đệm ngay bây giờ? Sau đó bạn sẽ cần tải lại trang để bản sửa lỗi có hiệu lực.`,
     assetIntegrityReportTitle: "## Báo cáo Tính toàn vẹn Bộ nhớ đệm Tài sản\n\n",
     assetIntegrityReportChecked: (checked: number, total: number) => `- Đã kiểm tra: ${checked} / ${total}\n`,
     assetIntegrityReportNotCached: (n: number) => `- Chưa được lưu vào bộ nhớ đệm (bình thường, không phải vấn đề): ${n}\n`,
     assetIntegrityReportNotContentAddressed: (n: number) => `- Không theo địa chỉ nội dung (không thể xác minh theo cách này): ${n}\n`,
+    assetIntegrityReportArchivedNotChecked: (characterNames: string) => `- Các nhân vật đã lưu trữ chưa được kiểm tra tài sản (không thể tải dữ liệu của chúng): ${characterNames}\n`,
     assetIntegrityReportMismatchCount: (n: number) => `- **Phát hiện ${n} mục không khớp**\n`,
     assetIntegrityReportEvicted: (n: number) => `\nĐã xóa ${n} mục bộ nhớ đệm bị hỏng. Hãy tải lại ứng dụng để bản sửa lỗi có hiệu lực.`,
     assetIntegrityReportLeftInCache: "\nĐã giữ lại trong bộ nhớ đệm theo yêu cầu của bạn.",
