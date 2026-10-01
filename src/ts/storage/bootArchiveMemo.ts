@@ -1,16 +1,24 @@
 /**
- * The device memo of the boot archive pass: the characters the pass skipped
- * because their unit could not be stored, and whether the Node server refused
- * the commit as too large. Both live in `localStorage`, which is readable
- * before the database is installed, and hold nothing else about a character
+ * The device records of the boot archive pass, all in `localStorage`, which is
+ * readable before the database is installed. None holds more about a character
  * than its `chaId`.
  *
- * The pass only reads the memo. `bootstrap.ts` writes it, and only after it has
- * posted the notice that carries it, so a boot that never reaches the user
- * leaves no memo and the next boot behaves as if nothing had happened. Turning
- * the setting off clears it. Every access is guarded: storage that throws reads
- * as an empty memo and a write that throws is logged and ignored, which costs a
- * retry on the next boot and nothing else.
+ * The notice memo: the characters the pass skipped because their unit could
+ * not be stored, whether the Node server refused the commit as too large, and
+ * whether the user was told archiving is paused. The pass only reads it.
+ * `bootstrap.ts` writes it, and only after it has posted the notice that carries
+ * it, so a boot that never reaches the user leaves no memo and the next boot
+ * behaves as if nothing had happened. Reads of the memo fail open: storage that
+ * throws reads as an empty memo, and a write that throws is logged and ignored,
+ * which costs a repeated notice or a retry on the next boot and nothing else.
+ *
+ * The strike count of the crash-loop breaker: the pass itself writes it, a
+ * start record before it writes anything and a reset when it succeeds. It fails
+ * closed. A count that cannot be read, a start record that cannot be written
+ * and a stored value that is not a count all stop the pass, because a count
+ * that reads as zero would let a crash loop run unbounded.
+ *
+ * Turning the setting off clears all of it.
  */
 
 export interface ArchiveMemo {
@@ -18,10 +26,20 @@ export interface ArchiveMemo {
     skipped: ReadonlySet<string>
     /** The commit was over the Node server's body limit; the pass does nothing on this device. */
     tooLarge: boolean
+    /** The paused notice was posted on this device. Fails open like the other two. */
+    pausedTold: boolean
 }
+
+/**
+ * What the strike count says: `none` (zero), `one`, `paused` (two or more, or a
+ * stored value that is not a count) and `unreadable` (the storage threw).
+ */
+export type ArchiveStrikeState = 'none' | 'one' | 'paused' | 'unreadable'
 
 const SKIPPED_KEY = 'archivePassSkipped'
 const TOO_LARGE_KEY = 'archivePassTooLarge'
+const STRIKES_KEY = 'archivePassStrikes'
+const PAUSED_TOLD_KEY = 'archivePassPausedTold'
 
 function readSkippedIds(): string[] {
     try {
@@ -36,14 +54,20 @@ function readSkippedIds(): string[] {
     }
 }
 
-export function readArchiveMemo(): ArchiveMemo {
-    let tooLarge = false
+function readFlag(key: string): boolean {
     try {
-        tooLarge = localStorage.getItem(TOO_LARGE_KEY) === '1'
+        return localStorage.getItem(key) === '1'
     } catch (error) {
-        tooLarge = false
+        return false
     }
-    return { skipped: new Set(readSkippedIds()), tooLarge }
+}
+
+export function readArchiveMemo(): ArchiveMemo {
+    return {
+        skipped: new Set(readSkippedIds()),
+        tooLarge: readFlag(TOO_LARGE_KEY),
+        pausedTold: readFlag(PAUSED_TOLD_KEY),
+    }
 }
 
 /** Adds `chaIds` to the skipped characters; the ones already there stay. */
@@ -70,12 +94,74 @@ export function rememberTooLarge(): void {
     }
 }
 
-/** Forgets both memos; other storage keys are left alone. */
-export function clearArchiveMemo(): void {
+export function rememberPausedTold(): void {
     try {
-        localStorage.removeItem(SKIPPED_KEY)
-        localStorage.removeItem(TOO_LARGE_KEY)
+        localStorage.setItem(PAUSED_TOLD_KEY, '1')
     } catch (error) {
-        console.warn('The archive pass memo could not be cleared on this device:', error)
+        console.warn('The archive pass could not remember that the paused notice was posted on this device:', error)
+    }
+}
+
+/**
+ * The count the strike record holds. Never goes through a fail-open reader:
+ * a storage that throws answers `unreadable`, and a value that is not a
+ * non-negative decimal integer answers `paused` (the setting off and on clears
+ * it).
+ */
+export function readArchiveStrikes(): ArchiveStrikeState {
+    let raw: string | null
+    try {
+        raw = localStorage.getItem(STRIKES_KEY)
+    } catch (error) {
+        return 'unreadable'
+    }
+    if (raw === null) {
+        return 'none'
+    }
+    if (!/^[0-9]+$/.test(raw)) {
+        return 'paused'
+    }
+    const count = Number(raw)
+    return count === 0 ? 'none' : count === 1 ? 'one' : 'paused'
+}
+
+/**
+ * Counts a pass that is about to write: takes none to one and one to two, and
+ * answers true only when the new count reads back. Answers false, writing
+ * nothing, when the count is paused or unreadable, and false when the write
+ * fails or does not stick; it never throws.
+ */
+export function recordArchiveStart(): boolean {
+    const state = readArchiveStrikes()
+    if (state !== 'none' && state !== 'one') {
+        return false
+    }
+    const next = state === 'none' ? '1' : '2'
+    try {
+        localStorage.setItem(STRIKES_KEY, next)
+        return localStorage.getItem(STRIKES_KEY) === next
+    } catch (error) {
+        console.warn('The archive pass could not record that it started on this device:', error)
+        return false
+    }
+}
+
+/** Zero is the absence of the key. A failure is logged and ignored. */
+export function resetArchiveStrikes(): void {
+    try {
+        localStorage.removeItem(STRIKES_KEY)
+    } catch (error) {
+        console.warn('The archive pass could not reset its strike count on this device:', error)
+    }
+}
+
+/** Forgets the notice memo, the strike count and the told record; other storage keys are left alone. */
+export function clearArchiveMemo(): void {
+    for (const key of [SKIPPED_KEY, TOO_LARGE_KEY, STRIKES_KEY, PAUSED_TOLD_KEY]) {
+        try {
+            localStorage.removeItem(key)
+        } catch (error) {
+            console.warn('The archive pass memo could not be cleared on this device:', error)
+        }
     }
 }

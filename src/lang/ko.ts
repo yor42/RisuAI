@@ -1627,6 +1627,8 @@ export const languageKorean = {
         `다음 캐릭터를 별도로 저장할 수 없었습니다: ${characterNames}${otherCount > 0 ? ` 외 ${otherCount}개` : ''}. 이 캐릭터들은 완전히 불러온 상태로 유지되며 이전과 동일하게 동작하고, 앱은 시작할 때 이 캐릭터들을 다시 보관하려 하지 않습니다. 이 기기에서 다시 시도하려면 ${settings} > ${advancedSettings} > ${toggle}을(를) 껐다가 다시 켜세요.`,
     "archiveCharactersTooLargeNotice": (settings: string, advancedSettings: string, toggle: string) =>
         `저장 데이터가 너무 커서 셀프 호스팅 서버에 캐릭터를 보관할 수 없었으므로, 아무것도 보관되지 않았고 저장 데이터는 그대로 두었습니다. 모든 것이 이전과 동일하게 동작합니다. 이 기기에서 다시 시도하려면 ${settings} > ${advancedSettings} > ${toggle}을(를) 껐다가 다시 켜세요.`,
+    "archiveCharactersPausedNotice": (settings: string, advancedSettings: string, toggle: string) =>
+        `이 기기에서 시작 시 캐릭터 보관이 두 번 연속으로 끝나지 않아 일시 중지되었습니다. 삭제되거나 잃은 데이터는 없으며, 이미 보관된 캐릭터는 열 때 그대로 불러옵니다. 재개하기 전까지는 시작 시 새로 보관되는 캐릭터가 없습니다. 다시 시도하려면 ${settings} > ${advancedSettings} > ${toggle}을(를) 껐다가 다시 켜세요.`,
     cleanColdStorage: "사용하지 않는 보관 데이터 및 에셋 정리",
     customSidebarConfig: "사이드바 커스텀 설정",
     cleanColdStorageConfirm: "이 작업은 사용하지 않는 모든 보관(콜드 스토리지) 데이터와 사용하지 않는 모든 에셋 파일(더 이상 어떤 캐릭터, 모듈, 페르소나, 설정에서도 사용하지 않는 이미지와 오디오)을 영구적으로 삭제합니다. 일부는 나중에 유용할 수 있으며, 삭제된 데이터는 복구할 수 없습니다. 계속하시겠습니까?",

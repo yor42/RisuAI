@@ -485,7 +485,9 @@ describe('loadData() web: the memo a notice carries is written after the notice 
             noteBytes: null,
             notices: [{ kind: 'archive-skipped', characters: [{ chaId: 'b', name: 'Beta Marker' }] }],
         })
-        vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota exceeded') })
+        // The spy sits on the `localStorage` instance: once any code has called
+        // `setItem` on it, a spy on `Storage.prototype` is no longer in the call path.
+        const setItemSpy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new Error('quota exceeded') })
         const { loadData, alertStore, loadedStore } = await freshLoadData()
         const alerts = recordAlerts(alertStore)
 
@@ -495,7 +497,12 @@ describe('loadData() web: the memo a notice carries is written after the notice 
 
             expect(get(loadedStore)).toBe(true)
             expect(alerts.seen.length).toBe(1)
+            const memoWrites = setItemSpy.mock.results.filter((r, i) => setItemSpy.mock.calls[i][0] === 'archivePassSkipped')
+            expect(memoWrites.length).toBe(1)
+            expect(memoWrites[0].type).toBe('throw')
         } finally {
+            // `restoreAllMocks` leaves an instance spy on `localStorage` in place, so it is restored here.
+            setItemSpy.mockRestore()
             alerts.stop()
             alertStore.set({ type: 'none', msg: '' })
             await loading.catch(() => { })
@@ -570,5 +577,235 @@ describe('loadData() web: the memo is cleared on a boot that reads the setting o
         expect(pass.runInputs.length).toBe(1)
         expect([...memo.readArchiveMemo().skipped].sort()).toEqual(['b', 'c'])
         expect(memo.readArchiveMemo().tooLarge).toBe(true)
+    })
+})
+
+describe('loadData() web: the paused notice and its told record', () => {
+    const TOLD_KEY = 'archivePassPausedTold'
+
+    test('the paused notice is a message of its own, and the told record is written after it was posted and not before', async () => {
+        armLegacy()
+        pass.run = async (input) => ({
+            kind: 'install',
+            tree: (input as RunInput).tree,
+            noteBytes: null,
+            notices: [{ kind: 'archive-paused' }],
+        })
+        const { loadData, alertStore, loadedStore } = await freshLoadData()
+        const { language } = await import('src/lang')
+        const before = storageSnapshot()
+        let storageWhenPosted: Record<string, string | null> | null = null
+        const alerts = recordAlerts(alertStore, (index) => {
+            if (index === 1) {
+                storageWhenPosted = storageSnapshot()
+            }
+        })
+
+        const loading = loadData()
+        try {
+            await acknowledgeAll(alertStore, alerts.seen, 1, loading)
+
+            expect(get(loadedStore)).toBe(true)
+            expect(alerts.seen.length).toBe(1)
+            const message = alerts.seen[0].msg
+            expect(typeof message).toBe('string')
+            expect(message).toMatch(/paused/i)
+            expect(message).toContain('this device')
+            expect(message).toContain(language.settings)
+            expect(message).toContain(language.advancedSettings)
+            expect(message).toContain(language.coldStorage)
+            expect(message).not.toContain('undefined')
+            expect(message).not.toMatch(/automatically|will retry/i)
+            expect(storageWhenPosted).toEqual(before)
+            expect(localStorage.getItem(TOLD_KEY)).not.toBeNull()
+            const memo = await memoModule()
+            expect(memo.readArchiveMemo().pausedTold).toBe(true)
+            expect(memo.readArchiveMemo().skipped.size).toBe(0)
+            expect(memo.readArchiveMemo().tooLarge).toBe(false)
+        } finally {
+            alerts.stop()
+            alertStore.set({ type: 'none', msg: '' })
+            await loading.catch(() => { })
+        }
+    })
+
+    test('the paused notice follows the stopped notice, each is acknowledged in turn, and the told record waits for the paused one', async () => {
+        armLegacy()
+        pass.run = async (input) => ({
+            kind: 'install',
+            tree: (input as RunInput).tree,
+            noteBytes: null,
+            notices: [{ kind: 'archive-stopped', characterName: 'Stop Marker' }, { kind: 'archive-paused' }],
+        })
+        const { loadData, alertStore, loadedStore } = await freshLoadData()
+        const before = storageSnapshot()
+        const storageAtAlert: Record<number, Record<string, string | null>> = {}
+        const alerts = recordAlerts(alertStore, (index) => {
+            storageAtAlert[index] = storageSnapshot()
+        })
+
+        const loading = loadData()
+        try {
+            await acknowledgeAll(alertStore, alerts.seen, 2, loading)
+
+            expect(get(loadedStore)).toBe(true)
+            const messages = alerts.seen.map((a) => a.msg)
+            expect(messages.length).toBe(2)
+            expect(messages[0]).toContain('Stop Marker')
+            expect(typeof messages[1]).toBe('string')
+            expect(messages[1]).not.toContain('Stop Marker')
+            expect(messages[1]).toMatch(/paused/i)
+            expect(storageAtAlert[1]).toEqual(before)
+            expect(storageAtAlert[2]).toEqual(before)
+            expect(localStorage.getItem(TOLD_KEY)).not.toBeNull()
+        } finally {
+            alerts.stop()
+            alertStore.set({ type: 'none', msg: '' })
+            await loading.catch(() => { })
+        }
+    })
+
+    test('guard: a paused notice whose boot ends before it is posted writes no told record', async () => {
+        armLegacy()
+        world.items.set('database/dbbackup-1.bin', encodeRisuSaveLegacy(baseDb({ characters: [{ chaId: 'old', name: 'Old', type: 'character', chats: [] }] })))
+        getDbBackupsMock.mockResolvedValue([1])
+        pass.run = async (input) => ({
+            kind: 'install',
+            tree: (input as RunInput).tree,
+            noteBytes: null,
+            notices: [{ kind: 'archive-paused' }],
+        })
+        setDatabaseMock.mockImplementationOnce(() => { throw new Error('install failed') })
+        const { loadData, alertStore, loadedStore } = await freshLoadData()
+        const alerts = recordAlerts(alertStore)
+        const before = storageSnapshot()
+
+        await loadData()
+        alerts.stop()
+
+        expect(get(loadedStore)).toBe(true)
+        expect(alerts.seen).toEqual([])
+        expect(storageSnapshot()).toEqual(before)
+    })
+
+    test('a told record that cannot be written is attempted and does not stop the boot or the notice', async () => {
+        armLegacy()
+        pass.run = async (input) => ({
+            kind: 'install',
+            tree: (input as RunInput).tree,
+            noteBytes: null,
+            notices: [{ kind: 'archive-paused' }],
+        })
+        const real = localStorage
+        const writeAttempts: string[] = []
+        vi.stubGlobal('localStorage', {
+            get length() { return real.length },
+            key: (index: number) => real.key(index),
+            getItem: (key: string) => real.getItem(key),
+            setItem: (key: string) => { writeAttempts.push(key); throw new Error('quota exceeded') },
+            removeItem: (key: string) => real.removeItem(key),
+            clear: () => real.clear(),
+        })
+        const { loadData, alertStore, loadedStore } = await freshLoadData()
+        const alerts = recordAlerts(alertStore)
+
+        const loading = loadData()
+        try {
+            await acknowledgeAll(alertStore, alerts.seen, 1, loading)
+
+            expect(get(loadedStore)).toBe(true)
+            expect(alerts.seen.length).toBe(1)
+            expect(writeAttempts).toContain('archivePassPausedTold')
+        } finally {
+            alerts.stop()
+            alertStore.set({ type: 'none', msg: '' })
+            await loading.catch(() => { })
+        }
+    })
+
+    test('guard: a boot with no pass notices leaves the strike count and the told record alone, because only the pass writes the count', async () => {
+        armLegacy()
+        localStorage.setItem('archivePassStrikes', '1')
+        const { loadData } = await freshLoadData()
+
+        await loadData()
+
+        expect(localStorage.getItem('archivePassStrikes')).toBe('1')
+        expect(localStorage.getItem(TOLD_KEY)).toBeNull()
+    })
+})
+
+describe('loadData() web: the strike count and the told record are cleared on a boot that reads the setting off', () => {
+    const STRIKES_KEY = 'archivePassStrikes'
+    const TOLD_KEY = 'archivePassPausedTold'
+
+    function seedBreaker(): void {
+        localStorage.setItem(STRIKES_KEY, '2')
+        localStorage.setItem(TOLD_KEY, '1')
+        localStorage.setItem('unrelated-key', 'kept')
+    }
+
+    test('a strict decode with the setting off clears both before the pass runs', async () => {
+        armLegacy(baseDb({ archiveCharacters: false }))
+        seedBreaker()
+        let strikesAtRun: string | null = 'not run'
+        let toldAtRun: string | null = 'not run'
+        pass.run = async (input) => {
+            strikesAtRun = localStorage.getItem(STRIKES_KEY)
+            toldAtRun = localStorage.getItem(TOLD_KEY)
+            return { kind: 'install', tree: (input as RunInput).tree, noteBytes: null, notices: [] }
+        }
+        const { loadData } = await freshLoadData()
+
+        await loadData()
+
+        expect(pass.runInputs.length).toBe(1)
+        expect(strikesAtRun).toBeNull()
+        expect(toldAtRun).toBeNull()
+        expect(localStorage.getItem(STRIKES_KEY)).toBeNull()
+        expect(localStorage.getItem(TOLD_KEY)).toBeNull()
+        expect(localStorage.getItem('unrelated-key')).toBe('kept')
+    })
+
+    test('a boot whose session cannot archive still clears both', async () => {
+        armLegacy(baseDb({ archiveCharacters: false }))
+        pass.canArchive = false
+        seedBreaker()
+        const { loadData } = await freshLoadData()
+
+        await loadData()
+
+        expect(localStorage.getItem(STRIKES_KEY)).toBeNull()
+        expect(localStorage.getItem(TOLD_KEY)).toBeNull()
+    })
+
+    test('a main file that decodes only non-strictly, with the setting off, still clears both and never runs the pass', async () => {
+        const save = await composeBlockFile({ archiveCharacters: false })
+        const damaged = corruptBlockPayload(save, 'plugins')
+        world.items.set(MAIN_KEY, damaged)
+        await expect(decodeRisuSave(damaged, { strict: true })).rejects.toBeDefined()
+        seedBreaker()
+        const { loadData } = await freshLoadData()
+
+        await loadData()
+
+        expect(pass.runInputs.length).toBe(0)
+        expect(localStorage.getItem(STRIKES_KEY)).toBeNull()
+        expect(localStorage.getItem(TOLD_KEY)).toBeNull()
+    })
+
+    test.each([
+        ['absent', {}],
+        ['on', { archiveCharacters: true }],
+    ] as const)('guard: a boot that reads the setting %s leaves the strike count and the told record alone', async (_label, extra) => {
+        armLegacy(baseDb(extra))
+        seedBreaker()
+        const { loadData } = await freshLoadData()
+
+        await loadData()
+
+        expect(pass.runInputs.length).toBe(1)
+        expect(localStorage.getItem(STRIKES_KEY)).toBe('2')
+        expect(localStorage.getItem(TOLD_KEY)).toBe('1')
     })
 })

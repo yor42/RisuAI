@@ -5,7 +5,7 @@ import { readColdStorageItem, setColdStorageItem } from '../process/coldstorage.
 import { isAppInitiatedReload } from '../reloadGuard'
 import { LoadingStatusState } from '../stores.svelte'
 import { isIOS, isMobile, isNodeServer, isTauri } from '../platform'
-import { readArchiveMemo } from './bootArchiveMemo'
+import { readArchiveMemo, readArchiveStrikes, recordArchiveStart, resetArchiveStrikes } from './bootArchiveMemo'
 import type { BootArchiveDeps, BootArchiveEnvironment, BootArchiveHost } from './bootArchivePass'
 
 /**
@@ -75,6 +75,9 @@ export async function createProductionBootArchiveDeps(host: BootArchiveHost): Pr
         writeUnit: (key, value) => setColdStorageItem(key, value),
         readUnit: (key) => readColdStorageItem(key),
         readArchiveMemo,
+        readArchiveStrikes,
+        recordArchiveStart,
+        resetArchiveStrikes,
         nodeBodyLimit: NODE_BODY_LIMIT_BYTES,
         setProgress: (text) => {
             LoadingStatusState.text = text

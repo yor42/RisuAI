@@ -15,6 +15,7 @@ import { coldStorageHeader } from '../process/coldstorageData'
 import { repairDatabaseIds } from '../process/chatIds'
 import { hasEnabledV21Plugin } from '../plugins/v21Plugins'
 import { applyCharacterDefaults, resetChatStreamingState } from './characterDefaults'
+import type { ArchiveMemo, ArchiveStrikeState } from './bootArchiveMemo'
 
 /**
  * The boot archive pass: on a boot that read and strictly decoded the main
@@ -22,6 +23,11 @@ import { applyCharacterDefaults, resetChatStreamingState } from './characterDefa
  * is written to its own cold-storage unit, replaced in the decoded tree by a
  * stub, and the tree is committed as the main file, all under exclusive
  * access. The caller installs the tree this module returns.
+ *
+ * A crash-loop breaker counts the passes that started writing and did not
+ * succeed. The count is recorded before anything is written, reset when a pass
+ * succeeds, and two in a row pause the pass on this device until the setting is
+ * turned off and on. A count that cannot be read or recorded stops the pass.
  *
  * Every effect the pass makes itself (unit writes and reads, the main-file
  * read and write, the hold, progress) arrives through `BootArchiveDeps`; the
@@ -84,12 +90,28 @@ export interface BootArchiveDeps {
     /** The encoder the commit is built with; defaults to `new RisuSaveEncoder()`. */
     createEncoder?(): RisuSaveEncoder
     /**
-     * The device memo the pass reads: `chaId`s it does not try again, and
-     * whether the Node server refused a commit as too large. The pass never
-     * writes it; `bootstrap.ts` does, after it has posted the notice that
-     * carries it. A read that fails answers an empty memo.
+     * The notice memo the pass reads: `chaId`s it does not try again, whether
+     * the Node server refused a commit as too large, and whether the user was
+     * told archiving is paused. The pass never writes it; `bootstrap.ts` does,
+     * after it has posted the notice that carries it. A read that fails
+     * answers an empty memo.
      */
-    readArchiveMemo(): { skipped: ReadonlySet<string>, tooLarge: boolean }
+    readArchiveMemo(): ArchiveMemo
+    /**
+     * The strike count of the crash-loop breaker: how many passes in a row
+     * started and did not succeed. `paused` is two or more, or a stored value
+     * that is not a count; `unreadable` is a storage that cannot be read. Read
+     * once per pass. A dep that throws is treated as `unreadable`.
+     */
+    readArchiveStrikes(): ArchiveStrikeState
+    /**
+     * Counts a pass that is about to write. Answers true only when the new
+     * count reads back from storage; the pass writes nothing when it answers false or
+     * throws. Called before the first unit write and before the encoder runs.
+     */
+    recordArchiveStart(): boolean
+    /** Sets the count to zero after a pass succeeded. A failure is logged and ignored. */
+    resetArchiveStrikes(): void
     /**
      * The largest request body, in bytes, the Node server accepts. Applied only
      * when `env().isNodeServer` (web); absent means no limit is applied.
@@ -110,9 +132,11 @@ export interface BootArchivePassInput {
 
 /**
  * A notice the caller translates and posts after the install, awaiting each in
- * order. The caller writes the device memo a notice carries only after it has
- * posted that notice: `archive-skipped` memoises `characters`, and
- * `archive-too-large` memoises the device.
+ * order. The caller writes the notice memo a notice carries only after it has
+ * posted that notice: `archive-skipped` memoises `characters`,
+ * `archive-too-large` memoises the device, and `archive-paused` records that
+ * the user was told. The strike count is not part of that memo: the pass
+ * writes it itself, through `BootArchiveDeps`.
  */
 export type BootArchiveNotice =
     | { kind: 'archive-enabled' }
@@ -122,6 +146,8 @@ export type BootArchiveNotice =
     | { kind: 'archive-stopped', characterName: string }
     /** On the Node server: the encoded commit was over the server's body limit and was not sent. */
     | { kind: 'archive-too-large' }
+    /** Two passes in a row started and did not succeed, or the stored count is not a whole number, so archiving is paused on this device until the setting is turned off and on. Always the last notice. */
+    | { kind: 'archive-paused' }
 
 export type BootArchiveOutcome =
     /**
@@ -413,9 +439,11 @@ async function runPass(
         return installUntouched(tree)
     }
     const keyAbsent = tree.archiveCharacters === undefined
+    const attempt: PassAttempt = { reachedTwo: false }
     try {
-        return await archiveAndCommit(deps, input, keyAbsent, nodeServer)
+        return await archiveAndCommit(deps, input, keyAbsent, nodeServer, attempt)
     } catch (error) {
+        // A pass that threw keeps the strike its start record made.
         const tooLarge = error instanceof CommitTooLargeError
         if (error instanceof CommitTooLargeError) {
             console.warn('The boot archive pass did not send its commit; installing the main file as it is:', error.message)
@@ -423,24 +451,69 @@ async function runPass(
             console.error('The boot archive pass failed; installing the main file as it is:', error)
         }
         const outcome = await installMainFileAsItIs(host, deps, input, keyAbsent)
-        if (tooLarge && outcome.kind === 'install') {
-            outcome.notices.push({ kind: 'archive-too-large' })
+        if (outcome.kind === 'install') {
+            if (tooLarge) {
+                outcome.notices.push({ kind: 'archive-too-large' })
+            } else if (attempt.reachedTwo) {
+                outcome.notices.push({ kind: 'archive-paused' })
+            }
         }
         return outcome
     }
 }
 
-function readMemoOrEmpty(deps: BootArchiveDeps): { skipped: ReadonlySet<string>, tooLarge: boolean } {
+function readMemoOrEmpty(deps: BootArchiveDeps): ArchiveMemo {
     try {
         return deps.readArchiveMemo()
     } catch (error) {
-        return { skipped: new Set<string>(), tooLarge: false }
+        return { skipped: new Set<string>(), tooLarge: false, pausedTold: false }
     }
+}
+
+/** The count read fails closed: a dep that throws reads as `unreadable`, never as zero. */
+function readStrikesOrUnreadable(deps: BootArchiveDeps): ArchiveStrikeState {
+    try {
+        return deps.readArchiveStrikes()
+    } catch (error) {
+        return 'unreadable'
+    }
+}
+
+/** True only when the start record was written; a dep that throws answers false. */
+function recordStartOrFalse(deps: BootArchiveDeps): boolean {
+    try {
+        return deps.recordArchiveStart()
+    } catch (error) {
+        return false
+    }
+}
+
+/** A failed reset leaves a stale strike, which costs an earlier pause and nothing else. */
+function resetStrikes(deps: BootArchiveDeps): void {
+    try {
+        deps.resetArchiveStrikes()
+    } catch (error) {
+        console.warn('The boot archive pass could not reset its strike count:', error)
+    }
+}
+
+/** What `archiveAndCommit` tells `runPass`, which cannot see inside a pass that threw. */
+interface PassAttempt {
+    /** This pass's own start record took the count from one to two. */
+    reachedTwo: boolean
 }
 
 /**
  * Archives what is eligible, then commits the result as the main file. Any
  * throw is a pass failure: the caller discards the tree and re-reads the file.
+ *
+ * Order of the checks, after the tree has its ids repaired, its slots filtered
+ * and its container defaults filled in: the Node too-large memo, then the
+ * strike count (paused: the pass writes nothing and returns the paused notice
+ * unless the user was told; unreadable: it writes nothing), then the refusal, then eligibility, then the start
+ * record. The start record is made only when something will be written, before
+ * the first unit write and before the encoder runs; when it cannot be stored
+ * the pass writes nothing.
  *
  * A unit that cannot be written or read back is not a failure. An isolated one
  * leaves that character fully loaded and the loop carries on; it is reported in
@@ -449,6 +522,11 @@ function readMemoOrEmpty(deps: BootArchiveDeps): { skipped: ReadonlySet<string>,
  * Two in a row mean the storage itself is failing: archiving stops there, what
  * was archived so far (if anything, or the absent key) is committed, and
  * neither of the two is reported as a skip.
+ *
+ * A pass that made its start record and returns succeeds, and resets the
+ * strike count, unless it stopped on two failed units and archived no
+ * character; that pass keeps its strike, as does one that throws or never
+ * finishes. A return before the start record leaves the count as it is.
  *
  * Nothing is committed that the pass could not write whole: a tree that would
  * fail its commit on every boot is refused before any unit is written, and on
@@ -459,6 +537,7 @@ async function archiveAndCommit(
     input: BootArchivePassInput,
     keyAbsent: boolean,
     nodeServer: boolean,
+    attempt: PassAttempt,
 ): Promise<BootArchiveOutcome> {
     const tree = input.tree
 
@@ -490,6 +569,15 @@ async function archiveAndCommit(
         // nothing is committed.
         return installUntouched(tree)
     }
+    const strikes = readStrikesOrUnreadable(deps)
+    if (strikes === 'paused') {
+        // Nothing is written on a paused device; the tree installs as it is.
+        return { kind: 'install', tree, noteBytes: null, notices: memo.pausedTold ? [] : [{ kind: 'archive-paused' }] }
+    }
+    if (strikes !== 'none' && strikes !== 'one') {
+        console.warn('The boot archive pass did not run: its strike count could not be read on this device.')
+        return installUntouched(tree)
+    }
     const refusal = refusalReason(tree, characters)
     if (refusal !== null) {
         console.warn(`The boot archive pass did not run: ${refusal}.`)
@@ -497,6 +585,14 @@ async function archiveAndCommit(
     }
 
     const eligible = eligibleIndexes(characters, input.keepInline, memo.skipped)
+    if (eligible.length === 0 && !keyAbsent) {
+        return installUntouched(tree)
+    }
+    if (!recordStartOrFalse(deps)) {
+        console.warn('The boot archive pass did not run: its start could not be recorded on this device.')
+        return installUntouched(tree)
+    }
+    attempt.reachedTwo = strikes === 'one'
     const archivedInfo = new Map<number, { key: string, stubJson: string }>()
     const skipped: { chaId: string, name: string }[] = []
     // A failed unit waits here until the next unit shows the failure was
@@ -544,15 +640,24 @@ async function archiveAndCommit(
         skipped.push(pendingSkip)
     }
 
+    // A stop with no archived character made no progress, so it keeps its
+    // strike; every other pass that returns succeeds.
+    const succeeded = stoppedAt === null || archivedInfo.size > 0
     const notices: BootArchiveNotice[] = []
     if (archivedInfo.size === 0 && !keyAbsent) {
         // Nothing changed that is worth a write: the boot's own record of the
         // file stands.
+        if (succeeded) {
+            resetStrikes(deps)
+        }
         if (skipped.length > 0) {
             notices.push({ kind: 'archive-skipped', characters: skipped })
         }
         if (stoppedAt !== null) {
             notices.push({ kind: 'archive-stopped', characterName: stoppedAt })
+        }
+        if (!succeeded && attempt.reachedTwo) {
+            notices.push({ kind: 'archive-paused' })
         }
         return { kind: 'install', tree, noteBytes: null, notices }
     }
@@ -582,6 +687,9 @@ async function archiveAndCommit(
         throw new Error(`The encoded save failed its block check: ${check.reason}`)
     }
     await deps.writeMainFile(bytes)
+    if (succeeded) {
+        resetStrikes(deps)
+    }
 
     if (keyAbsent) {
         notices.push({ kind: 'archive-enabled' })
@@ -591,6 +699,9 @@ async function archiveAndCommit(
     }
     if (stoppedAt !== null) {
         notices.push({ kind: 'archive-stopped', characterName: stoppedAt })
+    }
+    if (!succeeded && attempt.reachedTwo) {
+        notices.push({ kind: 'archive-paused' })
     }
     return { kind: 'install', tree, noteBytes: bytes, notices }
 }

@@ -591,4 +591,76 @@ describe('loadData() Tauri: the pass\'s device memo (new behaviour of the skip a
         expect(memo.readArchiveMemo().skipped.size).toBe(0)
         expect(memo.readArchiveMemo().tooLarge).toBe(false)
     })
+
+    test('a paused notice is posted, and the told record is written after it was posted and not before', async () => {
+        armLegacy()
+        pass.run = async (input) => ({
+            kind: 'install',
+            tree: (input as RunInput).tree,
+            noteBytes: null,
+            notices: [{ kind: 'archive-paused' }],
+        })
+        const { loadData, alertStore, loadedStore } = await freshLoadData()
+        const before = storageSnapshot()
+        let storageWhenPosted: Record<string, string | null> | null = null
+        const seen: { type: string, msg: string }[] = []
+        const stop = alertStore.subscribe((value) => {
+            if (value.type !== 'none') {
+                seen.push(value)
+                storageWhenPosted ??= storageSnapshot()
+            }
+        })
+
+        const loading = loadData()
+        try {
+            await vi.waitFor(() => { expect(seen.length).toBeGreaterThanOrEqual(1) }, { timeout: 1000, interval: 5 })
+            alertStore.set({ type: 'none', msg: '' })
+            await loading
+
+            expect(get(loadedStore)).toBe(true)
+            expect(seen.length).toBe(1)
+            expect(typeof seen[0].msg).toBe('string')
+            expect(seen[0].msg).toMatch(/paused/i)
+            expect(seen[0].msg).not.toContain('undefined')
+            expect(storageWhenPosted).toEqual(before)
+            expect(localStorage.getItem('archivePassPausedTold')).not.toBeNull()
+            expect((await memoModule()).readArchiveMemo().pausedTold).toBe(true)
+        } finally {
+            stop()
+            alertStore.set({ type: 'none', msg: '' })
+            await loading.catch(() => { })
+        }
+    })
+
+    test('a strict decode with the setting off clears the strike count and the told record before the pass runs', async () => {
+        armLegacy(baseDb({ archiveCharacters: false }))
+        localStorage.setItem('archivePassStrikes', '2')
+        localStorage.setItem('archivePassPausedTold', '1')
+        let strikesAtRun: string | null = 'not run'
+        pass.run = async (input) => {
+            strikesAtRun = localStorage.getItem('archivePassStrikes')
+            return { kind: 'install', tree: (input as RunInput).tree, noteBytes: null, notices: [] }
+        }
+        const { loadData } = await freshLoadData()
+
+        await loadData()
+
+        expect(pass.runInputs.length).toBe(1)
+        expect(strikesAtRun).toBeNull()
+        expect(localStorage.getItem('archivePassStrikes')).toBeNull()
+        expect(localStorage.getItem('archivePassPausedTold')).toBeNull()
+    })
+
+    test('guard: a boot that reads the setting on leaves the strike count and the told record alone', async () => {
+        armLegacy(baseDb({ archiveCharacters: true }))
+        localStorage.setItem('archivePassStrikes', '2')
+        localStorage.setItem('archivePassPausedTold', '1')
+        const { loadData } = await freshLoadData()
+
+        await loadData()
+
+        expect(pass.runInputs.length).toBe(1)
+        expect(localStorage.getItem('archivePassStrikes')).toBe('2')
+        expect(localStorage.getItem('archivePassPausedTold')).toBe('1')
+    })
 })

@@ -308,17 +308,24 @@ describe('loadData(): Tauri boot pins (I6, I5)', () => {
 
         const { loadData, loadedStore } = await freshLoadData()
 
-        const getItemSpy = vi.spyOn(Storage.prototype, 'getItem')
-
-        await loadData()
+        // On the `localStorage` instance: once any code has called `getItem` on
+        // it, a spy on `Storage.prototype` no longer sees its calls.
+        const getItemSpy = vi.spyOn(localStorage, 'getItem')
+        let readKeys: unknown[]
+        try {
+            await loadData()
+            readKeys = getItemSpy.mock.calls.map((call) => call[0])
+        } finally {
+            getItemSpy.mockRestore()
+        }
 
         // The title's "never reads" half: none of the three keys is ever read,
-        // not just left unremoved.
-        const readKeys = getItemSpy.mock.calls.map((call) => call[0])
+        // not just left unremoved. The boot does read other keys, so an empty
+        // list would mean the spy is not in the call path.
+        expect(readKeys.length).toBeGreaterThan(0)
         expect(readKeys).not.toContain('accountst')
         expect(readKeys).not.toContain('dosync')
         expect(readKeys).not.toContain('fallbackRisuToken')
-        getItemSpy.mockRestore()
 
         expect(localStorage.getItem('accountst')).toBe('able')
         expect(localStorage.getItem('dosync')).toBe('sync')

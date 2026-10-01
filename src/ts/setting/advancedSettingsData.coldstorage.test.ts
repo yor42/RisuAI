@@ -68,6 +68,44 @@ describe('adv.coldstorage', () => {
         expect(memo.readArchiveMemo().tooLarge).toBe(false)
     })
 
+    test('turning the setting off forgets the strike count and the told record of the crash-loop breaker', async () => {
+        const memo = await memoModule()
+        localStorage.setItem('archivePassStrikes', '2')
+        localStorage.setItem('archivePassPausedTold', '1')
+        localStorage.setItem('unrelated-key', 'kept')
+
+        archiveEntry().setValue({}, false)
+
+        expect(localStorage.getItem('archivePassStrikes')).toBeNull()
+        expect(localStorage.getItem('archivePassPausedTold')).toBeNull()
+        expect(memo.readArchiveMemo().pausedTold).toBe(false)
+        expect(localStorage.getItem('unrelated-key')).toBe('kept')
+    })
+
+    test('turning the setting off and on again leaves a paused device with no record of the pause', async () => {
+        await memoModule()
+        localStorage.setItem('archivePassStrikes', '2')
+        localStorage.setItem('archivePassPausedTold', '1')
+        const db: Record<string, unknown> = {}
+
+        archiveEntry().setValue(db, false)
+        archiveEntry().setValue(db, true)
+
+        expect(localStorage.getItem('archivePassStrikes')).toBeNull()
+        expect(localStorage.getItem('archivePassPausedTold')).toBeNull()
+    })
+
+    test('guard: turning the setting on leaves a strike count and a told record alone', async () => {
+        await memoModule()
+        localStorage.setItem('archivePassStrikes', '1')
+        localStorage.setItem('archivePassPausedTold', '1')
+
+        archiveEntry().setValue({}, true)
+
+        expect(localStorage.getItem('archivePassStrikes')).toBe('1')
+        expect(localStorage.getItem('archivePassPausedTold')).toBe('1')
+    })
+
     test('guard: turning the setting off where the memo is already clear does not throw and writes nothing', async () => {
         await memoModule()
 

@@ -1771,6 +1771,8 @@ export const languageEnglish = {
         `These characters could not be stored separately: ${characterNames}${otherCount > 0 ? ` and ${otherCount} more` : ''}. They stay fully loaded and work as before, and this app will not try to archive them again at startup. To try again on this device, turn off and then turn on ${settings} > ${advancedSettings} > ${toggle}.`,
     archiveCharactersTooLargeNotice: (settings: string, advancedSettings: string, toggle: string) =>
         `Your save is too large for the self-hosted server to archive characters into, so nothing was archived and your save was left as it is. Everything works as before. To try again on this device, turn off and then turn on ${settings} > ${advancedSettings} > ${toggle}.`,
+    archiveCharactersPausedNotice: (settings: string, advancedSettings: string, toggle: string) =>
+        `Archiving characters at startup is paused on this device because it did not finish twice in a row. Nothing was lost, and characters that are already archived still load when you open them. Until you resume it, nothing new is archived at startup. To try again, turn off ${settings} > ${advancedSettings} > ${toggle} and then turn it back on.`,
     cleanColdStorage: "Clean Unused Archived Data and Assets",
     customSidebarConfig: "Custom Sidebar Configuration",
     cleanColdStorageConfirm: "This will permanently delete all unused archived (cold storage) data and all unused asset files, meaning images and audio that no character, module, persona or setting uses any more. Some of it may still be useful in the future, and it cannot be recovered. Do you want to continue?",

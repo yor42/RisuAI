@@ -1627,6 +1627,8 @@ export const languageChinese = {
         `以下角色无法单独存储：${characterNames}${otherCount > 0 ? ` 等另外 ${otherCount} 个` : ''}。它们仍保持完全加载，并像之前一样正常使用，本应用在启动时不会再尝试归档它们。若要在此设备上重试，请先关闭再重新开启 ${settings} > ${advancedSettings} > ${toggle}。`,
     "archiveCharactersTooLargeNotice": (settings: string, advancedSettings: string, toggle: string) =>
         `您的存档过大，自托管服务器无法将角色归档到其中，因此未归档任何内容，您的存档也保持原样。一切照常运行。若要在此设备上重试，请先关闭再重新开启 ${settings} > ${advancedSettings} > ${toggle}。`,
+    "archiveCharactersPausedNotice": (settings: string, advancedSettings: string, toggle: string) =>
+        `本设备上的启动时角色归档已暂停，因为它连续两次未能完成。没有任何内容丢失，已归档的角色在您打开时仍会正常加载。在恢复之前，启动时不会再归档任何新角色。若要重试，请先关闭再重新开启 ${settings} > ${advancedSettings} > ${toggle}。`,
     "cleanColdStorage": "清理未使用的归档数据和资源",
     "customSidebarConfig": "自定义侧边栏配置",
     "cleanColdStorageConfirm": "这将永久删除所有未使用的归档（冷存储）数据，以及所有未使用的资源文件，即不再被任何角色、模块、人设或设置使用的图片和音频。其中部分内容将来可能仍然有用，且删除后无法恢复。是否要继续？",

@@ -36,7 +36,7 @@ import { sweepTauriAssets, sweepForageAssetKey } from "./storage/assetSweep";
 import { recordLoadTimeListing } from "./storage/loadTimeListing";
 import { noteMainFileBytes } from "./storage/mainFileRecord";
 import { openBootArchiveSession, type BootArchiveNotice, type BootArchiveOutcome, type BootArchiveSession } from "./storage/bootArchivePass";
-import { clearArchiveMemo, rememberSkipped, rememberTooLarge } from "./storage/bootArchiveMemo";
+import { clearArchiveMemo, rememberPausedTold, rememberSkipped, rememberTooLarge } from "./storage/bootArchiveMemo";
 import { applyCharacterDefaults } from "./storage/characterDefaults";
 import { recordStartupCleanup } from "./storage/startupCleanupState";
 import { startAvatarThumbSweep } from "./media/avatarThumb";
@@ -426,9 +426,10 @@ async function decodeMainFile(bytes: Uint8Array): Promise<{ tree: Database, stri
  * installed (the pass only swaps a slot for a stub after that slot's unit was
  * verified, so that tree is always safe to install), never a backup.
  *
- * A tree that reads the setting off clears the pass's device memo first, on
- * every boot and whether or not a pass can run, so turning the setting off and
- * on again always starts from an empty memo.
+ * A tree that reads the setting off clears the pass's device records first (the
+ * notice memo, the strike count and the told record), on every boot and
+ * whether or not a pass can run, so turning the setting off and on again
+ * always starts from empty records.
  */
 async function resolveArchiveOutcome(
     session: BootArchiveSession,
@@ -471,6 +472,8 @@ function archiveNoticeText(notice: BootArchiveNotice): string {
             return language.archiveCharactersStoppedNotice(notice.characterName)
         case 'archive-too-large':
             return language.archiveCharactersTooLargeNotice(language.settings, language.advancedSettings, language.coldStorage)
+        case 'archive-paused':
+            return language.archiveCharactersPausedNotice(language.settings, language.advancedSettings, language.coldStorage)
     }
 }
 
@@ -487,6 +490,8 @@ async function postArchiveNotices(notices: readonly BootArchiveNotice[]) {
             rememberSkipped(notice.characters.map((cha) => cha.chaId))
         } else if (notice.kind === 'archive-too-large') {
             rememberTooLarge()
+        } else if (notice.kind === 'archive-paused') {
+            rememberPausedTold()
         }
         await waitForAlertCleared()
     }

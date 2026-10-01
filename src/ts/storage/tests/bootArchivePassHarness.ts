@@ -446,10 +446,36 @@ export interface WorldOptions {
     nodeBodyLimit?: number
 }
 
-/** The device memo the pass reads (`BootArchiveDeps.readArchiveMemo`); the pass itself never writes it. */
+/**
+ * The notice memo the pass reads (`BootArchiveDeps.readArchiveMemo`). The pass
+ * never writes it; bootstrap does, after it has posted the notice that carries
+ * it (see `applyNoticeMemo`).
+ */
 export interface WorldMemo {
     skipped: Set<string>
     tooLarge: boolean
+    /** The paused notice was posted on this device. */
+    pausedTold: boolean
+}
+
+/**
+ * The strike record of the crash-loop breaker as the pass sees it through its
+ * deps. Unlike the notice memo, the pass itself writes it: a start record
+ * before it writes anything and a reset when it succeeds.
+ */
+export interface WorldBreaker {
+    /** The count the record holds, or `'unreadable'` when the storage cannot be read. */
+    strikes: number | 'unreadable'
+    /** Makes the count read throw instead of answering. */
+    readThrows: boolean
+    /** Makes the start record answer `false`: nothing is written. */
+    startFails: boolean
+    /** Makes the start record throw. */
+    startThrows: boolean
+    /** Makes the success reset throw. */
+    resetThrows: boolean
+    /** Every call the pass made to the record, in order. */
+    calls: ('read' | 'start' | 'reset')[]
 }
 
 export interface World {
@@ -479,6 +505,14 @@ export interface World {
     progressTexts: string[]
     /** What `readArchiveMemo` answers. Tests set it to model a memo that bootstrap wrote on an earlier boot. */
     memo: WorldMemo
+    /** What the strike record answers and every call the pass made to it. */
+    breaker: WorldBreaker
+    /**
+     * The effects that matter for ordering, interleaved as they happened:
+     * `start` and `reset` (the strike record), `unit-write`, `encoder`
+     * (an encoder was created) and `main-write` (a commit was attempted).
+     */
+    order: ('start' | 'reset' | 'unit-write' | 'encoder' | 'main-write')[]
     /** How many encoders the pass created: one per commit it encodes. */
     encoderCalls: number
     opfs: FakeOpfsDirectory | null
@@ -566,7 +600,9 @@ export async function setupWorld(kit: WorldKit, host: WorldHost, main: Uint8Arra
         readQueue: [],
         reloading: false,
         progressTexts: [],
-        memo: { skipped: new Set<string>(), tooLarge: false },
+        memo: { skipped: new Set<string>(), tooLarge: false, pausedTold: false },
+        breaker: { strikes: 0, readThrows: false, startFails: false, startThrows: false, resetThrows: false, calls: [] },
+        order: [],
         encoderCalls: 0,
         opfs,
         currentMain: () => {
@@ -610,6 +646,7 @@ export async function setupWorld(kit: WorldKit, host: WorldHost, main: Uint8Arra
         },
         writeMainFile: async (bytes: Uint8Array) => {
             mainLog.push('write')
+            world.order.push('main-write')
             if (world.failNextMainWrite !== undefined) {
                 const error = world.failNextMainWrite
                 world.failNextMainWrite = undefined
@@ -618,14 +655,49 @@ export async function setupWorld(kit: WorldKit, host: WorldHost, main: Uint8Arra
             mainWrites.push(bytes.slice())
             await writeReal(bytes)
         },
-        writeUnit: (key, value) => units.writeUnit(key, value),
+        writeUnit: (key, value) => {
+            world.order.push('unit-write')
+            return units.writeUnit(key, value)
+        },
         readUnit: (key) => units.readUnit(key) as ReturnType<BootArchiveDeps['readUnit']>,
         setProgress: (text) => { world.progressTexts.push(text) },
         createEncoder: () => {
             world.encoderCalls++
+            world.order.push('encoder')
             return options.createEncoder ? options.createEncoder() : new kit.Encoder()
         },
-        readArchiveMemo: () => ({ skipped: new Set(world.memo.skipped), tooLarge: world.memo.tooLarge }),
+        readArchiveMemo: () => ({ skipped: new Set(world.memo.skipped), tooLarge: world.memo.tooLarge, pausedTold: world.memo.pausedTold }),
+        readArchiveStrikes: () => {
+            world.breaker.calls.push('read')
+            if (world.breaker.readThrows) {
+                throw new Error('injected strike read failure')
+            }
+            const strikes = world.breaker.strikes
+            if (strikes === 'unreadable') {
+                return 'unreadable'
+            }
+            return strikes === 0 ? 'none' : strikes === 1 ? 'one' : 'paused'
+        },
+        recordArchiveStart: () => {
+            world.breaker.calls.push('start')
+            world.order.push('start')
+            if (world.breaker.startThrows) {
+                throw new Error('injected start record failure')
+            }
+            if (world.breaker.startFails || world.breaker.strikes === 'unreadable') {
+                return false
+            }
+            world.breaker.strikes += 1
+            return true
+        },
+        resetArchiveStrikes: () => {
+            world.breaker.calls.push('reset')
+            world.order.push('reset')
+            if (world.breaker.resetThrows) {
+                throw new Error('injected strike reset failure')
+            }
+            world.breaker.strikes = 0
+        },
         nodeBodyLimit: options.nodeBodyLimit,
     }
     return world
@@ -656,9 +728,10 @@ interface MemoNotice {
 
 /**
  * What bootstrap does once it has posted an install outcome's notices: a skip
- * notice memoises the characters it names and a too-large notice memoises the
- * device. The pass never does this itself, so a test models the next boot's
- * memo by calling this on the previous boot's outcome.
+ * notice memoises the characters it names, a too-large notice memoises the
+ * device, and a paused notice records that the user was told. The pass never
+ * does this itself, so a test models the next boot's memo by calling this on
+ * the previous boot's outcome.
  */
 export function applyNoticeMemo(world: World, outcome: BootArchiveOutcome): void {
     if (outcome.kind !== 'install') {
@@ -673,7 +746,21 @@ export function applyNoticeMemo(world: World, outcome: BootArchiveOutcome): void
         if (notice.kind === 'archive-too-large') {
             world.memo.tooLarge = true
         }
+        if (notice.kind === 'archive-paused') {
+            world.memo.pausedTold = true
+        }
     }
+}
+
+/**
+ * What turning the setting off, or a boot that reads it off, does to the
+ * device records: the notice memo, the strike count and the told record all go.
+ */
+export function clearDeviceRecords(world: World): void {
+    world.memo.skipped.clear()
+    world.memo.tooLarge = false
+    world.memo.pausedTold = false
+    world.breaker.strikes = 0
 }
 
 /**
