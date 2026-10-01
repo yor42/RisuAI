@@ -453,8 +453,6 @@ import {
     classifyNodeColdRead,
     decodeColdStorageBytes,
     retryLegacyColdChatLoad,
-    makeColdDataForChat,
-    makeColdData,
 } from '../coldstorage.svelte'
 import { isColdChat, formatColdStorageLoadError, mergeRetriedColdChatSideFields } from '../coldstorageData'
 import type { RetryLegacyColdChatSideFields } from '../coldstorageData'
@@ -490,8 +488,8 @@ function makeFullCharacter(chaId: string): CharacterFixture {
     } as unknown as CharacterFixture
 }
 
-/** The cold-storage stub `makeColdDataForCharacter` writes in place of a
- * character -- keeps only `image`, not emotionImages/additionalAssets. */
+/** A cold-storage stub as a character is replaced by it in the list -- keeps
+ * only `image`, not emotionImages/additionalAssets. */
 function makeColdStub(chaId: string, coldKey: string): CharacterFixture {
     return {
         chaId,
@@ -807,10 +805,10 @@ describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recover
 
         // The character's full data (as cold-stored) already contains a chat
         // whose pointer was corrupted to the error text BEFORE the character
-        // itself went cold -- the `coldStoragedChats` scan in
-        // `makeColdDataForCharacter` only captures chats whose message[0]
-        // STILL starts with coldStorageHeader at the moment of cold-storing,
-        // so this key is silently dropped from the stub's coldStoragedChats.
+        // itself went cold -- a stub's `coldStoragedChats` lists only chats whose
+        // message[0] still started with coldStorageHeader when the character was
+        // cold-stored, so this key is silently absent from the stub's
+        // coldStoragedChats.
         const CHAR_CHA_ID = 'a11-char'
         const COLD_CHAR_KEY = 'a11-cold-char-key'
         await setColdStorageItem(COLD_CHAR_KEY, {
@@ -823,8 +821,8 @@ describe('CHORE-07 stage 7a: manual cold-storage cleanup must not delete recover
             },
         })
 
-        // The stub actually left in DBState.db, matching
-        // makeColdDataForCharacter's real output shape.
+        // The stub left in DBState.db, in the shape a cold-stored character
+        // leaves in the list.
         DBState.db = makeDb([{
             chaId: CHAR_CHA_ID,
             name: 'A11 Character',
@@ -1740,107 +1738,6 @@ describe('CHORE-07 stage 7c-2: mergeRetriedColdChatSideFields (pure)', () => {
 
         expect(result.localLore).toEqual([{ key: 'b', value: 'blob-value' }, { key: 'l', value: 'live-value' }])
         expect(result.scriptstate).toEqual({ a: 1, b: 99, c: 3 })
-    })
-})
-
-/**
- * CHORE-07 stage 7c-2 -- `makeColdDataForChat` (F4): a chat holding the
- * pre-7b error text must not be made cold again, which would bury the
- * original recoverable key inside a brand-new blob.
- * `makeColdDataForChat` is module-private in `coldstorage.svelte.ts` and
- * exported here only as a seam so this file can call it directly.
- */
-describe('CHORE-07 stage 7c-2: makeColdDataForChat must not re-cold-store an error-text chat (F4)', () => {
-    test('an old, long error-text chat is not made cold again', async () => {
-        platformState.isTauri = false
-        resetOpfs()
-
-        const coldKey = 'f4-cold-key'
-        const errorChat = makeErrorTextChat('f4-chat-0', coldKey)
-        errorChat.message.push({ time: 2, data: 'a', role: 'user' } as never)
-        errorChat.message.push({ time: 3, data: 'b', role: 'char' } as never)
-        errorChat.message.push({ time: 4, data: 'c', role: 'user' } as never)
-
-        DBState.db = makeDb([{
-            chaId: 'f4-char',
-            name: 'F4 Character',
-            type: 'character',
-            chatPage: 0,
-            chats: [errorChat],
-        } as unknown as CharacterFixture])
-
-        // A chat whose message[0] holds the error text (not a live
-        // coldStorageHeader pointer) must also be skipped from
-        // re-cold-storing -- even though it is old (every message time is
-        // far in the past) and would otherwise qualify -- or the original
-        // recoverable `coldKey` gets buried inside a brand-new blob.
-        const madeCold = await makeColdDataForChat(0, 0, Date.now())
-
-        expect(madeCold).toBe(false)
-        const chat = DBState.db.characters[0].chats[0] as unknown as { message: { data: string }[] }
-        expect(chat.message[0].data).toBe(`[Cold storage data could not be loaded. Key: ${coldKey}]`)
-    })
-
-    test('CHAR: an ordinary old chat is still made cold', async () => {
-        platformState.isTauri = false
-        resetOpfs()
-
-        const chat = {
-            message: [
-                { time: 1, data: 'a', role: 'user' },
-                { time: 2, data: 'b', role: 'char' },
-                { time: 3, data: 'c', role: 'user' },
-                { time: 4, data: 'd', role: 'char' },
-            ],
-            note: '', name: '', localLore: [],
-        }
-        DBState.db = makeDb([{
-            chaId: 'f4-ordinary-char',
-            name: 'F4 Ordinary Character',
-            type: 'character',
-            chatPage: 0,
-            chats: [chat],
-        } as unknown as CharacterFixture])
-
-        const madeCold = await makeColdDataForChat(0, 0, Date.now())
-
-        // CHAR: unaffected by the F4 fix -- an ordinary old chat (not
-        // holding the error text) is still cold-stored exactly as before.
-        expect(madeCold).toBe(true)
-        const storedChat = DBState.db.characters[0].chats[0] as unknown as { message: { data: string }[] }
-        expect(storedChat.message[0].data.startsWith(coldStorageHeader)).toBe(true)
-    })
-
-    test('Guard F4: makeColdData() as a whole must not bury the error text, with the character kept hot so makeColdDataForCharacter does not run first', async () => {
-        platformState.isTauri = false
-        resetOpfs()
-
-        const coldKey = 'f4-pipeline-cold-key'
-        const errorChat = makeErrorTextChat('f4-pipeline-chat-0', coldKey)
-        errorChat.message.push({ time: 2, data: 'a', role: 'user' } as never)
-        errorChat.message.push({ time: 3, data: 'b', role: 'char' } as never)
-        errorChat.message.push({ time: 4, data: 'c', role: 'user' } as never)
-
-        const db = makeDb([{
-            chaId: 'f4-pipeline-char',
-            name: 'F4 Pipeline Character',
-            type: 'character',
-            chatPage: 0,
-            // Kept HOT (a recent lastInteraction) on purpose: without
-            // this, whole-character cold storage (makeColdDataForCharacter)
-            // would run first and replace this character with a pointer-only
-            // stub before makeColdDataForChat ever saw this chat, which would
-            // make this test pass for the wrong reason.
-            lastInteraction: Date.now(),
-            chats: [errorChat],
-        } as unknown as CharacterFixture])
-        db.coldstorage = true // makeColdData() early-returns unless this is set
-        DBState.db = db
-
-        await makeColdData()
-
-        const chat = DBState.db.characters[0].chats[0] as unknown as { message: { data: string }[] }
-        expect(chat.message[0].data).toBe(`[Cold storage data could not be loaded. Key: ${coldKey}]`)
     })
 })
 

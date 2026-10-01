@@ -14,8 +14,8 @@ import type { Chat, character, groupChat } from "../storage/database.svelte"
 
 /**
  * Value of `coldVersion` on a stub built by `buildColdStub`. A stub without it
- * was made by the upstream application; it restores the same way, only its
- * trash state is read more conservatively (`applyStubStateOnRestore`).
+ * was made by the upstream application and restores the same way; the version
+ * only tells `coldStubChatCount` whether `coldChatCount` can be trusted.
  */
 export const COLD_STUB_VERSION = 2
 
@@ -156,21 +156,17 @@ function isCurrentStub(stub: Slot): boolean {
  * Gives the character restored from a unit the trash state of the stub it
  * replaces, and returns it. Only `trashTime` is touched.
  *
- * A stub built by this fork is authoritative for the trash state, including
- * its absence: the trash was applied to (or lifted from) the stub after the
- * unit was written. A stub made by the upstream application has no way to
- * record a lifted trash, so only a `trashTime` it does carry (which only a
- * trash action can have set) is applied; otherwise the unit's own state stays.
+ * Every stub is authoritative for the trash state, including its absence: a
+ * trash applied to (or lifted from) the stub after the unit was written is the
+ * state the user last saw, so a stub with a `trashTime` gives the restored
+ * character that `trashTime` and a stub without one leaves it with none,
+ * whatever the unit holds.
  */
 export function applyStubStateOnRestore<T extends Slot>(stub: Slot, restored: T): T {
-    if (isCurrentStub(stub)) {
-        if (stub.trashTime) {
-            restored.trashTime = stub.trashTime
-        } else {
-            delete restored.trashTime
-        }
-    } else if (stub.trashTime) {
+    if (stub.trashTime) {
         restored.trashTime = stub.trashTime
+    } else {
+        delete restored.trashTime
     }
     return restored
 }

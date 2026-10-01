@@ -234,7 +234,7 @@ export const languageGerman = {
         "hypaV3EmbeddingMaxConcurrent": "Maximale Anzahl gleichzeitiger Embedding-Modellanfragen für die Ähnlichkeitssuche.",
         "hypaV3QueryChatCount": "Die Anzahl der letzten Chat-Nachrichten, die als Abfrage für die Ähnlichkeitssuche verwendet werden. Höhere Werte nutzen mehr Chat-Kontext, um die Ähnlichkeit zu bestimmen.",
         "hypaV3SummaryChunkSeparator": "Trennzeichen, das verwendet wird, um Zusammenfassungen für die Ähnlichkeitssuche in Abschnitte zu unterteilen.",
-        "coldstorage": "Kaltlager ist eine Funktion, die alte Chats und Charakterdaten automatisch in einen separaten Speicher verschiebt, um die Größe des Hauptspeichers zu reduzieren und die Leistung zu verbessern. Dies verringert die Übertragungszeit und den Übertragungsdatenverkehr und verbessert die Leistung beim Laden von Chats.",
+        "coldstorage": "Wenn diese Option aktiviert ist, speichert die App beim Start die vollständigen Daten jedes Charakters separat und lädt sie erst, wenn Sie diesen Charakter öffnen. So bleibt der Speicherverbrauch niedrig, wenn Sie viele Charaktere haben. Wenn die Option deaktiviert ist, werden keine neuen Charaktere archiviert, und bereits archivierte Charaktere lassen sich weiterhin normal öffnen.",
         "enableScrollToActiveChar": "Wenn aktiviert, wird durch Drücken des Hotkeys oder Halten der Strg-Taste beim Ziehen eines Charakters zum aktuell aktiven Charakter gescrollt. Geschlossene Ordner werden automatisch geöffnet."
     },
     "setup": {
@@ -1616,7 +1616,7 @@ export const languageGerman = {
     nanoGPTSelectFromList: "Aus der Liste auswählen",
     nanoGPTManualInput: "Manuelle Eingabe",
     nanoGPTManualModelSelect: "Manuelle Modellauswahl",
-    "coldStorage": "Kaltlager",
+    "coldStorage": "Charaktere beim Start archivieren",
     "cleanColdStorage": "Nicht verwendete archivierte Daten und Assets bereinigen",
     "customSidebarConfig": "Benutzerdefinierte Seitenleisten-Konfiguration",
     "cleanColdStorageConfirm": "Dadurch werden alle nicht verwendeten archivierten Daten (Kaltlager) und alle nicht verwendeten Asset-Dateien dauerhaft gelöscht, also Bilder und Audiodateien, die kein Charakter, kein Modul, keine Persona und keine Einstellung mehr verwendet. Manches davon könnte in Zukunft noch nützlich sein, und es kann nicht wiederhergestellt werden. Möchten Sie fortfahren?",

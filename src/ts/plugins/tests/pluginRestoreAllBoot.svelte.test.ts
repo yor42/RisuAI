@@ -1,24 +1,24 @@
 /**
- * The boot order `loadPlugins` then `makeColdData` (`bootstrap.ts`) with an
- * enabled V2.1 plugin, root cold storage on, and an archived character
- * ("stub") whose unit is missing.
+ * `loadPlugins` at boot (`bootstrap.ts`) with an enabled V2.1 plugin and an
+ * archived character ("stub") whose unit is missing.
  *
  * `loadPlugins` leaves that stub in the list and tells the user which
  * characters are still archived, because the V2.1 plugin then sees a
  * placeholder. The alert is a single slot that any later notice, progress text
- * or clear replaces, so the notice must not be replaced before the user has
- * dismissed it, even when `makeColdData` shows its chat-archive progress and
- * clears it afterwards.
+ * or clear replaces, so the notice must be shown exactly once, must not be
+ * replaced by any later call before the user has dismissed it, and the boot
+ * must finish without waiting on an alert the user cannot dismiss. With a
+ * single stub the restore shows no progress text.
  *
  * The alert module is a model of that single slot as `AlertComp.svelte`
  * presents it: a user who presses OK 20 ms after a notice of type 'error',
  * 'normal' or 'markdown' appears, and no on-screen control for a 'wait2'
  * (`alertErrorWait`) or 'wait' (`alertWait`) alert; only Escape closes those. It records every notice
  * that was replaced while still on screen. A boot that does not finish fails
- * with the alert that is on screen. `loadPlugins`, `loadV2Plugin`, `coldRestoreAll.ts`,
- * `coldCharacterRestore.ts` and `makeColdData` (on its Node-server storage
- * branch, backed by an in-memory map) are real; the V3 plugin loader is a
- * mock. This says nothing about the OPFS or Tauri storage paths.
+ * with the alert that is on screen. `loadPlugins`, `loadV2Plugin`, `coldRestoreAll.ts`
+ * and `coldCharacterRestore.ts` (reading on the Node-server storage branch,
+ * backed by an in-memory map) are real; the V3 plugin loader is a mock. This
+ * says nothing about the OPFS or Tauri storage paths.
  */
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { writable } from 'svelte/store'
@@ -204,8 +204,6 @@ vi.mock(import('../../process/index.svelte'), () => ({
 //#endregion
 
 import { loadPlugins } from '../plugins.svelte'
-import { makeColdData } from '../../process/coldstorage.svelte'
-import { coldStorageHeader } from '../../process/coldstorageData'
 import { buildColdStub } from '../../process/coldCharacter'
 import { DBState } from '../../stores.svelte'
 
@@ -214,33 +212,10 @@ import { DBState } from '../../stores.svelte'
 type CharacterFixture = Database['characters'][number]
 type ColdCharacter = character & { coldstorage?: string }
 
-const DAY = 24 * 3_600_000
 const seenBy = globalThis as unknown as {
     __v21Runs?: number
     __v21ScreenAtRun?: string
     __alertScreen?: () => string
-}
-
-/** A character used just now whose chat has been idle for thirty days. */
-function recentCharacterWithIdleChat(chaId: string): CharacterFixture {
-    const idleSince = Date.now() - 30 * DAY
-    return {
-        type: 'character',
-        name: `${chaId} name`,
-        chaId,
-        chatPage: 0,
-        firstMsgIndex: 0,
-        creatorNotes: '',
-        desc: `${chaId} description`,
-        lastInteraction: Date.now(),
-        chats: [{
-            id: `${chaId}-chat`,
-            name: 'Chat 1',
-            note: '',
-            localLore: [],
-            message: [0, 1, 2, 3, 4].map((i) => ({ role: 'user', data: `message ${i}`, time: idleSince + i })),
-        }],
-    } as unknown as CharacterFixture
 }
 
 /** An archived character whose unit does not exist. */
@@ -290,27 +265,21 @@ afterEach(() => {
 
 //#endregion
 
-describe('loadPlugins followed by makeColdData at boot', () => {
-    test('the notice naming a character whose unit is missing is not replaced before the user dismisses it', async () => {
+describe('loadPlugins at boot with an archived character whose unit is missing', () => {
+    test('guard: the notice naming that character is shown once and is not replaced before the user dismisses it', async () => {
         DBState.db = {
-            coldstorage: true,
-            characters: [recentCharacterWithIdleChat('alpha'), stubWithMissingUnit('gamma', 'Lost Soul')],
+            characters: [stubWithMissingUnit('gamma', 'Lost Soul')],
             plugins: [V21_PLUGIN],
             pluginCustomStorage: {},
         } as unknown as Database
 
-        await finishesWithin((async () => {
-            await loadPlugins()
-            await makeColdData()
-        })())
+        await finishesWithin(loadPlugins())
 
         const notices = alertModel.shown.filter((text) => text.includes('Lost Soul'))
         expect(notices).toHaveLength(1)
         expect(alertModel.overwritten.filter((text) => text.includes('Lost Soul'))).toEqual([])
-        expect((DBState.db.characters[1] as unknown as ColdCharacter).coldstorage).toBe('unit-gamma')
+        expect((DBState.db.characters[0] as unknown as ColdCharacter).coldstorage).toBe('unit-gamma')
         expect(seenBy.__v21Runs).toBe(1)
         expect(seenBy.__v21ScreenAtRun).toBe('none')
-        // makeColdData did run its chat pass, which shows progress and clears it.
-        expect(DBState.db.characters[0].chats[0].message[0].data.startsWith(coldStorageHeader)).toBe(true)
     })
 })

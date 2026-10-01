@@ -235,7 +235,7 @@ export const languageKorean = {
         "hypaV3SummarizationMaxConcurrent": "요약 시 최대 동시 수파메모리 모델 요청 수입니다. 수파메모리 모델이 보조 모델인 경우에만 적용됩니다.",
         "hypaV3EmbeddingRequestsPerMinute": "유사도 검색 시 분당 최대 임베딩 모델 요청 수입니다.",
         "hypaV3EmbeddingMaxConcurrent": "유사도 검색 시 최대 동시 임베딩 모델 요청 수입니다.",
-        "coldstorage": "콜드 스토리지는 오래된 채팅과 캐릭터 데이터를 별도의 저장소로 자동으로 이동시켜 메인 저장소의 크기를 줄이고 성능을 향상시키는 기능입니다. 이를 통해 전송 시간과 전송 트래픽이 줄어들고, 채팅을 불러올 때의 성능이 향상됩니다."
+        "coldstorage": "이 옵션을 켜면 앱이 시작될 때 각 캐릭터의 전체 데이터를 별도로 저장하고, 해당 캐릭터를 열 때만 불러옵니다. 캐릭터가 많을 때 메모리 사용량을 낮게 유지할 수 있습니다. 끄면 새로 보관되는 캐릭터는 없으며, 이미 보관된 캐릭터는 그대로 정상적으로 열립니다."
     },
     "setup": {
         "chooseProvider": "AI 제공자를 선택해 주세요",
@@ -1616,7 +1616,7 @@ export const languageKorean = {
     nanoGPTSelectFromList: "목록에서 선택",
     nanoGPTManualInput: "수동 입력",
     nanoGPTManualModelSelect: "수동 모델 선택",
-    coldStorage: "콜드 스토리지",
+    coldStorage: "시작 시 캐릭터 보관",
     cleanColdStorage: "사용하지 않는 보관 데이터 및 에셋 정리",
     customSidebarConfig: "사이드바 커스텀 설정",
     cleanColdStorageConfirm: "이 작업은 사용하지 않는 모든 보관(콜드 스토리지) 데이터와 사용하지 않는 모든 에셋 파일(더 이상 어떤 캐릭터, 모듈, 페르소나, 설정에서도 사용하지 않는 이미지와 오디오)을 영구적으로 삭제합니다. 일부는 나중에 유용할 수 있으며, 삭제된 데이터는 복구할 수 없습니다. 계속하시겠습니까?",

@@ -45,7 +45,7 @@ import { isHiddenSystemCharacter } from "./hiddenCharacters";
 import { initMobileGesture } from "./hotkey";
 import { fetch as TauriHTTPFetch } from '@tauri-apps/plugin-http';
 import { moduleUpdate } from "./process/modules";
-import { getColdStorageItem, makeColdData } from "./process/coldstorage.svelte";
+import { getColdStorageItem } from "./process/coldstorage.svelte";
 import { isTauri, isNodeServer } from "./platform";
 import { isLocalNetworkUrl } from "./network/localNetwork";
 import { decodeProxyJobWsChunk, formatProxyStreamErrorMessage, parseProxyJobWsEvent } from "./network/proxyJobWs";

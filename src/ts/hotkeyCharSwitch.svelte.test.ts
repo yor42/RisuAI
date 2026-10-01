@@ -143,7 +143,6 @@ vi.mock(import('./pngChunk'), () => ({
 
 vi.mock(import('./process/coldstorage.svelte'), () => ({
     readColdStorageItem: vi.fn(),
-    makeColdData: vi.fn(),
 }) as unknown as typeof import('./process/coldstorage.svelte'))
 
 vi.mock(import('./media/avatarThumb'), () => ({

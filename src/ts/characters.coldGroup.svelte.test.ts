@@ -164,7 +164,6 @@ vi.mock(import('src/ts/process/coldstorage.svelte'), () => ({
         const result = await readColdStorageItemMock(key)
         return result?.status === 'ok' ? result.value : null
     },
-    makeColdData: vi.fn(),
 }) as unknown as typeof import('src/ts/process/coldstorage.svelte'))
 
 vi.mock(import('src/ts/media/avatarThumb'), () => ({

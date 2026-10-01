@@ -233,8 +233,8 @@ vi.mock(import('../../process/modules'), () => ({
     moduleUpdate: vi.fn(async () => { }),
 }) as unknown as typeof import('../../process/modules'))
 
-// Extended beyond globalApi.svelte.ts's own `getColdStorageItem`/`makeColdData`
-// needs to also cover every export `backuplocal.ts`'s `LoadLocalBackup` uses.
+// Extended beyond globalApi.svelte.ts's own `getColdStorageItem` need to also
+// cover every export `backuplocal.ts`'s `LoadLocalBackup` uses.
 vi.mock(import('../../process/coldstorage.svelte'), () => ({
     collectColdStorageBackupPayloads: vi.fn(async () => ({ payloads: [], missingKeys: [], invalidKeys: [] })),
     readColdStorageItem: vi.fn(async () => ({ status: 'missing' })),
@@ -244,7 +244,6 @@ vi.mock(import('../../process/coldstorage.svelte'), () => ({
     isColdStorageBackupData: vi.fn(() => false),
     listColdDataKeys: vi.fn(async () => []),
     setColdStorageItem: vi.fn(async () => true),
-    makeColdData: vi.fn(),
 }) as unknown as typeof import('../../process/coldstorage.svelte'))
 
 //#endregion

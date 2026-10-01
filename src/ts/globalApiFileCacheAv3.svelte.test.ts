@@ -215,7 +215,6 @@ vi.mock(import('src/ts/process/modules'), () => ({
 // avoid its own heavy import graph (fflate, process/index.svelte...).
 vi.mock(import('src/ts/process/coldstorage.svelte'), () => ({
     getColdStorageItem: vi.fn(),
-    makeColdData: vi.fn(),
 }) as unknown as typeof import('src/ts/process/coldstorage.svelte'))
 
 //#endregion

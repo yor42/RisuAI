@@ -234,7 +234,7 @@ export const languageSpanish = {
         "hypaV3EmbeddingMaxConcurrent": "Número máximo de solicitudes simultáneas al modelo de embedding para la búsqueda de similitud.",
         "hypaV3QueryChatCount": "El número de mensajes de chat recientes utilizados como consulta para la búsqueda de similitud. Valores más altos usan más contexto del chat para determinar la similitud.",
         "hypaV3SummaryChunkSeparator": "Separador utilizado para dividir los resúmenes en fragmentos para la búsqueda de similitud.",
-        "coldstorage": "El almacenamiento frío es una función que mueve automáticamente los chats y los datos de personajes antiguos a un almacenamiento separado para reducir el tamaño del almacenamiento principal y mejorar el rendimiento. Esto reducirá el tiempo de transferencia, el tráfico de transferencia y mejorará el rendimiento al cargar los chats.",
+        "coldstorage": "Cuando esta opción está activada, la aplicación guarda por separado los datos completos de cada personaje al iniciar y los carga solo cuando abres ese personaje. Así el uso de memoria se mantiene bajo cuando tienes muchos personajes. Si la desactivas, no se archiva ningún personaje nuevo y los personajes ya archivados se siguen abriendo con normalidad.",
         "enableScrollToActiveChar": "Si está habilitado, pulsar la tecla de acceso rápido o mantener presionada la tecla Ctrl mientras se arrastra un personaje desplazará la vista hasta el personaje activo. Las carpetas se abrirán automáticamente si están cerradas."
     },
     "setup": {
@@ -1616,7 +1616,7 @@ export const languageSpanish = {
     nanoGPTSelectFromList: "Seleccionar de la lista",
     nanoGPTManualInput: "Entrada manual",
     nanoGPTManualModelSelect: "Selección manual de modelo",
-    coldStorage: "Almacenamiento Frío",
+    coldStorage: "Archivar personajes al iniciar",
     cleanColdStorage: "Limpiar Datos Archivados y Activos No Utilizados",
     customSidebarConfig: "Configuración Personalizada de la Barra Lateral",
     cleanColdStorageConfirm: "Esto eliminará permanentemente todos los datos archivados (almacenamiento frío) no utilizados y todos los archivos de activos no utilizados, es decir, las imágenes y el audio que ya no usa ningún personaje, módulo, persona ni ajuste. Parte de ello podría ser útil en el futuro y no se puede recuperar. ¿Quieres continuar?",

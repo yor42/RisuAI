@@ -419,7 +419,6 @@ vi.mock(import('src/ts/process/coldstorage.svelte'), () => ({
     setColdStorageItem: vi.fn(),
     readColdStorageItem: vi.fn(),
     getColdStorageItem: vi.fn(),
-    makeColdData: vi.fn(),
 }) as unknown as typeof import('src/ts/process/coldstorage.svelte'))
 
 vi.mock(import('src/ts/characterCards'), () => ({

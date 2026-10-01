@@ -1079,9 +1079,8 @@ describe('registerDbChangeEffects — identity tracker', () => {
 // exercises the per-chat child's non-array "otherwise" branch, which only
 // guards against corrupt data, the same way throwError()'s
 // `!Array.isArray(chatRoom.message)` guard in process/index.svelte.ts
-// does), and a REAL cold-storage stub (see makeColdDataForChat() in
-// coldstorage.svelte.ts, the `chat.message = [{ ... }]` cold-storage
-// pointer assignment) whose `message` is a one-element ARRAY whose
+// does), and a REAL cold-storage stub (an archived chat, as upstream builds
+// and older data hold it) whose `message` is a one-element ARRAY whose
 // `data` starts with `coldStorageHeader` -- plus a `globalLore`
 // (per-character lorebook, the `globalLore` field of the `character`
 // interface in database.svelte.ts) with entries, an
@@ -1113,19 +1112,18 @@ describe('registerDbChangeEffects — selected-character partition equivalence s
 
     // Malformed chat data whose `message` is not an array -- the per-chat
     // child's non-array "otherwise" branch, i.e. the malformed non-array
-    // branch. NOT a real cold-storage stub: real stubs (the placeholder chat
-    // in makeColdDataForCharacter() and the cold-storage pointer assignment
-    // in makeColdDataForChat(), both in coldstorage.svelte.ts) hold
-    // `message` as a one-element ARRAY. This shape only models corrupt
+    // branch. NOT a real cold-storage stub: a real archived chat (the
+    // placeholder chat of an archived character, or a chat replaced by a
+    // cold-storage pointer, as upstream builds and older data hold them)
+    // holds `message` as a one-element ARRAY. This shape only models corrupt
     // data, which throwError()'s `!Array.isArray(chatRoom.message)` guard
     // in process/index.svelte.ts also guards against.
     function makeMalformedMessageChat(id: string): Record<string, unknown> {
         return { id, note: '', name: '', localLore: [], message: makeMessage(`${id}-cold-pointer`) }
     }
 
-    // Real cold-storage stub shape (the `chat.message = [{ ... }]`
-    // cold-storage pointer assignment in makeColdDataForChat(), in
-    // coldstorage.svelte.ts): `message` is a one-element ARRAY whose `data`
+    // Real cold-storage stub shape (an archived chat, as upstream builds and
+    // older data hold it): `message` is a one-element ARRAY whose `data`
     // starts with `coldStorageHeader`.
     function makeRealColdStubChat(id: string): Record<string, unknown> {
         return {
@@ -1364,17 +1362,14 @@ describe('registerDbChangeEffects — selected-character partition equivalence s
     })
 
     // The REAL cold-storage stub (unlike chats[4] above): `message` is a
-    // one-element ARRAY whose `data` starts with `coldStorageHeader`
-    // (the cold-storage pointer assignment in makeColdDataForChat(), in
-    // coldstorage.svelte.ts). This goes through the per-chat
-    // child's ARRAY branch, not the malformed non-array branch. No
-    // production path edits `message[0].data` in place on a stub like this
-    // -- every real writer that reads a `coldStorageHeader`-prefixed stub
-    // (preLoadChat(), the main one, in coldstorage.svelte.ts; also
-    // makeColdDataForChat(), which bails out instead of touching an
-    // already-cold chat) replaces `chat.message` wholesale rather than
-    // editing it in place. (retryLegacyColdChatLoad() is a different case: it
-    // matches a chat whose `message[0]` holds the pre-7b "could not be
+    // one-element ARRAY whose `data` starts with `coldStorageHeader` (an
+    // archived chat, as upstream builds and older data hold it). This goes
+    // through the per-chat child's ARRAY branch, not the malformed non-array
+    // branch. No production path edits `message[0].data` in place on a stub
+    // like this -- the real writer that reads a `coldStorageHeader`-prefixed
+    // stub (preLoadChat() in coldstorage.svelte.ts) replaces `chat.message`
+    // wholesale rather than editing it in place. (retryLegacyColdChatLoad() is a
+    // different case: it matches a chat whose `message[0]` holds the pre-7b "could not be
     // loaded" error text, not a `coldStorageHeader`-prefixed pointer, so it
     // does not apply to this stub shape.) This test instead pins that
     // an in-place edit of a stub-shaped array message -- the kind a generic
@@ -1642,10 +1637,10 @@ describe('registerDbChangeEffects — selected-character partition rebuild count
 
     // Malformed chat data whose `message` is not an array -- the per-chat
     // child's non-array "otherwise" branch, i.e. the malformed non-array
-    // branch. NOT a real cold-storage stub: real stubs (the placeholder chat
-    // in makeColdDataForCharacter() and the cold-storage pointer assignment
-    // in makeColdDataForChat(), both in coldstorage.svelte.ts) hold
-    // `message` as a one-element ARRAY.
+    // branch. NOT a real cold-storage stub: a real archived chat (the
+    // placeholder chat of an archived character, or a chat replaced by a
+    // cold-storage pointer, as upstream builds and older data hold them)
+    // holds `message` as a one-element ARRAY.
     function makeMalformedMessageChat(id: string): Record<string, unknown> {
         return { id, note: '', name: '', localLore: [], message: makeMessage(`${id}-cold-pointer`) }
     }

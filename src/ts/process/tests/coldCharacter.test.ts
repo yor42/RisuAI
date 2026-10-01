@@ -375,15 +375,16 @@ describe('applyStubStateOnRestore -- the restored character\'s trash state', () 
         expect(result.trashTime).toBe(6_000)
     })
 
-    test('guard: an upstream-shaped stub without trashTime leaves the restored character as stored', () => {
+    test('an upstream-shaped stub without trashTime gives a restored character that is not trashed, whatever the unit holds', () => {
         const stub = upstreamStub('cha-alice', 'unit-up')
         const stored = blob({ trashTime: 7_000 })
-        const before = JSON.stringify(stored)
+        const expected = JSON.parse(JSON.stringify(stored)) as Record<string, unknown>
+        delete expected.trashTime
 
         const result = applyStubStateOnRestore(stub, stored)
 
-        expect(result.trashTime).toBe(7_000)
-        expect(JSON.stringify(result)).toBe(before)
+        expect(result.trashTime).toBeUndefined()
+        expect(JSON.parse(JSON.stringify(result))).toEqual(expected)
     })
 
     test('guard: an upstream-shaped stub without trashTime and a restored character without one stays untrashed', () => {

@@ -209,7 +209,6 @@ vi.mock(import('src/ts/process/modules'), () => ({
 
 vi.mock(import('src/ts/process/coldstorage.svelte'), () => ({
     getColdStorageItem: vi.fn(),
-    makeColdData: vi.fn(),
 }) as unknown as typeof import('src/ts/process/coldstorage.svelte'))
 
 // The observed boundary: what the save loop tells the main-file record.

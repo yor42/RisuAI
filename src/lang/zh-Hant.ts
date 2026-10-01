@@ -278,7 +278,7 @@ export const languageChineseTraditional = {
         "hypaV3EmbeddingRequestsPerMinute": "相似度搜尋每分鐘最多可送出的 Embedding 模型請求數",
         "hypaV3EmbeddingMaxConcurrent": "相似度搜尋可同時進行的 Embedding 模型請求上限",
         "hypaV3SummaryChunkSeparator": "用於將總結拆分成區塊以進行相似性搜尋的分隔符號。",
-        "coldstorage": "冷儲存是一項會自動將舊對話與角色資料移至獨立儲存空間的功能，以縮減主要儲存空間的大小並提升效能。這將減少傳輸時間、傳輸流量，並在載入對話時提升效能。",
+        "coldstorage": "開啟後，應用程式會在啟動時將每個角色的完整資料單獨儲存，並僅在您開啟該角色時才載入。這樣在角色很多時可維持較低的記憶體用量。關閉後不會再封存任何新角色，已封存的角色仍可正常開啟。",
         "keepSessionAlive": "維持分頁活動狀態，避免工作階段因閒置而失效。可能需要重新整理才會生效。\n\n" +
             "- **透過音訊**：定期播放無聲音訊以維持工作階段。此方式在大多數瀏覽器中相容性最佳，也通常最有效。\n",
         "localNetworkModeDesc": "透過本機執行環境路徑路由私有/區域網路模型 URL，而非透過瀏覽器直接抓取。\n\n**用途**\n- 避免瀏覽器對 `192.168.x.x`、`10.x.x.x`、`localhost`、`.local` 等本機主機的私有網路/CORS 限制\n- 降低 Node 自架模式下本機推斷首個 Token 生成緩慢時的逾時風險\n\n**運作方式**\n- 僅在啟用區域網路模式且偵測到目標 URL 為本機/私有位址時套用\n- Node 自架模式：串流回應優先使用實驗性的 Job+WebSocket 中繼（失敗時回退至 `/proxy2`）；非串流回應使用 `/proxy2`\n- Tauri：使用原生/直接路徑\n- 公開網頁模式：依設計會封鎖本機/私有位址的直接呼叫\n\n**限制**\n- 適用範圍僅限 OpenAI 相容的請求路徑\n- 無法繞過兩個公開網域之間的 Cloudflare 來源限制\n- 需使用您的自架 URL（`globalThis.__NODE__ === true` 的位址）此功能才會生效"
@@ -1662,7 +1662,7 @@ export const languageChineseTraditional = {
     "nanoGPTSelectFromList": "從清單中選擇",
     "nanoGPTManualInput": "手動輸入",
     "nanoGPTManualModelSelect": "手動選擇模型",
-    "coldStorage": "冷儲存",
+    "coldStorage": "啟動時封存角色",
     "cleanColdStorage": "清理未使用的封存資料與資源",
     "customSidebarConfig": "自訂側邊欄配置",
     "cleanColdStorageConfirm": "這將永久刪除所有未使用的封存（冷儲存）資料，以及所有未使用的資源檔案，即不再被任何角色、模組、人設或設定使用的圖片和音訊。其中部分內容未來可能仍然有用，且刪除後無法復原。是否要繼續？",

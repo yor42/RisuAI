@@ -16,9 +16,11 @@
  *   the character the first installed.
  * - Only the most recent `changeChar` call selects, and never after a chat
  *   started generating during the read.
- * - The restored character's `trashTime` follows the stub's state as it is
- *   when the read completes (see `applyStubStateOnRestore`); nothing else on
- *   the restored character changes.
+ * - The restored character's `trashTime` is the stub's as it is when the read
+ *   completes (see `applyStubStateOnRestore`), for every stub shape: a stub
+ *   without a `trashTime`, whether made by this fork or by the upstream
+ *   application, restores a character without one, whatever the unit holds.
+ *   Nothing else on the restored character changes.
  * - A unit whose character has another `chaId` than the stub is refused with
  *   an alert and a log line naming both ids, the unit key and the name.
  *
@@ -156,7 +158,6 @@ vi.mock(import('src/ts/process/coldstorage.svelte'), () => ({
         const result = await readColdStorageItemMock(key)
         return result?.status === 'ok' ? result.value : null
     },
-    makeColdData: vi.fn(),
 }) as unknown as typeof import('src/ts/process/coldstorage.svelte'))
 
 vi.mock(import('src/ts/media/avatarThumb'), () => ({
@@ -494,13 +495,15 @@ describe('changeChar on an archived character -- the restored character\'s trash
         expect(slot(0).trashTime).toBe(444)
     })
 
-    test('guard: an upstream-made placeholder without trashTime installs the unit\'s own trashTime', async () => {
+    test('an upstream-made placeholder without trashTime restores as not trashed even when the unit holds a trashTime', async () => {
         installDb([upstreamStub('member', 'unit-member')])
         readColdStorageItemMock.mockResolvedValue(ok(fullCharacter('member', 'restored', { trashTime: 555 })))
 
         await changeChar(0)
 
-        expect(slot(0).trashTime).toBe(555)
+        expect(slot(0).coldstorage).toBeUndefined()
+        expect(slot(0).desc).toBe('restored')
+        expect(slot(0).trashTime).toBeUndefined()
     })
 
     test('guard: the trash merge changes no other field of the restored character', async () => {

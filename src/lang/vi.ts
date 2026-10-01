@@ -234,7 +234,7 @@ export const languageVietnamese = {
         "hypaV3EmbeddingMaxConcurrent": "Số yêu cầu mô hình nhúng đồng thời tối đa cho tìm kiếm tương đồng.",
         "hypaV3QueryChatCount": "Số lượng tin nhắn trò chuyện gần đây được sử dụng làm truy vấn cho tìm kiếm tương đồng. Giá trị cao hơn sẽ sử dụng nhiều ngữ cảnh trò chuyện hơn để xác định độ tương đồng.",
         "hypaV3SummaryChunkSeparator": "Ký tự phân tách được dùng để chia các bản tóm tắt thành từng đoạn cho tìm kiếm tương đồng.",
-        "coldstorage": "Bộ nhớ lạnh (Coldstorage) là một tính năng tự động di chuyển các cuộc trò chuyện cũ và dữ liệu nhân vật sang một bộ nhớ riêng biệt để giảm kích thước bộ nhớ chính và cải thiện hiệu suất. Điều này sẽ giảm thời gian truyền tải, lưu lượng truyền tải và cải thiện hiệu suất khi tải các cuộc trò chuyện.",
+        "coldstorage": "Khi bật, ứng dụng sẽ lưu riêng toàn bộ dữ liệu của từng nhân vật khi khởi động và chỉ tải khi bạn mở nhân vật đó. Điều này giúp giữ mức sử dụng bộ nhớ thấp khi bạn có nhiều nhân vật. Khi tắt, sẽ không có nhân vật mới nào được lưu trữ, và các nhân vật đã được lưu trữ vẫn mở bình thường.",
         "enableScrollToActiveChar": "Nếu được bật, nhấn phím tắt hoặc giữ phím Ctrl khi kéo một nhân vật sẽ cuộn đến nhân vật hiện đang hoạt động. Các thư mục sẽ tự động được mở nếu đang đóng."
     },
     "setup": {
@@ -1616,7 +1616,7 @@ export const languageVietnamese = {
     nanoGPTSelectFromList: "Chọn từ danh sách",
     nanoGPTManualInput: "Nhập thủ công",
     nanoGPTManualModelSelect: "Chọn mô hình thủ công",
-    coldStorage: "Bộ nhớ Lạnh",
+    coldStorage: "Lưu trữ nhân vật khi khởi động",
     cleanColdStorage: "Dọn dẹp Dữ liệu Lưu trữ và Tệp Tài sản Không sử dụng",
     customSidebarConfig: "Cấu hình Thanh bên Tùy chỉnh",
     cleanColdStorageConfirm: "Thao tác này sẽ xóa vĩnh viễn toàn bộ dữ liệu lưu trữ (bộ nhớ lạnh) không sử dụng và toàn bộ tệp tài sản không sử dụng, tức là hình ảnh và âm thanh mà không nhân vật, mô-đun, persona hay cài đặt nào còn sử dụng. Một số có thể vẫn hữu ích trong tương lai, và không thể khôi phục. Bạn có muốn tiếp tục không?",

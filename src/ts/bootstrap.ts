@@ -29,7 +29,6 @@ import { updateGuisize } from "./gui/guisize";
 import { updateLorebooks } from "./characters";
 import { initMobileGesture } from "./hotkey";
 import { moduleUpdate } from "./process/modules";
-import { makeColdData } from "./process/coldstorage.svelte";
 import { repairDatabaseIds } from "./process/chatIds";
 import { verifyAssetCacheEntry } from "./storage/assetIntegrity";
 import { getRemoteSaveCleanupAction, getRemoteSavePayloadName } from "./storage/remoteSaveCleanup";
@@ -202,8 +201,7 @@ export async function loadData() {
                 // any other alertStore write; only its own OK acknowledges it.
                 // Acknowledging removes the three account-sync keys and reloads
                 // -- this page life never reaches the service worker,
-                // characterURLImport, plugins, makeColdData, loadedStore or
-                // saveDb below.
+                // characterURLImport, plugins, loadedStore or saveDb below.
                 if (forageStorage.staleAccountProfile) {
                     void alertStaleAccountNotice().then(() => {
                         localStorage.removeItem('accountst')
@@ -308,7 +306,6 @@ export async function loadData() {
                 initMobileGesture()
                 MobileGUI.set(true)
             }
-            await makeColdData()
             loadedStore.set(true)
             selectedCharID.set(-1)
             startObserveDom()

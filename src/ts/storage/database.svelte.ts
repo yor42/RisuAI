@@ -1161,6 +1161,12 @@ export interface Database{
     showFolderName: boolean
     automaticCachePoint: boolean
     coldstorage: boolean
+    /**
+     * Whether the startup pass archives characters. Absent means on (a profile
+     * that never touched the setting); `true` is an explicit opt-in; `false` is
+     * the user's opt-out. Read it as `!== false`, never as a plain truthiness.
+     */
+    archiveCharacters?: boolean
     claudeRetrivalCaching: boolean
     outputImageModal: boolean
     playMessageOnTranslateEnd:boolean

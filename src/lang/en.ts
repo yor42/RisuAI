@@ -366,7 +366,7 @@ export const languageEnglish = {
             "Higher values use more chat context to determine similarity.",
         hypaV3SummaryChunkSeparator:
             "Separator used to split summaries into chunks for similarity search.",
-        coldstorage: "Coldstorage is a feature that automatically moves old chats and character data to a seperate storage to reduce the size of the main storage and improve performance. This will reduce the transfer time, transfer traffic and improve the performance when loading chats."
+        coldstorage: "When this is on, the app stores each character's full data separately at startup and loads it only when you open that character. This keeps memory use low when you have many characters. Turning it off archives nothing new, and characters that are already archived still open normally."
     },
     setup: {
         chooseProvider: "Choose AI Provider",
@@ -1760,7 +1760,7 @@ export const languageEnglish = {
     nanoGPTSelectFromList: "Select from List",
     nanoGPTManualInput: "Manual Input",
     nanoGPTManualModelSelect: "Manual Model Select",
-    coldStorage: "Cold Storage",
+    coldStorage: "Archive characters at startup",
     cleanColdStorage: "Clean Unused Archived Data and Assets",
     customSidebarConfig: "Custom Sidebar Configuration",
     cleanColdStorageConfirm: "This will permanently delete all unused archived (cold storage) data and all unused asset files, meaning images and audio that no character, module, persona or setting uses any more. Some of it may still be useful in the future, and it cannot be recovered. Do you want to continue?",

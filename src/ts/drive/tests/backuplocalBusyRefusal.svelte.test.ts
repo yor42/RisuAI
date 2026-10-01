@@ -428,7 +428,6 @@ vi.mock(import('src/ts/process/coldstorage.svelte'), () => ({
     setColdStorageItem: vi.fn(async () => true),
     readColdStorageItem: vi.fn(),
     getColdStorageItem: vi.fn(async () => null),
-    makeColdData: vi.fn(),
     collectColdStorageBackupPayloads: vi.fn(async () => ({ payloads: [], missingKeys: [], invalidKeys: [] })),
     confirmIncompleteColdStorageOperation: vi.fn(async () => {
         await coldHooks.onConfirmIncomplete?.()

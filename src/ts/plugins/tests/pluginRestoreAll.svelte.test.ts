@@ -164,7 +164,6 @@ vi.mock(import('../apiV3/transpiler'), () => ({
 vi.mock(import('../../process/coldstorage.svelte'), () => ({
     readColdStorageItem: readColdStorageItemMock,
     setColdStorageItem: vi.fn(),
-    makeColdData: vi.fn(),
 }) as unknown as typeof import('../../process/coldstorage.svelte'))
 
 vi.mock(import('../../media'), () => ({

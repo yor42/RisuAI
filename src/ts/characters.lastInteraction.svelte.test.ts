@@ -135,7 +135,6 @@ const readColdStorageItemMock = vi.hoisted(() => vi.fn())
 
 vi.mock(import('src/ts/process/coldstorage.svelte'), () => ({
     readColdStorageItem: readColdStorageItemMock,
-    makeColdData: vi.fn(),
 }) as unknown as typeof import('src/ts/process/coldstorage.svelte'))
 
 vi.mock(import('src/ts/media/avatarThumb'), () => ({

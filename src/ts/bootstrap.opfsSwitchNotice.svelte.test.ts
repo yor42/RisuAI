@@ -27,7 +27,7 @@
  * `platform`, `util`, `reloadGuard`, `update`, `stores.svelte`,
  * `plugins/plugins.svelte`, `characterCards`, `gui/*`,
  * `observer.svelte`, `characters`, `hotkey`, `process/modules`,
- * `process/coldstorage.svelte`, `storage/assetIntegrity`,
+ * `storage/assetIntegrity`,
  * `storage/remoteSaveCleanup`, `storage/assetSweep`, `media/avatarThumb`,
  * `model/modellist`, and every `@tauri-apps/*` package `bootstrap.ts` touches.
  */
@@ -57,7 +57,6 @@ const buildAssetKeepSetMock = vi.hoisted(() => vi.fn(async () => ({ uncleanable:
 const getUncleanablesSyncMock = vi.hoisted(() => vi.fn((): string[] => []))
 const verifyAssetCacheEntryMock = vi.hoisted(() => vi.fn(async () => ({ status: 'ok' as const })))
 const loadPluginsMock = vi.hoisted(() => vi.fn(async () => { }))
-const makeColdDataMock = vi.hoisted(() => vi.fn(async () => { }))
 const saveDbMock = vi.hoisted(() => vi.fn(async () => { }))
 const moduleUpdateMock = vi.hoisted(() => vi.fn(async () => { }))
 const markAppInitiatedReloadMock = vi.hoisted(() => vi.fn())
@@ -164,10 +163,6 @@ vi.mock(import('src/ts/hotkey'), () => ({
 vi.mock(import('src/ts/process/modules'), () => ({
     moduleUpdate: moduleUpdateMock,
 }) as unknown as typeof import('src/ts/process/modules'))
-
-vi.mock(import('src/ts/process/coldstorage.svelte'), () => ({
-    makeColdData: makeColdDataMock,
-}) as unknown as typeof import('src/ts/process/coldstorage.svelte'))
 
 vi.mock(import('src/ts/storage/assetIntegrity'), () => ({
     verifyAssetCacheEntry: verifyAssetCacheEntryMock,
@@ -319,7 +314,6 @@ beforeEach(() => {
     getUncleanablesSyncMock.mockReset().mockReturnValue([])
     verifyAssetCacheEntryMock.mockReset().mockResolvedValue({ status: 'ok' })
     loadPluginsMock.mockReset().mockResolvedValue(undefined)
-    makeColdDataMock.mockReset().mockResolvedValue(undefined)
     saveDbMock.mockReset().mockResolvedValue(undefined)
     moduleUpdateMock.mockReset().mockResolvedValue(undefined)
     markAppInitiatedReloadMock.mockReset()

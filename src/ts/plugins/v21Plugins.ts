@@ -6,9 +6,9 @@ import type { RisuPlugin } from "./plugins.svelte"
  * plugin is never run), so it is the only one that needs every character in
  * memory.
  *
- * This module imports nothing at run time, so the archive pass in
- * `coldstorage.svelte.ts` and `loadPlugins` in `plugins.svelte.ts` can share
- * the predicate without a load-time cycle.
+ * This module imports nothing at run time, so the boot archive pass and
+ * `loadPlugins` in `plugins.svelte.ts` can share the predicate without a
+ * load-time cycle.
  */
 export function hasEnabledV21Plugin(plugins: readonly Pick<RisuPlugin, 'enabled' | 'version'>[] | undefined): boolean {
     return Array.isArray(plugins) && plugins.some((plugin) => plugin?.enabled && plugin.version === '2.1')

@@ -235,7 +235,7 @@ export const languageChinese = {
         "hypaV3EmbeddingMaxConcurrent": "用于相似度搜索的嵌入模型最大并发请求数。",
         "hypaV3QueryChatCount": "用作相似度搜索查询的最近聊天消息数量。数值越高，用于判断相似度的聊天上下文越多。",
         "hypaV3SummaryChunkSeparator": "用于将总结拆分为多个块以进行相似度搜索的分隔符。",
-        "coldstorage": "冷存储是一项功能，会自动将旧聊天和角色数据移动到单独的存储中，以减小主存储的大小并提升性能。这将缩短传输时间、降低传输流量，并提升加载聊天时的性能。"
+        "coldstorage": "开启后，应用会在启动时将每个角色的完整数据单独存储，并仅在您打开该角色时才加载。这样在角色很多时可以保持较低的内存占用。关闭后不会再归档任何新角色，已归档的角色仍可正常打开。"
     },
     "setup": {
         "chooseProvider": "选择 AI 提供者",
@@ -1616,7 +1616,7 @@ export const languageChinese = {
     nanoGPTSelectFromList: "从列表中选择",
     nanoGPTManualInput: "手动输入",
     nanoGPTManualModelSelect: "手动模式选择",
-    "coldStorage": "冷存储",
+    "coldStorage": "启动时归档角色",
     "cleanColdStorage": "清理未使用的归档数据和资源",
     "customSidebarConfig": "自定义侧边栏配置",
     "cleanColdStorageConfirm": "这将永久删除所有未使用的归档（冷存储）数据，以及所有未使用的资源文件，即不再被任何角色、模块、人设或设置使用的图片和音频。其中部分内容将来可能仍然有用，且删除后无法恢复。是否要继续？",

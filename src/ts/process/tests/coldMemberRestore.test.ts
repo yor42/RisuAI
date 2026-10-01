@@ -587,13 +587,13 @@ describe('restoreColdCharacterByChaId -- the restored character\'s trash state',
         expect((holderOf('member') as unknown as character).trashTime).toBe(7_000)
     })
 
-    test('guard: an upstream-made placeholder without trashTime installs the unit exactly as stored', async () => {
+    test('an upstream-made placeholder without trashTime restores as not trashed even when the unit holds a trashTime', async () => {
         installDb([upstreamPlaceholder('member')])
         readColdStorageItemMock.mockResolvedValueOnce(ok(blob({ trashTime: 8_000 })))
 
         await restoreColdCharacterByChaId('member')
 
-        expect((holderOf('member') as unknown as character).trashTime).toBe(8_000)
+        expect((holderOf('member') as unknown as character).trashTime).toBeUndefined()
         expect((holderOf('member') as unknown as character).desc).toBe('restored description')
     })
 })

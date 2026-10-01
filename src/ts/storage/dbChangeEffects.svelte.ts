@@ -348,12 +348,12 @@ export function registerDbChangeEffects(opts: DbChangeEffectOptions): void {
                                     })
                                 }
                             } else {
-                                // Real cold-storage stubs still hold a one-element
-                                // ARRAY, not a bare object (the whole-character stub
-                                // built in `makeColdDataForCharacter` and the
-                                // chat-level stub in `makeColdDataForChat`,
-                                // `coldstorage.svelte.ts`), so they go through the
-                                // array branch above. This non-array branch only
+                                // An archived chat holds a one-element message
+                                // ARRAY, not a bare object (upstream builds and
+                                // older data make both the character-level and the
+                                // chat-level archive placeholders that way), so
+                                // they go through the array branch above. This
+                                // non-array branch only
                                 // handles malformed data where `message` is not an
                                 // array at all -- the same case guarded against by
                                 // `throwError`'s (inside `sendChatBody` in

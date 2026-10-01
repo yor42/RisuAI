@@ -153,10 +153,6 @@ vi.mock(import('src/ts/process/modules'), () => ({
     moduleUpdate: vi.fn(async () => { }),
 }) as unknown as typeof import('src/ts/process/modules'))
 
-vi.mock(import('src/ts/process/coldstorage.svelte'), () => ({
-    makeColdData: vi.fn(async () => { }),
-}) as unknown as typeof import('src/ts/process/coldstorage.svelte'))
-
 vi.mock(import('src/ts/storage/assetIntegrity'), () => ({
     verifyAssetCacheEntry: vi.fn(async () => ({ status: 'ok' as const, expectedHash: '', actualHash: '' })),
 }) as unknown as typeof import('src/ts/storage/assetIntegrity'))

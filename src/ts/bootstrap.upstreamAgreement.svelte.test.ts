@@ -44,7 +44,6 @@ const buildAssetKeepSetMock = vi.hoisted(() => vi.fn(async () => ({ uncleanable:
 const getUncleanablesSyncMock = vi.hoisted(() => vi.fn((): string[] => []))
 const verifyAssetCacheEntryMock = vi.hoisted(() => vi.fn(async () => ({ status: 'ok' as const })))
 const loadPluginsMock = vi.hoisted(() => vi.fn(async () => { }))
-const makeColdDataMock = vi.hoisted(() => vi.fn(async () => { }))
 const saveDbMock = vi.hoisted(() => vi.fn(async () => { }))
 const moduleUpdateMock = vi.hoisted(() => vi.fn(async () => { }))
 const markAppInitiatedReloadMock = vi.hoisted(() => vi.fn())
@@ -163,10 +162,6 @@ vi.mock(import('src/ts/process/modules'), () => ({
     exportModuleLegacy: vi.fn(),
     readModule: vi.fn(),
 }) as unknown as typeof import('src/ts/process/modules'))
-
-vi.mock(import('src/ts/process/coldstorage.svelte'), () => ({
-    makeColdData: makeColdDataMock,
-}) as unknown as typeof import('src/ts/process/coldstorage.svelte'))
 
 vi.mock(import('src/ts/storage/assetIntegrity'), () => ({
     verifyAssetCacheEntry: verifyAssetCacheEntryMock,
@@ -363,7 +358,6 @@ beforeEach(() => {
     getUncleanablesSyncMock.mockReset().mockReturnValue([])
     verifyAssetCacheEntryMock.mockReset().mockResolvedValue({ status: 'ok' })
     loadPluginsMock.mockReset().mockResolvedValue(undefined)
-    makeColdDataMock.mockReset().mockResolvedValue(undefined)
     saveDbMock.mockReset().mockResolvedValue(undefined)
     moduleUpdateMock.mockReset().mockResolvedValue(undefined)
     markAppInitiatedReloadMock.mockReset()
