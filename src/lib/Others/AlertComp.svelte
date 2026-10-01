@@ -6,6 +6,7 @@
     
     import { DBState } from 'src/ts/stores.svelte';
     import { getCharImage } from '../../ts/characters';
+    import { isHiddenSystemCharacter } from '../../ts/hiddenCharacters';
     import { ParseMarkdown } from '../../ts/parser/parser.svelte';
     import BarIcon from '../SideBars/BarIcon.svelte';
     import { ChevronRightIcon, User } from '@lucide/svelte';
@@ -77,10 +78,11 @@
     let expandedLogs: Set<number> = $state(new Set())
     let allExpanded = $state(false)
     let copiedKey: string | null = $state(null)
-    // AV-2: db.characters indices near the selectChar dialog's own scroll
-    // viewport (:191), mapped to their owning element (see GridCatalog.svelte's
-    // comment on `visibleIndices` for why a Map, not a Set). Keyed by index,
-    // not chaId: this dialog never reorders or filters db.characters, but
+    // db.characters indices near the selectChar dialog's own scroll viewport,
+    // mapped to their owning element (see GridCatalog.svelte's comment on
+    // `visibleIndices` for why a Map, not a Set). Keyed by index, not chaId:
+    // the dialog never reorders db.characters, and it skips groups, trashed
+    // and hidden system characters in place, so an index stays a valid key.
     // chaId uniqueness isn't guaranteed (older saves can lack it, and
     // duplicates/copies can collide), so a chaId key risks Svelte's
     // each_key_duplicate crash.
@@ -403,7 +405,7 @@
             {:else if a.type === 'selectChar'}
                 <div class="flex w-full items-start flex-wrap gap-2 justify-start">
                     {#each DBState.db.characters as char, i (i)}
-                        {#if char.type !== 'group'}
+                        {#if char.type !== 'group' && !char.trashTime && !isHiddenSystemCharacter(char)}
                             {@const imgPath = char.image}
                             {@const isVisible = visibleSelectChars.has(i)}
                             {@const avatarStyle = isVisible ? getCharImage(imgPath, 'thumbcss') : ''}

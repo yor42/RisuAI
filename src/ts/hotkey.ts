@@ -2,7 +2,7 @@ import { get } from "svelte/store"
 import { alertSelect, alertToast, alertClear, doingAlert, alertRequestLogs } from "./alert"
 import { escapeActionFor } from "./alertEscape"
 import { promptWaiting } from "./alertPrompts"
-import { changeToPreset as changeToPreset2, getDatabase  } from "./storage/database.svelte"
+import { changeToPreset as changeToPreset2, getDatabase, type Database } from "./storage/database.svelte"
 import { alertStore, DBState, loadoutModalStore, MobileGUIStack, MobileSideBar, openPersonaList, openPresetList, OpenRealmStore, PlaygroundStore, QuickSettings, SafeModeStore, selectedCharID, settingsOpen } from "./stores.svelte"
 import { language } from "src/lang"
 import { updateTextThemeAndCSS } from "./gui/colorscheme"
@@ -11,6 +11,7 @@ import { previewMayStart, renderPromptResult, runPreview } from "./process/previ
 import { RISU_SIDEBAR_DRAG_TYPE } from "./dragTypes"
 import { shouldYieldToFocusedControl } from "./hotkeyYield"
 import { changeChar } from "./characters"
+import { isHiddenSystemCharacter } from "./hiddenCharacters"
 
 export function initHotkey(){
     document.addEventListener('keydown', async (ev) => {
@@ -122,9 +123,7 @@ export function initHotkey(){
                     break
                 }
                 case 'prevChar':{
-                    const sorted = database.characters.map((v, i) => {
-                        return {name: v.name, i}
-                    }).sort((a, b) => a.name.localeCompare(b.name))
+                    const sorted = characterCycle(database.characters)
                     if(sorted.length === 0){
                         return
                     }
@@ -147,9 +146,7 @@ export function initHotkey(){
                     break
                 }
                 case 'nextChar':{
-                    const sorted = database.characters.map((v, i) => {
-                        return {name: v.name, i}
-                    }).sort((a, b) => a.name.localeCompare(b.name))
+                    const sorted = characterCycle(database.characters)
                     if(sorted.length === 0){
                         return
                     }
@@ -363,6 +360,22 @@ export function initHotkey(){
             }
         }
     }, true)
+}
+
+// The characters the previous/next hotkeys cycle through, sorted by name, each
+// with its index in the character list. Trashed characters and the hidden
+// system characters are not part of the cycle, so it holds the characters the
+// sidebar shows, in name order rather than the sidebar's order.
+function characterCycle(characters: Database['characters']){
+    const cycle: {name: string, i: number}[] = []
+    for(let i = 0; i < characters.length; i++){
+        const v = characters[i]
+        if(v.trashTime || isHiddenSystemCharacter(v)){
+            continue
+        }
+        cycle.push({name: v.name, i})
+    }
+    return cycle.sort((a, b) => a.name.localeCompare(b.name))
 }
 
 async function quickMenu(){

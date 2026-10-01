@@ -3,15 +3,17 @@ import { DBState, PlaygroundStore, selectedCharID } from "./stores.svelte";
 import { findCharacterIndexbyId } from "./util";
 import { characterFormatUpdate, createBlankChar } from "./characters";
 import { alertNamedRestoreFailure, restoreArchivedForWrite } from "./process/coldCharacterAccess";
+import { markCharacterForSave } from "./storage/characterSaveMarks";
 
 const PLAYGROUND_CHA_ID = '§playground'
 
 /**
  * Opens the Playground chat: selects the `§playground` utility character
  * (created when none exists) after setting the Playground view to its chat
- * page, and bumps its interaction time through a format update. An archived
- * `§playground` (a placeholder in `DBState.db.characters`) is restored from
- * its unit first. A placeholder is never written, format-updated or selected,
+ * page, clears its `trashTime` when set, and bumps its interaction time
+ * through a format update. An archived `§playground` (a placeholder in
+ * `DBState.db.characters`) is restored from its unit first. A placeholder is
+ * never written, format-updated or selected,
  * and the Playground view never moves to its chat page while one holds the
  * slot. When the restore fails, or ends with a placeholder still holding the
  * slot, the user is told once, by name, and nothing changes: the placeholder
@@ -50,6 +52,15 @@ function selectPlaygroundChat() {
         char.utilityBot = true
         char.name = 'assistant'
         char.firstMessage = '{{none}}'
+        // The Playground character is hidden from the trash tab, so it can
+        // never be restored from there; the boot purge would otherwise delete
+        // the history of a chat that is in use. The character is marked for
+        // save explicitly, so the cleared field is written whether or not the
+        // selected-character tracking is running yet when it is removed.
+        if (char.trashTime !== undefined) {
+            delete char.trashTime
+            markCharacterForSave(char.chaId)
+        }
         DBState.db.characters[charIndex] = char
         characterFormatUpdate(charIndex, { updateInteraction: true })
 

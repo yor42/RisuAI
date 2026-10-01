@@ -12,6 +12,7 @@
     import MobileCharacters from "../Mobile/MobileCharacters.svelte";
     import { nearViewport } from "src/ts/gui/nearViewport.svelte";
     import { SvelteMap } from "svelte/reactivity";
+    import { isHiddenSystemCharacter } from "src/ts/hiddenCharacters";
     interface Props {
         endGrid?: any;
     }
@@ -45,6 +46,9 @@
 
         for(let i=0;i<db.characters.length;i++){
             const c = db.characters[i]
+            if(isHiddenSystemCharacter(c)){
+                continue
+            }
             if(c.trashTime && !trash){
                 continue
             }

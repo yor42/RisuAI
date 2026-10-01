@@ -8,6 +8,7 @@
     import { nearViewport } from "src/ts/gui/nearViewport.svelte";
     import { SvelteMap } from "svelte/reactivity";
     import { coldStubChatCount } from "src/ts/process/coldCharacter";
+    import { isHiddenSystemCharacter } from "src/ts/hiddenCharacters";
 
     interface Props {
         endGrid?: () => void;
@@ -60,7 +61,7 @@
 
     function sortChar(char: (character|groupChat)[]) {
         return char.map((c, i) => ({ c, i })).filter(({ c }) => {
-            return !hideTrash || !c.trashTime;
+            return !isHiddenSystemCharacter(c) && (!hideTrash || !c.trashTime);
         }).map(({ c, i }) => {
             return {
                 name: c.name || "Unnamed",

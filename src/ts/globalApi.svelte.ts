@@ -41,6 +41,7 @@ import { language } from "src/lang";
 import { startObserveDom } from "./observer.svelte";
 import { updateGuisize } from "./gui/guisize";
 import { updateLorebooks } from "./characters";
+import { isHiddenSystemCharacter } from "./hiddenCharacters";
 import { initMobileGesture } from "./hotkey";
 import { fetch as TauriHTTPFetch } from '@tauri-apps/plugin-http';
 import { moduleUpdate } from "./process/modules";
@@ -2209,7 +2210,7 @@ export function checkCharOrder() {
             charIdSet.add(charId)
         }
         if (!ordered.has(charId)) {
-            if (charId !== '§temp' && charId !== '§playground' && !char.trashTime) {
+            if (!isHiddenSystemCharacter(char) && !char.trashTime) {
                 DBState.db.characterOrder.push(charId)
             }
         }
