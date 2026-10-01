@@ -47,6 +47,9 @@ These later commits are local and not pushed:
   the `archiveCharacters` setting, the restore trash rule);
 - `1327bcde`: Report 37, the chat HTML and CSS security surface, written by the read-only Q&A session
   and committed at the maintainer's request (no `doc-verifier` pass has run on it);
+- `756e8210`: the step 5a records, CHORE-52 and CHORE-53 (`MC-148` to `MC-150`, ledger rows 521-526);
+- `448962f4`: memory stage 1 step 5b, Load Internal Backup writes the snapshot as the main save and
+  reloads, instead of installing it in memory;
 - the records commit that carries this file.
 
 Push only at the maintainer's request.
@@ -65,8 +68,8 @@ Several sessions work **in this same checkout**:
   build"** and **"Fork rebranding exploration"** are idle or done; see Report 39/41 and ledger
   row 428.
 
-**Next free numbers:** `MC-151` (`MC-150` is used), Report 56, ledger row 527 and CHORE-54
-(`CHORE-53` is used). Check the ledger's last row before taking one. `MC-114` and ledger rows 371-374 were reserved for W2c-a and left unused; nobody
+**Next free numbers:** `MC-152` (`MC-151` is used), Report 56, ledger row 534 and CHORE-59
+(`CHORE-58` is used). Check the ledger's last row before taking one. `MC-114` and ledger rows 371-374 were reserved for W2c-a and left unused; nobody
 should fill them.
 
 **Rules for every session:**
@@ -101,7 +104,7 @@ should fill them.
    commit (`a6719e35`; Report 55; Gate 1 by `adversarial-reviewer`, round 1 [REJECT], round 2
    [EDITORIAL], ledger row 518; Gate 2 by `opus-reviewer`, round 1 [REJECT], round 2 [EDITORIAL], row 519;
    the investigation is row 517 and the records fact-check row 520; `MC-147`). No live check was run.
-   **Step 5a is done** (`33545c2c`; item 2). Steps 5b-5d, 6 and 7 have no code yet.
+   **Steps 5a and 5b are done** (`33545c2c`, `448962f4`; item 2). Steps 5c, 5d, 6 and 7 have no code yet.
    **CHORE-16 PG-1 is done:** every character-list view (the grid, the mobile list, the group-member
    picker and the previous/next hotkeys; the sidebar's order already skipped both when `checkCharOrder`
    adds ids) skips `§playground` and `§temp`, and opening the Playground clears its `trashTime` and marks
@@ -124,8 +127,8 @@ should fill them.
      - there is no runtime archive engine (ledger row 475).
    - The working copy of the plan is in the session scratchpad (`memfoot/stage1c/plan.md`).
      Report 49 is the durable version.
-2. **Next: memory stage 1 step 5, the boot pass** (Report 49 section 3.4, step 5; Gate 2 is
-   `opus-reviewer`).
+2. **Next: memory stage 1 step 5c, the boot pass** (5a and 5b are done; Report 49 section 3.4, step 5;
+   Gate 2 is `opus-reviewer`).
    - **CHORE-16 PG-1 is done** (Report 54). The Wiki session has committed the Playground page
      (`wiki/Playground.md`, `6ad13bac`) to match it. The Main Campaign session does not touch `wiki/**`.
    - **CHORE-51 is filed** (DATA LOSS, open): the manual clean-up's keep set never reads chat units, so
@@ -149,8 +152,9 @@ should fill them.
        every stub (`MC-149` 4). Gate 1 `adversarial-reviewer` [APPROVE]; Gate 2 `opus-reviewer` round 1
        [EDITORIAL], round 2 [APPROVE]. Nothing archives until 5c. Root `coldstorage` still gates the
        startup asset sweep and remote-block clean-up, with no UI (`MC-149` 2).
-     - **5b:** `loadInternalBackup` writes the snapshot and reloads, with `LoadLocalBackup`'s other-tab
-       refusal.
+     - **5b, done** (`448962f4`): `loadInternalBackup` writes the snapshot and reloads, with
+       `LoadLocalBackup`'s other-tab refusal. Gate 1 `adversarial-reviewer` round 1 [REJECT], round 2
+       [EDITORIAL] (ledger row 527); Gate 2 `opus-reviewer` round 1 [REJECT], round 2 [APPROVE] (row 530).
      - **5c:** the boot pass (exclusive hold, fenced commit, the one-time notice, the D1 capability gate,
        `uuid` unit ids, an optional `enableRemoteSaving` encoder input, no commit when nothing changed,
        no pass on backup-fallback boots).
@@ -178,8 +182,8 @@ should fill them.
      in Report 51 section 6, step 3a's in Report 52 section 6, step 3b's in Report 53 section 6 and step
      4's in Report 55 sections 7 and 8 (among them: whether step 5's pass should enrich
      upstream-made stubs is a question for the maintainer at step 5; step 5 reuses
-     `hasEnabledV21Plugin`, owns `loadInternalBackup`, which does not reload at HEAD, and owns the `§`
-     exclusion from archiving).
+     `hasEnabledV21Plugin`, owned `loadInternalBackup` (5b: it now writes the main save and reloads), and
+     owns the `§` exclusion from archiving).
 3. **After stage 1** (`MC-145`):
    - the upstream-compatible inline-everything backup;
    - then archiving of modules that are not enabled;
@@ -199,15 +203,25 @@ should fill them.
 1. **Memory stage 1** (Report 49), steps 5-7 (steps 1, 2, 3a, 3b and 4 are done, Reports 50-53 and 55),
    in this order:
    1. memory stage 1 step 5, the boot pass (the scoping is recorded: ledger row 522, `MC-148` and `MC-149`;
-      5a is done, `33545c2c`; 5b, 5c and 5d follow);
+      5a and 5b are done, `33545c2c` and `448962f4`; 5c and 5d follow);
    2. then **CHORE-53** (DATA LOSS: delete actions act on a stale target, and Enter clicks the control
       behind a confirm; ledger row 523; `MC-150` 4, the maintainer agreed to this position);
-   3. then **CHORE-51** (DATA LOSS) and **CHORE-52** (the unvalidated cold-storage key), each its own
-      change with its own gates. The maintainer asked on 2026-10-01 for both to be added to the work
-      order; this position is the Orchestrator's choice. Neither depends
-      on step 5 or step 6, and CHORE-51 is DATA LOSS, so it should not wait behind the idle reload and
-      the measurements;
-   4. then steps 6 and 7.
+   3. then **CHORE-43** (unreroll can write one chat's reply into another) **with CHORE-54** (rerolling
+      or going back through rerolls overwrites an edited reply with its generation-time copy; data
+      loss, save path inferred). The maintainer placed both right after CHORE-53 (ledger row 528;
+      `MC-151` 3, "Right after CHORE-53"). The Orchestrator's recommendation (CHORE-54) is to fix them in
+      one change, because both live in the reroll history's ownership;
+   4. then **CHORE-51** (DATA LOSS), **CHORE-52** (the unvalidated cold-storage key) and **CHORE-55**
+      (Tauri main-file writes are not atomic), each its own change with its own gates. The maintainer
+      asked on 2026-10-01 for CHORE-51 and CHORE-52 to be added to the work order; their position is
+      the Orchestrator's choice. Neither depends on step 5 or step 6, and CHORE-51 is DATA LOSS, so it
+      should not wait behind the idle reload and the measurements. CHORE-55 goes in this stretch by
+      the maintainer's choice (`MC-151` 3, "With CHORE-51/52");
+   5. then steps 6 and 7;
+   6. then **CHORE-58** (measure first): PNG character import copies its read buffer quadratically on
+      large assets (ledger row 532). It is import performance, not data loss, so it goes last; the maintainer
+      accepted the Orchestrator's recommended placement (`MC-151` 8). Its first task is a measurement on the
+      real module or the live app.
    - **CHORE-16 PG-1 is done** (Report 54, commit `08e43e65`), the small fix the maintainer approved on
      2026-10-01 between step 3b and step 4. Every character-list view skips `§playground` and `§temp`, as
      `checkCharOrder` does, so the Playground's "assistant" character can no longer be opened or deleted
@@ -220,11 +234,17 @@ should fill them.
 Not placed in the sequence:
 - **CHORE-40** (the copy button's URL fetch): open; the Roadmap gives no position.
 - **CHORE-41** (the edit-button bug): blocked on the maintainer's console output.
-- **CHORE-43** (unreroll can write one chat's reply into another) and **CHORE-45** (the script cache
-  misses on a repeat send in a long chat): filed, not scheduled. CHORE-45 waits for the memory work.
+- **CHORE-45** (the script cache misses on a repeat send in a long chat): filed, not scheduled. It
+  waits for the memory work.
 - **CHORE-46** (the Node server's 100 MB body limit): re-measure after stage 1 (Report 49).
 - **CHORE-48** (inlays are never backed up): waits for the maintainer's answer.
 - **CHORE-49** (the Node server does not boot over plain HTTP; `MC-144`): filed, not scheduled.
+- **CHORE-56** (under the beta mobile layout, a touch that ends on a button, input, select or textarea
+  throws a TypeError in the swipe handler): suspected; TRACED, not run. The maintainer has not yet
+  confirmed or placed it.
+- **CHORE-57** (chat import offers `.txt` but has no `.txt` branch, so a picked `.txt` does nothing and
+  says nothing): suspected, from reading; not run. **Low priority**, by the maintainer's decision
+  (`MC-151` 7); no position in the order.
 - **Follow-ups from the memory work** (Report 49, section 5):
   - switching to a chat whose cold-storage unit is missing still retains the previous chat's
     messages;
@@ -272,6 +292,9 @@ Not placed in the sequence:
    - odd `risuext` extension names;
    - the "missing" wording;
    - a partial file after an entry of 4 GiB or more.
+7. **Internal backup load refuses a snapshot with a damaged or missing block as a whole.** Offer "load
+   without the N affected characters" instead? (Gate 1 round 2 N1 of step 5b, ledger row 527; a product
+   trade-off.)
 
 ## Finished stages
 

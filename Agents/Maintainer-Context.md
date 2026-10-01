@@ -4544,3 +4544,107 @@ and are not maintainer decisions.
    "I agree that CHORE-53 should go right after step 5."
 
 The investigation is ledger row 523; the findings are filed as CHORE-53.
+
+---
+
+### MC-151 — Two relayed upstream bug reports on edits and reroll; three QOL ideas; CHORE-43 and CHORE-54 go right after CHORE-53, CHORE-55 with CHORE-51 and CHORE-52; QOL-04 stale, QOL-08 and QOL-09 ideas, a native fast local import, CHORE-57 low priority, CHORE-58 last
+
+- **Tag:** stated (1-2, 4-6) and decision (3, 7-8)
+- **Date:** 2026-10-01
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer relayed two bug reports, which they headed "Possibley unconfirmed bug on
+  upstream" (their spelling), and three QOL ideas, then answered two placement questions the
+  Orchestrator asked after the investigation (ledger row 528; CHORE-55 came from step 5b's Gate 2,
+  round 1). Later the same day they stated items 4-5 (the addendum), and items 6-8 (the second
+  addendum: the fast-import investigation, ledger row 532, and the placement of CHORE-57 and
+  CHORE-58).
+- **Reasoning:**
+  - the reports describe upstream builds (`MC-011`): there is no fork userbase, and the maintainer
+    marked them possibly unconfirmed;
+  - the maintainer gave no reason for either placement.
+- **Alternatives rejected** (the other options the Orchestrator offered):
+  - for CHORE-43 and CHORE-54: after CHORE-51 and CHORE-52; after steps 6 and 7;
+  - for CHORE-55: right after CHORE-53; after steps 6 and 7.
+- **Related:** MC-011, MC-013, MC-100, MC-133, MC-150, CHORE-43, CHORE-54, CHORE-55, CHORE-57, CHORE-58,
+  ledger rows 528 and 532, Maybe-Later QOL-04 to QOL-09.
+
+**What was stated / decided:**
+1. **The two relayed bug reports,** verbatim:
+   1. "Edits made on LLM's output reverts back to original when user returns to the message after
+      either switching the chat or rerolls the message."
+   2. "reroll isn't bount to specific chat - rerolling on one chat and tapping 'previous message' on
+      another chat loads previous message from previous chat"
+
+   These are reports, not reproductions. The investigation (ledger row 528) matched report 2 to CHORE-43
+   (`MC-100` 2 filed it; its scope sentence "on desktop" is not edited here) and filed report 1 as
+   CHORE-54. For the findings, see the Roadmap's CHORE-43 amendment and CHORE-54.
+2. **Three QOL ideas, recorded as ideas, not decisions.** Nothing here is approved, scheduled or
+   estimated. They are entries in `Agents/Maybe-Later.md`:
+   1. "you can export character, prompt preset, modules, etc. but you can't export the plugin." (QOL-05)
+   2. "\"empty all\" button in trash menu with confirmation prompt" (QOL-06)
+   3. "more animations: like last messages being scrollable sideways when either swipe reroll is on or
+      there is multiple reroll candidates, and side bar that also accepts gesture control, such as
+      sliding right from the edge of screen opening sidebar, and tapping the edge of sidebar and
+      sliding it to the left closing it with animation following the tap." (QOL-07)
+3. **Placement in the work order.** The maintainer chose the recommended option on two questions:
+   1. "Where should the two reroll data-loss bugs go in the work order?" Answer: "Right after CHORE-53
+      (Recommended)". The maintainer placed both right after CHORE-53. The Orchestrator's recommendation
+      (CHORE-54) is to fix them in one change.
+   2. "Where should CHORE-55 go?" Answer: "With CHORE-51/52 (Recommended)", in the same stretch, before
+      steps 6 and 7. CHORE-55.
+
+   The work order is now: memory stage 1 step 5; then CHORE-53; then CHORE-43 with CHORE-54; then CHORE-51,
+   CHORE-52 and CHORE-55; then steps 6 and 7.
+
+**Addendum (2026-10-01, later the same day; stated, not decided).** The maintainer then stated the
+following, verbatim. They are two ideas and a correction to a record, not decisions: nothing here is
+approved, scheduled or estimated.
+4. **QOL-04 is stale.** "I think QOL-04 in maybe-later.md is now stale, as account/sync that should not
+   be made more backed up more aggressively is now removed from this fork." The account sync it names
+   was removed by CHORE-33 and Drive by CHORE-36 (`MC-080`, `MC-092`). `MC-025` and `MC-026` quote
+   QOL-04's earlier text and stay as dated records: `MC-025` of what this fork's maintainer said on
+   2026-09-21, `MC-026` of upstream's maintainer's objection, dated only "on or before 2026-09-21".
+   QOL-04 was rewritten for the current fork.
+5. **Two more ideas,** then a placement:
+   1. "also, I think a path to 'update and replace' the existing card/module would be nice to have.
+      currently when creators posts update to their bot, users have to manually backup chat, delete the
+      old characters and modules, re-import new module/character, then restore their chats." (QOL-08)
+   2. "I think we could also have \"archive this character\" button with dedicated format that exports
+      both character and chats in single file." (QOL-09)
+   3. "all fits into the maybe later stage. I believe." Both new ideas are entries in
+      `Agents/Maybe-Later.md`, with the same status as QOL-05 to QOL-07.
+
+**Addendum 2 (2026-10-01, later again; stated 6, decided 7 and 8).** The maintainer asked for a faster
+local-file character import and then placed two tickets from the investigation of it (ledger row 532).
+6. **A faster local-file character import, built natively; Lightning Realm Import.** The maintainer, in
+   one message of three paragraphs, verbatim:
+   1. "about realm: upstream does provide faster realm import under the name of 'lightning realm import' as
+      experimental setting. I think we can bring it back if it is removed as it is official feature."
+   2. "people already made the plugin to speed up the character import from the local file. refer to faster
+      character import plugin in `agents/evidences of investigation/community plugin to solve common pain
+      points`"
+   3. "I think we can implement something similar to this natively - we won't port this plugin directly,
+      though. as it was more of an experiment with few reports of data loss or imperfect lorebook/asset
+      loading."
+
+   These are ideas, not decisions: nothing is approved, scheduled or estimated, and they are recorded in
+   `Agents/Maybe-Later.md` QOL-04. The "do not port the plugin" direction follows `MC-133`'s rule
+   about other forks, applied by analogy to community work. The plugin is third-party work in
+   the gitignored evidence folder, so the records describe its techniques in their own words and quote none
+   of it.
+
+   **Context, from the Orchestrator and not the maintainer's words.** The Orchestrator explained that the
+   setting cannot return as it was; see Maybe-Later QOL-04.
+7. **CHORE-57 is low priority.** About the chat import that offers `.txt` and has no `.txt` branch, the
+   maintainer: "mark txt import bug as low priority for now. most people uses json anyway." CHORE-57 is
+   filed and not placed.
+8. **CHORE-58 goes last in the current work order.** The maintainer: "add CHORE-58 in the work order - I'll
+   take your recommendation about its placement." The Orchestrator recommended, and the maintainer
+   accepted, placing it at the end of the current order, after steps 6 and 7, with a measurement on the
+   real module or the live app as its first task. The maintainer delegated the placement and gave no
+   reasons of their own. The Orchestrator's stated reason: it is import performance, not data loss, and
+   everything ahead of it in the order is data loss or memory stage 1, which is in progress. The code
+   facts are under Roadmap CHORE-58.
+
+   The work order is now: memory stage 1 step 5; then CHORE-53; then CHORE-43 with CHORE-54; then CHORE-51,
+   CHORE-52 and CHORE-55; then steps 6 and 7; then CHORE-58 (measure first).

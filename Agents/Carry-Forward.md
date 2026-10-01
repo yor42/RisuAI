@@ -178,8 +178,14 @@ STATUS block and its ledger rows.
     returns the group's name while trigger effects write the member.
   - (The late backup refusal leaving assets and cold-storage items is known and commented in
     `backuplocal.ts`; see "After W2e".)
-- **CHORE-43** (Roadmap): the composer's reroll history is per instance, so unreroll can write one
-  chat's reply into another.
+- **CHORE-43** (Roadmap): the composer's reroll history is per instance and is reset only when the
+  selected character's index changes (or after a send appends), so unreroll can write one chat's reply
+  into another. The 2026-10-01 amendment confirmed the mechanism (run in a scratch Vitest) and
+  corrected the scope: a chat switch remounts the composer only under the opt-in beta mobile layout or
+  the Lite build, so the default phone layout reaches it as well as desktop (TRACED, not run in a
+  browser). The maintainer placed it right after CHORE-53 (`MC-151` 3). The Orchestrator's
+  recommendation (CHORE-54) is to fix it in one change with CHORE-54 (rerolling or going back overwrites
+  an edited reply; data loss, save path inferred).
 - **W2a's optional items** (Report 35 section 12): skip the image-prompt request when there is no
   reply to append to; align the non-streaming continue whose target is already missing with the
   streaming one.

@@ -1676,7 +1676,7 @@ row 242; Gate 1 in rows 243, 246 and 247. Filed from the removal stage's Gate 1
 ### CHORE-43 — Unreroll can write one chat's reply into another chat
 
 **Status (2026-09-28):** filed from Gate 1 rounds 5 and 6 of the composer stage's S1 (Report 22;
-ledger rows 276-277; `MC-100` 2). Not fixed and not scheduled.
+ledger rows 276-277; `MC-100` 2). Not fixed. Scheduled on 2026-10-01 (see the amendment below).
 
 - **Mechanism (TRACED by the gate reviewer, not run):**
   - `DefaultChatScreen.svelte` keeps the reroll history (`rerolls`, `rerollid`) as component
@@ -1687,10 +1687,71 @@ ledger rows 276-277; `MC-100` 2). Not fixed and not scheduled.
 - **Scenario:** reroll in chat A, switch to chat B of the same character without a remount
   (desktop), then reroll and unreroll. `unReroll` writes A's reply objects over B's last message,
   and that is saved.
-- **Scope:** present upstream. On mobile, a chat switch remounts the component, which resets the
-  history.
+- **Scope:** present upstream. **Corrected 2026-10-01 (see the amendment below):** the original
+  sentence here, "On mobile, a chat switch remounts the component, which resets the history", holds
+  only under the opt-in beta mobile layout or the Lite build.
 - **A likely shape:** key the history by owner `chaId` and chat id. Every read **and every write**
   resets it when the chat differs (round 6 found that a read-only reset misses auto-mode writes).
+
+**Amendment (2026-10-01):** from the investigation in ledger row 528 (the `investigator`'s packet, in
+the session scratchpad as `rerolledit/packet.md`, at HEAD `756e8210`). The Orchestrator verified the
+mechanism below in `src/ts/process/composerActions.svelte.ts`. **Status:** scheduled right after
+CHORE-53, with CHORE-54 (`MC-151` 3); fixing both in one change is the Orchestrator's recommendation
+(CHORE-54). The maintainer's second relayed report
+matches this ticket's mechanism (`MC-151` 1): "reroll isn't bount to specific chat - rerolling on one
+chat and tapping 'previous message' on another chat loads previous message from previous chat".
+
+- **The mechanism is confirmed (TRACED, and RUN in a scratch Vitest against the real
+  `composerActions.svelte.ts`, with the generation stubbed).**
+  - `reroll` and `unReroll` write live into
+    `DBState.db.characters[selectedCharID].chats[chatPage].message`
+    (`composerActions.svelte.ts:461-465`, `:528-532`) and are bound to no chat.
+  - The only resets are `lastCharId !== selectedCharID` (`:219-222`, `:445-448`, `:510-513`) and
+    the one after a send appends (`:385`). `lastCharId` is a `characters` index.
+  - `changeChatTo` (`globalApi.svelte.ts:3478-3514`) writes `chatPage` and bumps `ReloadGUIPointer`.
+    It does not touch the composer instance.
+- **P1, corrected (TRACED; not run in a browser).** "On mobile, a chat switch remounts the
+  component" is only true under `$MobileGUI`, which is set only when
+  `db.betaMobileGUI && window.innerWidth <= 800` (opt-in, no default) or in the Lite build
+  (`bootstrap.ts:306-309`).
+  - Every other phone or narrow window uses the desktop layout: `App.svelte:220-237` mounts
+    `<ChatScreen />` there, and `DynamicGUI` (width <= 1024, `stores.svelte.ts:16`) only turns the
+    sidebar into an overlay. `Sidebar.svelte:968` and `:994` host `SideChatList`, whose click calls
+    `changeChatTo(i)` (`SideChatList.svelte:331`) with no remount.
+  - Even under `$MobileGUI`, three in-screen switches never leave `ChatScreen` (it renders when
+    `$MobileSideBar` is 0, `MobileBody.svelte:47-48`): the Branch button (`Chat.svelte:1270`,
+    `changeChatTo(0)`), the "branched from" link (`Chat.svelte:810-816`), and the menu's "Chat list"
+    entry when `showMenuChatList` is on (`DefaultChatScreen.svelte:1001-1008` opens `ChatList`,
+    which calls `changeChatTo`, `ChatList.svelte:29` and `:62`). The chat list reached from the
+    header menu (`MobileHeader.svelte:25-27` sets `MobileSideBar` to 1) is the one mobile path that
+    remounts.
+  - So the report-2 scenario is reachable on a phone, in the default layout and in the beta layout.
+    "Tapping" does not rule it out.
+- **P2, corrected (RUN, scenarios D4, D5 and D4b).** The scenario text above says "then reroll and
+  unreroll" in chat B. One `unReroll` in chat B is enough, and no reroll in B is needed.
+  - D4: reroll in chat A, so the history is `[[A-R0],[A-R1]]`, id 1; set `chatPage` to chat B (same
+    character, so `lastCharId` still matches); one `unReroll()` with the same source. B's last
+    message becomes "A-R0" and the cursor moves 1 to 0. Chat A still shows "A-R1".
+  - D4b: with a fresh source, which is what a remount gives, the same call does nothing.
+  - D5: the target's role is not checked. With chat B ending in a user message, that message is
+    replaced by a char message holding "A-R0".
+- **Not run (INFERRED):** with a chat that has no messages, the write targets index -1
+  (`msgs[len - n + i]`) and would set a stray array property rather than a message.
+- **A weakened premise elsewhere.** Report 22 line 83 states "on mobile the remount resets it"; P1
+  weakens that statement. Report 22 line 79 ("On mobile a switch remounts the composer...") rests on the
+  same premise. Report 22 and `MC-100` 2 ("on desktop") are not edited.
+- **Likely shape, unchanged:** the history keyed by owner `chaId` and chat id, reset on every read
+  and write. It lives in the same history ownership as CHORE-54, so the Orchestrator recommends fixing the two in one
+  change. The
+  investigator's non-normative scoping, as Grep counts: the history state and its source accessors
+  are in two production files (`DefaultChatScreen.svelte:67-69` and `:353-367`;
+  `composerActions.svelte.ts`), and any change to the `ComposerActionsSource` shape touches the 16
+  files that declare `lastCharId: {` (the two production files and 14 test fixtures).
+- **A load-bearing risk (the investigator's note):** the reset after a send append (`:385`) must
+  survive any key-based replacement, or "previous" after a new send would restore a reply from
+  before that send.
+- **Uncertain:** no browser run. A live check of D4 on the default phone layout (a window of 1024 px
+  or less, beta mobile GUI off) would settle P1.
 
 ### CHORE-44 — Auto mode cannot be stopped from a remounted composer
 
@@ -2064,6 +2125,353 @@ It is reported on upstream too: the community reports are observations of upstre
     the reference lookup in `removeChar` find nothing, so a confirmed delete does nothing: the safe
     direction, but the user sees "I confirmed twice and nothing happened" (INFERRED, not tested).
   - `TODO(evidence)`: which release the community build was.
+
+### CHORE-54 — Rerolling or going back through rerolls overwrites an edited reply with its generation-time copy (DATA LOSS; upstream and fork)
+
+**Status (2026-10-01):** filed from the investigation in ledger row 528 (packet in the session scratchpad,
+`rerolledit/packet.md`, at HEAD `756e8210`), after the maintainer relayed two possibly unconfirmed
+upstream bug reports (`MC-151` 1). Open. Scheduled right after CHORE-53, with CHORE-43 (`MC-151` 3);
+fixing both in one change is the Orchestrator's recommendation (below). Present on `upstream/main` `f9728b14` by source read (upstream not run) and on the
+fork. The Orchestrator verified the core of the mechanism, F1 and F2 below, in
+`src/ts/process/composerActions.svelte.ts`.
+
+- **The report (verbatim, `MC-151` 1):** "Edits made on LLM's output reverts back to original when user
+  returns to the message after either switching the chat or rerolls the message."
+- **Mechanism (F1; TRACED and RUN):** an edit never updates the reroll history, so the previous and
+  next arrows restore a stale copy over the edited reply.
+  - Nothing writes `rerolls[...]` except the push of a `safeStructuredClone` of the new messages after
+    a generation (`composerActions.svelte.ts:567`), the first-reroll snapshot (`:470`, also cloned) and
+    the resets (`:385`, `:220`, `:446`, `:511`).
+  - The edit surfaces write only the database: `edit()` (`Chat.svelte:278-293`,
+    `message[idx].data = newText` at `:286`) and `handlePartialEditSave` (`Chat.svelte:358-371`).
+  - `reroll()` (the "next" branch, `composerActions.svelte.ts:457-467`) and `unReroll()`
+    (`:522-533`) assign `msgs[len - n + i] = safeStructuredClone(rerolls[id])`. They overwrite the
+    last n messages with the stored copy and never write the on-screen value back to the entry being
+    left. The history holds clones, so an edit to the database message cannot reach it.
+  - **Saved, not display-only (F6; TRACED to the database write, the save not traced):** these
+    assignments go through the same reactive store the pencil's `edit()` writes. The save loop
+    observes it (`registerDbChangeEffects`, `globalApi.svelte.ts:1103-1120`, as cited by the
+    investigator) and CHORE-43 above states its overwrite "is saved". The investigator did not trace
+    the save from this write to the file.
+- **Multi-candidate replies (F8; TRACED, not run):** when a response yields more than one candidate,
+  `reroll()` and `unReroll()` check `Prereroll`/`PreUnreroll` first
+  (`composerActions.svelte.ts:449-456`, `:514-521`) and assign `message.at(-1).data = r`. The map is
+  module-level in `src/ts/process/prereroll.ts`, keyed by `generationId`, never updated by an edit,
+  and it survives remounts and chat switches. `addRerolls` is called from `index.svelte.ts` (the
+  investigator cited `:2398-2400`, which is the `mrerolls.length > 1` call; a second call site at
+  `:2269` was not in the packet and was not traced). `prereroll.ts` has no diff against
+  `upstream/main` (checked, `git diff upstream/main HEAD --stat`). It needs a multi-candidate
+  generation to run, so it was not run. Rare.
+- **Scenarios (RUN, scratch Vitest against the real `composerActions.svelte.ts`; the edit is
+  simulated as the same database write `edit()` does; the generation is a stub that appends one
+  reply, so these show the composer's own history and write behaviour, not the real `sendChat`):**
+  - **D1:** `send()` leaves the history `[[R0]]` at id 0, so the generated reply is the stored
+    copy. Edit R0 to "R0-EDITED". `reroll()` gives `[[R0],[R1]]` at id 1. `unReroll()` puts "R0" on
+    screen. The edit is gone.
+  - **D2:** reroll to R1; edit R1 to "R1-EDITED"; `unReroll()` shows R0; `reroll()` ("next") shows
+    "R1". The edit is gone and cannot be recovered: it was never stored.
+  - **D3 (control; the edit survives):** edit before the first reroll of an empty-history instance.
+    The first-reroll snapshot (`:469-472`) captures the edited text, and `unReroll()` returns
+    "R0-EDITED".
+  - **Rule (the investigator's interpretation):** an edit survives only if the first reroll of that
+    history happens after the edit. After a normal send in this component instance the history
+    already holds the generation-time reply (`sendMain` resets at `:385`, then `sendChatMain` pushes
+    the new reply, `:565-569`), so the snapshot branch is not reached. It fires only for a chat
+    loaded from disk, after a character switch, or in a fresh instance.
+- **What does not cause it (F3; TRACED):** a chat switch alone does not revert a committed edit.
+  `edit()` writes the database message and clears its draft. `changeChatTo`
+  (`globalApi.svelte.ts:3478-3514`) writes only `chatPage` and bumps `ReloadGUIPointer`, and
+  `Chats.svelte` remounts instances from the database (`message: message.data`,
+  `Chats.svelte:111-141`). So "switch chat, return, edit reverted" needs one of the paths below to
+  run afterwards. A switch to a different character resets the history (`lastCharId` differs), so
+  the history paths need the same character. A same-character path (RUN-consistent with D1 and D2):
+  edit the newest reply, switch to another chat of the same character and back, press previous then
+  next (or reroll then previous).
+- **Other mechanisms that read as the same report (each from the packet):**
+  - **F4 (TRACED), an editor that is open but not committed is lost on reroll or on a chat switch.**
+    A commit happens only through the pencil, for the inline editor (`toggleOriginalEdit`, then
+    `edit()`). On upstream the
+    typed text is gone once the instance remounts (Report 20 section 2.1). The fork mitigated this in
+    `e250089a` (2026-09-24, "keep unsaved message edits across involuntary unmounts"): the typed text
+    is kept as an in-memory draft restored when the user reopens the editor, with an "Unsaved edit
+    restored" bar. The message itself is not changed, so the reply on screen shows the saved text.
+    No saved data is overwritten.
+  - **F5 (TRACED in upstream source; not run in a browser), upstream only.** In upstream's
+    `Chat.svelte` the editor's textarea is `bind:value={message}` with
+    `handleLongPress={() => { editMode = false }}`; `edit()` is the only write to the database from the
+    inline editor (the partial edit has its own `handlePartialEditSave`, upstream `Chat.svelte` L165-177,
+    by source read) and runs only from `toggleOriginalEdit`. After the long-press the bubble keeps showing the edited
+    local text while the database holds the original, and any remount re-reads the original.
+    Display-only; the edit was never saved. The fork's `editBuffer` (`e250089a`) makes the discard
+    visible at once, so it does not occur there. The `longpress` action uses mousedown and mouseup
+    (`src/ts/gui/longtouch.ts`), so a held mouse button triggers it; that a touch long-press does not
+    is INFERRED.
+  - **F7 (UNCERTAIN; TRACED code, INFERRED effect; not run):** "Edit translation" (only with
+    `translatorType === 'llm'` and translation on) writes only the LLM translation cache, never the
+    message. `translated` is per-instance state, so after a remount the bubble shows the untranslated
+    text until translation is toggled again, unless auto-translate is on (`ChatBody.svelte:83-102` sets
+    `translated` from `db.autoTranslate` after a remount). A possible reading of the report,
+    display-only.
+- **Upstream versus fork (the investigator's table):**
+  - F1 and F8: present on both. The history logic moved from `DefaultChatScreen.svelte` to
+    `composerActions.svelte.ts` in `1bc5f288` (2026-09-28); `9213ebc2` narrowed the clone to the new
+    messages (mirroring upstream `0e56b763`); the semantics are unchanged. Upstream's lines are
+    `DefaultChatScreen.svelte` L222-248, L289-294 and L316-317 (by source read; upstream not run).
+  - F4: present upstream, mitigated on the fork (`e250089a`). F5: present upstream, absent on the
+    fork (`e250089a`). F7: present on both.
+- **Classification (the investigator's):** report 1 after a reroll or previous/next is DATA LOSS (a
+  saved overwrite of an edited reply by a stale history copy), on both builds (F1, F8). The database
+  overwrite is TRACED; that it reaches the saved file is INFERRED (F6). Report 1 after switching chats has no single mechanism: the same-character F1 path is data loss on both
+  builds; F4 and F5 are display-only and upstream-only; F7 is display-only. Report 2 is CHORE-43.
+- **A likely shape (non-normative):** before moving the cursor, `reroll` and `unReroll` write the
+  current on-screen messages (`rerollData.length` of them) into the history slot being left. One site
+  pair in `composerActions.svelte.ts`. It covers the inline edit, the partial edit and trigger edits.
+  F8 needs the same capture in `prereroll.ts`. Keep the first-reroll snapshot (`:469-472`): it is the
+  only reason an edit made before the first reroll survives today, and an empty history would lose
+  the original reply without it.
+- **Fix it together with CHORE-43.** Both live in the same history ownership: the reroll history
+  that `composerActions.svelte.ts` and `DefaultChatScreen.svelte` hold per composer instance, which
+  CHORE-43 proposes to key by owner `chaId` and chat id. Edit surfaces that bypass the history
+  today: `edit()`, `handlePartialEditSave`, and any trigger, regex or plugin write to
+  `message[i].data`.
+- **Uncertain, and what would settle it:**
+  - Which edit surface the reporter used (the pencil toggle, a held mouse button in the editor, the
+    partial edit, or a translation edit), and whether the reply was generated in the same session.
+    Without it F1, F2, F4, F5 and F7 cannot be ranked by likelihood.
+  - F5's trigger on a touch device is INFERRED. Settle it with a real-device check: long-press the
+    edit textarea in an upstream build and see whether `editMode` closes.
+  - No browser run: the hash-driven remount, the long-press and which chat-switch paths remount the
+    screen are TRACED, not observed.
+  - The save path from the reroll write to the file was inferred (F6).
+  - The empty-chat `msgs[-1]` write in CHORE-43 was not run.
+  - Hosted multi-device or multi-tab save conflicts could also revert edits; the investigation did
+    not look at them.
+- **Questions for the reporter (through the maintainer):**
+  1. Which way was the reply edited: the pencil, then the same pencil to save; a held press in the
+     editor; the partial edit; or the translation edit?
+  2. Was the reply generated in that same session, or was the chat loaded from disk?
+  3. For "switching the chat": was it another chat of the same character, and was a reroll or the
+     previous/next arrow pressed afterwards?
+  4. Which build and which layout (the default phone layout, the beta mobile layout, or desktop)?
+
+### CHORE-55 — Tauri main-file writes are not atomic (a failed write can leave a partial `database/database.bin`)
+
+**Status (2026-10-01):** filed from memory stage 1 step 5b's Gate 2 round 1 (`opus-reviewer`,
+non-blocking N2; Gate 2 is ledger row 530). Open. Scheduled with CHORE-51
+and CHORE-52, after CHORE-53 and CHORE-43/CHORE-54, before steps 6 and 7 (`MC-151` 3). It predates step 5b,
+and 5b adds a third write site with the same shape (the internal-backup load); the reviewer found the same shape in `LoadLocalBackup` and in `saveDb`.
+
+- **Mechanism (the reviewer's trace, not run; the writer re-read the plugin source):**
+  - `tauri-plugin-fs` 2.5.2 (the version in `src-tauri/Cargo.lock`) `write_file` opens the target with
+    truncate set, then writes the body with `write_all`. For a JS call that does not set `append`,
+    `truncate` is `!append`, so true (`commands.rs`, `write_file_inner`, lines 1078-1158 in the cargo
+    registry copy; `WriteFileOptions` at `:1059-1072`). There is no temp file and no rename. The file
+    is empty between the truncate and the end of the write.
+  - Tauri writes the main file through this call in three places: `saveDb`
+    (`globalApi.svelte.ts:1359`), `LoadLocalBackup` (`backuplocal.ts:714`) and the internal-backup
+    load (`internalBackup.ts:156`, committed with step 5b as `448962f4`; line re-checked at HEAD). A
+    fourth call, in `bootstrap.ts:94`, runs only when `database/database.bin` does not exist, to create
+    an empty legacy save (the writer's Grep of non-test `src/ts`). `upstream/main` has the same
+    `writeFile('database/database.bin', ...)` call in `globalApi.svelte.ts` (line 455) and in
+    `backuplocal.ts` (line 562) (checked by the writer, `git show` and a text search).
+- **Consequence (INFERRED from the mechanism; not run, and how likely a failed or interrupted write
+  is was not measured):** a write that fails or is cut off after the truncate can leave an empty or
+  partial `database/database.bin`. The wording "Your current database was not changed."
+  (`restoreWriteFailed`, `en.ts:1672`, `LoadLocalBackup`) and "Your current data was not changed."
+  (`internalBackupWriteFailed`, `en.ts:1675`, step 5b) would then be untrue.
+- **What recovers it today:** at boot, if decoding the main file throws, the Tauri branch tries the
+  numbered backups, newest first (`bootstrap.ts:112-139`; `getDbBackups` sorts descending,
+  `globalApi.svelte.ts:1566`).
+  - `TODO(evidence)`: whether a truncated or partial main file makes `decodeRisuSave` throw (so the
+    backup fallback runs) or decode in part. The Gate 1 round 1 reviewer traced that the default
+    decode drops a block that fails its data checksum rather than throwing; the truncation case was
+    not traced.
+- **Existing atomicity work, for comparison:** the Node server's `/api/write` already writes to a
+  unique temp file in the same directory and renames it over the real path (Phase 1 item 9,
+  Roadmap.md:75). For OPFS, Phase 0 awaited `stream.close()` in `OpfsStorage.setItem` (Phase 0 table,
+  `:26`), and Phase 1 item 5 says "its atomicity bug is fixed (Phase 0)" (`:71`). The Tauri main-file
+  writes have no equivalent.
+- **Fix direction (non-normative; the writer's, not the reviewer's):** the Node precedent is write to
+  a temp file in the same directory, then rename. The plugin has a `rename` command (`commands.rs:794`).
+  - `TODO(evidence)`: whether this app's Tauri capability allows `rename`, and whether a rename over an
+    existing file is atomic on each desktop platform.
+  - `TODO(evidence)`: other Tauri writes through the same plugin call (assets, cold-storage units,
+    numbered backups) were not surveyed.
+
+### CHORE-56 — Under the beta mobile layout, a touch that ends on a button, input, select or textarea throws a TypeError in the swipe handler (suspected; upstream and fork)
+
+**Status (2026-10-01):** suspected; TRACED, not run. **Not placed** (the maintainer has not yet confirmed or
+placed it). Filed by the Orchestrator: the maintainer was told it would be filed unless they had never
+seen such a popup, and has not answered. Present on the fork at HEAD `448962f4`, and the same lines are on
+`upstream/main` `f9728b14` by text search of `git show` (upstream not run).
+
+- **Mechanism (TRACED, not run):**
+  - `initMobileGesture` (`src/ts/hotkey.ts:436-485`) keeps `pressingPointers`, a map from touch
+    identifier to the touch's start point. Its `touchstart` listener (`:439-449`) loops over
+    `ev.changedTouches` and **`return`s from the whole listener**, not just that iteration, when a
+    touch's `target` has the tag BUTTON, INPUT, SELECT or TEXTAREA (`:442-444`). No entry is stored for
+    that touch, nor for any later touch in the same event.
+  - Its `touchend` listener (`:450-484`) then does `const d = pressingPointers.get(touch.identifier)`
+    (`:452`) and `touch.clientX - d.x` (`:453`). With no entry, `d` is `undefined` and that line throws a
+    `TypeError`, before the swipe test at `:457`.
+  - `updateErrorHandling` (`src/ts/bootstrap.ts:359-372`) registers a window `error` listener that calls
+    `alertError(event.error)` unless `event.error.target instanceof Worker` (`:360-365`). By source, a
+    tap that starts on such an element therefore shows an error popup. That an exception thrown inside an
+    event listener reaches the window `error` handler in every browser is INFERRED, not tested.
+  - On `upstream/main` `f9728b14` the matching lines are `hotkey.ts:362-381` (the tag test at `:368`, the
+    `get` at `:378`) and `bootstrap.ts:288-297` (the handler's `instanceof Worker` test and `alertError`
+    at `:291-292`).
+- **Scope:** the handler is registered only when `(db.betaMobileGUI && window.innerWidth <= 800)` or the
+  Lite build is on (`src/ts/bootstrap.ts:306-309`). `betaMobileGUI` is a display-settings checkbox
+  (`src/ts/setting/displaySettingsData.svelte.ts:351`) and a search of non-test `src/` finds no default
+  for it, so the default phone layout and desktop do not register the handler (the same reading as
+  CHORE-43's P1).
+- **Uncertain:**
+  - How often `touch.target` is the BUTTON element itself rather than a child inside it (an icon, an SVG
+    or a span). Only the first case lacks an entry and throws. If most buttons in the layout wrap their
+    content, the popup would be rare; if many do not, it would be common.
+  - Whether the popup is actually seen. No device run; the maintainer was asked whether they had ever
+    seen one.
+  - The effect on the swipe itself is TRACED only: the throw happens before the swipe test, so that
+    touch cannot step `MobileGUIStack` or `MobileSideBar`.
+- **What would settle it:** a real-device tap on a button under the beta mobile layout (the setting on, a
+  window of 800 px or less), watching for the error popup or a `TypeError` in the console.
+- **A likely shape (non-normative):** in `touchend`, skip a touch that has no stored entry. In
+  `touchstart`, do not `return` from the whole listener on an excluded target; skip only that touch, so
+  the other touches in the event are still recorded.
+- **Related:** Maybe-Later QOL-07 (it reads this same handler for the sideways gestures).
+
+### CHORE-57 — Chat import offers `.txt` but has no `.txt` branch, so a picked `.txt` does nothing and says nothing (suspected; upstream and fork)
+
+**Status (2026-10-01):** suspected, from reading; not run. **Low priority**, by the maintainer's decision
+(`MC-151` 7: "mark txt import bug as low priority for now. most people uses json anyway."). **Not placed**:
+it has no position in the work order. Present on the fork at HEAD `448962f4`. `upstream/main` `f9728b14` is
+identical in the parts that matter, by `git show` (upstream not run).
+
+- **Mechanism (TRACED by reading, not run):**
+  - `importChat` (`src/ts/characters.ts:424`) opens the picker with
+    `selectSingleFile(['json','jsonl','txt','html'])` (`:425`). The picker puts the list in the file
+    input's `accept` unless `allowAllExtentionFiles`, iOS or a `*` list switches the filter off
+    (`src/ts/util.ts:232-239`), and a picked `.txt` passes the extension filter (`:249-252`).
+  - Inside the `try`, the code tests the file name three times: `endsWith('jsonl')` (`:432`),
+    `endsWith('json')` (`:473`) and `endsWith('html')` (`:541`). Nothing tests for `txt`, and there is no
+    final `else`. A `.txt` file therefore matches no branch, and the function returns with no alert and
+    no change to the character's chats.
+  - `upstream/main` `src/ts/characters.ts` has the same picker line (`:372`) and the same three tests
+    (`:379`, `:420`, `:490`), and the text `txt` appears in `importChat` there only in the picker line
+    (checked by `git show` and a line scan of `:371-510`).
+- **Related facts:**
+  - The same function also ends silently for any other extension when `allowAllExtentionFiles` is on (by
+    the same reading).
+  - `exportChat` offers "Export as TXT" (`characters.ts:248`) and writes a `.txt` file of `--<name>`
+    header lines and messages (`:402-415`), so a TXT export has no import to match.
+  - By `git log -S` on this repository's history, the picker line with `'txt'` first appears in
+    `507c3e62` (2024-06-19, "add export via htmls"), and no commit adds `endsWith('txt')` to
+    `characters.ts` or `characterCards.ts`. Whether a `.txt` import was ever meant to read that export, or
+    only the SillyTavern format, is not known. `TODO(evidence)`.
+- **Two more suspected defects in the same function's JSONL branch (Orchestrator, by reading at
+  `448962f4`; not run; same low priority):**
+  - The text is split on `'\n'` and every line goes to `JSON.parse(line)` with no empty-line guard
+    (`characters.ts:433`, `:446`). A file that ends in a newline gives a trailing `''`, `JSON.parse('')`
+    throws, and the catch reports an error, so the whole import fails. Whether SillyTavern's JSONL files end
+    in a newline is not checked. `TODO(evidence)`.
+  - The message test `presedLine.name && presedLine.is_user, presedLine.mes` (`:447`) uses the comma
+    operator, so only `presedLine.mes` is tested.
+- **A likely shape (non-normative):** either remove `'txt'` from the picker list, or add a branch for a
+  format to be chosen; in both cases end `importChat` with a message when no branch matched. Which is
+  wanted is a product choice and is not decided. Skip empty JSONL lines.
+- **What would settle it:** pick a `.txt` file in the chat import dialog in a browser run and watch for
+  an alert or a new chat.
+- **Related:** Maybe-Later QOL-08 and QOL-09 (both build on `importChat`).
+
+### CHORE-58 — PNG character import copies its read buffer quadratically on large assets (TRACED; replica timings only; upstream and fork)
+
+**Status (2026-10-01):** TRACED in source (the Orchestrator verified F1's four code points,
+`AppendableBuffer.slice`, the `buffer` getter, `deappend` and `readGenerator`'s trim; the writer
+re-read the rest); not measured on the real module or the live app. **Scheduled: last in the current
+order, after steps 6 and 7 (`MC-151`)**; the first task is a measurement on the real module or the live app.
+Import performance, not data loss. Present on the fork at HEAD `448962f4`, and on `upstream/main`
+`f9728b14`: `src/ts/pngChunk.ts` is identical (`git diff upstream/main HEAD --stat` for it prints
+nothing), and the `AppendableBuffer` methods and the prereader are the same by text (`globalApi.svelte.ts`
+`:1435-1436`, `:1464` and `:1476`; `characterCards.ts` `:199-215` on upstream; read with `git show`,
+upstream not run).
+
+- **Mechanism (TRACED):**
+  - `AppendableBuffer.slice` returns `this.buffer.slice(start - deapended, end - deapended)`
+    (`src/ts/globalApi.svelte.ts:2593-2595`). The `buffer` getter is `this.#buffer.slice(0, this.#byteLength)`,
+    which copies the whole retained buffer on every call (`:2553-2555`). `deappend` copies the remainder of
+    the backing array, `this.#buffer.slice(length)` (`:2581-2585`).
+  - In `PngChunk.readGenerator` (`src/ts/pngChunk.ts:131`), the stream branch's `slice` appends stream
+    chunks until `end` is reached, calls `readableStreamData.slice(start, end)` (`:166`), then drops 50000
+    bytes, and only if `start - readableStreamData.deapended > 200000` (`:168-170`). A `tEXt` chunk costs
+    three `slice` calls (the length at `:182`, the type at `:184`, the body at `:199`), so at most about
+    150 KB drains per chunk.
+  - An asset chunk larger than that therefore leaves the retained buffer larger by its size minus about
+    150 KB, and every later `slice` copies all of it. The copy cost grows with the square of the number of
+    large assets.
+  - **The prepass.** `importCharacterProcess` first runs a "prereader" over the same file (or a `tee()` of
+    the stream) only to count `chara-ext-asset_` chunks for the progress percentage
+    (`src/ts/characterCards.ts:139-163`). It is created without `returnTrimed` (`:151-153`), so it never
+    yields the trailing buffer and its `break` (`:156-158`) never fires. It scans the whole file to its
+    end, decodes every `tEXt` body, asset chunks included, into a string (`pngChunk.ts:198-209`), and pays
+    the same copy on every chunk. The real pass (`characterCards.ts:166-210`) then repeats all of that.
+  - **How a `File` came to take this branch (TRACED from the diff, `git show 8541258a -- src/ts/pngChunk.ts`).**
+    Before `8541258a`, a `File` input was read by range with `blobToUint8Array(data.slice(start, end))` and a
+    known `size`, with no whole-buffer copy. That commit converts a `File` to `data.stream()` at the top of
+    `readGenerator`, so it takes the `AppendableBuffer` stream branch, which introduced the quadratic copy for
+    local-file import. This does not change "keep streaming" below.
+- **Scope:**
+  - The PNG path of `importCharacterProcess` (everything after the `png` name check at
+    `characterCards.ts:120-123`), for assets whose chunks are over about 150 KB. A `File` or a `ReadableStream` takes the stream branch (`pngChunk.ts:134-141`): the file
+    picker (`characterCards.ts:40`), the drop handler (`src/App.svelte:96`) and the Realm PNG download
+    (`characterCards.ts:1797-1800`, `res.body`, split by `tee()` at `:142-146`). A `Uint8Array` input
+    takes `data.slice` instead (`pngChunk.ts:152-154`), which does not have this copy. Examples: the
+    Charahub import (`characterCards.ts:374-377`) and `importFile` (`:509-514`), which pass a `Uint8Array`.
+  - `.charx` is **not affected**. It does not call `readGenerator` (no `PngChunk` in
+    `src/ts/process/processzip.ts`); it accumulates each entry with `AppendableBuffer.append`, which
+    doubles its backing array, and reads `.buffer` once per entry (`processzip.ts:344`, `:355`). The
+    `.charx`/`.jpg`/`.jpeg` branch is `characterCards.ts:80-118`.
+  - Assets under about 150 KB drain as fast as they arrive, and are not affected (see the replica).
+  - Other `readGenerator` callers pass a `Uint8Array`, so they do not take the stream branch:
+    `characters.ts:144` (`img`) and `persona.ts:110` (`v.data`). The export at `characterCards.ts:1422`
+    passes `rData`, which was not traced for this entry. `TODO(evidence)`.
+- **Evidence and its label:**
+  - The code trace above is TRACED.
+  - The timings are a replica, not the real module and not Chromium. The investigator ran a copy of the
+    `AppendableBuffer` and `readGenerator` slice logic in a scratch script (Node v24.19.0; 64 KB stream
+    chunks the investigator chose; one pass; one machine; the script is not in the repo). Bytes copied per
+    file byte were 160x for 50 x 1 MB, 320x for 100 x 1 MB and 641x for 200 x 1 MB, taking 1.2 s, 4.7 s and
+    19.2 s; 400 x 250 KB gave 595x and 8.8 s; 50 x 100 KB gave 15x and 25 ms. These are best-case desktop
+    figures; the hardware floor is a Raspberry Pi 3 and mid-range phones (`MC-003`).
+  - Not known: whether this is the dominant cost of a PNG import in the real app, and Chromium's
+    `File.stream()` chunk size (it affects the constant, not the quadratic shape).
+- **What would settle it:** a measurement on the real module or the live app, either
+  - a Vitest `.harness.ts` that runs the real `readGenerator` (extract `AppendableBuffer` first; the
+    existing `save-gen` harness measures `$state.snapshot` only; the pattern and
+    `Agents/Tools/vitest.harness.config.ts` fit); or
+  - a live-app run on the browser-pane protocol of `Agents/Tools/README.md`: import a synthetic PNG card
+    (100 x 1 MB, 400 x 250 KB, 50 x 100 KB), timing the prereader loop, the main loop and the cumulative
+    `saveAsset` time separately, on the Node server, OPFS, LocalForage and Tauri.
+- **A likely shape (non-normative; the investigator's E1):**
+  - Keep streaming. `8541258a` ("Improve performance of PNG card imports", 2025-08-11) introduced the
+    `File.stream()` path for large files on mobile, and it is on `upstream/main`.
+  - Add a non-copying read to `AppendableBuffer` and use it in `readGenerator`'s `slice`; do not change
+    the semantics of `get buffer()` (non-test `src` has 23 occurrences of `AppendableBuffer` in 8 files).
+  - Drop the prepass, or replace it with a cheaper count; progress can use bytes read over file size.
+  - Invariants: `readGenerator` yields byte-identical `{key, value}` and trimmed-image buffer, including
+    across stream-chunk boundaries and for chunks larger than the stream chunk; the export at
+    `characterCards.ts:1422`, `persona.ts:110` and `characters.ts:144` keep their behaviour; a faster
+    drain changes peak memory, so it needs a peak-memory check on a large file.
+  - A test that fails on today's code is proposed: a synthetic PNG with 100 x 1 MB `tEXt` chunks. It was
+    not run against the real module.
+- **Placement (`MC-151`):** the Orchestrator recommended, and the maintainer accepted, last in the current
+  order, after steps 6 and 7. The Orchestrator's reasons: it is import performance, not data loss, and
+  everything ahead of it is data loss or memory stage 1; the fix is small and self-contained, in
+  `readGenerator` and `AppendableBuffer`; and a local backup restore does not use `AppendableBuffer` (the
+  writer's Grep finds none under `src/ts/drive`), so a backup restored by a user migrating from upstream is
+  not affected.
+- **Related:** Maybe-Later QOL-04 (the investigation behind this ticket, ledger row 532; the semaphore for
+  the PNG save loop is a separate idea there, E2) and QOL-08.
 
 ## Sequencing Summary
 
