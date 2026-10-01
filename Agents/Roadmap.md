@@ -190,7 +190,7 @@ This phase is the load-bearing one: it's what Phase 4 (Android) is gated behind,
 - **Item 1 (module-editor keystroke cost): done on the i9-13900K, best case.** Stage A `f4867e63` and Stage B (2026-09-21) are both marked done. Asset-heavy modules still exceed the frame budget while being edited, and Pi and mobile are unmeasured.
 - **Item 2 (`saveDb()` change-tracking effects): partly done.** The selected-character effect is partitioned (CHORE-01 Stage 2, `fbf799a7`). The top-level part of the effect family (`characterOrder` and the other non-character keys) was not repartitioned by Stage 2.
 - **Item 3 (virtual scrolling): partly done.** The avatar track AV-1 to AV-4 is committed (`64777a34`, `97c3f53a`, `d6ee89db`, `41977ac0`), and so is the chat-list Stage A (`96311c4a`). Real windowing of the chat list, virtual scrolling of the character lists and the sidebar rework are still open.
-- **Item 8 (resident chat data for characters that are not open): in progress.** The memory-footprint work (`MC-119`, `MC-130`, Report 49) addresses the problem this item measures, at the character grain; see the 2026-09-30 note under item 8 (`Reports/49-memory-stage-1-plan.md`). Stage 1 as a whole is not done: step 1 is committed as `2b3dd636` (Report 50, Gate 2 approved at round 3), step 2 as `db49aeeb` (Report 51; Gate 2: round 1 [REJECT], round 2 [APPROVE], round 3 [EDITORIAL]), and step 3a (plugin and MCP reads and writes of archived characters) as `bd57aa19` (Report 52; Gate 2: rounds 1 and 2 [REJECT], round 3 [APPROVE]). Step 3b and steps 4-7 are not started.
+- **Item 8 (resident chat data for characters that are not open): in progress.** The memory-footprint work (`MC-119`, `MC-130`, Report 49) addresses the problem this item measures, at the character grain; see the 2026-09-30 note under item 8 (`Reports/49-memory-stage-1-plan.md`). Stage 1 as a whole is not done: step 1 is committed as `2b3dd636` (Report 50, Gate 2 approved at round 3), step 2 as `db49aeeb` (Report 51; Gate 2: round 1 [REJECT], round 2 [APPROVE], round 3 [EDITORIAL]), step 3a (plugin and MCP reads and writes of archived characters) as `bd57aa19` (Report 52; Gate 2: rounds 1 and 2 [REJECT], round 3 [APPROVE]), and step 3b (groups, the Playground's restore, the dataset export, the asset-integrity check and the plugin documentation) as `1b38b5d5` (Report 53; Gate 2: round 1 [REJECT], rounds 2 and 3 [APPROVE]). Steps 4-7 are not started.
 - **Item 4 (size-based compaction): open.** Stage 1 touches it only at the character grain; see the 2026-09-30 note under item 4.
 - **Items 5, 6, 7: no work recorded in this file** (item 7's characters list was folded into item 3 on 2026-09-21). **Item 9 (per-chat save blocks): not started** (its own text says so).
 - **Exit criterion: not recorded as met** (last paragraph of this phase). Phase 4's gate is unchanged.
@@ -1008,6 +1008,8 @@ button, dead code, and a settings field shared with live long-term-memory settin
 - **Wiki coupling:** the Playground wiki page (`wiki/Playground.md`) documents PG-1 (the Playground
   chat appears in the character grid) and PG-4 (the Embedding tool shares memory settings) as
   current behaviour; a fix to either must update the page.
+- **Scheduling (2026-10-01):** PG-1 is scheduled as its own small fix between memory stage 1 step 3b and
+  step 4, by the maintainer's approval of 2026-10-01 (`Agents/Live-State.md`, work order).
 
 ### CHORE-17 — Plugin `setDatabase` re-encodes every character (a cost, not data loss)
 
