@@ -4138,6 +4138,9 @@ Item 1 is replaced by MC-142; item 2 is reversed by MC-139 3; item 4 is amended 
 2. **When startup asset clean-up is paused because an archived character cannot be read,** the user
    sees a notice naming that character, once per boot.
 
+*Extended by `MC-158` 4: where item 1 is documented (the README's self-hosted server section, and a hand-off to the
+Wiki session).*
+
 ---
 
 ### MC-139 — Characters must also be released during a session; the maintainer browses hundreds of characters per session; asset clean-up moves into the manual clean-up; the plugin-storage migration is retired
@@ -4447,6 +4450,8 @@ Item 3 is amended by MC-145 (the inline backup comes before module archiving).
 
 Implied by 1, not stated by the maintainer: each stub is enriched once, marked so that a later boot
 does not repeat it; and a missing or unreadable unit, or a `chaId` mismatch, leaves the stub unchanged.
+
+*Extended by `MC-158` 3: the enrichment also runs when `archiveCharacters` is false.*
 
 ---
 
@@ -4808,6 +4813,9 @@ Items 5 and 6 are about the Docker build and did not change it. **That is no lon
 changed the release step to read `${{ vars.VITE_RISU_LEGAL_CONFIGURED }}`, an opt-in repository variable that is
 empty by default (`MC-155`).
 
+*Superseded in part by `MC-157` (2026-10-01, later the same day): item 6 no longer holds. The flag is on by default in
+every build from the repository, and the release workflow passes no value (`a6a27df5`).*
+
 ---
 
 ### MC-155 — The legal flag stays unset in every build; the maintainer writes their own Terms of Service and Privacy Policy before the fork ships
@@ -4849,6 +4857,11 @@ the flag is to be set by default after the documents exist. That is not yet a de
 the maintainer says so. Note on item 3 above: its clause "and the flag is set after that" is not a recorded
 maintainer decision. The maintainer's `MC-155` message said only to leave the flag unset and to provide their own
 documents before the fork ships; that the flag is then set is a later stated intention (`MC-156` 2).*
+
+*Superseded in part by `MC-157` (2026-10-01, later the same day): item 2 no longer holds. The maintainer's documents
+are committed, and the maintainer decided that the flag is on by default in every build from the repository, now.
+Item 3's clause "the flag is set after that" is now a recorded decision (`MC-157` 3 and 4). Item 4 stands, as
+`MC-157` records.*
 
 ---
 
@@ -4903,3 +4916,172 @@ are the maintainer's own, which they write and commit themselves (`MC-155` 4).
 
 The Settings links are committed as `696ba5de` (ledger rows 546 to 548). The mechanism is in those rows and in
 the commit, not here.
+
+*Decided later the same day by `MC-157`: the maintainer's documents are committed, and the flag is on by default in
+every build from the repository. The "Not decided" paragraph above is what was open when this entry was written.*
+
+---
+
+### MC-157 — The legal flag is on by default in every build from the repository, set now; CHORE-35's missing upstream-service prompts become a CHORE-60 release condition
+
+- **Tag:** stated (1, 2) and decision (3, 4, 5)
+- **Date:** 2026-10-01
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer's messages on 2026-10-01 (items 1 and 2), and their answers to the two questions the
+  Orchestrator asked with AskUserQuestion after the first message (items 3 and 4). On both questions they chose
+  the option the Orchestrator recommended. Item 5 is the maintainer's own follow-up (item 2).
+- **Reasoning:**
+  - the maintainer's reason is in item 1: their own Terms of Service and Privacy Policy now exist, which is the
+    condition `MC-155` and `MC-156` set for setting the flag;
+  - the Orchestrator's reason for item 4, from the option text quoted there: nothing ships before CHORE-35
+    closes (`MC-089`), so the missing prompts never reach a release.
+- **Alternatives not chosen** (the other option the Orchestrator offered with each question):
+  - scope (item 3): "Only your builds", described in the question as: "Nothing in the repo changes. You set the
+    GitHub repository variable to TRUE for CI and Docker releases, and put it in your own git-ignored .env for
+    local builds. Forks of this fork still see the notice.";
+  - timing (item 4): "Wait for CHORE-35", described as: "Keep the flag unset until every upstream touchpoint has
+    its prompt."
+- **Supersedes:** `MC-155` 2 ("The flag stays unset in every build for now") and the flag clause of `MC-155` 3;
+  `MC-154` 6 (the legal flag as an opt-in Docker build argument, unset by default). Closes the "Not decided"
+  paragraph of `MC-156`. Unchanged: `MC-156` 3 to 6 (the Settings links, the GitHub-page target, the unchanged
+  upstream popup) and `MC-155` 4's rule that agents do not edit the two documents in `docs/`; the maintainer has
+  not said that the "yet" in `MC-155` 4 has lapsed.
+- **Related:** MC-085, MC-086, MC-087, MC-089, MC-092, MC-154, MC-155, MC-156, CHORE-35, CHORE-60.
+
+**What was stated:**
+1. **The documents exist, and the flag may be set.** The maintainer, verbatim, on 2026-10-01: "commit the docs and
+   start step 5d. Also, I've added our ToS and Privacy policy, so I think it is safe to set those flags to true
+   now." The two documents are in git: `b84ae444` ("add Privacy policy and ToS": `docs/Privacy-Policy.md` and
+   `docs/Terms-of-Services.md`, 63 lines added in all, by `git show --stat`), and `8918e309` ("update privacy
+   policy") edited the Privacy Policy. This entry did not open them, and nothing here says what they contain.
+2. **CHORE-35 is a release condition, not a reason to move it.** After the Orchestrator's reply that CHORE-35 is
+   already item 4 of the work order, the maintainer, verbatim: "if chore-35 is already in the work order, no
+   further action is needed. just adding it as release condition is enough". Their earlier message, verbatim (it
+   arrived mid-turn at about 10:51 UTC, after their two answers and before the Orchestrator's reply): "just so we
+   don't forget, add chore-35 to the work order in somewhere approporiate."
+
+**What was decided** (items 3 and 4, each the recommended option; item 5 follows from the maintainer's own message
+in item 2, not from a question):
+3. **The flag is on by default in every build made from the repository.** The question, verbatim: "Where should
+   the legal flag be on by default?" The answer: "Every build from the repo (Recommended)", described in the
+   question as: "Committed so dev, pnpm build, the desktop build, Docker and CI all get TRUE with no setup.
+   Anyone who forks this fork inherits it too, which upstream's notice asks forks not to do automatically.
+   Builders can still opt out." The clause about what upstream's notice asks of forks is the Orchestrator's
+   paraphrase, and it goes beyond the notice. What the notice says (`src/lib/Others/Legal.svelte`, the top comment
+   and the body, read for this entry): do not automatically set `VITE_RISU_LEGAL_CONFIGURED` to TRUE without
+   complying with the requirements it lists, which are the fork's own Terms of Service page and Privacy Policy
+   page with the source URLs changed to its own, and the original Terms and Privacy alerts on the parts that use
+   Risuai services; it exempts a private self-hosted instance from the original repository and a simple fork for
+   development that PRs back. It says nothing about forks of a fork inheriting the flag. This entry did not assess
+   whether the first two requirements are met as worded (the fork's own documents are linked from Settings,
+   `MC-156`, and the upstream popup is kept, `MC-156` 5); the third is CHORE-35. A builder opts out with an empty
+   value (the commit message of `a6a27df5`).
+4. **The flag is set now, and CHORE-35's missing prompts become a CHORE-60 release condition.** The question,
+   verbatim: "Upstream's notice has a third condition besides your own ToS and Privacy Policy: an agreement
+   prompt wherever the app uses upstream's services. Realm has one. The upstream proxy (/proxy2), MCP sign-in via
+   account.sionyw.com, the transformers CDN and #import= URLs don't yet; that's CHORE-35, an open ticket that must
+   close before release anyway. Set the flag now, or after CHORE-35?" The answer: "Set it now (Recommended)",
+   described in the question as: "Nothing ships before CHORE-35 closes (MC-089), so the gap never reaches a
+   release. I'll record it as a CHORE-60 release condition." The list of touchpoints without a prompt is the
+   Orchestrator's, in the question; Roadmap CHORE-35 holds the traced list and its own "not checked" notes.
+5. **CHORE-35 keeps its place in the work order** (Live-State work order item 4, "CHORE-35's opt-in stage",
+   `MC-092`), and is added under CHORE-60 as a release condition only (item 2). The Orchestrator had offered to
+   move CHORE-35 earlier (at about 10:51:46 UTC); the maintainer's "no further action is needed" answers that
+   offer.
+
+The flag change is committed as `a6a27df5` (ledger rows 552 to 554). The mechanism is in those rows and in the
+commit, not here.
+
+---
+
+### MC-158 — Step 5d: five answers on the archive pass's failures, upstream placeholders, the two-device note and a crash in the V2.1 restore-all
+
+- **Tag:** decision
+- **Date:** 2026-10-01
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on all five questions the Orchestrator asked with
+  AskUserQuestion. Items 1 to 4 came after the step 5d investigation (ledger row 551; the packet's open product
+  questions). Item 5 was asked later the same session, after the step 5d-2 investigation (ledger row 566).
+- **Reasoning:** the maintainer gave no reason beyond the answers. The reasons in each option's text are the
+  Orchestrator's, quoted below.
+- **Alternatives rejected** (the other options the Orchestrator offered on each question):
+  - item 1: "Skip one startup, then retry" and "Pause after the first failure";
+  - item 2: "Stop the pass";
+  - item 3: "Only when archiving is on";
+  - item 4: "Also in the app's help text" and "README only";
+  - item 5: "Keep it on, skip the load" and "No protection".
+- **Amends:** Report 49 D2, by item 2 (the failed-write clause below), and D18, by item 1 (the "skips one pass"
+  count of the breaker) and by item 5 (what protects the V2/V2.1 restore-all).
+- **Extends:** `MC-148`, by item 3; `MC-138` 1, by item 4; `MC-132` 2 and `MC-146` 4, by item 5.
+- **Related:** MC-011, MC-132, MC-138, MC-146, MC-148, MC-149, Report 49 (D1, D2, D18), Report 51.
+
+**What was decided** (the question, verbatim, then the answer and the option text):
+1. **A failed or interrupted pass is retried once, then archiving pauses.** The question: "If archiving at
+   startup fails or is interrupted (app killed mid-pass, a sync conflict with another device, a write error),
+   what should later startups do?" The answer: "Retry once, then pause (Recommended)": "One failure: the next
+   startup tries again. Two in a row: archiving pauses and a notice says so. Turning the setting off and on
+   resumes it. A failure that repeats can't pile up orphaned copies." The options not chosen were "Skip one
+   startup, then retry": "The plan's original idea. Simpler, but a failure that repeats still leaves a full set
+   of orphaned copies every other startup."; and "Pause after the first failure": "Safest against orphans, but
+   one transient error (e.g. a conflict with another device) stops archiving until you re-enable it."
+   - **Amends D18.** Report 49 D18 names "a crash-loop breaker that skips one pass, with a notice". The answer
+     replaces the skip-one-pass count with one retry and then a pause. D18's other sentences are untouched: that a
+     409-aborted pass arms the breaker. What protects the V2/V2.1 restore-all is answered by item 5, and what
+     counts as a failed pass is for the step 5d-2 plan.
+2. **A character whose archived copy cannot be written is skipped, and the pass continues.** The question: "When
+   one character's archived copy can't be written (too big for the self-hosted server's 100 MB limit, or storage
+   full), what should the pass do?" The answer: "Skip it and continue (Recommended)": "Archive the others. That
+   character stays fully loaded. One notice naming it, not repeated every startup." The option not chosen was
+   "Stop the pass": "As today: characters after it never get archived, and the 'archiving stopped' notice repeats
+   every startup."
+   - **Amends D2.** Report 49 D2 reads: "A failed unit write leaves the character inline and stops the pass.
+     Characters already archived stay archived." The answer replaces "and stops the pass": a failed write leaves
+     that character inline and the pass goes on with the others. D2's rule that a stub is committed only if its
+     unit write succeeded first, and that characters already archived stay archived, is unchanged.
+   - The Orchestrator's own bound on this answer, that two failures in a row stop the pass for that start, is
+     not a maintainer decision; it is recorded as an Orchestrator's call in Live-State.
+3. **Upstream placeholders are enriched even when archiving is off.** The question: "Characters archived by
+   upstream show as plain placeholders (no group icon, description or chat count). Filling them in reads each
+   archived copy once at startup and rewrites the placeholder. Should that also happen when 'archive characters'
+   is turned off?" The answer: "Yes, even when off (Recommended)": "It archives nothing new; it only improves
+   placeholders that already exist." The option not chosen was "Only when archiving is on": "Turning the setting
+   off means startup never rewrites the save for archiving reasons."
+   - **Extends `MC-148`,** which is silent on a profile where `archiveCharacters` is false. The enrichment it
+     decided (`MC-148` 1 and 2) now also runs for that profile. Implied by the Orchestrator's reading, not stated
+     by the maintainer: the existing test that pins "archiving off writes nothing" changes with it.
+4. **The two-device note goes in the README and a hand-off to the Wiki session.** The question: "Where should the
+   two-device note go? (A second device's startup can archive the character that's open on the first device; the
+   first device then gets the existing conflict prompt.)" The answer: "README + wiki hand-off (Recommended)": "A
+   line in the README's self-hosted server section, and a hand-off line asking the Wiki session to add it to the
+   wiki." The options not chosen were "Also in the app's help text": "Same, plus the setting's help text in all
+   seven languages."; and "README only": "Just the README."
+   - **Extends `MC-138` 1,** which accepted the two-device case "and documented for users" without saying where.
+5. **After two startups in a row fail during the V2.1 plugin restore-all, the V2.1 plugin is switched off.** The
+   question (asked later the same session): "An enabled V2.1 plugin needs every character fully in memory, so on
+   each startup the app loads every archived character back in before the app opens. If that load crashes or the
+   tab is killed partway (for example out of memory), it crashes again on every startup, and the user can't reach
+   Settings to turn the plugin off. What should happen after two startups in a row fail during that load?" The
+   answer: "Turn the plugin off (Recommended)": "The V2.1 plugin is switched off, with a notice naming it, and the
+   app opens. Characters stay archived and load when opened. Turning the plugin back on tries again. Side effect:
+   with no V2.1 plugin on, startup archiving resumes for the remaining characters, so the next full load is
+   bigger." The options not chosen were "Keep it on, skip the load": "The plugin stays on but sees placeholders
+   instead of the archived characters, with a notice. A plugin that edits or replaces a placeholder can damage that
+   character's saved data."; and "No protection": "Leave it as it is: a crash during the load repeats on every
+   startup until the browser data or plugin is removed by hand. Your own profile has no V2.1 plugin."
+   - **Relation to `MC-146` 4 and `MC-132` 2.** `MC-146` 4 carries the restore-all rule: only an enabled V2.1
+     plugin restores every archived character at runtime and keeps characters from being archived at boot (it
+     also settles that V2.0 is excluded, which Report 49 had read as V2/V2.1). `MC-132` 2 is the earlier rule that
+     every chat stays loaded while a V2.1 plugin is enabled. The answer adds an exit to the restore-all rule: after two failed
+     startups the plugin is switched off, so the V2.1 condition no longer holds, and the archiving it blocked
+     resumes for the remaining characters. The option text states that side effect, and the maintainer accepted it.
+   - **Amends D18.** Report 49 D18 says "The breaker also covers the V2/V2.1 restore-all, so a crash inside it does
+     not repeat every boot." The answer fixes the protection as switching the plugin off with a notice, not as a
+     pause or a skipped load. D18's reading of "V2/V2.1" is narrowed to V2.1 by `MC-146` 4. Whether this shares the
+     pass breaker's count or has its own is not decided here.
+
+**Not decided by this entry:** the breaker's threshold counting, where its state lives, how it is re-armed and its
+notice text (the step 5d-2 plan); where the restore-all's failed-startup count lives and settles, and the notice
+text (the step 5d-2b plan); the wording of the "unavailable" restore text (step 5d-4).
+
+Step 5d is split into sub-steps, and the first (5d-1) is committed as `e8cf50de` (ledger rows 558 to 565). The
+mechanisms and the Orchestrator's calls are in those rows, in Live-State and in the commit, not here.

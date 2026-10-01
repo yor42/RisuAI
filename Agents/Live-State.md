@@ -53,22 +53,36 @@ These later commits are local and not pushed:
 - `57235222`: the records of the reroll bugs, CHORE-54 to CHORE-58, `MC-151` and QOL-04 to QOL-09 (by its
   commit subject);
 - `712a76ad`: the CI and Docker rework (`MC-154`; ledger rows 536 and 537). The release step's legal flag now
-  reads the opt-in repository variable `VITE_RISU_LEGAL_CONFIGURED`, as `docker-build.yml` does (`MC-155`);
+  reads the opt-in repository variable `VITE_RISU_LEGAL_CONFIGURED`, as `docker-build.yml` does (`MC-155`;
+  replaced by `a6a27df5`);
 - `38583d3b`: the desktop updater disable (`MC-154` 7; ledger rows 538 and 539);
 - `9361ce1b`: the README rewrite for this fork, `MC-152` to `MC-155`, CHORE-59 and CHORE-60 (by its commit
   subject);
 - `9b312962`: memory stage 1 step 5c, the boot archive pass (below);
 - `696ba5de`: the fork's own Terms of Service and Privacy Policy linked from Settings (`MC-156`);
+- `b84ae444`: the maintainer's own Terms of Service and Privacy Policy added to `docs/` (by its commit subject);
+- `435a8723`: the records of step 5c, the Settings legal links, `MC-156` and ledger rows 541 to 550;
+- `a6a27df5`: the legal flag on by default in every build (`MC-157`; ledger rows 552 to 554);
+- `590c5995`: the wiki pages move from `wiki/` to `docs/wiki/` (ledger rows 555 to 557);
+- `8918e309`: the maintainer's "update privacy policy" (`docs/Privacy-Policy.md`, by its commit subject);
+- `9d41751b`: "docs(agents): point wiki references at docs/wiki/" (by its commit subject; not made by this
+  session, most likely by the Wiki session after the maintainer told it about the move; every commit here carries
+  the maintainer's git identity);
+- `e8cf50de`: memory stage 1 step 5d-1, a character that cannot be archived is skipped, a save the archive
+  cannot commit is refused, and a Node commit stays under the server's limit (`MC-158`; ledger rows 558 to 565);
 - the records commit that carries this file.
 
 `712a76ad` and `38583d3b` were committed at the maintainer's approval ("commit the finished side works.");
 `9361ce1b` and `9b312962` at "commit the docs for now, and then 5c when ready."; `696ba5de` at "commit it, then
-do the records." Push only at the maintainer's request. None of these is pushed.
+do the records."; `435a8723` at "commit the docs and start step 5d."; `a6a27df5` and `590c5995` at "commit it";
+`e8cf50de` at "commit part 1, then start the part 2". Push only at the maintainer's request. None of these is
+pushed (`origin/fix/persistence-conflict-platform-hardening` is `0a3fb2b0`, from the local remote-tracking ref,
+2026-10-01).
 
-The working tree holds only this records batch's edits to the `Agents/` documents (until they are committed) and
-the untracked `docs/` folder. `docs/` holds the maintainer's own Terms of Service and Privacy Policy, which they
-write and commit themselves, so an unexpected commit touching it is theirs (`MC-156`); agents do not edit it
-(`MC-155` 4).
+The working tree holds only this records batch's edits to the `Agents/` documents (until they are committed).
+`docs/` is tracked and holds the maintainer's own Terms of Service and Privacy Policy, which they write and commit
+themselves, so a commit touching those two files is theirs (`MC-156`); agents do not edit them (`MC-155` 4). The
+wiki pages are in `docs/wiki/`, the Wiki session's lane.
 
 ## Parallel sessions (2026-09-30)
 
@@ -82,8 +96,8 @@ Several sessions work **in this same checkout**:
   build"** and **"Fork rebranding exploration"** are idle or done; see Report 39/41 and ledger
   row 428.
 
-**Next free numbers:** `MC-157` (`MC-156` is used), Report 56, ledger row 551 and CHORE-61
-(`CHORE-60` is used). Check the ledger's last row before taking one. `MC-114` and ledger rows 371-374 were reserved for W2c-a and left unused; nobody
+**Next free numbers:** `MC-159` (`MC-158` is used), Report 56, ledger row 570 and CHORE-62
+(`CHORE-61` is used). Check the ledger's last row before taking one. `MC-114` and ledger rows 371-374 were reserved for W2c-a and left unused; nobody
 should fill them.
 
 **Rules for every session:**
@@ -93,7 +107,7 @@ should fill them.
 
 ## Current work
 
-### Resume here (hand-off, 2026-10-01, memory stage 1: steps 1, 2, 3a, 3b, 4, 5a, 5b and 5c done)
+### Resume here (hand-off, 2026-10-01, memory stage 1: steps 1, 2, 3a, 3b, 4, 5a, 5b, 5c and 5d-1 done)
 
 1. **Memory-footprint stage 1 is planned and passed Gate 1** (Report 49, `MC-130` to `MC-145`,
    ledger rows 455-486). **Step 1 is done:** the exclusive manual clean-up (D11) and no startup asset
@@ -118,8 +132,8 @@ should fill them.
    commit (`a6719e35`; Report 55; Gate 1 by `adversarial-reviewer`, round 1 [REJECT], round 2
    [EDITORIAL], ledger row 518; Gate 2 by `opus-reviewer`, round 1 [REJECT], round 2 [EDITORIAL], row 519;
    the investigation is row 517 and the records fact-check row 520; `MC-147`). No live check was run.
-   **Steps 5a, 5b and 5c are done** (`33545c2c`, `448962f4`, `9b312962`; item 2). Steps 5d, 6 and 7 have no
-   code yet.
+   **Steps 5a, 5b, 5c and 5d-1 are done** (`33545c2c`, `448962f4`, `9b312962`, `e8cf50de`; item 2). Steps 5d-2 to
+   5d-4, 6 and 7 have no code yet.
    **CHORE-16 PG-1 is done:** every character-list view (the grid, the mobile list, the group-member
    picker and the previous/next hotkeys; the sidebar's order already skipped both when `checkCharOrder`
    adds ids) skips `§playground` and `§temp`, and opening the Playground clears its `trashTime` and marks
@@ -142,8 +156,9 @@ should fill them.
      - there is no runtime archive engine (ledger row 475).
    - The working copy of the plan is in the session scratchpad (`memfoot/stage1c/plan.md`).
      Report 49 is the durable version.
-2. **Next: memory stage 1 step 5d** (5a, 5b and 5c are done; Report 49 section 3.4, step 5; Gate 2 is
-   `opus-reviewer`). Its scope is listed under "5d" below.
+2. **Next: memory stage 1 step 5d-2a** (5a, 5b, 5c and 5d-1 are done; Report 49 section 3.4, step 5; Gate 2 is
+   `opus-reviewer`). Step 5d is split into sub-steps (5d-1 to 5d-4, with 5d-2 as 5d-2a and 5d-2b), listed under
+   "5d" below.
    - **CHORE-16 PG-1 is done** (Report 54). The Wiki session has committed the Playground page
      (now `docs/wiki/Playground.md`, `6ad13bac`) to match it. The Main Campaign session does not touch `docs/wiki/**`.
    - **A CI/Docker rework and the desktop updater disable are committed** (`712a76ad` and `38583d3b`;
@@ -151,13 +166,12 @@ should fill them.
      passed `[EDITORIAL]` and its correction is applied. Neither has had a real run: no Docker build, no PR
      Check on GitHub, no desktop build or launch. The first manual run of PR Check is the first evidence that
      the checks are green on Linux. The rest of the release identity is **CHORE-60** (open, not scheduled, a
-     release blocker). The legal flag stays unset in every build until the maintainer's own Terms of Service
-     and Privacy Policy exist (`MC-155`). The fork's own links to those documents are now in Settings
-     (`696ba5de`, `MC-156`); the maintainer is writing the documents and has said they will tell the
-     Orchestrator when to set the flag by default, which is a stated intention and not yet a decision. Until
-     the maintainer commits and pushes the two documents (`docs/` is untracked), those links show GitHub's
-     not-found page, so `696ba5de` alone does not clear the CHORE-60 blocker. The
-     `origin/main` mirror that ran upstream's old workflows is
+     release blocker). The maintainer's own Terms of Service and Privacy Policy are committed (`b84ae444`), the
+     fork's own links to them are in Settings (`696ba5de`, `MC-156`), and the legal flag is on by default in
+     every build from the repository (`a6a27df5`, `MC-157`, which supersedes `MC-155`'s "leave it unset").
+     The links open GitHub pages that show GitHub's not-found page until the commits are pushed, so the CHORE-60
+     blocker is not fully cleared. CHORE-35's missing upstream-service prompts are a CHORE-60 release condition
+     (`MC-157` 4). The `origin/main` mirror that ran upstream's old workflows is
      deleted, with a stale unrelated branch; `origin` holds only this branch (CHORE-60, 2026-10-01).
    - **CHORE-51 is filed** (DATA LOSS, open): the manual clean-up's keep set never reads chat units, so
      a unit named only by error text inside a chat unit is deleted and that chat's Retry then fails. It
@@ -220,16 +234,58 @@ should fill them.
          before it treats the reload as having released memory.
        - The step 5 report is not written yet (Report 56 is the next free number); it is to record the
          Orchestrator's own implementation calls.
-     - **5d, next:**
-       - the D18 crash-loop breaker. It must also cover a pass that fails the same way on every boot and so
-         orphans a full unit set each time (Gate 2 round 1 N3; the inputs the reviewer named: a `chaId` equal to
-         a fixed block name such as `root`, `config`, `pluginStorage`, `preset` or `modules`, and a non-array
-         `modules` or `plugins`; Gate 2 round 2 adds a non-string `chaId` whose string form equals another
-         slot's `chaId`, which makes the block check refuse every commit while anything else is archived);
-       - Report 49 D1's Node upload-limit rule, assigned to 5d at Gate 1 (round 1 E3 and N8);
-       - the `MC-148` enrichment of upstream-made stubs;
-       - the "unavailable" restore wording;
-       - the user docs (`MC-138` 1).
+     - **5d, split into four sub-steps on 2026-10-01, and 5d-2 then into 5d-2a and 5d-2b** (the Orchestrator's
+       calls, the first on the step 5d investigator's recommendation, ledger row 551, the second on the 5d-2
+       investigator's, row 566; each sub-step has its own gates; the maintainer's five answers are `MC-158`):
+       - **5d-1, done** (`e8cf50de`): a pre-write refusal for the inputs that make the commit fail on every boot
+         (a `chaId` equal to one of the seven fixed block names, equal to another slot's after `String`, `__proto__`,
+         over 255 UTF-8 bytes or not surviving UTF-8, a non-array `modules`, `plugins` or `loadouts`; an array
+         slot is not eligible); skip-and-continue for one unwritable character (`MC-158` 2); the Node size rule
+         (Report 49 D1). Gate 1 `opus-reviewer`: round 1 `[REJECT]`, round 2 `[REJECT]`, round 3 `[APPROVE]`
+         (ledger row 558). Gate 2 `opus-reviewer`: `[EDITORIAL]`, corrections applied (row 563). Final tree: 248
+         files, 4,157 passed, 4 skipped; `pnpm check` 0 errors and 0 warnings; the build was run (the commit
+         message). **Not run:** Tauri, a real Node server, a browser's OPFS and Web Locks; no live check.
+       - **5d-2a, in progress:** the D18 pass breaker (`MC-158` 1, "Retry once, then pause"). Gate 1
+         (`opus-reviewer`): round 1 `[REJECT]` (F1 to F8: one success predicate, fail-closed tests, fixes to the red
+         claims, a fixed check order, plus editorial points); plan v2 approved in round 2 `[APPROVE]` (ledger row
+         569). The red tests (`test-warrior`) are in progress. The 5d-2 investigator is ledger row 566. Handed to
+         it by 5d-1:
+         whether a boot that archives some characters and then stops on two failures in a row counts as a failed
+         pass (the J13 limitation below); the unreadable-`localStorage` policy (the lean is to fail closed, as the
+         epoch code does; not decided); what counts as an interrupted pass, where the count settles, and the
+         notice text.
+       - **5d-2b:** the V2/V2.1 restore-all. The maintainer answered it (`MC-158` 5): after two startups in a row
+         fail during the V2.1 plugin restore-all, the V2.1 plugin is switched off with a notice naming it, and the
+         app opens; turning it back on tries again. The plan is written (`step5/5d2/plan-5d2b.md` in the session
+         scratchpad) and its Gate 1 (a fresh `opus-reviewer`) is running.
+       - **5d-3:** the `MC-148` enrichment of upstream-made stubs, which now also runs when `archiveCharacters`
+         is false (`MC-158` 3). It changes the guard test that pins "archiving off writes nothing" in
+         `bootArchivePass.gates.test.ts` (the investigator's P-C).
+       - **5d-4:** the "unavailable" restore wording (the classification already holds; only the text is open: "try
+         again" is wrong when no backend exists, investigator P-A), with the Orchestrator drafting the English and
+         `translator` the six others; and the two-device note (`MC-158` 4): a README line in the self-hosted server
+         section and a hand-off line asking the Wiki session to add it to `docs/wiki/`.
+       - **The Orchestrator's own 5d-1 calls** (not maintainer decisions; the records do not show that each was
+         reported to the maintainer):
+         - the 5d split into four sub-steps, and 5d-2 into 5d-2a and 5d-2b;
+         - the Node limit is the number 104,857,600 bytes, kept in `server/node/bodyLimit.cjs` (which `server.cjs`
+           uses for its three body parsers) and copied into the client's host binding, with a test that pins the
+           two (no endpoint reports it);
+         - the memo of skipped characters and of a too-large save lives in `localStorage` on the device (readable
+           before the database is installed) and is written only after its notice has been posted, so a start that
+           fails before the notice remembers nothing; turning the setting off, or any start that reads it as off,
+           clears it;
+         - a refusal of the first kind is silent apart from one console warning, because the user can do nothing in
+           the app about a typed or fixed-name `chaId`;
+         - no pre-write size prediction (Gate 1 round 1 F4): a too-large commit is caught when it is made, and the
+           device memo stops later starts;
+         - two failures in a row stop archiving for that start, and neither is remembered (an earlier isolated
+           skip in the same start is), because `writeUnit` cannot tell one oversized unit from full storage or a
+           dead server (Gate 1 round 1 F2);
+         - **accepted limitation (J13):** two unwritable characters next to each other in the eligible order stop
+           archiving at that point on every start; whether 5d-2's breaker counts such starts is 5d-2's decision.
+       - **Filed from 5d-1's Gate 1:** CHORE-61 (the save encoder silently loses presets, modules or a character
+         when a `chaId` equals a fixed block name; observed at encoder level only; not in the work order).
      The plan working copies and gate records are in the session scratchpad (`step5/`); the step 5
      report records the Orchestrator's own implementation calls.
    - **The invariants the 5c tests were to pin** (the tests deleted in 5a pinned them for the old pass). Step
@@ -276,7 +332,8 @@ should fill them.
 1. **Memory stage 1** (Report 49), steps 5-7 (steps 1, 2, 3a, 3b and 4 are done, Reports 50-53 and 55),
    in this order:
    1. memory stage 1 step 5, the boot pass (the scoping is recorded: ledger row 522, `MC-148` and `MC-149`;
-      5a, 5b and 5c are done, `33545c2c`, `448962f4` and `9b312962`; 5d follows);
+      5a, 5b, 5c and 5d-1 are done, `33545c2c`, `448962f4`, `9b312962` and `e8cf50de`; 5d-2 to 5d-4 follow, the
+      scoping is ledger row 551 and `MC-158`);
    2. then **CHORE-53** (DATA LOSS: delete actions act on a stale target, and Enter clicks the control
       behind a confirm; ledger row 523; `MC-150` 4, the maintainer agreed to this position);
    3. then **CHORE-43** (unreroll can write one chat's reply into another) **with CHORE-54** (rerolling
@@ -304,7 +361,9 @@ should fill them.
      PG-3 and PG-4 are open.
 2. **The inline-everything backup, then module archiving** (`MC-145`).
 3. **The wiki's composer and send batch** (Wiki session; unblocked since W2 and W3 are done).
-4. **CHORE-35's opt-in stage:** the remaining upstream-infrastructure features (`MC-092`).
+4. **CHORE-35's opt-in stage:** the remaining upstream-infrastructure features (`MC-092`). **It is also a CHORE-60
+   release condition** (`MC-157` 4): the legal flag is on by default, so the missing upstream-service prompts must
+   close before the first release. The maintainer chose to leave it at this position (`MC-157` 5).
 
 Not placed in the sequence:
 - **CHORE-40** (the copy button's URL fetch): open; the Roadmap gives no position.
@@ -317,10 +376,10 @@ Not placed in the sequence:
 - **CHORE-60** (release identity: the desktop build still carries upstream's identity; the updater part is
   done and committed as `38583d3b`; the rest has no decision): open, not scheduled. It must close before the
   first release (`MC-089`). Its release blockers include the maintainer's own Terms of Service and Privacy
-  Policy with the legal flag then set (`MC-155`); the fork's own links to those documents are in Settings
-  (`696ba5de`; they show GitHub's not-found page until the maintainer commits and pushes the documents, so the
-  commit alone does not clear the blocker), the maintainer is writing the documents, and the flag change waits
-  for their word (`MC-156`).
+  Policy with the legal flag set: the documents are committed (`b84ae444`), the fork's own links to them are in
+  Settings (`696ba5de`; they show GitHub's not-found page until the commits are pushed), and the flag is on by
+  default in every build (`a6a27df5`; `MC-157`). **CHORE-35 closing is a release condition under this ticket**
+  (`MC-157` 4).
   The 16 inherited upstream pre-releases and their tags were
   deleted by the maintainer on 2026-10-01; `origin` now has no release and no tag.
 - **CHORE-56** (under the beta mobile layout, a touch that ends on a button, input, select or textarea
@@ -385,16 +444,21 @@ Not placed in the sequence:
    Speicherstand"); cn 主存档 and zh-Hant 主存檔 are unverified guesses; vi "bản lưu chính" is unverified; es "guardado
    principal" is unverified and uses tú, as the file's help.coldstorage does. The legal-links translator's only
    low-confidence string is forkLegalLinksLabel ("Legal documents") in all six languages; the two document names
-   reuse each file's upstreamAgreement wording.
+   reuse each file's upstreamAgreement wording. Step 5d-1 (`e8cf50de`) reworded `archiveCharactersStoppedNotice` and
+   added `archiveCharactersSkippedNotice` and `archiveCharactersTooLargeNotice` in all seven languages. The
+   maintainer said on 2026-10-01 that the Korean strings look good, which closes the translator's ko particle note
+   (을(를)). The translator's remaining low-confidence notes: cn and zh-Hant, "fully loaded" reads as a calque; vi,
+   the phrasing of the too-large notice; de, a paraphrase. Gate 2 listed as optional that "These characters" reads
+   oddly for one name; the records do not show a change.
 Answered on 2026-10-01 and removed from this list:
 - the internal backup load refuses a snapshot with a damaged or missing block as a whole (it was item 7). The
   maintainer wants an option to load the intact data (`MC-152`); filed as CHORE-59 and placed in the work
   order;
-- whether the fork's own builds set `VITE_RISU_LEGAL_CONFIGURED` (it was item 8). The flag stays unset in every
-  build until the maintainer's own Terms of Service and Privacy Policy exist (`MC-155`); the Docker build and
-  both publishing workflows read it as an opt-in setting that is empty by default. The maintainer's answer
-  does not mention the investigation of every request the fork sends to upstream's servers that the
-  Orchestrator had offered.
+- whether the fork's own builds set `VITE_RISU_LEGAL_CONFIGURED` (it was item 8). Answered twice. `MC-155`: the
+  flag stays unset until the maintainer's own Terms of Service and Privacy Policy exist. Then `MC-157`, after
+  those documents were committed: the flag is on by default in every build from the repository, and CHORE-35's
+  missing upstream-service prompts are a CHORE-60 release condition. The maintainer's answers do not mention the
+  investigation of every request the fork sends to upstream's servers that the Orchestrator had offered.
 
 **Wiki session hand-off (no edit to `docs/wiki/**` was made by this session).** Checked against source on 2026-10-01:
 - `docs/wiki/Migrating-from-upstream.md` (the "In-place upgrades" section, and the earlier sentence about the same
@@ -501,6 +565,15 @@ Escape on alerts stage 2 and W2c-a were merged as `1d6fa16b`.
 
 ## Test suite
 
+- **Step 5d-1's final tree (`e8cf50de`):** 248 files, 4,157 passed, 4 skipped; `pnpm check` 0 errors and 0
+  warnings; the build was run (the commit message and the Orchestrator's final run; Gate 2's reviewer read the
+  outputs and re-ran the new test files, 213 of 213 passed on the working tree it reviewed). The Gate 2
+  corrections touched comments, test titles, tests and the commit message; the final full run is the one in the
+  commit message. Nothing was run on Tauri, a real Node server, or a browser's OPFS and Web Locks.
+- **The legal flag default (`a6a27df5`):** 241 files, 4,086 passed, 4 skipped; `pnpm check` 0 errors and 0
+  warnings; `pnpm build` ok; Gate 2's reviewer re-ran the suite on the same tree and got the same numbers. A
+  default build and an opt-out build were compared (the opt-out build's main chunk is smaller, so the default
+  build keeps the app). Not run: Docker, Compose, either workflow.
 - **Step 5c's final tree (the step 5c fix commit, `9b312962`):** 239 files, 4,077 passed, 4 skipped; `pnpm check`
   0 errors and 0 warnings; the build was run (`full-test-r2.txt`, `full-check-r2.txt` and the commit message;
   Gate 2 round 2's reviewer re-ran the suite and `pnpm check` on the same tree and got the same numbers). Round
@@ -545,7 +618,8 @@ Escape on alerts stage 2 and W2c-a were merged as `1d6fa16b`.
 - **Default method: the built-in pane, on a scratch Node server.** Observed 2026-10-01 (ledger row
   501).
   1. **Build for production.** Run `pnpm run build` with `$env:VITE_RISU_LEGAL_CONFIGURED='TRUE'`
-     set for that one PowerShell command only. The maintainer approved this on 2026-09-25.
+     set for that one PowerShell command only. The maintainer approved this on 2026-09-25. Since `a6a27df5`
+     (`MC-157`) `.env.production` sets the flag to `TRUE`, so a default build no longer needs the variable.
   2. **Start the scratch server.** `server/node/server.cjs` resolves `dist` and `save` from its
      working directory. Make a scratchpad folder holding a junction `dist` to the repo's `dist` and
      an empty `save`. Set `PORT=6011` and run `node C:\Projects\RisuAI\server\node\server.cjs` from

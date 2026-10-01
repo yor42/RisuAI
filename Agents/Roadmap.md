@@ -1558,6 +1558,10 @@ a donation, and upstream patreon feels off to be in a fork"), as part of the rem
   the upstream agreement prompt gates the MCP OAuth path. This is the "MCP OAuth helper" item in the list
   above; this note adds the lines, not a new finding.
 
+**Release condition (2026-10-01, `MC-157`):** CHORE-60 lists this ticket as a release condition. The legal flag is
+now on by default in every build from the repository, so the prompts this ticket lists are a known remaining gap
+against the third requirement of upstream's notice. The maintainer chose to leave the ticket at its place in the work order (item 4).
+
 ### CHORE-36 — Remove Google Drive backup
 
 **Status (2026-09-27): ✅ DONE (`237ebba1`).** Report 31; Gate 1 rows 233-236, Gate 2 rows 237-239,
@@ -2517,20 +2521,28 @@ as `448962f4`.
 until every open ticket clears). The maintainer decided the updater part (`MC-154` 7: the updater is disabled
 until the first release, and a signing key and a release URL of the fork's own are set up before that
 release). That part is done and committed as `38583d3b` (below); the CI and Docker rework is `712a76ad`. The
-rest of the list has no maintainer decision. The work order is unchanged (step 5c is committed, as `9b312962`;
-step 5d is next). Line numbers are those of the tree at `38583d3b` on 2026-10-01; the `tauri.conf.json` numbers
+rest of the list has no maintainer decision. The work order is unchanged (step 5c is committed, as `9b312962`, and
+5d-1 as `e8cf50de`; 5d-2 is next). Line numbers are those of the tree at `38583d3b` on 2026-10-01; the `tauri.conf.json` numbers
 after line 37 are two lower than at `57235222`, because the `endpoints` edit removed two lines. Step 5c moved
 `src/ts/bootstrap.ts` lines: the `checkRisuUpdate()` call there is at `:173` at `696ba5de` (Grep, 2026-10-01).
 
 **Release blockers still open on this ticket** (nothing ships until they clear, `MC-089`):
-- the maintainer's own Terms of Service and Privacy Policy published, and then the legal flag set through the
-  repository variable `VITE_RISU_LEGAL_CONFIGURED` (`MC-155`). **Progress (2026-10-01):** the fork's own links
-  are in Settings (`696ba5de`; `MC-156`); they open the GitHub pages for `docs/Terms-of-Services.md` and
-  `docs/Privacy-Policy.md`. The documents are the maintainer's, who writes and commits them. The flag change
-  waits for the maintainer's word: they have said they will tell the Orchestrator to set it by default once
-  the documents exist, and that is not yet a decision (`MC-156`). Until then the flag stays unset. **The links
-  show GitHub's not-found page until the maintainer commits and pushes the two documents** (`docs/` is
-  untracked), so `696ba5de` alone does not clear this blocker;
+- the maintainer's own Terms of Service and Privacy Policy published, and the legal flag set (`MC-155`, then
+  `MC-157`). **Progress (2026-10-01):** the documents are committed (`b84ae444`; the Privacy Policy edited in
+  `8918e309`); the fork's own links to them are in Settings (`696ba5de`; `MC-156`); and the flag is on by default
+  in every build from the repository (`a6a27df5`; `MC-157`, which supersedes `MC-155`'s "leave it unset"). The
+  documents are the maintainer's, who writes and commits them. **The links open GitHub pages, which show
+  GitHub's not-found page until these commits are pushed** (`MC-156` 4; not re-checked against GitHub). The
+  local remote-tracking ref `origin/fix/persistence-conflict-platform-hardening` was `0a3fb2b0`, an earlier
+  commit, when checked on 2026-10-01, so the documents were not on GitHub;
+- **CHORE-35 closes (`MC-157` 4).** Upstream's notice has a third condition besides the fork's own documents: an
+  agreement prompt wherever the app uses upstream's services. With the flag on by default, a default build no
+  longer shows the legal-documents notice, so the prompts CHORE-35 lists are a known remaining gap against the
+  third requirement of upstream's notice. Per the
+  Orchestrator's statement in the `MC-157` question, Realm has a prompt and these do not: the upstream proxy
+  (`/proxy2`), MCP sign-in via `account.sionyw.com`, the transformers CDN and `#import=` URLs. CHORE-35 holds the
+  traced list and its own "not checked" notes. The maintainer chose to set the flag now and make this a release
+  condition, and chose to leave CHORE-35 where it is in the work order, item 4 (`MC-157` 5);
 - the rest of the identity list below, which has no decision yet.
 
 **Cleared on 2026-10-01:** the 16 inherited upstream pre-releases on the fork's GitHub Releases page
@@ -2608,12 +2620,11 @@ from upstream has been deleted."); afterwards `gh release list --repo yor42/Risu
   - **Cargo and package metadata:** `src-tauri/Cargo.toml:2-5` (`name = "risuai"`, `version = "0.0.0"`,
     `description = "A Tauri App"`, `authors = ["you"]`) and `package.json:2,4` (`risuai`, `1.0.0`). Placeholder
     metadata; not shown to users as far as the survey traced.
-  - **The legal flag in the desktop release workflow:** the release step reads
-    `VITE_RISU_LEGAL_CONFIGURED: ${{ vars.VITE_RISU_LEGAL_CONFIGURED }}` (`github-actions-builder.yml:69`, with a
-    comment at `:67-68`), an opt-in repository variable that is empty by default, as `docker-build.yml` does
-    (`712a76ad`). Until the maintainer's own Terms of Service and Privacy Policy exist the variable stays unset,
-    so a release build keeps the legal-documents notice (`MC-155`). The workflow set `'TRUE'` before
-    `712a76ad`, as upstream's did.
+  - **The legal flag in the desktop release workflow:** since `a6a27df5` the release step passes no value for
+    `VITE_RISU_LEGAL_CONFIGURED`; a comment there says the flag comes from `.env.production`, where it is `TRUE`
+    (`MC-157`). Before `a6a27df5` the step read an opt-in repository variable that was empty by default
+    (`712a76ad`, `MC-155`), and before `712a76ad` it set `'TRUE'`, as upstream's did. The workflow has not been
+    run since the change (the commit message of `a6a27df5`).
   - **No macOS or Windows signing secrets:** the repository's secret list on 2026-10-01 held no `APPLE_*` or
     Windows code-signing entry, so macOS and Windows artifacts would be unsigned and not notarised (INFERRED
     from the list; no release was built).
@@ -2652,8 +2663,81 @@ from upstream has been deleted."); afterwards `gh release list --repo yor42/Risu
   the 16 inherited ones (`git ls-remote --tags origin`, 2026-10-01).
 - **Placement:** not scheduled. It must close before the first release (`MC-089`). Step 5d and the rest of the
   work order are unchanged.
-- **Related:** `MC-011`, `MC-085`, `MC-086`, `MC-087`, `MC-089`, `MC-092`, `MC-153`, `MC-154`, `MC-155`, `MC-156`; CHORE-35;
-  ledger rows 536 to 539.
+- **Related:** `MC-011`, `MC-085`, `MC-086`, `MC-087`, `MC-089`, `MC-092`, `MC-153`, `MC-154`, `MC-155`, `MC-156`,
+  `MC-157`; CHORE-35; ledger rows 536 to 539 and 552 to 554.
+
+### CHORE-61 — The save encoder silently loses presets, modules or a character when a character's `chaId` equals a fixed block name, and cannot write a `chaId` over 255 bytes (observed at encoder level only)
+
+**Status (2026-10-01):** open, **not scheduled and not placed in the work order**; type: data loss candidate.
+Filed from memory stage 1 step 5d-1's Gate 1 round 1 (`opus-reviewer`, ledger row 558). **Observed** by that reviewer
+in a scratch run of the real `RisuSaveEncoder`, not in a running app and not through `saveDb`. **Not known:** how a
+live character comes to hold such a `chaId`, so the reach of the defect is UNKNOWN. Present at HEAD `e8cf50de`
+(`risuSave.ts` was not changed by 5d-1). Whether upstream's encoder behaves the same was not tested; the CHORE-28
+entry records that upstream `main` has the same one-block-per-`chaId` code.
+
+- **What exists (read at HEAD `e8cf50de`, 2026-10-01):**
+  - The encoder keeps one block per key in a plain object, `private blocks: { [key: string]: Uint8Array } = {}`
+    (`src/ts/storage/risuSave.ts:254`).
+  - `init` writes the fixed blocks under their own names: `root`, `preset`, `modules`, `loadouts`, `plugins` and
+    `pluginStorage` (`:340-374`), and `config` (`:452`). It writes each character's block under `String(chaId)`
+    into the same object (`:393-447`; the single-holder write is `this.blocks[key] = ...` at `:439`). `root`
+    is written last, after `__directory = Object.keys(this.blocks).filter(key => key !== 'root')`
+    (`:646-652`). Nothing in that loop checks the key against the fixed names, so a character whose `String(chaId)`
+    is a fixed name and the fixed block write to one key, and the later write wins (INFERRED from the line order
+    of the writes in `init`; the scratch run's outcomes below agree with it).
+  - The block header stores the name length in one byte (`headerBytes.set([nameBuf.length], 2)`, `:737`), so a
+    name of 256 bytes or more cannot be written back as a header the decoder can walk (the reviewer's reading,
+    confirmed by the scratch run below).
+  - A `chaId` of `__proto__` assigns to `blocks['__proto__']`, which replaces the object's prototype instead of
+    adding a key (INFERRED from plain-object semantics). The step 5d investigator's probe, which mirrored the
+    object and the `encode()` loops (`:662-674`) rather than running the real encoder, printed a `NaN` total
+    length and a `RangeError`; the real encoder's own outcome is the scratch run below.
+  - The CHORE-28 duplicate guard (`:376-449`) handles two characters holding the same key; it has no handling for
+    a key equal to a fixed block name (read, not run).
+  - `repairDatabaseIds` gives a falsy `chaId` a new id and re-ids a `chaId` that equals an earlier `chaId` or an
+    earlier chat id (one shared set for both, `src/ts/process/chatIds.ts:151-163`; the function is `:147-184`); it
+    does not look at the fixed names, the length or `__proto__`.
+- **Observed (the reviewer's scratch run; the record is `gate1-r1.md` and `names.scratch.test.ts` in the session
+  scratchpad, not in the repo):**
+  - Setup: the real `RisuSaveEncoder` (`init` with compression off, `set` with an empty to-save, then `encode`),
+    then `checkCommittedBlocks` and a strict `decodeRisuSave` of the written file. localforage, platform (web, not
+    the Node server), `database.svelte` and `globalApi` were mocked as in `bootArchiveCheck.test.ts`. The tree was
+    three characters: `plain-a`, one with the candidate `chaId`, and `plain-b`.
+  - `chaId` `root` or `config`: the encode succeeded, the block check failed on the block count (2 against 3), and
+    the strict decode of the written file succeeded with **2 characters**: one character silently gone.
+  - `preset`: the block check reported the preset block missing, and the strict decode succeeded with **the
+    presets replaced by the template**: the user's presets gone.
+  - `modules`: the strict decode succeeded with **`modules` undefined**.
+  - `loadouts` and `plugins`: the block check failed; the strict decode succeeded (what it returned for those two
+    was not recorded in the reviewer's table). `pluginStorage`: the block check failed on the block's kind.
+  - 256 ASCII bytes and 86 x U+4E00 (258 bytes): the block check failed on the header checksum and the strict
+    decode **threw**. 255 bytes (ASCII, and 85 x U+4E00) passed everything. A lone surrogate (`'ab\ud800cd'`): the
+    block check failed (the directory names a block the file does not hold) and the strict decode threw.
+  - `__proto__`: `encode` threw "offset is out of bounds". The Gate 2 reviewer saw the same throw against HEAD's
+    boot pass (the pass as it was before 5d-1) before its block check.
+  - The reviewer's table also lists names that did **not** fail: `constructor` and the other `Object.prototype`
+    method names, `__directory`, and the ids that sort differently (`'10'`, `'2'`, `'01'`, `'-1'`).
+- **Not observed:** `saveDb`'s own flow with real to-save flags (`src/ts/globalApi.svelte.ts:1324-1332` calls
+  `encoder.set` and `encoder.encode`); any running app; any real profile.
+- **Reach (what is known):**
+  - Per the reviewer, `__proto__`, over-255-byte and lone-surrogate names can reach the boot pass only through a
+    non-RISUSAVE (msgpack) main file, which the strict decode accepts (`risuSave.ts:1255-1257`, the `raw`
+    header branch, decodes with `unpackr`); fixed names and typed collisions (`5` and `"5"`) can arrive in an
+    ordinary RISUSAVE file. This is the reviewer's reading; the Orchestrator did not re-run it.
+  - The boot pass now refuses such a tree (`refusalReason`, `src/ts/storage/bootArchivePass.ts:345-373`, committed
+    as `e8cf50de`): it writes no unit, posts no notice and logs one console warning. **An ordinary save does not
+    refuse.** A Grep of non-test `src` for the pass's two constants, `FIXED_BLOCK_NAMES` and `MAX_BLOCK_NAME_BYTES`,
+    found them only in `bootArchivePass.ts`, so no other file checks these names under those constants; a check
+    under another name was not searched for.
+  - **TODO(evidence):** how a live character acquires a `chaId` that equals a fixed name, is over 255 bytes or is
+    `__proto__` (a plugin write, a CBS or Lua call, an import, a backup restore). No source was traced for this.
+- **Not decided:** the shape of a fix, and whether the fix refuses, re-ids or rejects such a `chaId`. The
+  encoder is shared by `saveDb`, the boot pass and the backup paths, and changing it is in the save format's
+  neighbourhood, so a plan would need `opus-reviewer` and an upstream-compatibility check (`MC-011`).
+- **What would settle it:** (a) a `saveDb`-level run with a fixed-name `chaId` and real to-save flags; (b) a trace of
+  how such an id can be set; (c) the same scratch run against upstream's encoder.
+- **Related:** CHORE-28 (the duplicate guard), CHORE-52 (cold-storage keys that alias); memory stage 1 step 5d-1
+  (`e8cf50de`, ledger rows 558 to 565).
 
 ## Sequencing Summary
 
