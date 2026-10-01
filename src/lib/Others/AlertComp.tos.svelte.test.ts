@@ -42,9 +42,10 @@ vi.mock('localforage', () => ({
     },
 }))
 
-const { changeCharSpy, avatarThumbSpy } = vi.hoisted(() => ({
+const { changeCharSpy, avatarThumbSpy, openUrlSpy } = vi.hoisted(() => ({
     changeCharSpy: vi.fn(),
     avatarThumbSpy: vi.fn(async () => null),
+    openUrlSpy: vi.fn(),
 }))
 
 vi.mock(
@@ -64,7 +65,7 @@ vi.mock(
             LocalWriter: class {},
             BlankWriter: class {},
             downloadFile: vi.fn(),
-            openURL: vi.fn(),
+            openURL: openUrlSpy,
             loadAsset: vi.fn(),
             saveAsset: vi.fn(),
             readImage: vi.fn(),
@@ -205,6 +206,24 @@ describe("AlertComp.svelte 'tos' block: the buttons answer with the agreement mo
         buttons[1].click()
         flushSync()
         expect(get(alertStore)).toEqual({ type: 'none', msg: UPSTREAM_AGREEMENT_DECLINE })
+    })
+
+    // Guard: the agreement popup keeps pointing at the upstream service's own documents, not at
+    // this fork's (`src/ts/forkLegalLinks.ts`).
+    test('the two document links open the upstream service terms and privacy pages', () => {
+        vi.stubEnv('VITE_RISU_LEGAL_CONFIGURED', 'TRUE')
+        alertStore.set({ type: 'tos', msg: 'tos' } as never)
+        const { target } = mountAlertComp()
+        flushSync()
+
+        const links = Array.from(target.querySelectorAll('a[role="button"]')) as HTMLElement[]
+        expect(links.length).toBe(2)
+
+        links[0].click()
+        expect(openUrlSpy).toHaveBeenLastCalledWith('https://account.sionyw.com/terms')
+        links[1].click()
+        expect(openUrlSpy).toHaveBeenLastCalledWith('https://account.sionyw.com/privacy')
+        expect(openUrlSpy).toHaveBeenCalledTimes(2)
     })
 
     // Guard: this block never renders its Accept/Decline buttons for a flag that would keep
