@@ -44,7 +44,10 @@ It differs from a normal chat:
 - Messages are labelled **User** and **Assistant**. A swap button next to each label flips the message's role.
 - The **+** button next to the input box adds an empty Assistant message without calling the model. Edit it to write the assistant's side yourself, for example to build a few-shot example.
 
-The Playground chat is saved like a normal character (named "assistant"), so its messages are kept between sessions. It is hidden from the character list in the sidebar, but it does appear in the full character grid.
+The Playground chat is saved like a normal character (named "assistant"), so its messages are kept between sessions. That character is not shown in any character list: the sidebar, the character grid in every layout (including its trash tab, the character count and search), the mobile character list, the group-member picker, and the Previous/Next Character hotkeys. A character of your own named "assistant" is not affected. Fork difference: upstream shows the Playground character in the character grid.
+
+Because it cannot be restored from the trash tab, opening the Playground also takes its character out of the trash if it was ever trashed. A Playground character that is in the trash and is never opened again is still permanently deleted by the trash clean-up, on the first start more than 3 days after it was trashed.
+<!-- src/ts/hiddenCharacters.ts; src/ts/playgroundChat.ts selectPlaygroundChat; src/lib/Others/GridCatalog.svelte formatChars; src/ts/hotkey.ts characterCycle; src/ts/bootstrap.ts checkNewFormat (trash purge) -->
 
 <!-- src/lib/Playground/PlaygroundMenu.svelte:26-50; src/ts/process/index.svelte.ts:438-467; src/lib/ChatScreens/DefaultChatScreen.svelte:762-774; src/lib/ChatScreens/Chat.svelte:996-1004,1230-1240 -->
 
