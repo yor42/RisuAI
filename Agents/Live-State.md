@@ -35,6 +35,11 @@ These later commits are local and not pushed:
 - `b4942db4`: the step 3b records;
 - `08e43e65`: CHORE-16 PG-1, every character list skips the Playground and `§temp` characters
   (Report 54);
+- `10ce39a7`: the PG-1 records;
+- `6ad13bac` and `449b10e3`: the Wiki session's commits (the Playground page; then plain Markdown
+  links for Emotion Images and Return to Home, by its commit subject);
+- `a6719e35`: memory stage 1 step 4, the backup carries every unit it needs and plugin storage of any
+  shape (Report 55);
 - the records commit that carries this file.
 
 Push only at the maintainer's request.
@@ -55,7 +60,7 @@ Several sessions work **in this same checkout**:
   build"** and **"Fork rebranding exploration"** are idle or done; see Report 39/41 and ledger
   row 428.
 
-**Next free numbers:** `MC-147`, Report 55, ledger row 517 and CHORE-51. Check the ledger's last row before taking
+**Next free numbers:** `MC-148`, Report 56, ledger row 521 and CHORE-52. Check the ledger's last row before taking
 one. `MC-114` and ledger rows 371-374 were reserved for W2c-a and left unused; nobody
 should fill them.
 
@@ -66,7 +71,7 @@ should fill them.
 
 ## Current work
 
-### Resume here (hand-off, 2026-10-01, memory stage 1: steps 1, 2, 3a and 3b done)
+### Resume here (hand-off, 2026-10-01, memory stage 1: steps 1, 2, 3a, 3b and 4 done)
 
 1. **Memory-footprint stage 1 is planned and passed Gate 1** (Report 49, `MC-130` to `MC-145`,
    ledger rows 455-486). **Step 1 is done:** the exclusive manual clean-up (D11) and no startup asset
@@ -83,7 +88,15 @@ should fill them.
    restore, `exportAsDataset`, `verifyAssetIntegrity` and the plugin documentation for `getDatabase` and
    the character and chat API, committed as the step 3b fix commit (`1b38b5d5`; Report 53; Gate 2 by
    `adversarial-reviewer`: round 1 [REJECT], rounds 2 and 3 [APPROVE], ledger rows 510-512; the
-   plugin-docs fact-check is row 509). No live check of 3a or 3b was run. Steps 4-7 are not started.
+   plugin-docs fact-check is row 509). No live check of 3a or 3b was run. **Step 4 is done:** both local
+   backups carry every unit the database they write refers to (chat and character archives that other
+   archives point at, units named by the legacy "could not be loaded" error text, and V3 plugin storage of
+   any shape, restored by a fork restore), with the character named in the prompt, no retained parsed
+   `value`, and units first referenced during the asset copy carried too; committed as the step 4 fix
+   commit (`a6719e35`; Report 55; Gate 1 by `adversarial-reviewer`, round 1 [REJECT], round 2
+   [EDITORIAL], ledger row 518; Gate 2 by `opus-reviewer`, round 1 [REJECT], round 2 [EDITORIAL], row 519;
+   the investigation is row 517 and the records fact-check row 520; `MC-147`). No live check was run.
+   Steps 5-7 are not started.
    **CHORE-16 PG-1 is done:** every character-list view (the grid, the mobile list, the group-member
    picker and the previous/next hotkeys; the sidebar's order already skipped both when `checkCharOrder`
    adds ids) skips `§playground` and `§temp`, and opening the Playground clears its `trashTime` and marks
@@ -106,15 +119,19 @@ should fill them.
      - there is no runtime archive engine (ledger row 475).
    - The working copy of the plan is in the session scratchpad (`memfoot/stage1c/plan.md`).
      Report 49 is the durable version.
-2. **Next: memory stage 1 step 4.**
-   - **CHORE-16 PG-1 is done** (Report 54). **Pending with the Wiki session:** it updates
-     `wiki/Playground.md`, which documents PG-1 (the Playground chat appears in the character grid) as
-     current behaviour. The Main Campaign session does not touch `wiki/**`.
-   - **Step 4 is the backup:** the backup collects each blob's inner pointer keys from the value it reads
-     and drops `value` retention (D13); Gate 2 is `opus-reviewer` (Report 49 section 3.4, step 4).
-   - Step 4 lands before the boot pass (step 5), and the idle reload (step 6) comes after it. Open
-     follow-ups: step 1's in Report 50 section 6, step 2's in Report 51 section 6, step 3a's in Report 52
-     section 6 and step 3b's in Report 53 section 6 (among them: whether step 5's pass should enrich
+2. **Next: memory stage 1 step 5, the boot pass** (Report 49 section 3.4, step 5; Gate 2 is
+   `opus-reviewer`).
+   - **CHORE-16 PG-1 is done** (Report 54). The Wiki session has committed the Playground page
+     (`wiki/Playground.md`, `6ad13bac`) to match it. The Main Campaign session does not touch `wiki/**`.
+   - **CHORE-51 is filed** (DATA LOSS, open, not scheduled): the manual clean-up's keep set never reads
+     chat units, so a unit named only by error text inside a chat unit is deleted and that chat's Retry
+     then fails. It predates step 4. The new pure `listInnerColdStorageKeys` in `coldstorageData.ts` is
+     written so the clean-up can reuse it.
+   - Step 5 lands before the idle reload (step 6). Step 6 has hang points for a backup-in-progress
+     signal: the early `return`s of `SaveLocalBackup` and `SavePartialLocalBackup` and the `finally` of
+     `LoadLocalBackup` (Report 55 section 7). Open follow-ups: step 1's in Report 50 section 6, step 2's
+     in Report 51 section 6, step 3a's in Report 52 section 6, step 3b's in Report 53 section 6 and step
+     4's in Report 55 sections 7 and 8 (among them: whether step 5's pass should enrich
      upstream-made stubs is a question for the maintainer at step 5; step 5 reuses
      `hasEnabledV21Plugin`, owns `loadInternalBackup`, which does not reload at HEAD, and owns the `§`
      exclusion from archiving).
@@ -134,11 +151,11 @@ should fill them.
 
 ## Work order
 
-1. **Memory stage 1** (Report 49), steps 4-7 (steps 1, 2, 3a and 3b are done, Reports 50-53).
+1. **Memory stage 1** (Report 49), steps 5-7 (steps 1, 2, 3a, 3b and 4 are done, Reports 50-53 and 55).
    - **CHORE-16 PG-1 is done** (Report 54, commit `08e43e65`), the small fix the maintainer approved on
      2026-10-01 between step 3b and step 4. Every character-list view skips `§playground` and `§temp`, as
      `checkCharOrder` does, so the Playground's "assistant" character can no longer be opened or deleted
-     from the grid or the mobile list. The Wiki session still has to update `wiki/Playground.md`. PG-2,
+     from the grid or the mobile list. The Wiki session has updated `wiki/Playground.md` (`6ad13bac`). PG-2,
      PG-3 and PG-4 are open.
 2. **The inline-everything backup, then module archiving** (`MC-145`).
 3. **The wiki's composer and send batch** (Wiki session; unblocked since W2 and W3 are done).
@@ -152,6 +169,9 @@ Not placed in the sequence:
 - **CHORE-46** (the Node server's 100 MB body limit): re-measure after stage 1 (Report 49).
 - **CHORE-48** (inlays are never backed up): waits for the maintainer's answer.
 - **CHORE-49** (the Node server does not boot over plain HTTP; `MC-144`): filed, not scheduled.
+- **CHORE-51** (the manual clean-up deletes a unit that only an error-text chat inside a chat unit
+  names; DATA LOSS): filed with step 4, open, not scheduled. A fix changes the clean-up's read cost
+  and step 1's gated design.
 - **Follow-ups from the memory work** (Report 49, section 5):
   - switching to a chat whose cold-storage unit is missing still retains the previous chat's
     messages;
@@ -285,6 +305,10 @@ Escape on alerts stage 2 and W2c-a were merged as `1d6fa16b`.
 
 ## Test suite
 
+- **Step 4's final tree (the step 4 fix commit, `a6719e35`):** 229 files, 3,876 passed, 4 skipped;
+  `pnpm check` 0 errors and 0 warnings; `pnpm build` exit 0 (Report 55 section 4; run on the snapshot
+  Gate 2 round 2 reviewed). Round 2's editorial corrections touched comments and test titles only, and
+  the two new test files were re-run (109 passed); the full suite was not re-run after them.
 - **CHORE-16 PG-1's final tree (the PG-1 fix commit, `08e43e65`):** 227 files, 3,767 passed, 4 skipped;
   `pnpm check` 0 errors and 0 warnings; `pnpm build` exit 0 (Report 54 section 4). The Gate 2 editorial
   fixes (three comments in round 1, two in round 2) touched comments only, and the full checks were not

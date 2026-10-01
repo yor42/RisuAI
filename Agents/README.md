@@ -107,7 +107,7 @@ a given piece of work by matching its topic/phase name, not by guessing a filena
 
 ## Reports/ — the four bands
 
-`Reports/` has 61 tracked files (2026-10-01, with Report 51; count with `git ls-files Agents/Reports | wc -l`) in
+`Reports/` has 65 tracked files (2026-10-01, with Report 55; count with `git ls-files Agents/Reports | wc -l`) in
 four numbered bands. Reports are read for detail once the
 Roadmap or handoff has pointed you at a specific one; you don't need to read the whole
 directory.
@@ -121,7 +121,7 @@ directory.
 - **09-21 — stage plans (13 files).** Design and implementation plans for individual
   Roadmap items, in the order they were written. Some describe what shipped; at least
   one describes a design that was **retired, not shipped** — see the convention below.
-- **22-51 — later stage plans and gate records (29 tracked files).** The same kind of document,
+- **22-55 — later stage plans and gate records (33 tracked files).** The same kind of document,
   continuing the numbering: plans with a STATUS block that records the gates, plus strategy records
   (Reports 23 and 25) and the workflow-pilot proposal (Report 29).
 - **99-\* — subsystem bug references (7 files).** Hand-off lists of suspected bugs found

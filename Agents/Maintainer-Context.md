@@ -4376,3 +4376,43 @@ Item 3 is amended by MC-145 (the inline backup comes before module archiving).
 4. **Only an enabled V2.1 plugin restores every archived character** at runtime and keeps characters
    from being archived at boot: until step 5, through a guard on the 10-day path (`MC-091` amendment
    A2, Report 52); from step 5, in the new boot pass. An enabled V2.0 plugin does neither.
+
+---
+
+### MC-147 — Stage 1 step 4: plugin storage is backed up and restored whatever its shape; an absent error-text archive does not warn
+
+- **Tag:** decision
+- **Date:** 2026-10-01
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on two questions the Orchestrator asked
+  after the step 4 investigation (Report 49, D13) (items 1 and 2); later the same day, after Gate 2,
+  the maintainer approved two calls the Orchestrator had made and reported in chat: "changes looks
+  like a good call to me; approved." (items 3 and 4).
+- **Reasoning:**
+  - a local backup carries a V3 plugin storage value only when it is an array or an object holding a
+    `message` or `character` key (and is not falsy), so other values (an ordinary object, a string,
+    a number, `null`, `false`) are lost at restore, and each one raises the incomplete-backup prompt
+    on every backup; upstream behaves the same; the fix sits in the same collection and shape check
+    that step 4 already changes;
+  - a chat showing the "could not be loaded" error text (`MC-016`) can refer to an archive that no
+    longer exists; when it is absent on the device, the backup loses nothing by leaving it out.
+- **Alternatives rejected:** a separate ticket for plugin storage; listing every absent error-text
+  archive in the incomplete-backup prompt.
+- **Extends:** Report 49 D13 (`MC-136`). The naming in item 2 follows the same rule as the startup
+  clean-up notice of `MC-138` 2.
+- **Related:** MC-016, MC-130, MC-138.
+
+**What was decided:**
+1. **Step 4 includes V3 plugin storage.** A fork backup carries every plugin storage value, whatever
+   its shape, and a fork restore puts it back. An upstream build restoring such a backup skips the
+   values that are not arrays or `message`/`character` objects, as it would miss them today.
+2. **When the backup follows a chat's error-text key and that archive is absent on the device, it
+   leaves it out without a prompt.** An archive that exists but cannot be read is reported in the
+   incomplete-backup prompt, naming the character, as other archives are.
+3. **An error-text archive that exists but is not a chat or character is reported too,** in the same
+   prompt and naming the character. Only an absent one is left out silently, because only then does
+   the backup lose nothing.
+4. **The backup follows references inside archived chats as well as inside archived characters.**
+   Report 49 D13 names only blobs (character archives): "each blob's inner pointer keys and legacy
+   error keys from the value it reads"; following every value the backup reads, chat archives
+   included, is its intent.

@@ -190,7 +190,7 @@ This phase is the load-bearing one: it's what Phase 4 (Android) is gated behind,
 - **Item 1 (module-editor keystroke cost): done on the i9-13900K, best case.** Stage A `f4867e63` and Stage B (2026-09-21) are both marked done. Asset-heavy modules still exceed the frame budget while being edited, and Pi and mobile are unmeasured.
 - **Item 2 (`saveDb()` change-tracking effects): partly done.** The selected-character effect is partitioned (CHORE-01 Stage 2, `fbf799a7`). The top-level part of the effect family (`characterOrder` and the other non-character keys) was not repartitioned by Stage 2.
 - **Item 3 (virtual scrolling): partly done.** The avatar track AV-1 to AV-4 is committed (`64777a34`, `97c3f53a`, `d6ee89db`, `41977ac0`), and so is the chat-list Stage A (`96311c4a`). Real windowing of the chat list, virtual scrolling of the character lists and the sidebar rework are still open.
-- **Item 8 (resident chat data for characters that are not open): in progress.** The memory-footprint work (`MC-119`, `MC-130`, Report 49) addresses the problem this item measures, at the character grain; see the 2026-09-30 note under item 8 (`Reports/49-memory-stage-1-plan.md`). Stage 1 as a whole is not done: step 1 is committed as `2b3dd636` (Report 50, Gate 2 approved at round 3), step 2 as `db49aeeb` (Report 51; Gate 2: round 1 [REJECT], round 2 [APPROVE], round 3 [EDITORIAL]), step 3a (plugin and MCP reads and writes of archived characters) as `bd57aa19` (Report 52; Gate 2: rounds 1 and 2 [REJECT], round 3 [APPROVE]), and step 3b (groups, the Playground's restore, the dataset export, the asset-integrity check and the plugin documentation) as `1b38b5d5` (Report 53; Gate 2: round 1 [REJECT], rounds 2 and 3 [APPROVE]). Steps 4-7 are not started.
+- **Item 8 (resident chat data for characters that are not open): in progress.** The memory-footprint work (`MC-119`, `MC-130`, Report 49) addresses the problem this item measures, at the character grain; see the 2026-09-30 note under item 8 (`Reports/49-memory-stage-1-plan.md`). Stage 1 as a whole is not done: step 1 is committed as `2b3dd636` (Report 50, Gate 2 approved at round 3), step 2 as `db49aeeb` (Report 51; Gate 2: round 1 [REJECT], round 2 [APPROVE], round 3 [EDITORIAL]), step 3a (plugin and MCP reads and writes of archived characters) as `bd57aa19` (Report 52; Gate 2: rounds 1 and 2 [REJECT], round 3 [APPROVE]), and step 3b (groups, the Playground's restore, the dataset export, the asset-integrity check and the plugin documentation) as `1b38b5d5` (Report 53; Gate 2: round 1 [REJECT], rounds 2 and 3 [APPROVE]). **Step 4 (the backup: units closed under "refers to", error-text keys, plugin storage of any shape, `value` retention dropped; D13, `MC-147`) is done**, committed as `a6719e35` (Report 55; Gate 2 by `opus-reviewer`: round 1 [REJECT], round 2 [EDITORIAL]). Steps 5-7 are not started.
 - **Item 4 (size-based compaction): open.** Stage 1 touches it only at the character grain; see the 2026-09-30 note under item 4.
 - **Items 5, 6, 7: no work recorded in this file** (item 7's characters list was folded into item 3 on 2026-09-21). **Item 9 (per-chat save blocks): not started** (its own text says so).
 - **Exit criterion: not recorded as met** (last paragraph of this phase). Phase 4's gate is unchanged.
@@ -323,7 +323,7 @@ This phase is the load-bearing one: it's what Phase 4 (Android) is gated behind,
    - **Relationship to other items.** Items 4 (size-based compaction) and 5 (per-character slices) are candidate mechanisms. This item states the measured problem; plan it after a live-app heap measurement confirms the proxy multiplier with pointer compression on. **Android caveat:** no Android build exists in the repo (`src-tauri/gen` has no `android/`, `[lib]` is commented out at `Cargo.toml:47`), so the OOM premise cannot be observed from this codebase.
    - **Status 2026-09-30 — in progress.** The memory-footprint work (`MC-119`, `MC-130`, Report 49) addresses the problem this item measures, at the character grain. This placement follows the maintainer's 2026-09-30 observation that the campaign is running Phase 2, and `MC-035`'s description (quoting Report 17) of the boot proxy materialisation as "Phase 2 item 8's main lever"; no decision entry names item 8. Decisions: `MC-119` (the work comes after W2e) and `MC-130` to `MC-145` (some amended by later entries). The accepted stage 1 plan and its gate record are in [`Reports/49-memory-stage-1-plan.md`](Reports/49-memory-stage-1-plan.md) (Gate 1 accepted at round 5 as [EDITORIAL]; the editorial corrections were applied by the Orchestrator and are not yet re-verified).
      - **Stage 1 (Report 49 section 1):** each eligible character that is not open (not trashed, not `§`/Playground, not when a V2/V2.1 plugin is enabled, not when the opt-out is off) is archived by a boot pass that runs on the raw save tree under exclusive access, from before the main file is read until the pass's own commit resolves. A character stays loaded once opened. When the characters opened since the last load add up past a threshold and the user is idle and nothing is in progress, the app saves and reloads itself, and the re-run boot pass releases them (`MC-140`, `MC-141`). There is **no runtime archive engine**. The 10-day archiving paths are to be retired in step 5 (see the note under item 4).
-     - **Steps 1-7 are listed in Report 49 section 3.4.** Steps 1-6 each get their own implementation and Gate 2; step 7 (measurement, D20) has no Gate 2. As of 2026-10-01, step 1 (the exclusive manual clean-up, D11 and D12) is committed as `2b3dd636` ([`Reports/50-memory-stage-1-step-1-clean-up.md`](Reports/50-memory-stage-1-step-1-clean-up.md); Gate 2 approved at round 3), and step 2 (the v2 stub and the shared restore, D6, D7 and D9 restore side) as `db49aeeb` ([`Reports/51-memory-stage-1-step-2-stub-and-restore.md`](Reports/51-memory-stage-1-step-2-stub-and-restore.md); Gate 2: round 1 [REJECT], round 2 [APPROVE], round 3 [EDITORIAL]), and Report 49's STATUS line records both. Steps 3-7 are not started.
+     - **Steps 1-7 are listed in Report 49 section 3.4.** Steps 1-6 each get their own implementation and Gate 2; step 7 (measurement, D20) has no Gate 2. As of 2026-10-01, step 1 (the exclusive manual clean-up, D11 and D12) is committed as `2b3dd636` ([`Reports/50-memory-stage-1-step-1-clean-up.md`](Reports/50-memory-stage-1-step-1-clean-up.md); Gate 2 approved at round 3), and step 2 (the v2 stub and the shared restore, D6, D7 and D9 restore side) as `db49aeeb` ([`Reports/51-memory-stage-1-step-2-stub-and-restore.md`](Reports/51-memory-stage-1-step-2-stub-and-restore.md); Gate 2: round 1 [REJECT], round 2 [APPROVE], round 3 [EDITORIAL]), step 3a (plugins and MCP) as `bd57aa19` ([`Reports/52-memory-stage-1-step-3a-plugins-and-mcp.md`](Reports/52-memory-stage-1-step-3a-plugins-and-mcp.md)), step 3b (groups, the Playground and exports) as `1b38b5d5` ([`Reports/53-memory-stage-1-step-3b-groups-playground-exports.md`](Reports/53-memory-stage-1-step-3b-groups-playground-exports.md)), and step 4 (the backup, D13) as `a6719e35` ([`Reports/55-memory-stage-1-step-4-backup-closure.md`](Reports/55-memory-stage-1-step-4-backup-closure.md)); Report 49's STATUS line records them. Steps 5-7 are not started.
      - **Projections, not measurements:** Report 49 estimates the maintainer's 155.8 MB main file at about 41-46 MB after stage 1 and the heap after boot at about 70-76 MB (against 258.6 MB of parsed heap today, raw parsed objects in Node, a lower bound). The measurement that replaces the estimates is D20 (step 7). The app measurements so far ran on an i9-13900K and say nothing about a Pi or a phone.
      - **Already committed: `ccf45c53`, "switching chats no longer keeps the previous chat's messages in memory"** (Report 49 section 6). After a chat switch about 28 of 46.6 MB stayed until another character was selected; with the fix the heap is +0.9 MB above baseline against +28.0 MB without it (one machine, i9-13900K, headless Chrome, synthetic data). Not fixed: a switch to a cold-storage pointer chat whose unit is missing still keeps the array (Report 49 section 5, item 1).
      - **Not in stage 1 (Report 49 section 3.7):** per-chat archiving inside a loaded character (item 4), modules, streamed or inline backup, and the Node streamed write (CHORE-46), and the other exclusions in section 3.7 (the long-chat display window, unit reuse, inlays in backups CHORE-48, the missing-unit retainer, the Android D1 review).
@@ -1007,7 +1007,8 @@ button, dead code, and a settings field shared with live long-term-memory settin
   with CHORE-05, CHORE-09 or CHORE-14.
 - **Wiki coupling:** the Playground wiki page (`wiki/Playground.md`) documents PG-1 (the Playground
   chat appears in the character grid) and PG-4 (the Embedding tool shares memory settings) as
-  current behaviour; a fix to either must update the page.
+  current behaviour; a fix to either must update the page. PG-1's part is done: the Wiki session
+  committed the update as `6ad13bac`. PG-4's part is open.
 - **Scheduling (2026-10-01):** PG-1 is scheduled as its own small fix between memory stage 1 step 3b and
   step 4, by the maintainer's approval of 2026-10-01 (`Agents/Live-State.md`, work order at the time).
 - **PG-1 fixed (2026-10-01; commit `08e43e65`; Report 54):** the grid (grid, list and trash tabs), the
@@ -1021,7 +1022,7 @@ button, dead code, and a settings field shared with live long-term-memory settin
   executed a tracker test showing that the normal flow already tracks and marks it). Gate 2 was `[EDITORIAL]` in both
   rounds (corrections applied). Not live-checked. Residue: a `§playground` trashed before the fix and
   never opened still reaches the boot purge, and a stray `§temp` copy has no UI path now (Report 54 section
-  7). The Wiki session still has to update `wiki/Playground.md`.
+  7). The Wiki session updated `wiki/Playground.md` in `6ad13bac`.
 - **PG-2, PG-3 and PG-4 remain open.**
 
 ### CHORE-17 — Plugin `setDatabase` re-encodes every character (a cost, not data loss)
@@ -1868,6 +1869,33 @@ upstream means this is unknown.
   to register a key.
 - **Fix direction (non-normative):** after setting the password, log in with the same password so the
   tab's key is registered, or have the server register the key sent with `set_password`.
+
+### CHORE-51 — The manual clean-up deletes a unit that only an error-text chat inside a chat unit names (DATA LOSS)
+
+**Status (2026-10-01):** filed from memory stage 1 step 4's Gate 1 (round 1, N6; ledger row 518; Report 55).
+Open and not scheduled. It predates step 4, and step 4 does not enlarge it.
+
+- **Mechanism (the step 4 investigation and Gate 1, and the writer's reading of `KeepSet`; not run):**
+  - `KeepSet` in `src/ts/storage/manualCleanup.ts` builds the set of units the clean-up must keep. For
+    each stub it reads the blob once (`summarizeBlob`) and adds the blob's pointer keys and its legacy
+    error-text keys (`listColdDataKeysFromDb` and `listRecoverableErrorKeysFromDb`) to the keep set.
+  - It never reads a chat unit, so it follows no reference inside one (pointers included). In practice
+    the reference is error text: `makeColdDataForChat` refuses a chat whose `message[0]` is already a
+    pointer (and one that already holds the error text), so a chat unit that holds error text would come
+    from upstream-archived data (inferred; frequency unknown). A unit named only by the legacy "Cold
+    storage data could not be loaded. Key: ..." text inside a chat unit's first message is therefore not
+    in the keep set, and the clean-up deletes it.
+  - **Consequence:** that chat's Retry then fails, because the unit it points at is gone.
+- **Uncertain:** whether real profiles hold such a chat unit. Upstream re-archived chats that held the
+  error text (`MC-016`: the text is seen in the wild on upstream), so a chat unit can hold it; the
+  frequency is not measured.
+- **Related to step 4:** the local backup now follows references inside chat units as well as inside
+  character archives (Report 55; `MC-147` 4), so a backup carries such units. The new pure
+  `listInnerColdStorageKeys` in `src/ts/process/coldstorageData.ts` lists the pointer and error-text keys
+  an archive value holds and is written so the clean-up can reuse it.
+- **Cost of the fix:** following chat units means the clean-up reads chat units, where it now reads only
+  blobs, so it changes the clean-up's read cost and step 1's gated design (Report 50). It is its own
+  change, with its own gates.
 
 ## Sequencing Summary
 
