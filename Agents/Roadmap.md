@@ -1007,7 +1007,7 @@ button, dead code, and a settings field shared with live long-term-memory settin
   (`supaMemoryKey`, `hypaCustomSettings`), but it is a UI-sharing issue, not one of CHORE-10's
   cataloged memory-computation bugs — read both before touching those settings. No overlap found
   with CHORE-05, CHORE-09 or CHORE-14.
-- **Wiki coupling:** the Playground wiki page (`wiki/Playground.md`) documents PG-1 (the Playground
+- **Wiki coupling:** the Playground wiki page (`docs/wiki/Playground.md`; the folder moved from `wiki/` on 2026-10-01) documents PG-1 (the Playground
   chat appears in the character grid) and PG-4 (the Embedding tool shares memory settings) as
   current behaviour; a fix to either must update the page. PG-1's part is done: the Wiki session
   committed the update as `6ad13bac`. PG-4's part is open.
@@ -1024,7 +1024,7 @@ button, dead code, and a settings field shared with live long-term-memory settin
   executed a tracker test showing that the normal flow already tracks and marks it). Gate 2 was `[EDITORIAL]` in both
   rounds (corrections applied). Not live-checked. Residue: a `§playground` trashed before the fix and
   never opened still reaches the boot purge, and a stray `§temp` copy has no UI path now (Report 54 section
-  7). The Wiki session updated `wiki/Playground.md` in `6ad13bac`.
+  7). The Wiki session updated the Playground page (then `wiki/Playground.md`, now `docs/wiki/Playground.md`) in `6ad13bac`.
 - **PG-2, PG-3 and PG-4 remain open.**
 
 ### CHORE-17 — Plugin `setDatabase` re-encodes every character (a cost, not data loss)

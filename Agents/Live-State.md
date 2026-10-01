@@ -145,7 +145,7 @@ should fill them.
 2. **Next: memory stage 1 step 5d** (5a, 5b and 5c are done; Report 49 section 3.4, step 5; Gate 2 is
    `opus-reviewer`). Its scope is listed under "5d" below.
    - **CHORE-16 PG-1 is done** (Report 54). The Wiki session has committed the Playground page
-     (`wiki/Playground.md`, `6ad13bac`) to match it. The Main Campaign session does not touch `docs/wiki/**`.
+     (now `docs/wiki/Playground.md`, `6ad13bac`) to match it. The Main Campaign session does not touch `docs/wiki/**`.
    - **A CI/Docker rework and the desktop updater disable are committed** (`712a76ad` and `38583d3b`;
      `MC-154`; ledger rows 536 to 539). The CI/Docker rework passed Gate 2 `[APPROVE]`; the updater disable
      passed `[EDITORIAL]` and its correction is applied. Neither has had a real run: no Docker build, no PR
@@ -300,7 +300,7 @@ should fill them.
    - **CHORE-16 PG-1 is done** (Report 54, commit `08e43e65`), the small fix the maintainer approved on
      2026-10-01 between step 3b and step 4. Every character-list view skips `§playground` and `§temp`, as
      `checkCharOrder` does, so the Playground's "assistant" character can no longer be opened or deleted
-     from the grid or the mobile list. The Wiki session has updated `wiki/Playground.md` (`6ad13bac`). PG-2,
+     from the grid or the mobile list. The Wiki session has updated `docs/wiki/Playground.md` (`6ad13bac`, made before the move from `wiki/`). PG-2,
      PG-3 and PG-4 are open.
 2. **The inline-everything backup, then module archiving** (`MC-145`).
 3. **The wiki's composer and send batch** (Wiki session; unblocked since W2 and W3 are done).

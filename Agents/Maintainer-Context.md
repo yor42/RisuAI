@@ -2188,7 +2188,7 @@ protected.
 3. Stray `§temp` characters in upstream saves are left alone: never stripped or migrated on
    load; `checkCharOrder`'s `§temp` exclusion stays. Context: upstream's multiuser join pushes a
    `§temp` copy of the host's character into `db.characters` and never removes it.
-4. The removal stage edits `wiki/Playground.md` (its "Join MultiUser Room" row) and `AGENTS.md`'s
+4. The removal stage edits `docs/wiki/Playground.md` (then `wiki/Playground.md`; its "Join MultiUser Room" row) and `AGENTS.md`'s
    `sync/` "Multi-user synchronization" directory-table row, since `src/ts/sync/` disappears
    entirely.
 
