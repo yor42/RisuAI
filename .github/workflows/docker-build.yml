@@ -1,28 +1,33 @@
 name: Create and publish server Docker image
 
+# Publishes to ghcr.io, so it only runs when asked for: a manual dispatch or a version tag.
+# A branch push never builds or publishes an image.
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-push-image:
     runs-on: ubuntu-latest
+    # An emulated multi-platform build can stall for hours; fail it instead of burning runner time.
+    timeout-minutes: 120
     permissions:
       contents: read
       packages: write
-      
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-     
+
+      # The linux/arm64 half of the multi-platform build runs under emulation on this amd64 runner.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -33,21 +38,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata (tags, labels) for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-    
       - name: Build Docker images
         shell: bash
+        env:
+          # Opt-in: set the repository variable VITE_RISU_LEGAL_CONFIGURED to bake the legal flag into
+          # the published image. When the variable is not set this is an empty string and the image
+          # shows the legal-documents notice.
+          VITE_RISU_LEGAL_CONFIGURED: ${{ vars.VITE_RISU_LEGAL_CONFIGURED }}
         run: |
           GITHUB_REPOSITORY_OWNER_SMALLCASE=$(echo $GITHUB_REPOSITORY_OWNER | tr '[:upper:]' '[:lower:]')
           echo "GITHUB_REPOSITORY_OWNER_SMALLCASE=$GITHUB_REPOSITORY_OWNER_SMALLCASE" >> $GITHUB_ENV
-          
+
           if [[ "${{ github.ref }}" =~ ^refs/tags/ ]]; then
-            docker buildx build --platform linux/amd64,linux/arm64 --label "org.opencontainers.image.ref.name=risuai" --label "org.opencontainers.image.version=${{ github.ref_name }}" -t ghcr.io/$GITHUB_REPOSITORY_OWNER_SMALLCASE/risuai:${{ github.ref_name }} -t ghcr.io/$GITHUB_REPOSITORY_OWNER_SMALLCASE/risuai:latest --push .
+            docker buildx build --platform linux/amd64,linux/arm64 --build-arg "VITE_RISU_LEGAL_CONFIGURED=$VITE_RISU_LEGAL_CONFIGURED" --label "org.opencontainers.image.ref.name=risuai" --label "org.opencontainers.image.version=${{ github.ref_name }}" -t ghcr.io/$GITHUB_REPOSITORY_OWNER_SMALLCASE/risuai:${{ github.ref_name }} -t ghcr.io/$GITHUB_REPOSITORY_OWNER_SMALLCASE/risuai:latest --push .
           else
             SHORT_SHA=$(git rev-parse --short "$GITHUB_SHA")
-            docker buildx build --platform linux/amd64,linux/arm64 --label "org.opencontainers.image.ref.name=risuai" --label "org.opencontainers.image.version=${{ github.sha }}" -t ghcr.io/$GITHUB_REPOSITORY_OWNER_SMALLCASE/risuai:$SHORT_SHA --push .
+            docker buildx build --platform linux/amd64,linux/arm64 --build-arg "VITE_RISU_LEGAL_CONFIGURED=$VITE_RISU_LEGAL_CONFIGURED" --label "org.opencontainers.image.ref.name=risuai" --label "org.opencontainers.image.version=${{ github.sha }}" -t ghcr.io/$GITHUB_REPOSITORY_OWNER_SMALLCASE/risuai:$SHORT_SHA --push .
           fi

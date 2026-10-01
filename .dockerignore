@@ -1,1 +1,51 @@
-node_modules
+# Patterns are matched from the context root. `**/node_modules` is needed so nested
+# node_modules folders are excluded too; the image installs its own dependencies.
+
+# VCS, editor and agent tooling
+.git
+.gitattributes
+.github
+.claude
+.vscode
+.idea
+.qoder
+.wrangler
+.tauri
+.DS_Store
+
+# Rebuilt inside the image
+**/node_modules
+dist
+dist-web
+dist-ssr
+dist.zip
+*.log
+
+# User data and secrets: never part of an image or a build cache
+save
+.env
+.env.*
+**/.env*
+**/*.key
+**/*.pem
+server/node/ssl/certificate
+
+# Not an input to `pnpm build` or to the Node server
+# (xplugin, src-others, scripts and build are gitignored local folders)
+xplugin
+src-others
+scripts
+build
+# Agents holds a gitignored folder of third-party material and large local tool output.
+Agents
+wiki
+src-tauri
+util
+server/hono
+*.md
+t.py
+server.sh
+server.bat
+vitest.config.ts
+vitest.setup.ts
+docker-compose.yml

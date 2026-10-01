@@ -1,8 +1,6 @@
 name: 'publish'
+# Manual only: this builds every desktop target and creates a draft release.
 on:
-  push:
-    branches:
-      - production
   workflow_dispatch: {}
 
 jobs:
@@ -43,14 +41,6 @@ jobs:
           node-version: 24
           cache: 'pnpm'
           cache-dependency-path: 'pnpm-lock.yaml'
-      - id: set_var_win
-        if: matrix.settings.platform == 'windows-latest'
-        run: |
-          choco install jq -y
-      - id: set_var
-        shell: bash
-        run: |
-          echo "VERSION_JSON=$(jq -c . < version.json)" >> $GITHUB_ENV
       - name: install dependencies (ubuntu only)
         if: startsWith(matrix.settings.platform, 'ubuntu')
         run: |
@@ -74,7 +64,9 @@ jobs:
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
-          VITE_RISU_LEGAL_CONFIGURED: 'TRUE'
+          # Opt-in, as in docker-build.yml: empty unless the repository variable VITE_RISU_LEGAL_CONFIGURED is set,
+          # and an empty value keeps the legal-documents notice in the built app.
+          VITE_RISU_LEGAL_CONFIGURED: ${{ vars.VITE_RISU_LEGAL_CONFIGURED }}
         with:
           tagName: 'v__VERSION__' # the action automatically replaces \_\_VERSION\_\_ with the app version.
           releaseName: 'v__VERSION__'

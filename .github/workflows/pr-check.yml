@@ -1,33 +1,41 @@
 name: PR Check
 
+# The fork's CI: type check, unit tests and a production build.
+# Push runs skip changes that only touch docs or agent notes.
 on:
+  push:
+    paths-ignore:
+      - 'wiki/**'
+      - 'Agents/**'
+      - '**/*.md'
   pull_request:
-    branches: [ "main" ]
+  workflow_dispatch:
 
 concurrency:
   group: pr-check-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
-  typecheck:
-    name: Linux / Test
+  check:
+    name: Check, test and build
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
+      # package.json engines allows node ^20.19.0 || >=22.12.0; the Dockerfile and the release
+      # workflow build with 24.
       - name: setup node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 24
 
+      # The pnpm version comes from the packageManager field in package.json.
       - name: install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10.34.1
+        uses: pnpm/action-setup@v5
 
       - name: Get pnpm store directory
         id: pnpm-cache
@@ -49,8 +57,8 @@ jobs:
       - name: Run svelte-check
         run: pnpm check
 
-      - name: Build
-        run: pnpm build
-
       - name: Run tests
         run: pnpm test
+
+      - name: Build
+        run: pnpm build

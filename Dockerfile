@@ -23,6 +23,10 @@ FROM deps AS builder
 COPY . .
 # Install including dev deps
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
+# Opt-in build-time flag. Vite bakes it into the frontend at `pnpm build`, so it can only be set
+# here (`--build-arg`), not at container run time. Unset or empty keeps the legal-documents notice.
+# It exists only in this builder stage and is not carried into the runtime image.
+ARG VITE_RISU_LEGAL_CONFIGURED
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm build
 
 # ------------------------------------------------------------------------------------------

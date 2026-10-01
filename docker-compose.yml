@@ -1,14 +1,19 @@
-name: risuai
+name: risuai-fork
 
 services:
   risuai:
-    container_name: risuai
-    image: ghcr.io/kwaroran/risuai:latest
+    container_name: risuai-fork
+    build:
+      context: .
+      args:
+        # Baked into the frontend at build time. The value comes from the shell that runs the build, or from
+        # your own untracked `.env` next to this file. Empty keeps the legal-documents notice.
+        VITE_RISU_LEGAL_CONFIGURED: "${VITE_RISU_LEGAL_CONFIGURED:-}"
     restart: always
     ports:
       - 6001:6001
     volumes:
-      - risuai-save:/app/save
+      - risuai-fork-save:/app/save
 
 volumes:
-  risuai-save:
+  risuai-fork-save:
