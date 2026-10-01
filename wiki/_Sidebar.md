@@ -1,4 +1,4 @@
-# [[Return to Home | Home]]
+# [Return to Home](Home)
 
 **Getting started**
 - [[RisuAI Basics]]

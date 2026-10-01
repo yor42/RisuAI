@@ -26,7 +26,7 @@ How RisuAI works:
   - [[Prompt Template]]
   - [[Modules]]
   - [[Additional Character Screen]]
-      - [[Emotion Images|Additional Character Screen#emotion-images]]
+      - [Emotion Images](Additional-Character-Screen#emotion-images)
   - [[Long Term Memory]]
      - [[HypaMemory V3]]
      - [[HypaMemory V2]]
