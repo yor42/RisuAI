@@ -5,12 +5,11 @@ REM Optional build-time flags. Uncomment or set them before running this script.
 REM These values are baked into the frontend during `pnpm run build`.
 REM
 REM Legal configuration:
-REM Set this to TRUE only for a personal private self-hosted instance, a development/testing
-REM fork intended to contribute back upstream, or a fork whose Terms of Service,
-REM Privacy Policy, and Risuai service usage alerts have been configured correctly.
-REM Builds without this flag show a legal warning screen and should not use Risuai
-REM services that require the original legal notices.
-REM if not defined VITE_RISU_LEGAL_CONFIGURED set "VITE_RISU_LEGAL_CONFIGURED=TRUE"
+REM On by default in this repository: .env.production sets VITE_RISU_LEGAL_CONFIGURED=TRUE.
+REM To opt out and show the legal-documents notice instead of the app, put the line
+REM VITE_RISU_LEGAL_CONFIGURED=
+REM in a file named .env.production.local next to this script. cmd cannot hold an empty
+REM variable (set "NAME=" deletes it), so an empty value set here would not override .env.production.
 
 REM Lite mode:
 REM Enables the experimental lightweight/mobile-oriented UI mode at build time.

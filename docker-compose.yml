@@ -6,9 +6,10 @@ services:
     build:
       context: .
       args:
-        # Baked into the frontend at build time. The value comes from the shell that runs the build, or from
-        # your own untracked `.env` next to this file. Empty keeps the legal-documents notice.
-        VITE_RISU_LEGAL_CONFIGURED: "${VITE_RISU_LEGAL_CONFIGURED:-}"
+        # Baked into the frontend at build time, on by default. Unset becomes TRUE; a value set to empty (in the
+        # shell that runs the build, or in your own untracked `.env` next to this file) opts out and keeps the
+        # legal-documents notice. The `-` form, not `:-`, is what lets an empty value through.
+        VITE_RISU_LEGAL_CONFIGURED: "${VITE_RISU_LEGAL_CONFIGURED-TRUE}"
     restart: always
     ports:
       - 6001:6001

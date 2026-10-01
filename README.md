@@ -73,7 +73,15 @@ It serves `dist/` and keeps its data in `save/`, both relative to the folder you
 
 ### The legal-documents notice
 
-A frontend built without `VITE_RISU_LEGAL_CONFIGURED` shows a "legal documents not configured" notice instead of the app. This applies to `pnpm dev`, `pnpm build` and the Docker build, and the variable is read when the frontend is built, so set it in the environment of that command (for Docker, see [Docker](#docker)). The notice says you can set it to `TRUE` if you are running a "self-hosted instance for private use from the original repository", or a "simple fork for testing and development to PR back to the original repository". Otherwise it says you must first create your own Terms of Service and Privacy Policy pages and change their URLs in the source, and add the original Terms of Service and Privacy Policy alerts to the parts that use Risuai services. Read it before you set it.
+The frontend shows a "legal documents not configured" notice instead of the app when `VITE_RISU_LEGAL_CONFIGURED` is empty or unset at build time. In this repository it is on by default, because this fork has its own Terms of Service and Privacy Policy, linked from Settings. `.env.production` (read by `pnpm build`, `pnpm buildsite`, `pnpm tauribuild` and `pnpm hono:build`) and `.env.development` (read by `pnpm dev`) set it to `TRUE`, and the Docker build sets it too (see [Docker](#docker)). The unit tests do not load these files.
+
+To opt out and get the notice, set the variable to an empty value in the environment of the build command. Vite lets an existing environment variable, even an empty one, override the `.env.*` files. In bash:
+
+```
+VITE_RISU_LEGAL_CONFIGURED= pnpm build
+```
+
+Windows `cmd` cannot hold an empty variable. There, and in any shell, you can instead put the line `VITE_RISU_LEGAL_CONFIGURED=` in an untracked `.env.production.local` (or `.env.development.local` for `pnpm dev`). It loads after the committed file and wins, and `*.local` is in `.gitignore`.
 
 ### Known problems with the Node server
 
@@ -89,7 +97,7 @@ This fork builds from source with Docker. It uses its own project, container and
    ```
    docker compose up -d --build
    ```
-3. Open `http://localhost:6001`. Until you set the legal flag as described [below](#the-legal-documents-notice-in-a-docker-build), this shows the legal-documents notice.
+3. Open `http://localhost:6001`.
 
 The image is built from the `Dockerfile` in this repo (base image `node:24-slim`). The build needs Docker with BuildKit, because the `Dockerfile` uses `RUN --mount=type=cache`. The save lives in the `risuai-fork-save` volume, which Docker names `risuai-fork_risuai-fork-save` (the project name plus the volume name). The Node server problems above apply to this container as well, so use `localhost`.
 
@@ -97,16 +105,16 @@ Upstream's compose file also maps host port 6001, so this container and an upstr
 
 ### The legal-documents notice in a Docker build
 
-The Docker build keeps the [legal-documents notice](#the-legal-documents-notice) unless whoever builds sets `VITE_RISU_LEGAL_CONFIGURED` for that build. Nothing sets it by default, and the image shows the notice instead of the app until it is set. Read the notice before you set it.
+The Docker build has the flag on by default, so the image shows the app and not the [legal-documents notice](#the-legal-documents-notice). The default is `ARG VITE_RISU_LEGAL_CONFIGURED=TRUE` in the `Dockerfile`, because `.dockerignore` keeps the repository's `.env` files out of the build context. `docker-compose.yml` passes `${VITE_RISU_LEGAL_CONFIGURED-TRUE}`, so an unset variable becomes `TRUE`.
 
-The value is baked into the frontend when the image is built, so it has to be set for the build. Setting it on a running container does nothing. Set it in the shell that runs `docker compose up -d --build` or `docker compose build`:
+The value is baked into the frontend when the image is built, so opting out has to happen at build time. Setting it on a running container does nothing. To opt out, set it to an empty value in the shell that runs `docker compose up -d --build` or `docker compose build`:
 
 ```
 # bash
-VITE_RISU_LEGAL_CONFIGURED=TRUE docker compose up -d --build
+VITE_RISU_LEGAL_CONFIGURED= docker compose up -d --build
 
-# PowerShell
-$env:VITE_RISU_LEGAL_CONFIGURED = 'TRUE'; docker compose up -d --build
+# plain docker
+docker build --build-arg VITE_RISU_LEGAL_CONFIGURED= .
 ```
 
-Or put `VITE_RISU_LEGAL_CONFIGURED=TRUE` in your own `.env` file next to `docker-compose.yml`. Compose reads that file, and `.env` is in `.gitignore`, so it stays yours. `docker-compose.yml` passes the value to the `Dockerfile` as a build argument. If the value is empty or unset, the notice stays.
+Or put `VITE_RISU_LEGAL_CONFIGURED=` in your own `.env` file next to `docker-compose.yml`, which works from any shell. Compose reads that file, and `.env` is in `.gitignore`, so it stays yours. With an empty value the notice replaces the app.

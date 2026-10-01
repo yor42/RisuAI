@@ -64,9 +64,7 @@ jobs:
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
-          # Opt-in, as in docker-build.yml: empty unless the repository variable VITE_RISU_LEGAL_CONFIGURED is set,
-          # and an empty value keeps the legal-documents notice in the built app.
-          VITE_RISU_LEGAL_CONFIGURED: ${{ vars.VITE_RISU_LEGAL_CONFIGURED }}
+          # The legal flag comes from .env.production (on). Nothing here sets or overrides it.
         with:
           tagName: 'v__VERSION__' # the action automatically replaces \_\_VERSION\_\_ with the app version.
           releaseName: 'v__VERSION__'

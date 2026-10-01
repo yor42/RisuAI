@@ -5,12 +5,10 @@ set -eu
 # These values are baked into the frontend during `pnpm run build`.
 #
 # Legal configuration:
-# Set this to TRUE only for a personal private self-hosted instance, a development/testing
-# fork intended to contribute back upstream, or a fork whose Terms of Service,
-# Privacy Policy, and Risuai service usage alerts have been configured correctly.
-# Builds without this flag show a legal warning screen and should not use Risuai
-# services that require the original legal notices.
-# export VITE_RISU_LEGAL_CONFIGURED="${VITE_RISU_LEGAL_CONFIGURED:-TRUE}"
+# On by default in this repository: .env.production sets VITE_RISU_LEGAL_CONFIGURED=TRUE.
+# To opt out and show the legal-documents notice instead of the app, uncomment the line
+# below (an empty value in the environment overrides the file), or pass it before running this script.
+# export VITE_RISU_LEGAL_CONFIGURED=""
 
 # Lite mode:
 # Enables the experimental lightweight/mobile-oriented UI mode at build time.
