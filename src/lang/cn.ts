@@ -1531,6 +1531,10 @@ export const languageChinese = {
     "restoreNoLockWarningConfirm": "您的浏览器无法在恢复前检查此应用是否已在另一个标签页中打开。如果此应用的另一个标签页处于打开状态，它可能会在下次保存时用自己更旧的数据覆盖您正在恢复的数据——即使该标签页没有任何未保存的更改也是如此。请先关闭此应用的所有其他标签页，然后再继续。仍要继续吗？",
     "restoreWriteFailed": "无法保存已恢复的备份。部分图片或冷存储条目可能已被添加或替换。当前数据库未被更改。",
     "restoreSavedReloadOrRestart": "备份已恢复并保存，但应用无法自动重新加载。请重新加载页面（或重启应用）以完成操作。",
+    "internalBackupUnreadable": "此备份已损坏或不完整，因此未被读取。当前数据未被更改。",
+    "internalBackupWriteFailed": "无法保存该备份。当前数据未被更改。",
+    "internalBackupListFailed": "无法读取备份列表。未更改任何内容。",
+    "internalBackupWaitingForCleanup": "正在完成启动清理，之后将读取备份...",
     "pluginProviderNotFound": "检测到未知插件。请更改模型或启用相应的插件。",
     "bootstrap": {
         "dataCorruptionDetected": (name: string, type: string) => `检测到数据损坏\n\n模块"${name}"的世界书格式已损坏。\n\n损坏的数据类型：${type}`,

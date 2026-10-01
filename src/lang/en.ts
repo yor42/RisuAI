@@ -1671,6 +1671,10 @@ export const languageEnglish = {
     restoreNoLockWarningConfirm: "Your browser can't check whether another tab of this app is open before restoring. If another tab of this app is open, it can overwrite the data you're restoring with its own older data the next time it saves -- even if that tab has no unsaved changes of its own. Close every other tab of this app first, then continue. Continue anyway?",
     restoreWriteFailed: "The restored backup could not be saved. Some images or cold-storage entries may already have been added or replaced. Your current database was not changed.",
     restoreSavedReloadOrRestart: "Your backup was restored and saved, but the app could not reload automatically. Please reload the page (or restart the app) to finish.",
+    internalBackupUnreadable: "This backup is damaged or incomplete, so it was not loaded. Your current data was not changed.",
+    internalBackupWriteFailed: "The backup could not be saved. Your current data was not changed.",
+    internalBackupListFailed: "The backup list could not be read. Nothing was changed.",
+    internalBackupWaitingForCleanup: "Finishing startup clean-up before loading the backup...",
     pluginProviderNotFound: "Unknown Plugin detected. Please change the model or enable the corresponding plugin.",
     bootstrap: {
         dataCorruptionDetected: (name: string, type: string) => `Data Corruption Detected\n\nModule "${name}" has corrupted lorebook format.\n\nCorrupted data type: ${type}`,

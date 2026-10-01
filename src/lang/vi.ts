@@ -1531,6 +1531,10 @@ export const languageVietnamese = {
     "restoreNoLockWarningConfirm": "Trình duyệt của bạn không thể kiểm tra xem có tab khác của ứng dụng này đang mở trước khi khôi phục hay không. Nếu một tab khác của ứng dụng này đang mở, nó có thể ghi đè dữ liệu bạn đang khôi phục bằng dữ liệu cũ hơn của chính nó vào lần lưu tiếp theo — ngay cả khi tab đó không có thay đổi chưa lưu nào của riêng nó. Hãy đóng tất cả các tab khác của ứng dụng này trước, sau đó tiếp tục. Vẫn tiếp tục chứ?",
     "restoreWriteFailed": "Không thể lưu bản sao lưu đã khôi phục. Một số hình ảnh hoặc mục trong bộ nhớ lạnh có thể đã được thêm vào hoặc thay thế. Cơ sở dữ liệu hiện tại của bạn không bị thay đổi.",
     "restoreSavedReloadOrRestart": "Bản sao lưu của bạn đã được khôi phục và lưu, nhưng ứng dụng không thể tự động tải lại. Vui lòng tải lại trang (hoặc khởi động lại ứng dụng) để hoàn tất.",
+    "internalBackupUnreadable": "Bản sao lưu này bị hỏng hoặc không đầy đủ nên không được tải. Dữ liệu hiện tại của bạn không bị thay đổi.",
+    "internalBackupWriteFailed": "Không thể lưu bản sao lưu. Dữ liệu hiện tại của bạn không bị thay đổi.",
+    "internalBackupListFailed": "Không thể đọc danh sách sao lưu. Không có gì bị thay đổi.",
+    "internalBackupWaitingForCleanup": "Đang hoàn tất dọn dẹp khi khởi động trước khi tải bản sao lưu...",
     "pluginProviderNotFound": "Đã phát hiện Plugin không xác định. Vui lòng đổi mô hình hoặc bật plugin tương ứng.",
     "bootstrap": {
         "dataCorruptionDetected": (name: string, type: string) => `Phát hiện Dữ liệu Bị hỏng\n\nModule "${name}" có định dạng lorebook bị hỏng.\n\nLoại dữ liệu bị hỏng: ${type}`,

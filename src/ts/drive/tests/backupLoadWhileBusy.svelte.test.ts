@@ -5,9 +5,10 @@
  *
  * `loadInternalBackup` refuses while a send holds `doingChat`, a unit is
  * registered or the composer window is open, both when it starts and immediately
- * before it installs the decoded database; the backup buttons in
- * `UserSettings.svelte` refuse before either of their confirmations is asked.
- * With no work in progress it installs the chosen backup.
+ * before it writes the chosen snapshot; a refusal writes nothing and reloads
+ * nothing. The backup buttons in `UserSettings.svelte` refuse before either of
+ * their confirmations is asked. With no work in progress it writes the chosen
+ * snapshot as the main file and reloads, and installs nothing in the page.
  *
  * Drives the real `globalApi.svelte.ts`, `sendChat`, the composer and the
  * mounted `UserSettings.svelte`; storage, the provider, the trigger engine and
@@ -19,7 +20,7 @@
  * Tests titled `guard:` pin behaviour that must be preserved; every other test
  * is a regression test for the behaviour it names.
  */
-import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, test, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest'
 import { writable, get } from 'svelte/store'
 import type { Database, Chat, Message } from 'src/ts/storage/database.svelte'
 import type { RisuPlugin } from 'src/ts/plugins/plugins.svelte'
@@ -556,7 +557,8 @@ import { runAutopilot } from 'src/ts/process/devToolActions'
 import { makeRisuaiAPIV3 } from 'src/ts/plugins/apiV3/v3.svelte'
 import { DBState, selectedCharID } from 'src/ts/stores.svelte'
 import { resetLocalDraftsForTest } from 'src/ts/localDrafts'
-import { loadInternalBackup, requiresFullEncoderReload } from 'src/ts/globalApi.svelte'
+import { requiresFullEncoderReload } from 'src/ts/globalApi.svelte'
+import { loadInternalBackup } from 'src/ts/drive/internalBackup'
 import { setDatabase } from 'src/ts/storage/database.svelte'
 import { RisuSaveEncoder, encodeRisuSaveLegacy } from 'src/ts/storage/risuSave'
 import { LoadLocalBackup } from 'src/ts/drive/backuplocal'
@@ -931,6 +933,35 @@ import { isComposerBusy } from 'src/ts/process/composerActions.svelte'
 import { language } from 'src/lang'
 import { flushSync, mount, unmount } from 'svelte'
 import UserSettings from 'src/lib/Setting/Pages/UserSettings.svelte'
+import { FakeLockManagerCore, FakeTabLockManagerView } from 'src/ts/storage/tests/fakeWebLocks'
+
+/**
+ * A `loadInternalBackup` built on its own module graph, with its own lock
+ * manager and write lock. A successful load keeps `dbWriteLock` closed for the
+ * life of its module graph, so a test that lets one succeed must not share the
+ * file's graph: a later load in that graph would wait on the closed lock and
+ * never settle.
+ */
+async function importIsolatedLoad() {
+    vi.resetModules()
+    const originalLocks = Object.getOwnPropertyDescriptor(window.navigator, 'locks')
+    Object.defineProperty(window.navigator, 'locks', {
+        value: new FakeTabLockManagerView(new FakeLockManagerCore(), 'isolated'),
+        configurable: true,
+    })
+    try {
+        const internal = await import('src/ts/drive/internalBackup')
+        const api = await import('src/ts/globalApi.svelte')
+        const stores = await import('src/ts/stores.svelte')
+        const database = await import('src/ts/storage/database.svelte')
+        await api.tabPresenceLockAcquired
+        return { load: internal.loadInternalBackup, requiresFullEncoderReload: api.requiresFullEncoderReload, stores, database }
+    } finally {
+        if (originalLocks) {
+            Object.defineProperty(window.navigator, 'locks', originalLocks)
+        }
+    }
+}
 
 async function settleMany(n = 6): Promise<void> {
     for (let i = 0; i < n; i++) {
@@ -965,11 +996,19 @@ function backupDb(characters: CharacterFixtureBk[], extra: Record<string, unknow
     } as unknown as Database
 }
 
-/** Stores an internal backup of one character `char-A` where `loadInternalBackup` lists backups. */
-async function seedInternalBackup(): Promise<void> {
+/** Stores an internal backup of one character `char-A` where `loadInternalBackup` lists backups, and returns its bytes. */
+async function seedInternalBackup(): Promise<Uint8Array> {
     const encoder = new RisuSaveEncoder()
     await encoder.init(backupDb([backupCharacter('char-A', 'A from backup')]), { compression: false, skipRemoteSavingOnCharacters: false })
-    forageMemStore.set('dbbackup-1700000000', new Uint8Array(encoder.encode()!))
+    const bytes = new Uint8Array(encoder.encode()!)
+    forageMemStore.set('dbbackup-1700000000', bytes)
+    return bytes
+}
+
+/** What a refused or failed load must leave alone: no main-file write, no reload, no install. */
+function expectNoWriteAndNoReload(): void {
+    expect.soft(forageMemStore.has('database/database.bin'), 'the main file was written').toBe(false)
+    expect.soft(reloadSpy, 'location.reload calls').not.toHaveBeenCalled()
 }
 
 function u32le(n: number): Uint8Array {
@@ -994,6 +1033,9 @@ function localBackupBytes(marker: string): { fixture: Uint8Array, dbBytes: Uint8
     const dbBytes = encodeRisuSaveLegacy({ characters: [], mainPrompt: marker } as unknown as Database, 'noCompression')
     return { fixture: buildChunk('database.risudat', dbBytes), dbBytes }
 }
+
+let reloadSpy: MockInstance<() => void>
+let replaceStateSpy: MockInstance<typeof window.history.replaceState>
 
 let capturedInput: HTMLInputElement | null = null
 
@@ -1033,6 +1075,14 @@ beforeEach(() => {
     alertSelectMock.mockImplementation(async () => '1')
     alertNormalMock.mockReset()
     vi.mocked(setDatabase).mockClear()
+    // happy-dom's reload and replaceState are not stubs: a load that reloads must not navigate the test page.
+    reloadSpy = vi.spyOn(window.location, 'reload').mockImplementation(() => {})
+    replaceStateSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {})
+})
+
+afterEach(() => {
+    reloadSpy.mockRestore()
+    replaceStateSpy.mockRestore()
 })
 
 /** A send held open on its first provider request. */
@@ -1063,9 +1113,10 @@ describe('loadInternalBackup waits for work', () => {
         expect.soft(alertSelectMock, 'the backup picker was asked').not.toHaveBeenCalled()
         expect.soft(alertConfirmMock, 'a confirm was asked').not.toHaveBeenCalled()
         expect.soft(reloadFlag, 'requiresFullEncoderReload').toBe(false)
+        expectNoWriteAndNoReload()
     })
 
-    test('no work when the load starts, a send starts during the decode (the last await before the install): the install is refused and DBState.db is unchanged', async () => {
+    test('no work when the load starts, a send starts during the decode: the write is refused, nothing is written or reloaded and DBState.db is unchanged', async () => {
         installWorld()
         await seedInternalBackup()
         let running: Promise<boolean> | undefined
@@ -1088,17 +1139,23 @@ describe('loadInternalBackup waits for work', () => {
         expect.soft(dbAfter === dbBefore, 'DBState.db is the same object').toBe(true)
         expect.soft(installed, 'setDatabase calls').toBe(0)
         expect.soft(reloadFlag, 'requiresFullEncoderReload').toBe(false)
+        expectNoWriteAndNoReload()
     })
 
-    test('guard: no work: loadInternalBackup installs the chosen backup and sets requiresFullEncoderReload', async () => {
+    test('no work: loadInternalBackup writes the chosen backup to the main file and reloads, without installing it', async () => {
         installWorld()
-        await seedInternalBackup()
+        const bytes = await seedInternalBackup()
+        const isolated = await importIsolatedLoad()
+        isolated.stores.DBState.db = DBState.db
+        const dbBefore = isolated.stores.DBState.db
 
-        await loadInternalBackup()
+        await isolated.load()
 
-        expect.soft(vi.mocked(setDatabase)).toHaveBeenCalledTimes(1)
-        expect.soft(DBState.db.characters.map((c) => c.chaId)).toEqual(['char-A'])
-        expect.soft(requiresFullEncoderReload.state).toBe(true)
+        expect.soft(forageMemStore.get('database/database.bin'), 'the main file holds the backup bytes').toEqual(bytes)
+        expect.soft(reloadSpy, 'location.reload calls').toHaveBeenCalledTimes(1)
+        expect.soft(vi.mocked(isolated.database.setDatabase), 'setDatabase calls').not.toHaveBeenCalled()
+        expect.soft(isolated.stores.DBState.db === dbBefore, 'DBState.db is the same object').toBe(true)
+        expect.soft(isolated.requiresFullEncoderReload.state, 'requiresFullEncoderReload').toBe(false)
     })
 
     test('the composer window open without a send (a take held on the input trigger): loadInternalBackup is refused', async () => {
@@ -1124,6 +1181,7 @@ describe('loadInternalBackup waits for work', () => {
         expect.soft(dbAfter === dbBefore, 'DBState.db is the same object').toBe(true)
         expect.soft(installed, 'setDatabase calls').toBe(0)
         expect.soft(alertSelectMock, 'the backup picker was asked').not.toHaveBeenCalled()
+        expectNoWriteAndNoReload()
     })
 })
 
@@ -1193,7 +1251,7 @@ describe('the backup buttons in UserSettings', () => {
         expect(confirms, 'confirmations asked').toBe(0)
     })
 
-    test('guard: no work: the internal-backup button asks both confirmations', async () => {
+    test('no work: the internal-backup button asks both confirmations and then loads the chosen backup', async () => {
         installWorld()
         await seedInternalBackup()
         const target = mountUserSettings()
@@ -1202,5 +1260,6 @@ describe('the backup buttons in UserSettings', () => {
         await settleMany()
 
         expect(alertConfirmMock).toHaveBeenCalledTimes(2)
+        await vi.waitFor(() => expect(reloadSpy, 'location.reload calls').toHaveBeenCalledTimes(1), { timeout: 3000 })
     })
 })

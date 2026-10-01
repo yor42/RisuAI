@@ -431,8 +431,9 @@ export async function SavePartialLocalBackup(){
 }
 
 /**
- * How long the restore waits for the exclusive storage lock (MC-093) before
- * refusing with "another tab is open". A tab that is simply open, with no
+ * How long the local restore and the internal-backup load
+ * (`loadInternalBackup` in `internalBackup.ts`) wait for the exclusive storage
+ * lock (MC-093) before refusing with "another tab is open". A tab that is simply open, with no
  * exclusive operation of its own in progress, never releases its presence
  * lock -- so this wait can never turn a genuinely open tab into a grant;
  * every value of this timeout refuses that case identically, only sooner or
@@ -444,7 +445,7 @@ export async function SavePartialLocalBackup(){
  * finish, at the cost of occasionally refusing an in-progress operation of
  * similar length that would have finished moments later.
  */
-const RESTORE_EXCLUSIVE_LOCK_TIMEOUT_MS = 2000;
+export const RESTORE_EXCLUSIVE_LOCK_TIMEOUT_MS = 2000;
 
 export function LoadLocalBackup(){
     // A restore replaces the database under any work still writing into it.

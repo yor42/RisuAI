@@ -35,6 +35,7 @@ import { getRemoteSaveCleanupAction, getRemoteSavePayloadName } from "./storage/
 import { sweepTauriAssets, sweepForageAssetKey } from "./storage/assetSweep";
 import { recordLoadTimeListing } from "./storage/loadTimeListing";
 import { noteMainFileBytes } from "./storage/mainFileRecord";
+import { recordStartupCleanup } from "./storage/startupCleanupState";
 import { startAvatarThumbSweep } from "./media/avatarThumb";
 import {
     forageStorage,
@@ -313,7 +314,15 @@ export async function loadData() {
             registerModelDynamic()
             saveDb()
             moduleUpdate()
-            cleanChunks()
+            // Recording attaches handlers to the promise, which marks a failure
+            // as handled so it never reaches the `unhandledrejection` handler;
+            // it is reported here the same way. The call stays un-awaited.
+            const startupCleanup = cleanChunks()
+            recordStartupCleanup(startupCleanup)
+            startupCleanup.catch((error) => {
+                console.error(error)
+                alertError(error)
+            })
             // Detached: its own store, its own try/catch, never awaited so a
             // slow or failing sweep can't hold up boot.
             void startAvatarThumbSweep()

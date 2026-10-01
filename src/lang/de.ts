@@ -1531,6 +1531,10 @@ export const languageGerman = {
     "restoreNoLockWarningConfirm": "Ihr Browser kann nicht prüfen, ob ein weiterer Tab dieser App geöffnet ist, bevor die Wiederherstellung beginnt. Wenn ein weiterer Tab dieser App geöffnet ist, kann er beim nächsten Speichern die Daten, die Sie wiederherstellen, mit seinen eigenen älteren Daten überschreiben — selbst wenn dieser Tab keine eigenen ungespeicherten Änderungen hat. Schließen Sie zuerst alle anderen Tabs dieser App und fahren Sie dann fort. Trotzdem fortfahren?",
     "restoreWriteFailed": "Das wiederhergestellte Backup konnte nicht gespeichert werden. Einige Bilder oder Kaltlager-Einträge wurden möglicherweise bereits hinzugefügt oder ersetzt. Ihre aktuelle Datenbank wurde nicht verändert.",
     "restoreSavedReloadOrRestart": "Ihr Backup wurde wiederhergestellt und gespeichert, aber die App konnte nicht automatisch neu geladen werden. Bitte laden Sie die Seite neu (oder starten Sie die App neu), um den Vorgang abzuschließen.",
+    "internalBackupUnreadable": "Dieses Backup ist beschädigt oder unvollständig und wurde daher nicht geladen. Ihre aktuellen Daten wurden nicht verändert.",
+    "internalBackupWriteFailed": "Das Backup konnte nicht gespeichert werden. Ihre aktuellen Daten wurden nicht verändert.",
+    "internalBackupListFailed": "Die Backup-Liste konnte nicht gelesen werden. Es wurde nichts verändert.",
+    "internalBackupWaitingForCleanup": "Die Bereinigung beim Start wird abgeschlossen, bevor das Backup geladen wird...",
     "pluginProviderNotFound": "Unbekanntes Plugin erkannt. Bitte ändern Sie das Modell oder aktivieren Sie das entsprechende Plugin.",
     "bootstrap": {
         "dataCorruptionDetected": (name: string, type: string) => `Datenkorruption erkannt\n\nDas Modul „${name}" weist ein beschädigtes Lore-Buch-Format auf.\n\nBeschädigter Datentyp: ${type}`,

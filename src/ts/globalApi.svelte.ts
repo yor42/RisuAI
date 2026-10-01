@@ -9,7 +9,6 @@ import {
 } from "@tauri-apps/plugin-fs"
 import { changeFullscreen, checkNullish, sleep, sleepForever } from "./util"
 import { markAppInitiatedReload } from "./reloadGuard"
-import { repairDatabaseIds } from "./process/chatIds"
 import { openUrlOnWeb } from "./openUrlWeb"
 import { convertFileSrc, invoke } from "@tauri-apps/api/core"
 import { v4 as uuidv4, v4 } from 'uuid';
@@ -18,16 +17,16 @@ import { get } from "svelte/store";
 import { flushSync } from "svelte";
 import { open } from '@tauri-apps/plugin-shell'
 import streamSaver from 'streamsaver';
-import { setDatabase, type Database, defaultSdDataFunc, getDatabase, appVer, getCurrentCharacter, type character, type groupChat, type Chat, appSubVer } from "./storage/database.svelte";
+import { type Database, defaultSdDataFunc, getDatabase, appVer, getCurrentCharacter, type character, type groupChat, type Chat, appSubVer } from "./storage/database.svelte";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { checkRisuUpdate } from "./update";
 import { MobileGUI, botMakerMode, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, bodyIntercepterStore, savingStoppedReason, frozenSaveKeysStore, type FrozenSaveKeyInfo } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
-import { alertConfirm, alertError, alertMd, alertNormal, alertSelect, alertToast, waitAlert } from "./alert";
+import { alertConfirm, alertError, alertMd, alertSelect, alertToast, waitAlert } from "./alert";
 import { hasher } from "./parser/parser.svelte";
 import { characterURLImport, hubURL } from "./characterCards";
 import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from "./storage/defaultPrompts";
-import { decodeRisuSave, encodeRisuSaveLegacy, RisuSaveEncoder, type toSaveType } from "./storage/risuSave";
+import { encodeRisuSaveLegacy, RisuSaveEncoder, type toSaveType } from "./storage/risuSave";
 import { registerDbChangeEffects } from "./storage/dbChangeEffects.svelte";
 import { installCharacterSaveMarks } from "./storage/characterSaveMarks";
 import { AutoStorage } from "./storage/autoStorage";
@@ -53,7 +52,6 @@ import { getNodeServerProxyAuth, NodeStorageConflictError } from "./storage/node
 import { getMultiTabAction, isRevisionAwareBackend, nextAutoReloadHistory, resolvePromptChoice, resolveRevisionAwarePromptChoice, readAutoReloadHistory, writeAutoReloadHistory, shouldRetainOtherTabSavedSignal, type AutoReloadHistory } from "./storage/multiTabReload";
 import { hasLocalDrafts } from "./localDrafts";
 import { draftContentOrphanGate } from "./draftContentOrphanGate";
-import { refuseBackupLoadWhileBusy } from "./drive/backupWorkGuard";
 
 export const forageStorage = new AutoStorage()
 
@@ -546,19 +544,21 @@ export let requiresFullEncoderReload = $state({
 /**
  * A minimal async mutex serializing writes to the shared `database/database.bin`
  * key between saveDb()'s autosave loop and any other direct writer (currently
- * LoadLocalBackup()'s restore write, and the exclusive storage-migration lock's
+ * LoadLocalBackup()'s restore write, `loadInternalBackup` (drive/internalBackup.ts)'s
+ * snapshot write, and the exclusive storage-migration lock's
  * `enableOpfs()`/`disableOpfs()`/boot-copy holders below). LoadLocalBackup()'s
- * restore write acquires this directly only on Tauri or when Web Locks aren't
- * supported; on an ordinary web build its exclusive storage lock already holds
- * this internally for the same reason (see `acquireExclusiveStorageMigrationLock`
- * below) and the restore must NOT acquire it a second time. A boolean "is someone
+ * restore write and the internal-backup load's write acquire this directly only
+ * on Tauri or when Web Locks aren't supported; on an ordinary web build their
+ * exclusive storage lock already holds this internally for the same reason (see
+ * `acquireExclusiveStorageMigrationLock` below) and the write must NOT acquire
+ * it a second time. A boolean "is someone
  * else writing" flag checked once before encoding is NOT sufficient — the flag
  * can flip true after the check but before the write actually lands, letting a
  * stale autosave clobber a just-completed restore. Acquiring this lock actually
  * blocks a second acquirer until the first releases, so ordering is always
  * correct regardless of the exact interleaving. Not releasing after a
- * successful acquire (as LoadLocalBackup()'s restore write deliberately does
- * not) permanently blocks every later acquirer — the desired behavior once a
+ * successful acquire (as LoadLocalBackup()'s restore write and the
+ * internal-backup load's write deliberately do not) permanently blocks every later acquirer — the desired behavior once a
  * restore has committed and a reload is imminent: nothing from this now-stale
  * JS context should ever write this key again.
  */
@@ -1352,7 +1352,7 @@ export async function saveDb() {
             const shouldWriteBackup = (Date.now() - lastBackupWriteTime) > DB_BACKUP_MIN_INTERVAL_MS
             // Acquired before the write and held through it (not just checked-then-acted
             // on) so a concurrent direct writer to this same key (LoadLocalBackup()'s
-            // restore write) can never interleave with this write — see AsyncMutex/dbWriteLock above.
+            // restore write, the internal-backup load's write) can never interleave with this write — see AsyncMutex/dbWriteLock above.
             const releaseWriteLock = await dbWriteLock.acquire()
             try {
                 if (isTauri) {
@@ -3147,67 +3147,6 @@ export class BlankWriter {
     async end() {
         //do nothing, just to make compatible with other writer
     }
-}
-
-export async function loadInternalBackup() {
-
-    // Refused before anything is asked, and again immediately before the
-    // decoded database is installed: work can start during any wait between.
-    if (refuseBackupLoadWhileBusy()) {
-        return
-    }
-
-    const keys = isTauri ? (await readDir('database', { baseDir: BaseDirectory.AppData })).map((v) => {
-        return v.name
-    }) : (await forageStorage.keys())
-    let internalBackups: string[] = []
-    for (const key of keys) {
-        if (key.includes('dbbackup-')) {
-            internalBackups.push(key)
-        }
-    }
-
-    const selectOptions = [
-        'Cancel',
-        ...(internalBackups.map((a) => {
-            return (new Date(parseInt(a.replace('database/dbbackup-', '').replace('dbbackup-', '')) * 100)).toLocaleString()
-        }))
-    ]
-
-    const alertResult = parseInt(
-        await alertSelect(selectOptions)
-    ) - 1
-
-    if (alertResult === -1) {
-        return
-    }
-
-    const selectedBackup = internalBackups[alertResult]
-
-    const data = isTauri ? (
-        await readFile('database/' + selectedBackup, { baseDir: BaseDirectory.AppData })
-    ) : (await forageStorage.getItem(selectedBackup))
-
-    const decoded = await decodeRisuSave(Buffer.from(data) as unknown as Uint8Array)
-    // This load never reloads the page, so boot's repair would not run until
-    // the next start; it repairs ids on the decoded backup before
-    // `setDatabase` installs it. A throw here aborts the load before
-    // anything is replaced, and an edit made after the object enters
-    // `$state` is invisible once that property has been read.
-    repairDatabaseIds(decoded)
-    if (refuseBackupLoadWhileBusy()) {
-        return
-    }
-    setDatabase(decoded)
-    // A backup load is an explicit user action to replace everything, so a
-    // full reload (and dropping characters absent from the backup) is
-    // intended -- the other three call sites already do this.
-    requiresFullEncoderReload.state = true
-
-    alertNormal('Loaded backup')
-
-
-
 }
 
 /**

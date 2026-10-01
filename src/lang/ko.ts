@@ -1530,6 +1530,10 @@ export const languageKorean = {
     "restoreNoLockWarningConfirm": "브라우저가 복원 전에 이 앱의 다른 탭이 열려 있는지 확인할 수 없습니다. 이 앱의 다른 탭이 열려 있다면, 다음번 저장 시 복원 중인 데이터를 자신의 더 오래된 데이터로 덮어쓸 수 있습니다 — 그 탭에 저장되지 않은 변경 사항이 없더라도 마찬가지입니다. 먼저 이 앱의 다른 모든 탭을 닫은 후 계속하세요. 그래도 계속하시겠습니까?",
     "restoreWriteFailed": "복원한 백업을 저장할 수 없었습니다. 일부 이미지나 콜드 스토리지 항목이 이미 추가되거나 교체되었을 수 있습니다. 현재 데이터베이스는 변경되지 않았습니다.",
     "restoreSavedReloadOrRestart": "백업이 복원되어 저장되었지만, 앱을 자동으로 새로고침할 수 없었습니다. 완료하려면 페이지를 새로고침하거나(또는 앱을 재시작)해 주세요.",
+    "internalBackupUnreadable": "이 백업이 손상되었거나 불완전하여 불러오지 않았습니다. 현재 데이터는 변경되지 않았습니다.",
+    "internalBackupWriteFailed": "백업을 저장할 수 없었습니다. 현재 데이터는 변경되지 않았습니다.",
+    "internalBackupListFailed": "백업 목록을 읽을 수 없었습니다. 아무것도 변경되지 않았습니다.",
+    "internalBackupWaitingForCleanup": "백업을 불러오기 전에 시작 시 정리 작업을 마무리하는 중입니다...",
     "pluginProviderNotFound": "알 수 없는 플러그인이 감지되었습니다. 모델을 변경하거나 해당하는 플러그인을 활성화해주세요.",
     "bootstrap": {
         "dataCorruptionDetected": (name: string, type: string) => `데이터 손상 감지\n\n모듈 "${name}"의 로어북 형식이 손상되었습니다.\n\n손상된 데이터 타입: ${type}`,

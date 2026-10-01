@@ -1577,6 +1577,10 @@ export const languageChineseTraditional = {
     "restoreNoLockWarningConfirm": "您的瀏覽器無法在復原前檢查此應用程式是否已在另一個分頁中開啟。如果此應用程式的另一個分頁已開啟，它可能會在下次儲存時用自己較舊的資料覆寫您正在復原的資料——即使該分頁沒有任何未儲存的變更也是如此。請先關閉此應用程式的所有其他分頁，然後再繼續。仍要繼續嗎？",
     "restoreWriteFailed": "無法儲存已復原的備份。部分圖片或冷儲存項目可能已被新增或取代。目前的資料庫未被變更。",
     "restoreSavedReloadOrRestart": "備份已復原並儲存，但應用程式無法自動重新載入。請重新載入頁面（或重新啟動應用程式）以完成。",
+    "internalBackupUnreadable": "此備份已損毀或不完整，因此未載入。目前的資料未被變更。",
+    "internalBackupWriteFailed": "無法儲存此備份。目前的資料未被變更。",
+    "internalBackupListFailed": "無法讀取備份清單。未變更任何內容。",
+    "internalBackupWaitingForCleanup": "正在完成啟動清理作業，之後將載入備份...",
     "pluginProviderNotFound": "偵測到未知外掛。請更換模型，或啟用對應的外掛",
     "bootstrap": {
         "dataCorruptionDetected": (name: string, type: string) => `偵測到資料損毀\n\n模組「${name}」的 Lorebook 格式已損毀。\n\n損毀資料類型：${type}`,

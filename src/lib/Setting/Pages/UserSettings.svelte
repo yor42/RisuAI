@@ -1,7 +1,7 @@
 <script lang="ts">
     import { language } from "src/lang";
     import { alertConfirm} from "src/ts/alert";
-    import { loadInternalBackup } from "src/ts/globalApi.svelte";
+    import { loadInternalBackup } from "src/ts/drive/internalBackup";
     import { LoadLocalBackup, SaveLocalBackup, SavePartialLocalBackup } from "src/ts/drive/backuplocal";
     import { refuseBackupLoadWhileBusy } from "src/ts/drive/backupWorkGuard";
     import Button from "src/lib/UI/GUI/Button.svelte";
