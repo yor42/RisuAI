@@ -43,7 +43,21 @@ function isUpdateReminderActive(): boolean {
     return false
 }
 
+/**
+ * The desktop updater is off until the fork has its own release endpoint and
+ * signing key. While false, `checkRisuUpdate` makes no plugin call and no
+ * network request. These change together to turn it on: the `endpoints` and
+ * `pubkey` under `plugins.updater` and `bundle.createUpdaterArtifacts` in
+ * `src-tauri/tauri.conf.json`, the release signing secrets used by the release
+ * workflow, and this constant. An upstream pubkey with a fork endpoint (or the
+ * reverse) rejects every update on signature mismatch.
+ */
+const UPDATER_ENABLED = false
+
 export async function checkRisuUpdate(){
+    if(!UPDATER_ENABLED){
+        return
+    }
     try {
         const checked = await check()     
         if(checked){

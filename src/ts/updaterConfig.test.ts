@@ -1,0 +1,48 @@
+/**
+ * `src-tauri/tauri.conf.json` is the only place the desktop updater's endpoint
+ * and signing identity live, and the Rust plugin enforces it for every caller,
+ * including a raw `plugin:updater|check` IPC call that bypasses `update.ts`.
+ *
+ * Tests titled `guard:` pin behaviour that must be preserved and pass before
+ * and after the change; they are not proof of a fix.
+ */
+import { readFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
+import { describe, expect, test } from 'vitest'
+
+interface TauriConf {
+    bundle?: { createUpdaterArtifacts?: unknown }
+    plugins?: {
+        updater?: {
+            pubkey?: unknown
+            endpoints?: unknown
+        }
+    }
+}
+
+async function readTauriConf(): Promise<TauriConf> {
+    const path = resolve(process.cwd(), 'src-tauri/tauri.conf.json')
+    return JSON.parse(await readFile(path, 'utf8')) as TauriConf
+}
+
+describe('tauri.conf.json updater settings', () => {
+    test('the updater has no endpoint, so the plugin refuses every check', async () => {
+        const conf = await readTauriConf()
+
+        expect(conf.plugins?.updater?.endpoints).toEqual([])
+    })
+
+    test('no updater artifacts are built, so no signing key is needed', async () => {
+        const conf = await readTauriConf()
+
+        expect(conf.bundle?.createUpdaterArtifacts).toBe(false)
+    })
+
+    test('guard: the updater block keeps a non-empty pubkey, because the registered plugin requires one in its config', async () => {
+        const conf = await readTauriConf()
+        const updater = conf.plugins?.updater
+
+        expect(typeof updater?.pubkey).toBe('string')
+        expect((updater?.pubkey as string).length).toBeGreaterThan(0)
+    })
+})
