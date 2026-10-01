@@ -1,18 +1,19 @@
 # Wiki Sync
 #
-# What this does: mirrors the flat Markdown pages in this repo's `wiki/`
+# What this does: mirrors the flat Markdown pages in this repo's `docs/wiki/`
 # folder onto this repository's GitHub wiki (the separate git repo
-# `<owner>/<repo>.wiki.git`), whenever `wiki/` changes on the default
-# branch (or on manual dispatch).
+# `<owner>/<repo>.wiki.git`), whenever `docs/wiki/` changes on the default
+# branch (or on manual dispatch). Only `docs/wiki/` is mirrored; the other
+# files in `docs/` are never copied to the GitHub wiki.
 #
 # One-time setup: enable the wiki in repo Settings, then create any first
 # page through the GitHub web UI. GitHub only creates the `.wiki.git` repo
 # after that first page exists, so this workflow will fail with a clear
 # `::error::` until it has been done once.
 #
-# Source of truth: `wiki/` in this repository. Edits made directly in the
+# Source of truth: `docs/wiki/` in this repository. Edits made directly in the
 # GitHub wiki web UI are NOT preserved - they will be overwritten (or the
-# page deleted) on the next sync from `wiki/`.
+# page deleted) on the next sync from `docs/wiki/`.
 #
 # This workflow is fork-specific and intentionally guarded to only run in
 # the `yor42/RisuAI` fork, never in upstream `kwaroran/RisuAI` or in a
@@ -23,7 +24,7 @@ name: Wiki Sync
 on:
   push:
     paths:
-      - 'wiki/**'
+      - 'docs/wiki/**'
       - '.github/workflows/wiki-sync.yml'
   workflow_dispatch: {}
 
@@ -54,7 +55,7 @@ jobs:
             exit 1
           fi
 
-      - name: Mirror wiki/ into the wiki repo
+      - name: Mirror docs/wiki/ into the wiki repo
         run: |
           set -euo pipefail
           rsync -a --delete \
@@ -71,7 +72,7 @@ jobs:
             --include "*.ico" \
             --include "*.pdf" \
             --exclude "*" \
-            "wiki/" "wiki-repo/"
+            "docs/wiki/" "wiki-repo/"
 
       - name: Commit and push if changed
         working-directory: wiki-repo

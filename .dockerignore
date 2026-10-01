@@ -38,7 +38,7 @@ scripts
 build
 # Agents holds a gitignored folder of third-party material and large local tool output.
 Agents
-wiki
+docs
 src-tauri
 util
 server/hono

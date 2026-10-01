@@ -27,21 +27,21 @@ This is a fork of [RisuAI](https://github.com/kwaroran/RisuAI), a cross platform
 
 ## What's different from upstream
 
-This is a short list of changes you will notice. See [Migrating from upstream](wiki/Migrating-from-upstream.md) for moving your data.
+This is a short list of changes you will notice. See [Migrating from upstream](docs/wiki/Migrating-from-upstream.md) for moving your data.
 
 - **No RisuAccount and no Google Drive backup.** Account sign-in, sync and Drive backup are removed. RisuRealm still works, and the first time you use it the app asks you to accept upstream's Terms of Service and Privacy Policy. Move data with a local `.bin` backup. A `.bin` made while signed in to RisuAccount on `risuai.xyz` cannot be read here.
 - **Saving across tabs and devices.** A self-hosted Node server refuses a save from a stale tab instead of overwriting newer data. When another tab saves, a tab with no unsaved edits usually reloads, but not while it has an unsaved draft open, and not more than twice a minute. A tab with unsaved edits asks you first, and asks again at most once a minute.
 - **Restoring a backup is guarded.** Load Backup Locally and Load Internal Backup refuse to run on the web build while another tab of the app is open, and warn you if the browser cannot check. They also refuse while a reply is being written into a chat. Load Internal Backup now writes the snapshot as the main save and reloads the app.
 - **Local backups include every asset, not only `.png` files.** Audio, video, WebP, JPEG, font and CSS assets are included. Inlay images, video and audio in chat messages are still not backed up.
 - **"Clean Unused Archived Data and Assets" is a guarded, manual clean-up.** It refuses while a reply is being written, while saving has stopped, and while two characters share an id. It also refuses when the saved data has changed since the page last read it (or the page has no record of it yet), and on the web build while another tab is open. It also deletes unused asset files.
-- **Archived characters load when you open them.** The automatic 10-day archiving of characters is gone. A new archiving pass is still being built, so this fork does not archive characters yet. The Advanced setting "Archive characters at startup" exists, but it does nothing until that pass lands.
+- **Characters are archived at startup and load when you open them.** The automatic 10-day archiving of characters is gone. Instead, on the desktop app and in browsers that support it, a pass at startup moves each eligible character's full data into a separate copy and leaves a small stub in the main save; the character loads when you open it, and nothing is deleted. It is on by default, and the app tells you the first time it archives. Turn it off in Settings > Advanced Settings > "Archive characters at startup".
 - **Work stays in the chat it started in.** A reply, and the memory summaries and variable writes that come with it, are written into the chat the message was sent from, even if you switch chats, add a branch or reorder chats while it generates.
 - **Deleting a chat or character stops the work in it.** Deleting a chat warns you if something is still writing into it, and deletes the chat you confirmed even if the list changed meanwhile.
 - **Escape no longer answers a prompt.** Escape does nothing on a confirm or input prompt that waits for an answer, instead of answering it with an empty answer. It still closes information alerts.
 
 ## Documentation
 
-- [Wiki](wiki/Home.md): the pages in this repository, rewritten for this fork.
+- [Wiki](docs/wiki/Home.md): the pages in this repository, rewritten for this fork.
 - [Plugin development guide](plugins.md)
 
 ## Building from source
@@ -90,7 +90,7 @@ Windows `cmd` cannot hold an empty variable. There, and in any shell, you can in
 
 ## Docker
 
-This fork builds from source with Docker. It uses its own project, container and volume names (`risuai-fork` and `risuai-fork-save`), so it does not touch an upstream Docker install. To bring your data over, make a `.bin` backup on upstream and load it here, as described in [Migrating from upstream](wiki/Migrating-from-upstream.md).
+This fork builds from source with Docker. It uses its own project, container and volume names (`risuai-fork` and `risuai-fork-save`), so it does not touch an upstream Docker install. To bring your data over, make a `.bin` backup on upstream and load it here, as described in [Migrating from upstream](docs/wiki/Migrating-from-upstream.md).
 
 1. Clone this repository.
 2. From the repo root, build and start it:

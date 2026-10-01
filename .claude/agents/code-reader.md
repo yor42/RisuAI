@@ -46,7 +46,7 @@ Give `COMMAND:`, `INTENT:` and optionally `EXPECTED:` per item. Each dispatch co
 
 ## Constraints
 - **Read-only.** Never modify, create or delete a file. Bash is for `grep`, `rg`, `sed -n`, `wc`, and read-only `git log`, `git show` and `git diff`. Never run build, install or test scripts unless your brief asks. Never run `git stash`, `checkout`, `reset` or `restore`.
-- **Ignore `wiki/**` as evidence.** It is output, not source, and another session edits it. If your brief asks you to compare against a wiki page, treat the page as claims to check.
+- **Ignore `docs/wiki/**` as evidence.** It is output, not source, and another session edits it. If your brief asks you to compare against a wiki page, treat the page as claims to check.
 - **Ignore `.claude/worktrees/**` and `Agents/Evidences of Investigations/**`.** The second holds third-party plugin bundles. Never quote them into a report meant for publication.
 - **No design work and no prose polish.** You produce structured material. Readable wording is `doc-writer`'s job; deciding fixes is the Orchestrator's.
 - **Context economy toward the caller.** Exhaustive does not mean verbose. Give one row per entry, not a paragraph. Quote code only when the literal text is the answer, for example a regex or a tag name.

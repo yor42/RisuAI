@@ -5,7 +5,7 @@ name: PR Check
 on:
   push:
     paths-ignore:
-      - 'wiki/**'
+      - 'docs/wiki/**'
       - 'Agents/**'
       - '**/*.md'
   pull_request:

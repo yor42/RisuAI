@@ -73,8 +73,8 @@ write and commit themselves, so an unexpected commit touching it is theirs (`MC-
 ## Parallel sessions (2026-09-30)
 
 Several sessions work **in this same checkout**:
-- **"Main Campaign"** (this one) owns everything outside `wiki/`, including the `Agents/` records.
-- **"Wiki"** owns `wiki/**` only. It writes nothing to `Agents/`; its findings, suspected bugs and
+- **"Main Campaign"** (this one) owns everything outside `docs/wiki/`, including the `Agents/` records.
+- **"Wiki"** owns `docs/wiki/**` only. It writes nothing to `Agents/`; its findings, suspected bugs and
   questions go to the maintainer in its final report.
 - **"Q&A"** is read-only. Its memory-footprint brief started the memory stages (`MC-130`), and it
   handed over the maintainer's real-profile measurement (ledger row 470).
@@ -145,7 +145,7 @@ should fill them.
 2. **Next: memory stage 1 step 5d** (5a, 5b and 5c are done; Report 49 section 3.4, step 5; Gate 2 is
    `opus-reviewer`). Its scope is listed under "5d" below.
    - **CHORE-16 PG-1 is done** (Report 54). The Wiki session has committed the Playground page
-     (`wiki/Playground.md`, `6ad13bac`) to match it. The Main Campaign session does not touch `wiki/**`.
+     (`wiki/Playground.md`, `6ad13bac`) to match it. The Main Campaign session does not touch `docs/wiki/**`.
    - **A CI/Docker rework and the desktop updater disable are committed** (`712a76ad` and `38583d3b`;
      `MC-154`; ledger rows 536 to 539). The CI/Docker rework passed Gate 2 `[APPROVE]`; the updater disable
      passed `[EDITORIAL]` and its correction is applied. Neither has had a real run: no Docker build, no PR
@@ -396,20 +396,20 @@ Answered on 2026-10-01 and removed from this list:
   does not mention the investigation of every request the fork sends to upstream's servers that the
   Orchestrator had offered.
 
-**Wiki session hand-off (no edit to `wiki/**` was made by this session).** Checked against source on 2026-10-01:
-- `wiki/Migrating-from-upstream.md` (the "In-place upgrades" section, and the earlier sentence about the same
+**Wiki session hand-off (no edit to `docs/wiki/**` was made by this session).** Checked against source on 2026-10-01:
+- `docs/wiki/Migrating-from-upstream.md` (the "In-place upgrades" section, and the earlier sentence about the same
   server folder or Docker volume) describes swapping an upstream Docker install for this fork on the same
   volume as a supported route (`MC-087` 1). The fork's default `docker-compose.yml` now uses its own project,
   container and volume names (`risuai-fork`, `risuai-fork-save`; `MC-153` 2), so an upstream Docker volume is
   opened in place only if the user points the compose file at it deliberately. The `save/` folder route on a
   Node server is not affected.
-- `wiki/Settings-Backup-and-Files.md`, the Load Internal Backup row, says it installs the restored database,
+- `docs/wiki/Settings-Backup-and-Files.md`, the Load Internal Backup row, says it installs the restored database,
   shows "Loaded backup" and "does not reload the app". Since `448962f4`, `loadInternalBackup`
   (`src/ts/drive/internalBackup.ts:154-180`) writes the snapshot as the main save and reloads the page (or
   relaunches on Tauri). The Clean Unused Cold Storage row uses the old label; the English label is now "Clean
   Unused Archived Data and Assets" (`cleanColdStorage` in `src/lang/en.ts`), and the clean-up also deletes
   unused asset files and has more refusals (`src/ts/storage/manualCleanup.ts`, `currentRefusal`).
-- `wiki/Settings-Advanced.md`, the Cold Storage row, uses the old label, the root key `coldstorage` and the
+- `docs/wiki/Settings-Advanced.md`, the Cold Storage row, uses the old label, the root key `coldstorage` and the
   old default. Since `33545c2c` the checkbox is "Archive characters at startup" (`coldStorage` in `en.ts`),
   bound to `archiveCharacters` (absent or `true` means on; `src/ts/setting/advancedSettingsData.ts`, id
   `adv.coldstorage`). Since `9b312962` the boot pass reads it (`tree.archiveCharacters === false` stops the pass,

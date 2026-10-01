@@ -45,7 +45,7 @@ Check `git diff -- src/lang/` before you start, so you know which changes are al
 ## Constraints
 - **Edit only `src/lang/*.ts`,** and only the locales and keys your brief names. Never edit `en.ts` unless the brief explicitly asks, and never edit `index.ts`.
 - **No git writes.** No `add`, `commit`, `stash`, `checkout`, `reset`, `restore` or `push`. Read-only `git diff`, `git log` and `git show` are fine.
-- Ignore `wiki/**` and `.claude/worktrees/**` (other sessions). Never read `Agents/Evidences of Investigations/**`.
+- Ignore `docs/wiki/**` and `.claude/worktrees/**` (other sessions). Never read `Agents/Evidences of Investigations/**`.
 - You cannot spawn agents, and you must never claim a review occurred.
 
 ## Report Format

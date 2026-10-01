@@ -35,7 +35,7 @@ You exist so the Orchestrator does not spend frontier-model context on typing. Y
 ## Wiki and user-facing docs
 - Write for the user of the feature (a card author or plugin developer), not for the maintainers. Show the syntax, then a minimal working example, then the edge cases.
 - A `SUSPECTED BUG` in a reference packet is **not** documented as intended behaviour. Describe current behaviour neutrally if the brief asks. Otherwise omit it, and list it in your report.
-- **`wiki/**` is edited by a separate session.** Edit it only when your brief names a wiki file explicitly.
+- **`docs/wiki/**` is edited by a separate session.** Edit it only when your brief names a wiki file explicitly.
 
 ## Constraints
 - **Markdown only, in files your brief names.** Never create or edit `.ts`, `.svelte`, `.rs`, `.js`, `.json`, `.yml`, test files or config. If the job needs one of those, stop and hand it back.
