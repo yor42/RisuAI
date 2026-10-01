@@ -4141,6 +4141,10 @@ Item 1 is replaced by MC-142; item 2 is reversed by MC-139 3; item 4 is amended 
 *Extended by `MC-158` 4: where item 1 is documented (the README's self-hosted server section, and a hand-off to the
 Wiki session).*
 
+*Premise of item 1 corrected by `MC-159` 3 (2026-10-02): the "existing conflict prompt" reaches only tabs of the same
+browser. A second device or browser gets a toast, and its tab stops saving until it is reloaded. The decision to accept
+and document the case stands; `MC-159` 1 adds a ticket for gentler recovery (CHORE-62).*
+
 ---
 
 ### MC-139 — Characters must also be released during a session; the maintainer browses hundreds of characters per session; asset clean-up moves into the manual clean-up; the plugin-storage migration is retired
@@ -5085,3 +5089,91 @@ text (the step 5d-2b plan); the wording of the "unavailable" restore text (step 
 
 Step 5d is split into sub-steps, and the first (5d-1) is committed as `e8cf50de` (ledger rows 558 to 565). The
 mechanisms and the Orchestrator's calls are in those rows, in Live-State and in the commit, not here.
+
+*Item 4's question text carries the premise corrected by `MC-159` 3: it says the first device "gets the existing
+conflict prompt". What the first device gets is a toast and a stopped tab (`MC-159` 3). Item 4's answer, where the note
+goes, is unchanged.*
+
+---
+
+### MC-159 — Step 5d-4: two devices on a Node server get a plain README note and a ticket for gentler recovery (CHORE-62); a restore that cannot succeed gets its own wording; `MC-138` 1's "conflict prompt" premise was wrong
+
+- **Tag:** decision (1, 2) and corrected (3)
+- **Date:** 2026-10-02 (the Orchestrator's and the session notes' dating; the transcript timestamp of the two answers is
+  2026-10-01T20:13:06Z, which is 05:13 on 2026-10-02 at UTC+9)
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer chose the recommended option on both questions the Orchestrator asked with
+  AskUserQuestion after the step 5d-4 investigation (ledger row 588). The first question (item 1) was asked because
+  that investigation found the consequence in item 3 below; the question text already stated it. Item 3 is not a
+  maintainer statement: it is the Orchestrator's check of the investigator's finding in source, and it is recorded
+  here because two earlier entries rest on the wrong premise.
+- **Reasoning:** the maintainer gave no reason beyond the answers. The reasons in each option's text are the
+  Orchestrator's, quoted below.
+- **Alternatives rejected** (the other options the Orchestrator offered on each question):
+  - item 1: "Document only" and "No archiving on Node";
+  - item 2: "No-storage case only".
+- **Corrects:** the premise of `MC-138` 1 and of `MC-158` 4's question text (item 3).
+- **Extends:** `MC-138` 1 and `MC-158` 4, by item 1 (a ticket in addition to the documentation).
+- **Related:** MC-011, MC-089, MC-138, MC-158, Report 49 D1, CHORE-62; ledger rows 588 to 597.
+
+**What was decided** (the question, verbatim, then the answer and the option text; the texts are from the session
+transcript):
+1. **Two devices on a Node server: the README states the real consequence, and a ticket is filed for gentler
+   recovery on the first device.** The question: "On a self-hosted Node server, starting the app on device B archives
+   characters and saves. If the app is already open on device A, A's next save is refused: A shows a toast and a
+   'this tab has stopped saving' message, keeps nothing until it is reloaded, and loses edits made since its last
+   save. Earlier notes said A would just get a conflict prompt. How should part 4 handle this?" The answer:
+   "Document + ticket (Recommended)": "The README says plainly: opening the app on a second device can stop saving on
+   the first; reload the first, and edits there since its last save are lost. Also file a ticket for gentler
+   recovery on the first device (e.g. reload and keep its edits), placed later in the work order." The options not
+   chosen were "Document only": "The README line states the real consequence; no ticket. The behaviour is accepted
+   as is."; and "No archiving on Node": "Startup archiving never runs when the app is served by the Node server.
+   Removes the trigger, but Node-served users lose the memory saving."
+   - **Extends `MC-138` 1 and `MC-158` 4.** The README bullet and the Wiki session hand-off (Live-State) carry the
+     real consequence; the ticket is Roadmap CHORE-62. "placed later in the work order" is in the option text the
+     Orchestrator wrote and the maintainer selected; the maintainer added no placement words. The position after steps
+     6 and 7 and before CHORE-58 is the Orchestrator's, to confirm.
+2. **A restore that cannot succeed gets its own message in both cases, for characters and for chats.** The question:
+   "The 'could not be loaded right now, please try again' message shows in two cases where retrying can never help: a
+   browser that has no storage for archived characters on this page (plain HTTP, not localhost), and a stored copy
+   that is damaged and cannot be decoded. Which cases should get their own message?" The answer: "Both cases
+   (Recommended)": "No storage on this page: say it needs HTTPS or localhost and nothing was changed. Damaged copy:
+   say it could not be read, nothing was changed or deleted, and retrying will not help. A real read error keeps 'try
+   again'. The same split applies to the archived-chat message. About 4-6 new keys across 7 languages." The option
+   not chosen was "No-storage case only": "Only the case the original requirement names. A damaged copy keeps saying
+   'try again'. 2 new keys across 7 languages."
+   - **The wording that was built differs from the option text in three places** (by the Orchestrator's plan, not a
+     maintainer decision. While the plan was in Gate 1 the Orchestrator told the maintainer in chat that the no-storage
+     text would not suggest HTTPS, because a different address has different storage, and that the damaged text would
+     not promise that retrying is pointless; its reason then, a possible half-written file on a Node server, was
+     refuted by Gate 1 F6 (the Node server writes by temp file and rename), and the plan now rests on the cause of
+     undecodable bytes being unknown. The transcript does not show that the maintainer was told the key count would be
+     8 rather than "about 4-6"):
+     - the no-storage text offers no remedy, because opening the page over HTTPS opens a different origin with
+       different storage (plan 5d-4, I4; the 5d-4 commit message draft);
+     - the damaged text says the copy "may be damaged" and that nothing was changed or deleted, and does not say that
+       retrying will not help, because the cause of bytes that cannot be decoded is not known (plan 5d-4, I4, as
+       corrected after Gate 1 round 1 F6);
+     - 8 new keys in 7 languages were drafted, not "about 4-6" (the interface file; the coder and the translator).
+
+**What was corrected:**
+3. **`MC-138` 1 and `MC-158` 4 call the first device's consequence "the existing conflict prompt". That is wrong for a
+   second device or browser.** What the first device gets, read in `src/ts/globalApi.svelte.ts` on 2026-10-02
+   (the `NodeStorageConflictError` branch of `saveDb`, `:1451-1504`; `globalApi.svelte.ts` is unchanged by the working
+   tree): when a save is refused before it commits, a toast says the local data conflicts with a newer version on the
+   self-hosted server and that unsynced local changes will be lost on reload; the loop logs the error, sets
+   `savingStoppedReason` to `'node-conflict'` and awaits `sleepForever()`, so nothing ends it but a reload. The tab
+   prompt that `MC-138` 1 meant rests on `BroadcastChannel('risu-db')` (`:1040-1051` sets `otherTabSaved` when another
+   session posts; the post is at `:1376`); a BroadcastChannel reaches only tabs of the same browser, so a second device
+   or browser never sends it (the investigator's finding in row 588 and the fact-check of the README bullet, row 594).
+   - **Unproven:** that device B's startup archive commit always makes device A's next save fail. That is INFERRED
+     from the shared revision check (the 5c commit carries the Node revision); no real Node server was run (Live-State
+     lists it as not run).
+   - **Not corrected:** `MC-138` 1's decision to accept the case and document it. Item 1 adds a ticket to it.
+   - **The 5d-3 commit message repeats the premise.** `3fca470e` says that, on a shared Node save, an enrichment
+     commit means "another device with the app open gets the existing conflict prompt on its next save". A commit
+     message is not edited here; this entry is the correction.
+
+Step 5d-2a, 5d-2b, 5d-3 and 5d-4 are committed as `29bf2f24`, `4d23b1b4`, `3fca470e` and `e7d7f093` (ledger rows 570
+to 596). The 5d-4 commit message cites `MC-159`, so the records commit that carries this entry should follow it at
+once. The mechanisms and the Orchestrator's own calls are in those rows, in Live-State and in the commits, not here.

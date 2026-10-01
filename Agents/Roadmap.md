@@ -2739,6 +2739,59 @@ entry records that upstream `main` has the same one-block-per-`chaId` code.
 - **Related:** CHORE-28 (the duplicate guard), CHORE-52 (cold-storage keys that alias); memory stage 1 step 5d-1
   (`e8cf50de`, ledger rows 558 to 565).
 
+### CHORE-62 — On a Node server, another device's save makes this device stop saving until it reloads, and its edits since its last save are lost (TRACED; not run against a real server)
+
+**Status (2026-10-02):** open, **placed in the work order after steps 6 and 7 and before CHORE-58**; type: usability
+and data-loss risk for edits made after the last successful save. **The placement is the Orchestrator's call, to
+confirm with the maintainer.** The only placement wording is in the option text the maintainer selected (`MC-159` 1,
+"Document + ticket (Recommended)"): "placed later in the work order". Filed from memory stage 1
+step 5d-4's investigation (ledger row 588). The README documents the consequence as it is today (see below).
+
+- **What exists (read at the working tree on 2026-10-02, on HEAD `3fca470e`; `globalApi.svelte.ts` has no uncommitted
+  change):**
+  - In the `saveDb` loop, the `NodeStorageConflictError` branch (`src/ts/globalApi.svelte.ts:1451-1504`) has two arms.
+    **Before the commit** (`primaryCommitted` false, `:1483-1503`): one toast ("Your local data conflicts with a newer
+    version on the self-hosted server — your latest changes could not be saved. Reload the app to get the current data
+    (unsynced local changes will be lost)."), `console.error`, `saving.state = false`,
+    `savingStoppedReason.set('node-conflict')` and `await sleepForever()` (`:1500-1502`). `sleepForever` never
+    resolves (`src/ts/util.ts:50`), so only a reload ends it, and the code comment says so. **After the commit**
+    (`:1476-1482`): a different toast and the loop goes on; the tab is not parked.
+  - The red save-stopped icon shows `savingStoppedNodeConflictMessage` for that reason (`SavePopupIcon.svelte:9-10`;
+    `en.ts`: "...this tab has permanently stopped trying to save. Changes made from now on will not be kept. Reload the
+    app to get the current data — any unsynced local changes will be lost."; line 1220 at `e7d7f093`, `:1208` at
+    `3fca470e`, the difference being step 5d-4's eight keys).
+  - The tab prompt that `MC-138` 1 called "the existing conflict prompt" is a different mechanism. It rests on
+    `BroadcastChannel('risu-db')` (`:1040-1051`; the post at `:1376`), which reaches only tabs of the same browser. A
+    second device or browser sends nothing on it (`MC-159` 3).
+  - The 409 itself is the Node server's per-file revision check, Phase 1.5 Tier B Stage 1 of this campaign (Phase 1.5
+    item 2, above). Whether upstream's Node server has the same check was not looked at for this entry.
+- **Trigger:** any save by another device or browser to the same Node key. Startup archiving is the on-by-default
+  trigger, because a start can save without an edit: the boot archive pass (5c), and since step 5d-3 the fill-in of
+  upstream placeholders, which runs even with archiving off. The README names the first. **INFERRED, not run:** that
+  device B's startup commit always makes device A's next save fail (the 5d-4 investigator's open question 3; the
+  commit goes through `forageStorage.setItem` in `src/ts/storage/bootArchiveHost.ts:81`, and a comment there says it
+  carries the Node revision).
+- **What the user sees today:** a toast, the red icon, and a tab that no longer saves. Edits made in that tab after
+  its last successful save are lost when the user reloads. Nothing offers to keep them.
+- **Not decided:** the shape of the recovery. The option text the maintainer selected gave one example, "reload and
+  keep its edits", which is an example and not a design. Open questions: where the unsynced edits would be kept, and
+  whether they can be merged or only offered back; and how it relates to the deferred Option 3 (CRDT/op-log merge) and
+  Option 4 (hard lock and takeover UI) in Phase 1.5 Tier B item 7, which wait on a product decision about whether
+  detect-and-refuse is acceptable as the long-term experience, and until Phase 2's per-character decomposition
+  exists. The code comment at `:1463-1464` points to Report 06
+  (`06-conflict-resolution-design-feasibility.md`) on why queuing the failed edit and reloading would discard it; that
+  report was not re-read for this entry. A fix is in the save path and the conflict protocol, so a plan would need
+  `opus-reviewer` and an upstream-compatibility check (`MC-011`).
+- **What would settle it:** a run with two browsers (or two devices) on a scratch Node server: open the app on A, start
+  and finish a boot on B with archiving on, then edit on A and watch for the toast and the icon; reload A and check
+  whether the edit is gone. Not run. `server/node/server.cjs` resolves `dist` and `save` from its working directory,
+  so a scratch folder does not touch the repo's `save/`.
+- **Placement:** after steps 6 and 7, before CHORE-58 (the Orchestrator's call, to confirm). It does not depend on the
+  idle reload; it is placed late because the option text the maintainer selected says "later in the work order" and the README now
+  states the behaviour.
+- **Related:** `MC-138`, `MC-158` 4, `MC-159`; Phase 1.5 Tier B items 2, 3 and 7 (above); memory stage 1 step 5d-4
+  (ledger rows 588 to 596).
+
 ## Sequencing Summary
 
 ```

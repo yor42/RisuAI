@@ -11,7 +11,7 @@ treat it as a log or history.
 
 ## Session date
 
-2026-10-01.
+2026-10-02.
 
 ## Branch and commit state
 
@@ -70,14 +70,26 @@ These later commits are local and not pushed:
   the maintainer's git identity);
 - `e8cf50de`: memory stage 1 step 5d-1, a character that cannot be archived is skipped, a save the archive
   cannot commit is refused, and a Node commit stays under the server's limit (`MC-158`; ledger rows 558 to 565);
+- `fe7c3d1d`: "docs(agents): record MC-157 and MC-158, CHORE-61, step 5d-1 and ledger rows 551 to 569" (by its commit
+  subject);
+- `29bf2f24`: memory stage 1 step 5d-2a, the startup archive pass pauses on this device after two failed passes in a
+  row (`MC-158` 1; ledger rows 569 to 574);
+- `4d23b1b4`: memory stage 1 step 5d-2b, V2.1 plugins are turned off after the restore of every archived character
+  dies twice in a row (`MC-158` 5; ledger rows 575 to 581);
+- `3fca470e`: memory stage 1 step 5d-3, characters that upstream archived are filled in at startup even with
+  archiving off (`MC-148`, `MC-158` 3; ledger rows 582 to 587);
+- `e7d7f093`: memory stage 1 step 5d-4, an archived character or chat that cannot be read on this page, or whose copy
+  may be damaged, gets its own message, and the README's two-device sentence (`MC-159`; ledger rows 588 to 596);
 - the records commit that carries this file.
 
 `712a76ad` and `38583d3b` were committed at the maintainer's approval ("commit the finished side works.");
 `9361ce1b` and `9b312962` at "commit the docs for now, and then 5c when ready."; `696ba5de` at "commit it, then
 do the records."; `435a8723` at "commit the docs and start step 5d."; `a6a27df5` and `590c5995` at "commit it";
-`e8cf50de` at "commit part 1, then start the part 2". Push only at the maintainer's request. None of these is
+`e8cf50de` at "commit part 1, then start the part 2"; `fe7c3d1d` at "go ahead and commit the docs."; `29bf2f24` at
+"commit part 2a and continue part 2b."; `4d23b1b4` at "commit part 2b, and start part 3"; `3fca470e` at "commit part
+3 and start part 4"; `e7d7f093` at "commit part 4 and the records when ready" (the session log's quotes). Push only at the maintainer's request. None of these is
 pushed (`origin/fix/persistence-conflict-platform-hardening` is `0a3fb2b0`, from the local remote-tracking ref,
-2026-10-01).
+2026-10-01; the records fact-check re-read it on 2026-10-02 and it was still `0a3fb2b0`).
 
 The working tree holds only this records batch's edits to the `Agents/` documents (until they are committed).
 `docs/` is tracked and holds the maintainer's own Terms of Service and Privacy Policy, which they write and commit
@@ -96,8 +108,8 @@ Several sessions work **in this same checkout**:
   build"** and **"Fork rebranding exploration"** are idle or done; see Report 39/41 and ledger
   row 428.
 
-**Next free numbers:** `MC-159` (`MC-158` is used), Report 56, ledger row 570 and CHORE-62
-(`CHORE-61` is used). Check the ledger's last row before taking one. `MC-114` and ledger rows 371-374 were reserved for W2c-a and left unused; nobody
+**Next free numbers:** `MC-160` (`MC-159` is used), Report 56, ledger row 600 and CHORE-63
+(`CHORE-62` is used). Check the ledger's last row before taking one. `MC-114` and ledger rows 371-374 were reserved for W2c-a and left unused; nobody
 should fill them.
 
 **Rules for every session:**
@@ -107,7 +119,7 @@ should fill them.
 
 ## Current work
 
-### Resume here (hand-off, 2026-10-01, memory stage 1: steps 1, 2, 3a, 3b, 4, 5a, 5b, 5c and 5d-1 done)
+### Resume here (hand-off, 2026-10-02, memory stage 1: steps 1, 2, 3a, 3b, 4, 5a, 5b, 5c, 5d-1, 5d-2a, 5d-2b, 5d-3 and 5d-4 done)
 
 1. **Memory-footprint stage 1 is planned and passed Gate 1** (Report 49, `MC-130` to `MC-145`,
    ledger rows 455-486). **Step 1 is done:** the exclusive manual clean-up (D11) and no startup asset
@@ -132,8 +144,8 @@ should fill them.
    commit (`a6719e35`; Report 55; Gate 1 by `adversarial-reviewer`, round 1 [REJECT], round 2
    [EDITORIAL], ledger row 518; Gate 2 by `opus-reviewer`, round 1 [REJECT], round 2 [EDITORIAL], row 519;
    the investigation is row 517 and the records fact-check row 520; `MC-147`). No live check was run.
-   **Steps 5a, 5b, 5c and 5d-1 are done** (`33545c2c`, `448962f4`, `9b312962`, `e8cf50de`; item 2). Steps 5d-2 to
-   5d-4, 6 and 7 have no code yet.
+   **Steps 5a, 5b, 5c, 5d-1, 5d-2a, 5d-2b, 5d-3 and 5d-4 are done** (`33545c2c`, `448962f4`, `9b312962`, `e8cf50de`,
+   `29bf2f24`, `4d23b1b4`, `3fca470e`, `e7d7f093`; item 2). Steps 6 and 7 have no code yet.
    **CHORE-16 PG-1 is done:** every character-list view (the grid, the mobile list, the group-member
    picker and the previous/next hotkeys; the sidebar's order already skipped both when `checkCharOrder`
    adds ids) skips `§playground` and `§temp`, and opening the Playground clears its `trashTime` and marks
@@ -156,9 +168,8 @@ should fill them.
      - there is no runtime archive engine (ledger row 475).
    - The working copy of the plan is in the session scratchpad (`memfoot/stage1c/plan.md`).
      Report 49 is the durable version.
-2. **Next: memory stage 1 step 5d-2a** (5a, 5b, 5c and 5d-1 are done; Report 49 section 3.4, step 5; Gate 2 is
-   `opus-reviewer`). Step 5d is split into sub-steps (5d-1 to 5d-4, with 5d-2 as 5d-2a and 5d-2b), listed under
-   "5d" below.
+2. **Next: the step 5 report (Report 56), then CHORE-53** (work order; Report 49 section 3.4, step 5, is done). Step
+   5d was split into sub-steps (5d-1 to 5d-4, with 5d-2 as 5d-2a and 5d-2b), listed under "5d" below.
    - **CHORE-16 PG-1 is done** (Report 54). The Wiki session has committed the Playground page
      (now `docs/wiki/Playground.md`, `6ad13bac`) to match it. The Main Campaign session does not touch `docs/wiki/**`.
    - **A CI/Docker rework and the desktop updater disable are committed** (`712a76ad` and `38583d3b`;
@@ -236,7 +247,8 @@ should fill them.
          Orchestrator's own implementation calls.
      - **5d, split into four sub-steps on 2026-10-01, and 5d-2 then into 5d-2a and 5d-2b** (the Orchestrator's
        calls, the first on the step 5d investigator's recommendation, ledger row 551, the second on the 5d-2
-       investigator's, row 566; each sub-step has its own gates; the maintainer's five answers are `MC-158`):
+       investigator's, row 566; each sub-step has its own gates; the maintainer's five answers are `MC-158`, and the two
+       for 5d-4 are `MC-159`):
        - **5d-1, done** (`e8cf50de`): a pre-write refusal for the inputs that make the commit fail on every boot
          (a `chaId` equal to one of the seven fixed block names, equal to another slot's after `String`, `__proto__`,
          over 255 UTF-8 bytes or not surviving UTF-8, a non-array `modules`, `plugins` or `loadouts`; an array
@@ -245,27 +257,57 @@ should fill them.
          (ledger row 558). Gate 2 `opus-reviewer`: `[EDITORIAL]`, corrections applied (row 563). Final tree: 248
          files, 4,157 passed, 4 skipped; `pnpm check` 0 errors and 0 warnings; the build was run (the commit
          message). **Not run:** Tauri, a real Node server, a browser's OPFS and Web Locks; no live check.
-       - **5d-2a, in progress:** the D18 pass breaker (`MC-158` 1, "Retry once, then pause"). Gate 1
-         (`opus-reviewer`): round 1 `[REJECT]` (F1 to F8: one success predicate, fail-closed tests, fixes to the red
-         claims, a fixed check order, plus editorial points); plan v2 approved in round 2 `[APPROVE]` (ledger row
-         569). The red tests (`test-warrior`) are in progress. The 5d-2 investigator is ledger row 566. Handed to
-         it by 5d-1:
-         whether a boot that archives some characters and then stops on two failures in a row counts as a failed
-         pass (the J13 limitation below); the unreadable-`localStorage` policy (the lean is to fail closed, as the
-         epoch code does; not decided); what counts as an interrupted pass, where the count settles, and the
-         notice text.
-       - **5d-2b:** the V2/V2.1 restore-all. The maintainer answered it (`MC-158` 5): after two startups in a row
-         fail during the V2.1 plugin restore-all, the V2.1 plugin is switched off with a notice naming it, and the
-         app opens; turning it back on tries again. The plan is written (`step5/5d2/plan-5d2b.md` in the session
-         scratchpad) and its Gate 1 (a fresh `opus-reviewer`) is running.
-       - **5d-3:** the `MC-148` enrichment of upstream-made stubs, which now also runs when `archiveCharacters`
-         is false (`MC-158` 3). It changes the guard test that pins "archiving off writes nothing" in
-         `bootArchivePass.gates.test.ts` (the investigator's P-C).
-       - **5d-4:** the "unavailable" restore wording (the classification already holds; only the text is open: "try
-         again" is wrong when no backend exists, investigator P-A), with the Orchestrator drafting the English and
-         `translator` the six others; and the two-device note (`MC-158` 4): a README line in the self-hosted server
-         section and a hand-off line asking the Wiki session to add it to `docs/wiki/`.
-       - **The Orchestrator's own 5d-1 calls** (not maintainer decisions; the records do not show that each was
+       - **5d-2a, done** (`29bf2f24`): the D18 pass breaker (`MC-158` 1, "Retry once, then pause"). Before the pass
+         writes anything it records a start on this device (`localStorage`); a pass that succeeds clears it; two
+         counted in a row pause archiving on this device, with one notice saying that turning "Archive characters at
+         startup" off and on resumes it. Gate 1 (`opus-reviewer`): round 1 `[REJECT]` (F1 to F8: one success
+         predicate, fail-closed tests, fixes to the red claims, a fixed check order, plus editorial points), round
+         2 `[APPROVE]` (ledger row 569). Gate 2 (`opus-reviewer`): `[EDITORIAL]`, 32 of 32 mutants killed (row 574).
+         Final tree: 252 files, 4,315 passed, 4 skipped; `pnpm check` 0 errors and 0 warnings; the build was run (the
+         commit message). **Not run:** Tauri, a real Node server, a browser's OPFS and Web Locks, a whole-browser
+         crash. Known limits (commit message): a pass whose commit reached the server but whose response was lost
+         stays counted until a later pass succeeds; a crash within the browser's storage flush delay after the start
+         record can lose it. The 5d-2 investigator is ledger row 566.
+       - **5d-2b, done** (`4d23b1b4`): the V2.1 restore-all breaker (`MC-158` 5). A count kept on this device is
+         raised before the restore reads its first character and reset when the restore ends; at 2 or more, with an
+         enabled V2.1 plugin and at least one archived character, the app does not restore, turns every enabled
+         V2.1 plugin off, names them in one notice and loads the other plugins. Turning a V2.1 plugin on in the plugin
+         settings (the exported `togglePluginEnabled`), or a start with no enabled V2.1 plugin, clears the count. The
+         count fails open, unlike the pass's. Gate 1 (`opus-reviewer`): round 1 `[REJECT]` (F1 to F9), round 2
+         `[EDITORIAL]` (row 575). Gate 2 (`opus-reviewer`): round 1 `[EDITORIAL]` with 35 of 37 mutants killed, the
+         two survivors then killed by one added and one tightened test; round 2 `[EDITORIAL]` (row 580). Final tree:
+         254 files, 4,372 passed, 4 skipped; `pnpm check` 0 and 0; the build was run (the commit message). **Not
+         run:** Tauri, a real Node server, a browser's OPFS, a real tab kill or out-of-memory. Known limits (commit
+         message): the count is per device but the plugin's on/off is in the save, so turning it off reaches every
+         device that shares the save; a restore running in another tab can count toward a trip; a page that dies
+         after the restore is not counted.
+       - **5d-3, done** (`3fca470e`): the `MC-148` enrichment of upstream-made stubs, which now also runs when
+         `archiveCharacters` is false (`MC-158` 3). Gate 1 (`opus-reviewer`): rounds 1 and 2 `[REJECT]`, round 3
+         `[EDITORIAL]` (row 583); Gate 2 (`opus-reviewer`): rounds 1 and 2 `[EDITORIAL]` (row 586). The 5d-3
+         investigator found that the guard test pinning "archiving off writes nothing" in
+         `bootArchivePass.gates.test.ts` does not flip (it uses a tree with no stub); the archiving-off row of an
+         archiving test table became its own guard test instead (row 582). Final tree: 255 files, 4,660 passed, 4
+         skipped; `pnpm check` 0 and 0; the build was run before the comment, string and test-only remediation and
+         not re-run after it (the Orchestrator's log). **Not run:** Tauri, a real Node server, a browser's OPFS, a
+         real tab kill or out-of-memory. Not measured: the first start that fills something in rewrites the whole
+         save (commit message; Report 49 D20 and step 7).
+       - **5d-4, done** (`e7d7f093`): the "unavailable" restore wording (`MC-159` 2) and the two-device note
+         (`MC-159` 1). The reader keeps its `'error'` status and gains a kind (no storage on this page; a stored copy
+         that cannot be decoded), and the restore messages and the chat notices choose their text by it, and a legacy
+         chat's Retry button is hidden for both kinds; no consumer that keeps, skips, deletes or counts reads by it.
+         Eight new keys in the seven languages. The README's "Saving across tabs and devices" bullet states the
+         two-device consequence. Gate 1 (`adversarial-reviewer`): round 1 `[REJECT]`, round 2 `[EDITORIAL]` (row
+         589). Gate 2 (`adversarial-reviewer`) round 1 `[EDITORIAL]` (E1 to E7 and O1 to O5; row 595): the red claim
+         of 164 failing tests at the parent (109 on behaviour, 55 on missing exports) reproduced, and 47 of 50
+         mutants were killed; m29 and m80 survive and m63 is not exercised by any test, and none changes behaviour.
+         The remediation (the `test-warrior` and `sonnet-coder` runs, row 596) was checked in round 2,
+         `[EDITORIAL]` (N1, N2 and N4 required, N3 optional; all applied). At the parent 162 of the new tests fail:
+         107 on behaviour and 55 on missing functions (164, 109 and 55 before the remediation). Final tree: 261
+         files, 4,956 passed, 4 skipped; `pnpm check` 0 and 0; the build was run. 14 round-2 mutants: all killed
+         except `r2_m63b`, which is equivalent. **Not run:** a real plain-HTTP static build, a browser's Worker
+         decode path (Vitest uses fflate's Node build), Firefox private mode, Safari, a real Node server for the
+         README sentence. The fact-check of these records is ledger row 598; the records commit follows (the 5d-4
+         commit message cites `MC-159`).       - **The Orchestrator's own 5d-1 calls** (not maintainer decisions; the records do not show that each was
          reported to the maintainer):
          - the 5d split into four sub-steps, and 5d-2 into 5d-2a and 5d-2b;
          - the Node limit is the number 104,857,600 bytes, kept in `server/node/bodyLimit.cjs` (which `server.cjs`
@@ -284,6 +326,56 @@ should fill them.
            dead server (Gate 1 round 1 F2);
          - **accepted limitation (J13):** two unwritable characters next to each other in the eligible order stop
            archiving at that point on every start; whether 5d-2's breaker counts such starts is 5d-2's decision.
+       - **The Orchestrator's own 5d-2a, 5d-2b, 5d-3 and 5d-4 calls** (not maintainer decisions; the records do not
+         show that each was reported to the maintainer; the first group answers the 5d-1 hand-off above):
+         - 5d-2a: a pass counts as failed unless it archived at least one character or did not stop on two failures in
+           a row, so a pass that only skipped single characters succeeds, and a stop on two failures that archived
+           nothing counts, even if the key alone was committed (plan option (c); commit message); a refused main-file
+           write, including a Node 409, and a commit over the Node limit count; a count that cannot be read, or a
+           start record that cannot be written or read back, stops the pass for that start without writing (the
+           unreadable-`localStorage` policy: fail closed), and a stored count that is not a whole number reads as
+           paused; the paused notice is posted last, once, on the start whose own failure made the count two (or on a
+           later start that never posted it); the count and the "told" record clear when the setting is turned off or a
+           start reads it off, together with the skip and too-large records;
+         - 5d-2b: only a restore that dies counts (one that throws does not, so the app opens and the plugin settings
+           can be reached); every restore counts, not only the one at a start; the count is cleared by turning a V2.1
+           plugin on in the plugin settings or by a start with no enabled V2.1 plugin, not by the switch-off (that
+           reaches the save only with the next save); the count fails open (a count that cannot be read or written lets
+           the restore run, with a warning), unlike the pass's; its key is separate from the pass's keys. **Disclosed,
+           not closed:** the count is per device while the plugin's flag is in the save (Gate 1 round 1 F3, the
+           commit message's known limits);
+         - 5d-3: the fill-in has its own failure count outside the archive memo (`localStorage` key `stubEnrichStrikes`,
+           which the archiving-off clear leaves alone), because that clear would erase an off-profile count at the next
+           start (investigator R3); a filled-in placeholder never counts as a successful pass for the archive breaker;
+           the fill-in runs before the archiving loop; the archived copy's trash time is never copied to the
+           placeholder. **To report to the maintainer:**
+           - **a silent stop:** after two failed or interrupted fill-in attempts in a row the fill-in stops on this
+             device with a console warning and no notice. Only changing the archiving setting in Settings (either
+             way) re-arms it; a setting changed by a restored backup or by another device leaves it stopped (commit
+             message);
+           - **two new web boot outcomes** that `MC-158` 3's option text did not describe: on the web, a profile with
+             archiving off can now stop at start with an error, or fall back to a backup, if a failed fill-in save is
+             followed by a save file that cannot be read back (commit message);
+           - **English-only progress text:** the loading-screen text of the fill-in is English and avoids the word
+             "Archiving" (the 5d-3 plan: no translation of it, by the precedent that the pass's own text is English);
+           - on a shared Node save, a fill-in commit moves the save's revision, so another device with the app open
+             stops saving on its next save (INFERRED, as in CHORE-62; the commit message calls this "the existing
+             conflict prompt", which `MC-159` 3 corrects);
+         - 5d-4: the damaged text says the copy "may be damaged" and that nothing was changed or deleted (the legacy-chat
+           texts say the visible messages are unaffected instead), and does not say that retrying will not help; the
+           no-storage text offers no remedy (opening the page over HTTPS opens a different origin). Both differ from
+           `MC-159` 2's option text ("say it needs HTTPS or localhost"; "retrying will not help"). The HTTPS and retry
+           points were told to the maintainer in chat before the plan went to Gate 1 (transcript line 182205);
+           the key count (8, not "about 4-6") was reported to the maintainer in chat on 2026-10-02, after the fact-check. "Damaged" is decided only by an fflate data
+           error code in {0, 1, 2, 3, 6} or, at the JSON step only, a `SyntaxError`; a worker that cannot start, an
+           out-of-memory error and any other failure stay a plain read error. A failure while merging a retried chat's
+           side fields stays a plain error. The seven-language text is the Orchestrator's English plus `translator`'s
+           versions.
+         - **Reported to the maintainer (5d-4), 2026-10-02:** the key count is 8, not the "about 4-6" in `MC-159` 2's
+           option text.
+       - **Filed from 5d-4:** CHORE-62 (on a Node server, another device's save makes this device stop saving until it
+         reloads, and its edits since its last save are lost; `MC-159` 1 and 3). Placed after steps 6 and 7 and before
+         CHORE-58 by the Orchestrator, **to confirm with the maintainer** (see the work order).
        - **Filed from 5d-1's Gate 1:** CHORE-61 (the save encoder silently loses presets, modules or a character
          when a `chaId` equals a fixed block name; observed at encoder level only; not in the work order).
      The plan working copies and gate records are in the session scratchpad (`step5/`); the step 5
@@ -332,8 +424,9 @@ should fill them.
 1. **Memory stage 1** (Report 49), steps 5-7 (steps 1, 2, 3a, 3b and 4 are done, Reports 50-53 and 55),
    in this order:
    1. memory stage 1 step 5, the boot pass (the scoping is recorded: ledger row 522, `MC-148` and `MC-149`;
-      5a, 5b, 5c and 5d-1 are done, `33545c2c`, `448962f4`, `9b312962` and `e8cf50de`; 5d-2 to 5d-4 follow, the
-      scoping is ledger row 551 and `MC-158`);
+      5a, 5b, 5c, 5d-1, 5d-2a, 5d-2b, 5d-3 and 5d-4 are done, `33545c2c`, `448962f4`, `9b312962`, `e8cf50de`,
+      `29bf2f24`, `4d23b1b4`, `3fca470e` and `e7d7f093`; the scoping is ledger row 551, `MC-158` and `MC-159`; the
+      step 5 report (Report 56) is still to write);
    2. then **CHORE-53** (DATA LOSS: delete actions act on a stale target, and Enter clicks the control
       behind a confirm; ledger row 523; `MC-150` 4, the maintainer agreed to this position);
    3. then **CHORE-43** (unreroll can write one chat's reply into another) **with CHORE-54** (rerolling
@@ -350,7 +443,11 @@ should fill them.
       should not wait behind the idle reload and the measurements. CHORE-55 goes in this stretch by
       the maintainer's choice (`MC-151` 3, "With CHORE-51/52");
    5. then steps 6 and 7;
-   6. then **CHORE-58** (measure first): PNG character import copies its read buffer quadratically on
+   6. then **CHORE-62** (on a Node server, another device's save makes this device stop saving until it reloads, and
+      its edits since its last save are lost; `MC-159` 1 and 3). The option text the maintainer selected says only
+      "placed later in the work order"; **after steps 6 and 7 and before CHORE-58 is the Orchestrator's call, to
+      confirm with the maintainer;**
+   7. then **CHORE-58** (measure first): PNG character import copies its read buffer quadratically on
       large assets (ledger row 532). It is import performance, not data loss, so it goes last; the maintainer
       accepted the Orchestrator's recommended placement (`MC-151` 8). Its first task is a measurement on the
       real module or the live app.
@@ -449,7 +546,20 @@ Not placed in the sequence:
    maintainer said on 2026-10-01 that the Korean strings look good, which closes the translator's ko particle note
    (을(를)). The translator's remaining low-confidence notes: cn and zh-Hant, "fully loaded" reads as a calque; vi,
    the phrasing of the too-large notice; de, a paraphrase. Gate 2 listed as optional that "These characters" reads
-   oddly for one name; the records do not show a change.
+   oddly for one name; the records do not show a change. Step 5d-2a (`29bf2f24`) added `archiveCharactersPausedNotice`
+   and step 5d-2b (`4d23b1b4`) added `v21PluginRestoreDisabledNotice`, each in all six languages; the reviewers
+   checked the meaning, and the Orchestrator changed the ko "다시 시작하기 전까지는" to "재개하기 전까지는" (ambiguity), the
+   de "Bis Sie es fortsetzen" (Gate 2) and the de "unterbrochen" (5d-2b). The 5d-2b translator's
+   low-confidence notes are in the session transcript (line 173009; they concern the first-sentence wording that was later
+   replaced, ledger row 579): ko "앱 시작이 … 끝나지 않아" is awkward but accurate; ko and zh-Hant "provider of a turned-off
+   plugin" (꺼진 플러그인의 제공자, 已關閉外掛之供應商) is slightly formal; the cn clause is long; vi "việc khởi động ứng dụng đã không
+   hoàn tất" is the clause it was least sure of; de split the English first sentence into two. **TODO(evidence):** the
+   5d-2a translator's notes (`archiveCharactersPausedNotice`) were not found. Step 5d-4 adds eight keys (`e7d7f093`:
+   `coldStorageRestoreUnavailable`, `coldStorageRestoreDamaged`, `coldStorageNamedRestoreUnavailable`,
+   `coldStorageNamedRestoreDamaged`, `coldStorageChatUnavailable`, `coldStorageChatDamaged`,
+   `coldStorageLegacyChatUnavailable`, `coldStorageLegacyChatDamaged`). The translator's low-confidence notes: ko 저장소
+   and 보관된 사본; cn 纯 HTTP; zh-Hant 純 HTTP; vi "bộ nhớ"; es "sin cifrar"; de "einfachen". Gate 2 read all six
+   translations as keeping "may be damaged" hedged, "nothing was changed", and no retry promise.
 Answered on 2026-10-01 and removed from this list:
 - the internal backup load refuses a snapshot with a damaged or missing block as a whole (it was item 7). The
   maintainer wants an option to load the intact data (`MC-152`); filed as CHORE-59 and placed in the work
@@ -479,6 +589,21 @@ Answered on 2026-10-01 and removed from this list:
   `adv.coldstorage`). Since `9b312962` the boot pass reads it (`tree.archiveCharacters === false` stops the pass,
   `src/ts/storage/bootArchivePass.ts:325`; an absent key is written as `true` on a boot where the pass can run,
   with a one-time notice), so the row's old default and wording are stale in a second way.
+- **A new fourth item (2026-10-02, `MC-158` 4 and `MC-159` 1): the two-device note for a Node server.** Please add it
+  to the wiki page where you think it belongs; no wiki page mentions the two-device case or the stopped-saving
+  state (the step 5d-4 investigator searched `docs/wiki` for those phrases on 2026-10-02; it named
+  `Settings-Advanced.md`'s Cold Storage row and a Node-server mention as natural homes, which is your call). The
+  facts to carry, TRACED in source and not run against a real server (the README states the same):
+  - on a self-hosted Node server there is no prompt between devices. The tab prompt covers only tabs of the same
+    browser;
+  - when another device or browser saves first, the first device shows a message on its next save and **stops saving
+    until the tab is reloaded**;
+  - edits made on the first device since its last successful save are lost when it reloads;
+  - opening the app on the other device can be enough to cause it, because startup archiving can save even when you
+    edit nothing.
+
+  The README's "Saving across tabs and devices" item (`README.md`, the bullet beginning "**Saving across tabs and
+  devices.**") already says this; point at it for the wording. The README change is committed in `e7d7f093`. The Main Campaign never edits `docs/wiki/**`.
 
 ## Finished stages
 
@@ -565,6 +690,22 @@ Escape on alerts stage 2 and W2c-a were merged as `1d6fa16b`.
 
 ## Test suite
 
+- **Step 5d-4's final tree (`e7d7f093`):** 261 files, 4,956 passed, 4 skipped; `pnpm check` 0 errors and 0 warnings;
+  the build was run (`step5/5d4/full-*-r2.txt` in the session scratchpad). Before the Gate 2 remediation the tree was 261
+  files, 4,955 passed. Gate 2 round 1's reviewer ran the 14 test files of the step against the working tree (588
+  passed, 1 skipped) and against the parent's sources (164 failed, 424 passed), and `pnpm check` (0 and 0); round 2's
+  reviewer ran 15 test files (637 passed, 1 skipped) and `pnpm check` (0 and 0).
+- **Step 5d-3's final tree (`3fca470e`):** 255 files, 4,660 passed, 4 skipped; `pnpm check` 0 and 0 (the
+  Orchestrator's runs after the remediation). The build was last run before the comment, string and test-only
+  remediation. Against the parent, the pass test file failed 85 of 212 (commit message). Nothing was run on Tauri, a
+  real Node server, a browser's OPFS, or a real tab kill.
+- **Step 5d-2b's final tree (`4d23b1b4`):** 254 files, 4,372 passed, 4 skipped; `pnpm check` 0 and 0; the build was
+  run on the first snapshot (254 files, 4,371 passed; the later changes were the notice's first sentence in seven
+  languages and two tests). Against the parent, 39 of the 56 new tests failed. Nothing was run on Tauri, a real Node
+  server, a browser's OPFS, or a real tab kill.
+- **Step 5d-2a's final tree (`29bf2f24`):** 252 files, 4,315 passed, 4 skipped; `pnpm check` 0 and 0; the build was run
+  (commit message and the Orchestrator's logs). Against the previous pass, 140 of the new tests failed. Nothing was
+  run on Tauri, a real Node server, a browser's OPFS, Web Locks or a whole-browser crash.
 - **Step 5d-1's final tree (`e8cf50de`):** 248 files, 4,157 passed, 4 skipped; `pnpm check` 0 errors and 0
   warnings; the build was run (the commit message and the Orchestrator's final run; Gate 2's reviewer read the
   outputs and re-ran the new test files, 213 of 213 passed on the working tree it reviewed). The Gate 2
