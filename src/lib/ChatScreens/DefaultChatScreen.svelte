@@ -21,7 +21,7 @@
     import { postChatFile } from 'src/ts/process/files/multisend';
     import { getInlayAsset } from 'src/ts/process/files/inlays';
     import { coldStorageHeader, preLoadChat, retryLegacyColdChatLoad } from 'src/ts/process/coldstorage.svelte';
-    import { matchColdStorageLoadErrorKey } from 'src/ts/process/coldstorageData';
+    import { coldChatNoticeText, legacyRetryStateFor, legacyRetryView, matchColdStorageLoadErrorKey, type LegacyRetryState } from 'src/ts/process/coldstorageData';
     import Chats from './Chats.svelte';
     import Button from '../UI/GUI/Button.svelte';
     import PluginDefinedIcon from '../Others/PluginDefinedIcon.svelte';
@@ -212,11 +212,12 @@
     // that hit a failed cold read before stage 7b shipped), keyed by
     // `chaId` + the recovered cold-storage key rather than the optional
     // `chat.id`, so a result never leaks onto another chat. `'pending'`
-    // disables the Retry button; `'missing'`/`'retryFailed'`
-    // hold the last outcome until a fresh retry (or a successful one, which
-    // makes the whole notice disappear since message[0] stops matching the
-    // error text) replaces it.
-    let coldChatRetryState: Record<string, 'pending' | 'missing' | 'retryFailed'> = $state({})
+    // disables the Retry button; the other states hold the last outcome
+    // until a fresh retry (or a successful one, which makes the whole notice
+    // disappear since message[0] stops matching the error text) replaces it.
+    // `legacyRetryStateFor` chooses the state for a result and
+    // `legacyRetryView` the notice for a state.
+    let coldChatRetryState: Record<string, LegacyRetryState> = $state({})
 
     function coldChatRetryStateKey(chaId: string, errorKey: string): string {
         return chaId + '::' + errorKey
@@ -227,16 +228,11 @@
         coldChatRetryState[key] = 'pending'
         try {
             const result = await retryLegacyColdChatLoad(characterIndex, chatIndex)
-            if (result === 'missing') {
-                coldChatRetryState[key] = 'missing'
-            }
-            else if (result === 'error' || result === 'busy') {
-                coldChatRetryState[key] = 'retryFailed'
+            const state = legacyRetryStateFor(result)
+            if (state) {
+                coldChatRetryState[key] = state
             }
             else {
-                // 'ok': message[0] no longer matches the error text, so the
-                // notice disappears on its own. 'none': nothing changed, and
-                // there's nothing useful left to show either.
                 delete coldChatRetryState[key]
             }
         }
@@ -828,13 +824,10 @@
                         {language.loadingChatData}
                     </div>
                 {:then a}
-                    {#if a === 'missing'}
+                    {@const coldNotice = coldChatNoticeText(a, DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[0]?.data?.slice(coldStorageHeader.length) ?? '')}
+                    {#if coldNotice !== null}
                         <div class="w-full flex justify-center text-textcolor2 italic mb-12">
-                            {language.errors.coldStorageChatDataMissing(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[0]?.data?.slice(coldStorageHeader.length) ?? '')}
-                        </div>
-                    {:else if a === 'error'}
-                        <div class="w-full flex justify-center text-textcolor2 italic mb-12">
-                            {language.errors.coldStorageChatLoadFailed(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[0]?.data?.slice(coldStorageHeader.length) ?? '')}
+                            {coldNotice}
                         </div>
                     {:else}
                         <div></div>
@@ -857,19 +850,18 @@
                 {@const legacyErrorKey = matchColdStorageLoadErrorKey(currentChat[0]?.data)}
                 {@const legacyRetryStateKey = coldChatRetryStateKey(currentCharacter?.chaId ?? '', legacyErrorKey ?? '')}
                 {@const legacyRetryStatus = coldChatRetryState[legacyRetryStateKey]}
+                {@const legacyView = legacyRetryView(legacyRetryStatus)}
                 <!-- CHORE-07 stage 7c-2: this chat hit a failed cold read
                     before stage 7b shipped, and its message[0] still holds
                     the pre-7b error text rather than a live pointer. The
                     chat itself stays visible and usable below -- this is
                     just a small notice with a Retry button. -->
                 <div class="w-full flex flex-col items-center gap-2 text-textcolor2 italic mb-4 px-4 text-center">
-                    {#if legacyRetryStatus === 'missing'}
-                        <p>{language.errors.coldStorageLegacyChatDataMissing}</p>
-                    {:else}
-                        <p>{language.errors.coldStorageLegacyChatRetryNotice}</p>
-                        {#if legacyRetryStatus === 'retryFailed'}
-                            <p class="text-xs">{language.errors.coldStorageLegacyChatRetryFailed}</p>
-                        {/if}
+                    <p>{legacyView.text}</p>
+                    {#if legacyView.detail !== null}
+                        <p class="text-xs">{legacyView.detail}</p>
+                    {/if}
+                    {#if legacyView.showRetry}
                         <Button
                             disabled={legacyRetryStatus === 'pending' || $doingChat}
                             onclick={() => retryColdChatLoad(

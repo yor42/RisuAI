@@ -59,6 +59,13 @@ describe('CHORE-07: readPluginStorageValue', () => {
             expect(message).not.toContain(secretValue)
         }
     })
+
+    test.each(['unavailable', 'damaged'] as const)('guard: an "error" read of kind %s rejects with the same message as any other "error" read, never resolving null', async (kind) => {
+        const db: PluginColdStorageDb = { pluginCustomStorage: { _coldplugin: { k: 'cold-id-4' } } }
+        const reader = vi.fn(async (): Promise<ColdStorageReadResult> => ({ status: 'error', error: new Error('cannot be used here'), kind }))
+
+        await expect(readPluginStorageValue(db, 'k', reader)).rejects.toThrow('Failed to read plugin storage for key: k')
+    })
 })
 
 describe('CHORE-07: writePluginStorageValue', () => {

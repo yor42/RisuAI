@@ -35,6 +35,12 @@ export const languageGerman = {
             `Der archivierte Charakter ${characterName} konnte nicht geladen werden: Seine Kaltlagerdaten fehlen oder sind ungültig und können dauerhaft verloren sein. Es wurde nichts verändert.`,
         "coldStorageNamedRestoreUnreadable": (characterName: string) =>
             `Der archivierte Charakter ${characterName} konnte gerade nicht geladen werden. Es wurde nichts verändert. Versuchen Sie es bitte erneut.`,
+        "coldStorageRestoreUnavailable": "Archivierte Charaktere können auf dieser Seite nicht geöffnet werden: Dieser Browser bietet hier keinen Speicher dafür (zum Beispiel bei einer einfachen HTTP-Adresse). Es wurde nichts verändert.",
+        "coldStorageRestoreDamaged": "Die archivierte Kopie dieses Charakters konnte nicht gelesen werden: Sie ist möglicherweise beschädigt. Es wurde nichts verändert oder gelöscht.",
+        "coldStorageNamedRestoreUnavailable": (characterName: string) =>
+            `Der archivierte Charakter ${characterName} kann auf dieser Seite nicht geöffnet werden: Dieser Browser bietet hier keinen Speicher für archivierte Charaktere (zum Beispiel bei einer einfachen HTTP-Adresse). Es wurde nichts verändert.`,
+        "coldStorageNamedRestoreDamaged": (characterName: string) =>
+            `Die archivierte Kopie von ${characterName} konnte nicht gelesen werden: Sie ist möglicherweise beschädigt. Es wurde nichts verändert oder gelöscht.`,
         "coldStoragePluginRestoreProgress": (leftCount: number) =>
             `Archivierte Charaktere werden für ein Plugin geladen... noch ${leftCount} Element(e)`,
         "coldStoragePluginRestoreIncomplete": (characterNames: string) =>
@@ -81,7 +87,13 @@ export const languageGerman = {
         "coldStorageLegacyChatRetryNotice": "Die früheren Nachrichten dieses Chats konnten vor einem Update nicht geladen werden. Sie können versuchen, sie erneut zu laden.",
         "coldStorageLegacyChatRetryButton": "Wiederholen",
         "coldStorageLegacyChatRetryFailed": "Die früheren Nachrichten konnten nicht geladen werden. Versuchen Sie es später erneut.",
-        "coldStorageLegacyChatDataMissing": "Die früheren Nachrichten dieses Chats konnten nicht gefunden werden. Die bereits sichtbaren Nachrichten sind davon nicht betroffen."
+        "coldStorageLegacyChatDataMissing": "Die früheren Nachrichten dieses Chats konnten nicht gefunden werden. Die bereits sichtbaren Nachrichten sind davon nicht betroffen.",
+        "coldStorageChatUnavailable": (coldDataKey: string) =>
+            `Die gespeicherten Nachrichten dieses Chats können auf dieser Seite nicht geladen werden (Schlüssel: ${coldDataKey}): Dieser Browser bietet hier keinen Speicher dafür, zum Beispiel bei einer einfachen HTTP-Adresse. Es wurde nichts verändert.`,
+        "coldStorageChatDamaged": (coldDataKey: string) =>
+            `Die gespeicherten Nachrichten dieses Chats konnten nicht gelesen werden (Schlüssel: ${coldDataKey}): Die gespeicherte Kopie ist möglicherweise beschädigt. Es wurde nichts verändert oder gelöscht.`,
+        "coldStorageLegacyChatUnavailable": "Die früheren Nachrichten können auf dieser Seite nicht geladen werden: Dieser Browser bietet hier keinen Speicher dafür. Die bereits sichtbaren Nachrichten sind davon nicht betroffen.",
+        "coldStorageLegacyChatDamaged": "Die früheren Nachrichten konnten nicht gelesen werden: Ihre gespeicherte Kopie ist möglicherweise beschädigt. Die bereits sichtbaren Nachrichten sind davon nicht betroffen."
     },
     "showHelp": "Hilfe anzeigen",
     "help": {

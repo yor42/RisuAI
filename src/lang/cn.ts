@@ -35,6 +35,12 @@ export const languageChinese = {
             `无法加载已归档的角色 ${characterName}：其冷存储数据缺失或无效，可能已永久丢失。未做任何更改。`,
         "coldStorageNamedRestoreUnreadable": (characterName: string) =>
             `暂时无法加载已归档的角色 ${characterName}。未做任何更改。请重试。`,
+        "coldStorageRestoreUnavailable": "无法在此页面打开已归档的角色：此浏览器在此处不提供用于存放它们的存储空间（例如在纯 HTTP 地址下）。未做任何更改。",
+        "coldStorageRestoreDamaged": "无法读取此角色的归档副本：它可能已损坏。未做任何更改，也未删除任何内容。",
+        "coldStorageNamedRestoreUnavailable": (characterName: string) =>
+            `无法在此页面打开已归档的角色 ${characterName}：此浏览器在此处不提供用于存放已归档角色的存储空间（例如在纯 HTTP 地址下）。未做任何更改。`,
+        "coldStorageNamedRestoreDamaged": (characterName: string) =>
+            `无法读取 ${characterName} 的归档副本：它可能已损坏。未做任何更改，也未删除任何内容。`,
         "coldStoragePluginRestoreProgress": (leftCount: number) =>
             `正在为插件加载已归档的角色... 还剩 ${leftCount} 项`,
         "coldStoragePluginRestoreIncomplete": (characterNames: string) =>
@@ -81,7 +87,13 @@ export const languageChinese = {
         "coldStorageLegacyChatRetryNotice": "此聊天的早期消息在更新前加载失败。您可以尝试重新加载。",
         "coldStorageLegacyChatRetryButton": "重试",
         "coldStorageLegacyChatRetryFailed": "无法加载早期消息。请稍后重试。",
-        "coldStorageLegacyChatDataMissing": "找不到此聊天的早期消息。您已经可以看到的消息不受影响。"
+        "coldStorageLegacyChatDataMissing": "找不到此聊天的早期消息。您已经可以看到的消息不受影响。",
+        "coldStorageChatUnavailable": (coldDataKey: string) =>
+            `无法在此页面加载此聊天的存储消息（键：${coldDataKey}）：此浏览器在此处不提供用于存放它们的存储空间，例如在纯 HTTP 地址下。未做任何更改。`,
+        "coldStorageChatDamaged": (coldDataKey: string) =>
+            `无法读取此聊天的存储消息（键：${coldDataKey}）：存储的副本可能已损坏。未做任何更改，也未删除任何内容。`,
+        "coldStorageLegacyChatUnavailable": "无法在此页面加载早期消息：此浏览器在此处不提供用于存放它们的存储空间。您已经可以看到的消息不受影响。",
+        "coldStorageLegacyChatDamaged": "无法读取早期消息：其存储的副本可能已损坏。您已经可以看到的消息不受影响。"
     },
     "showHelp": "显示帮助",
     "help": {

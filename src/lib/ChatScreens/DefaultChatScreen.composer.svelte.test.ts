@@ -334,6 +334,8 @@ import { isWriting } from 'src/ts/process/chatOrigin'
 import { hasLocalDrafts, hasMessageEditorDrafts, resetLocalDraftsForTest } from 'src/ts/localDrafts'
 import { getMultiTabAction } from 'src/ts/storage/multiTabReload'
 import * as composerDrafts from 'src/ts/process/composerDrafts.svelte'
+import { preLoadChat, retryLegacyColdChatLoad } from 'src/ts/process/coldstorage.svelte'
+import { coldStorageHeader, formatColdStorageLoadError } from 'src/ts/process/coldstorageData'
 
 //#region fixtures
 
@@ -1356,5 +1358,158 @@ describe('auto mode stays visible as running across a remount', () => {
         release()
         await waitFor(() => !isComposerBusy(), 3000)
         await settle()
+    })
+})
+
+describe('the notice for an archived chat that cannot be loaded', () => {
+    const KEY = 'chat-unit-key'
+    type PreLoadResult = Awaited<ReturnType<typeof preLoadChat>>
+    type RetryResult = Awaited<ReturnType<typeof retryLegacyColdChatLoad>>
+
+    afterEach(() => {
+        vi.mocked(preLoadChat).mockResolvedValue('ok')
+        vi.mocked(retryLegacyColdChatLoad).mockResolvedValue('ok')
+    })
+
+    async function openPointerChat(result: PreLoadResult): Promise<HTMLElement> {
+        vi.mocked(preLoadChat).mockResolvedValue(result)
+        const chat = makeChat(freshId('chat'), [makeMessage('char', coldStorageHeader + KEY)])
+        installDb([makeCharacter(freshId('cha'), [chat])])
+        const { target } = mountScreen()
+        await waitFor(() => vi.mocked(preLoadChat).mock.calls.length > 0)
+        await settle()
+        return target
+    }
+
+    function retryButton(target: HTMLElement): HTMLButtonElement | undefined {
+        return Array.from(target.querySelectorAll('button')).find((b) => b.textContent?.trim() === language.errors.coldStorageLegacyChatRetryButton)
+    }
+
+    async function openLegacyChat(): Promise<HTMLElement> {
+        const chat = makeChat(freshId('chat'), [makeMessage('char', formatColdStorageLoadError(KEY))])
+        installDb([makeCharacter(freshId('cha'), [chat])])
+        const { target } = mountScreen()
+        await settle()
+        return target
+    }
+
+    async function pressRetry(target: HTMLElement, result: RetryResult): Promise<void> {
+        vi.mocked(retryLegacyColdChatLoad).mockResolvedValue(result)
+        const button = retryButton(target)
+        expect(button).toBeDefined()
+        button!.click()
+        await waitFor(() => vi.mocked(retryLegacyColdChatLoad).mock.calls.length > 0)
+        await settle()
+    }
+
+    test('first open with no storage on the page shows the no-storage text for that key, not the temporary-problem text', async () => {
+        const target = await openPointerChat('unavailable')
+
+        const text = target.textContent ?? ''
+        expect(text).toMatch(/offers no storage/i)
+        expect(text).not.toMatch(/temporary/i)
+        expect(text).toContain(language.errors.coldStorageChatUnavailable(KEY))
+    })
+
+    test('first open with a damaged copy shows the damaged text for that key, not the temporary-problem text', async () => {
+        const target = await openPointerChat('damaged')
+
+        const text = target.textContent ?? ''
+        expect(text).toMatch(/may be damaged/i)
+        expect(text).not.toMatch(/temporary/i)
+        expect(text).toContain(language.errors.coldStorageChatDamaged(KEY))
+    })
+
+    test('guard: first open with a plain read error shows the temporary-problem text', async () => {
+        const target = await openPointerChat('error')
+
+        expect(target.textContent).toContain(language.errors.coldStorageChatLoadFailed(KEY))
+    })
+
+    test('guard: first open with a missing unit shows the not-found text', async () => {
+        const target = await openPointerChat('missing')
+
+        expect(target.textContent).toContain(language.errors.coldStorageChatDataMissing(KEY))
+    })
+
+    test('guard: first open with a loaded chat shows no notice', async () => {
+        const target = await openPointerChat('ok')
+
+        const text = target.textContent ?? ''
+        expect(text).not.toContain(language.errors.coldStorageChatLoadFailed(KEY))
+        expect(text).not.toContain(language.errors.coldStorageChatDataMissing(KEY))
+    })
+
+    test('guard: a legacy error-text chat offers the Retry button with the retry invitation before any retry', async () => {
+        const target = await openLegacyChat()
+
+        expect(target.textContent).toContain(language.errors.coldStorageLegacyChatRetryNotice)
+        expect(retryButton(target)).toBeDefined()
+    })
+
+    test.each([
+        ['unavailable', () => language.errors.coldStorageLegacyChatUnavailable, /offers no storage/i],
+        ['damaged', () => language.errors.coldStorageLegacyChatDamaged, /may be damaged/i],
+    ] as const)('a retry that finds %s replaces the notice with that text, hides the Retry button and never says to try later', async (result, expectedText, wording) => {
+        const target = await openLegacyChat()
+
+        await pressRetry(target, result)
+
+        const text = target.textContent ?? ''
+        expect(text).toMatch(wording)
+        expect(text).toContain(expectedText())
+        expect(text).not.toContain(language.errors.coldStorageLegacyChatRetryNotice)
+        expect(text).not.toContain(language.errors.coldStorageLegacyChatRetryFailed)
+        expect(retryButton(target)).toBeUndefined()
+    })
+
+    test.each(['error', 'busy'] as const)('guard: a retry that ends %s keeps the Retry button and adds the try-later line', async (result) => {
+        const target = await openLegacyChat()
+
+        await pressRetry(target, result)
+
+        expect(target.textContent).toContain(language.errors.coldStorageLegacyChatRetryNotice)
+        expect(target.textContent).toContain(language.errors.coldStorageLegacyChatRetryFailed)
+        expect(retryButton(target)).toBeDefined()
+    })
+
+    test('guard: while a retry is pending the Retry button is disabled and a second press starts no second retry', async () => {
+        const target = await openLegacyChat()
+        let finish: (result: RetryResult) => void = () => {}
+        vi.mocked(retryLegacyColdChatLoad).mockClear()
+        vi.mocked(retryLegacyColdChatLoad).mockReturnValue(new Promise<RetryResult>((resolve) => { finish = resolve }))
+
+        retryButton(target)!.click()
+        await settle()
+
+        expect(vi.mocked(retryLegacyColdChatLoad)).toHaveBeenCalledTimes(1)
+        expect(retryButton(target)?.disabled).toBe(true)
+        retryButton(target)!.click()
+        await settle()
+        expect(vi.mocked(retryLegacyColdChatLoad)).toHaveBeenCalledTimes(1)
+
+        finish('error')
+        await settle()
+        expect(retryButton(target)?.disabled).toBe(false)
+    })
+
+    test('guard: while a reply is being generated the Retry button is disabled', async () => {
+        const target = await openLegacyChat()
+        expect(retryButton(target)?.disabled).toBe(false)
+
+        doingChatMock.set(true)
+        await settle()
+
+        expect(retryButton(target)?.disabled).toBe(true)
+    })
+
+    test('guard: a retry that finds the unit missing shows the not-found text and hides the Retry button', async () => {
+        const target = await openLegacyChat()
+
+        await pressRetry(target, 'missing')
+
+        expect(target.textContent).toContain(language.errors.coldStorageLegacyChatDataMissing)
+        expect(target.textContent).not.toContain(language.errors.coldStorageLegacyChatRetryNotice)
+        expect(retryButton(target)).toBeUndefined()
     })
 })

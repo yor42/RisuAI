@@ -235,6 +235,30 @@ describe('addGroupChar with an archived character', () => {
         expect(alerts[0]).toContain('Alice')
     })
 
+    test.each([
+        ['no storage on the page', 'unavailable', /offers no storage/i, (name: string) => language.errors.coldStorageNamedRestoreUnavailable(name)],
+        ['a copy that cannot be read', 'damaged', /may be damaged/i, (name: string) => language.errors.coldStorageNamedRestoreDamaged(name)],
+    ] as const)('%s adds the member without a first message, leaves it archived, and shows one alert naming it with the wording for that cause', async (_label, kind, wording, expectedText) => {
+        const unit = fullCharacter('m', { name: 'Alice' })
+        const group = installGroup(['x'], [stubOf(unit, 'unit-m')])
+        alertSelectCharMock.mockResolvedValue('m')
+        alertConfirmMock.mockResolvedValue(true)
+        readColdStorageItemMock.mockResolvedValue({ status: 'error', error: new Error('cannot be used here'), kind })
+
+        await addGroupChar()
+
+        expect(group.chats[1].message).toEqual([])
+        expect(group.characters).toEqual(['x', 'm'])
+        expect((DBState.db.characters[1] as unknown as character).coldstorage).toBe('unit-m')
+        const alerts = shownAlerts()
+        expect(alerts).toHaveLength(1)
+        expect(alerts[0]).toContain('Alice')
+        expect(alerts[0]).not.toMatch(/try again/i)
+        expect(alerts[0]).not.toMatch(/lost|permanently/i)
+        expect(alerts[0]).toMatch(wording)
+        expect(alerts[0]).toBe(expectedText('Alice'))
+    })
+
     test('a restored member is format-updated in its slot without a new interaction time', async () => {
         const unit = fullCharacter('m', { lastInteraction: 1234 })
         installGroup(['x'], [stubOf(unit, 'unit-m')])

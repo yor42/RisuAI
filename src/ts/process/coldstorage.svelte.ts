@@ -15,7 +15,7 @@ import { compress as fflateCompress, decompress as fflateDecompress } from "ffla
 import { alertConfirm } from "../alert"
 import { language } from "src/lang"
 import type { Database } from "../storage/database.svelte"
-import { coldStorageHeader, getColdStorageAffectedCharacters, getColdStorageBackupName, isColdStorageBackupData, isRestorableColdStorageKey, listColdBackupRoots, listColdDataKeysFromDb, listInnerColdStorageKeys, matchColdStorageLoadErrorKey, mergeRetriedColdChatSideFields, type ColdBackupRoot } from "./coldstorageData"
+import { classifyColdDecodeFailure, classifyColdDecompressFailure, coldStorageHeader, getColdStorageAffectedCharacters, getColdStorageBackupName, isColdStorageBackupData, isRestorableColdStorageKey, listColdBackupRoots, listColdDataKeysFromDb, listInnerColdStorageKeys, matchColdStorageLoadErrorKey, mergeRetriedColdChatSideFields, type ColdBackupRoot, type ColdReadErrorKind, type PreLoadChatResult, type RetryLegacyColdChatLoadResult } from "./coldstorageData"
 import { doingChat } from "./index.svelte"
 
 export {
@@ -25,6 +25,7 @@ export {
     isColdStorageBackupData,
     listColdDataKeysFromDb
 } from "./coldstorageData"
+export type { ColdReadErrorKind, PreLoadChatResult, RetryLegacyColdChatLoadResult } from "./coldstorageData"
 
 async function decompress(data:Uint8Array) {
     return new Promise<Uint8Array>((resolve, reject) => {
@@ -93,11 +94,28 @@ export async function getColdStorageItem(key:string) {
  *   - `'missing'` -- the backend positively reported "no such item", per the
  *                    backend-specific rules below.
  *   - `'error'`   -- anything else: a transient I/O failure, a permission or
- *                    scope error, or a decode (decompress/JSON.parse)
- *                    failure. Every case that isn't clearly "the item was
- *                    never written" falls here on purpose -- the whole point
- *                    of this reader is that callers must not treat an
- *                    ambiguous failure as proof of data loss.
+ *                    scope error, a page with no storage for archived data, or
+ *                    a decode (decompress/JSON.parse) failure. Every case that
+ *                    isn't clearly "the item was never written" falls here on
+ *                    purpose -- the whole point of this reader is that callers
+ *                    must not treat an ambiguous failure as proof of data
+ *                    loss.
+ *
+ * An `'error'` may carry a `kind` that says why a repeated read cannot be
+ * expected to succeed. `kind` selects the text shown to the user and the
+ * result `preLoadChat` and `retryLegacyColdChatLoad` return (the legacy Retry
+ * panel hides Retry for it). Every consumer that keeps, skips, deletes, counts
+ * or retries data decides by `status` alone, so every `'error'` is treated
+ * the same:
+ *   - `'unavailable'` -- OPFS branch only: the browser has no
+ *                        `navigator.storage.getDirectory` at all. A
+ *                        `getDirectory` that exists and rejects has no kind.
+ *   - `'damaged'`     -- the bytes were obtained but do not decode: fflate
+ *                        reported malformed or truncated input, or the
+ *                        decompressed text is not JSON
+ *                        (`classifyColdDecompressFailure`,
+ *                        `classifyColdDecodeFailure`). Any other decode
+ *                        failure has no kind.
  *
  * This reader does no shape validation of `value` -- it also serves whole
  * character blobs (`{character}`) and arbitrary plugin-stored values, so a
@@ -107,17 +125,12 @@ export async function getColdStorageItem(key:string) {
 export type ColdStorageReadResult =
     | { status: 'ok', value: any }
     | { status: 'missing' }
-    | { status: 'error', error: unknown }
+    | { status: 'error', error: unknown, kind?: ColdReadErrorKind }
 
 type ColdStorageBytesResult =
     | { status: 'ok', bytes: Uint8Array }
     | { status: 'missing' }
-    | { status: 'error', error: unknown }
-
-export async function decodeColdStorageBytes(bytes: Uint8Array): Promise<any> {
-    const text = new TextDecoder().decode(await decompress(bytes))
-    return JSON.parse(text)
-}
+    | { status: 'error', error: unknown, kind?: ColdReadErrorKind }
 
 /**
  * Pure classification seam for the Tauri backend, with `readFileFn` and
@@ -226,7 +239,41 @@ async function readLocalColdStorageBytes(key: string): Promise<ColdStorageBytesR
     if (isTauri) {
         return await classifyTauriColdRead('./coldstorage/' + key + '.json', readFile, exists)
     }
+    // Only the absence of `getDirectory` itself says this page has no storage
+    // for archived data. One that exists and rejects (a private-browsing mode,
+    // a permission error) is a read error like any other and keeps no kind.
+    if (typeof navigator === 'undefined' || typeof navigator.storage?.getDirectory !== 'function') {
+        return {
+            status: 'error',
+            kind: 'unavailable',
+            error: new Error('This page offers no storage for archived data: navigator.storage.getDirectory is not available.'),
+        }
+    }
     return await classifyOpfsColdRead(() => navigator.storage.getDirectory(), 'coldstorage_' + key + '.json')
+}
+
+/**
+ * Decodes `bytes` into the stored value, telling a copy that does not decode
+ * (`kind: 'damaged'`) from a decode that failed for another reason. The two
+ * steps are judged separately: a decompress failure is damaged only by an
+ * fflate data-format code (`classifyColdDecompressFailure`), and only the
+ * `JSON.parse` step may also be recognised by its `SyntaxError` name
+ * (`classifyColdDecodeFailure`).
+ */
+async function decodeColdStorageValue(bytes: Uint8Array): Promise<ColdStorageReadResult> {
+    let decompressed: Uint8Array
+    try {
+        decompressed = await decompress(bytes)
+    } catch (decompressError) {
+        const kind = classifyColdDecompressFailure(decompressError)
+        return kind ? { status: 'error', error: decompressError, kind } : { status: 'error', error: decompressError }
+    }
+    try {
+        return { status: 'ok', value: JSON.parse(new TextDecoder().decode(decompressed)) }
+    } catch (parseError) {
+        const kind = classifyColdDecodeFailure(parseError)
+        return kind ? { status: 'error', error: parseError, kind } : { status: 'error', error: parseError }
+    }
 }
 
 async function readLocalColdStorageValue(key: string): Promise<ColdStorageReadResult> {
@@ -234,11 +281,7 @@ async function readLocalColdStorageValue(key: string): Promise<ColdStorageReadRe
     if (bytesResult.status !== 'ok') {
         return bytesResult
     }
-    try {
-        return { status: 'ok', value: await decodeColdStorageBytes(bytesResult.bytes) }
-    } catch (decodeError) {
-        return { status: 'error', error: decodeError }
-    }
+    return await decodeColdStorageValue(bytesResult.bytes)
 }
 
 /**
@@ -614,30 +657,13 @@ export async function confirmIncompleteColdStorageOperation(
 }
 
 /**
- * `preLoadChat`'s outcome:
- *   - `'none'`    -- the chat wasn't found, or its first message isn't a
- *                    live cold-storage pointer (nothing to do). Also used
- *                    when the pointer was replaced by something else while
- *                    the read was in flight (see the R4 case below), or
- *                    when the user switched to a different character while
- *                    the read was in flight (CHORE-07) -- in either case, by
- *                    the time the read finishes, restoring into this chat
- *                    would be wrong.
- *   - `'ok'`      -- the read succeeded and the chat's messages/side fields
- *                    were restored.
- *   - `'missing'` -- the reader positively confirmed the data doesn't exist
- *                    (CHORE-07). Never mutates the chat, exactly
- *                    like `'error'` -- the pointer is left in place, since a
- *                    `.bin` restore from another device might still hold
- *                    the blob.
- *   - `'error'`   -- the read failed ambiguously, or returned data in a
- *                    shape we don't recognize (CHORE-07): this never mutates
- *                    `chat.message` and never rejects the returned promise --
- *                    the pointer is left in place so the read can simply be
- *                    retried by reopening the chat.
+ * Restores the chat's archived messages into `chat.message` when its first
+ * message is a live cold-storage pointer. The outcomes are `PreLoadChatResult`
+ * (`coldstorageData.ts`); a read the reader reports as `kind: 'unavailable'` or
+ * `'damaged'` resolves that value, a decoded value that is not a chat resolves
+ * `'damaged'`, and any other failed read resolves `'error'`. None of them
+ * mutates `chat.message` or rejects the returned promise (CHORE-07).
  */
-export type PreLoadChatResult = 'none' | 'ok' | 'missing' | 'error'
-
 export async function preLoadChat(characterIndex:number, chatIndex:number): Promise<PreLoadChatResult> {
     const chat = DBState.db?.characters?.[characterIndex]?.chats?.[chatIndex]
 
@@ -668,7 +694,7 @@ export async function preLoadChat(characterIndex:number, chatIndex:number): Prom
 
     if(result.status === 'error'){
         console.error(`Cold storage read failed for key: ${coldDataKey}`, result.error)
-        return 'error'
+        return result.kind ?? 'error'
     }
 
     const coldData = result.value
@@ -680,10 +706,10 @@ export async function preLoadChat(characterIndex:number, chatIndex:number): Prom
 
     if(!isLegacyArray && !isObjectBlob){
         // The read succeeded, but the data isn't in a shape this function
-        // recognizes. Leave the pointer in place (no mutation) so a later
-        // retry -- e.g. reopening the chat -- can still recover it.
+        // recognizes: a copy that cannot be a chat. Leave the pointer in
+        // place (no mutation).
         console.error(`Cold storage data invalid for key: ${coldDataKey}`)
-        return 'error'
+        return 'damaged'
     }
 
     // The chat may have moved on entirely while we were awaiting the read
@@ -731,31 +757,15 @@ export async function preLoadChat(characterIndex:number, chatIndex:number): Prom
 }
 
 /**
- * `retryLegacyColdChatLoad`'s outcome, mirroring `PreLoadChatResult` but for
- * a chat whose `message[0]` already holds the legacy "could not be loaded"
- * error text (`matchColdStorageLoadErrorKey`), rather than a live
- * `coldStorageHeader` pointer (CHORE-07):
- *   - `'none'`    -- the chat's first message isn't (or is no longer) that
- *                    exact error text, the selected character changed while
- *                    the read was in flight, or the chat identity/order at
- *                    `chatIndex` changed underneath it (a plugin replaced
- *                    the character, or its chats were reordered). Nothing to
- *                    retry, or unsafe to apply the result.
- *   - `'busy'`    -- `doingChat` or the chat's own `isStreaming` was set,
- *                    either before the read started or by the time it
- *                    finished. Retry again once sending settles.
- *   - `'ok'`      -- the read succeeded and the chat's messages/side fields
- *                    were restored -- the same restore `preLoadChat` would
- *                    have done before this chat was corrupted into error
- *                    text.
- *   - `'missing'` -- the reader positively confirmed the data doesn't exist.
- *   - `'error'`   -- the read failed ambiguously, or returned data in a
- *                    shape this function doesn't recognize.
- * `'none'`, `'busy'`, `'missing'` and `'error'` never mutate the chat, so
- * Retry can simply be pressed again later.
+ * Retries the archived messages of a chat whose `message[0]` already holds the
+ * legacy "could not be loaded" error text (`matchColdStorageLoadErrorKey`),
+ * rather than a live `coldStorageHeader` pointer (CHORE-07). The outcomes are
+ * `RetryLegacyColdChatLoadResult` (`coldstorageData.ts`), mapped from the read
+ * as in `preLoadChat`; the side-field merge failure stays `'error'` because the
+ * merge can fail from the live chat as well as from the stored data. Every
+ * value except `'ok'` leaves the chat unmutated and the promise never rejects,
+ * so nothing is lost.
  */
-export type RetryLegacyColdChatLoadResult = 'none' | 'busy' | 'ok' | 'missing' | 'error'
-
 export async function retryLegacyColdChatLoad(characterIndex:number, chatIndex:number): Promise<RetryLegacyColdChatLoadResult> {
     const chat = DBState.db?.characters?.[characterIndex]?.chats?.[chatIndex]
 
@@ -816,7 +826,7 @@ export async function retryLegacyColdChatLoad(characterIndex:number, chatIndex:n
 
     if(result.status === 'error'){
         console.error(`Cold storage retry: read failed for key: ${coldDataKey}`, result.error)
-        return 'error'
+        return result.kind ?? 'error'
     }
 
     const coldData = result.value
@@ -828,7 +838,7 @@ export async function retryLegacyColdChatLoad(characterIndex:number, chatIndex:n
 
     if(!isLegacyArray && !isObjectBlob){
         console.error(`Cold storage retry: data invalid for key: ${coldDataKey}`)
-        return 'error'
+        return 'damaged'
     }
 
     // Computed only now, from the same identity-checked chat object, after

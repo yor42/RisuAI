@@ -171,6 +171,7 @@ vi.mock(import('src/ts/storage/characterSaveMarks'), () => ({
 import { DBState, PlaygroundStore, selectedCharID } from 'src/ts/stores.svelte'
 import { alertError, alertNormal, alertToast, alertMd } from 'src/ts/alert'
 import { buildColdStub } from 'src/ts/process/coldCharacter'
+import { language } from 'src/lang'
 import { openPlaygroundChat } from './playgroundChat'
 
 //#region fixtures and helpers
@@ -326,6 +327,60 @@ describe('openPlaygroundChat on an archived §playground', () => {
         const alerts = shownAlerts()
         expect(alerts).toHaveLength(1)
         expect(alerts[0]).toContain('Playground Archive')
+    })
+
+    test.each([
+        ['no storage on the page', 'unavailable', /offers no storage/i, (name: string) => language.errors.coldStorageNamedRestoreUnavailable(name)],
+        ['a copy that cannot be read', 'damaged', /may be damaged/i, (name: string) => language.errors.coldStorageNamedRestoreDamaged(name)],
+    ] as const)('%s leaves the stub as it was, selects nothing, and shows one alert naming it with the wording for that cause', async (_label, kind, wording, expectedText) => {
+        const unit = fullCharacter(PLAYGROUND)
+        const stub = stubOf(unit, 'unit-playground')
+        ;(stub as unknown as character).name = 'Playground Archive'
+        installDb([asSlot(fullCharacter('other')), stub])
+        selectedCharID.set(0)
+        const before = JSON.stringify(DBState.db.characters[1])
+        readColdStorageItemMock.mockResolvedValue({ status: 'error', error: new Error('cannot be used here'), kind })
+
+        await openPlaygroundChat()
+
+        expect(JSON.stringify(DBState.db.characters[1])).toBe(before)
+        expect(get(selectedCharID)).toBe(0)
+        expect(get(PlaygroundStore)).toBe(0)
+        const alerts = shownAlerts()
+        expect(alerts).toHaveLength(1)
+        expect(alerts[0]).toContain('Playground Archive')
+        expect(alerts[0]).not.toMatch(/try again/i)
+        expect(alerts[0]).toMatch(wording)
+        expect(alerts[0]).toBe(expectedText('Playground Archive'))
+    })
+
+    test('guard: an unreadable unit with no cause shows the named try-again text', async () => {
+        const unit = fullCharacter(PLAYGROUND)
+        const stub = stubOf(unit, 'unit-playground')
+        ;(stub as unknown as character).name = 'Playground Archive'
+        installDb([asSlot(fullCharacter('other')), stub])
+        readColdStorageItemMock.mockResolvedValue({ status: 'error', error: new Error('disk unavailable') })
+
+        await openPlaygroundChat()
+
+        expect(shownAlerts()).toEqual([language.errors.coldStorageNamedRestoreUnreadable('Playground Archive')])
+    })
+
+    test('guard: a restore that ends with a placeholder still holding the slot, after a read that succeeded, shows the named try-again text', async () => {
+        const unit = fullCharacter(PLAYGROUND)
+        const stub = stubOf(unit, 'unit-playground')
+        ;(stub as unknown as character).name = 'Playground Archive'
+        installDb([asSlot(fullCharacter('other')), stub])
+        let release: (value: unknown) => void = () => {}
+        readColdStorageItemMock.mockImplementation(() => new Promise((resolve) => { release = resolve }))
+
+        const opening = openPlaygroundChat()
+        await tick()
+        ;(DBState.db.characters[1] as unknown as character).coldstorage = 'unit-moved'
+        release(ok(unit))
+        await opening
+
+        expect(shownAlerts()).toEqual([language.errors.coldStorageNamedRestoreUnreadable('Playground Archive')])
     })
 
     test('a restore that ends with no §playground left in the list creates a blank one, selects it and opens the chat page', async () => {

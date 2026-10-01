@@ -451,7 +451,6 @@ import {
     classifyTauriColdRead,
     classifyOpfsColdRead,
     classifyNodeColdRead,
-    decodeColdStorageBytes,
     retryLegacyColdChatLoad,
 } from '../coldstorage.svelte'
 import { isColdChat, formatColdStorageLoadError, mergeRetriedColdChatSideFields } from '../coldstorageData'
@@ -464,7 +463,6 @@ import { noteMainFileBytes } from '../../storage/mainFileRecord'
 import { readDir, remove, BaseDirectory, readFile as tauriReadFile, exists as tauriExists } from '@tauri-apps/plugin-fs'
 import { DBState, selectedCharID, frozenSaveKeysStore } from '../../stores.svelte'
 import { alertError, alertClear } from 'src/ts/alert'
-import { compress as fflateCompress } from 'fflate'
 
 //#region shared fixture helpers
 
@@ -1161,7 +1159,7 @@ describe('CHORE-07 stage 7b: preLoadChat must not reject and must not mutate a c
         expect(chat.lastDate).toBe(lastDateBefore)
     })
 
-    test('R2a: a blob shaped {message: string} resolves "error" with no mutation', async () => {
+    test('R2a: a blob shaped {message: string} resolves "damaged" with no mutation', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -1181,11 +1179,11 @@ describe('CHORE-07 stage 7b: preLoadChat must not reject and must not mutate a c
 
         const result = await preLoadChat(0, 0)
 
-        expect(result).toBe('error')
+        expect(result).toBe('damaged')
         expect(chat.message).toEqual(messageBefore)
     })
 
-    test('R2b: a blob shaped {character: {...}} (no message array) resolves "error" with no mutation', async () => {
+    test('R2b: a blob shaped {character: {...}} (no message array) resolves "damaged" with no mutation', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -1207,7 +1205,7 @@ describe('CHORE-07 stage 7b: preLoadChat must not reject and must not mutate a c
 
         const result = await preLoadChat(0, 0)
 
-        expect(result).toBe('error')
+        expect(result).toBe('damaged')
         expect(chat.message).toEqual(messageBefore)
     })
 
@@ -1485,25 +1483,6 @@ describe('CHORE-07 stage 7c-1: classifyNodeColdRead', () => {
         const result = await classifyNodeColdRead(getItemFn, 'coldstorage/x')
         expect(result.status).toBe('error')
         expect((result as { error: unknown }).error).toBe(thrown)
-    })
-})
-
-describe('CHORE-07 stage 7c-1: decodeColdStorageBytes', () => {
-    test('corrupt compressed bytes reject', async () => {
-        await expect(decodeColdStorageBytes(new Uint8Array([1, 2, 3, 4]))).rejects.toBeTruthy()
-    })
-
-    test('validly-compressed but corrupt JSON rejects', async () => {
-        const badJsonBytes = await new Promise<Uint8Array>((resolve, reject) => {
-            fflateCompress(new TextEncoder().encode('{not valid json'), (err, result) => {
-                if (err) {
-                    reject(err)
-                    return
-                }
-                resolve(result)
-            })
-        })
-        await expect(decodeColdStorageBytes(badJsonBytes)).rejects.toBeTruthy()
     })
 })
 
@@ -2041,7 +2020,7 @@ describe('CHORE-07 stage 7c-2: retryLegacyColdChatLoad', () => {
         expect(chat.message).toEqual([{ time: 999, data: 'restored by a concurrent retry', role: 'user' }])
     })
 
-    test('RL11: an ok read with a shape this function does not recognize resolves "error" and mutates nothing', async () => {
+    test('RL11: an ok read with a shape this function does not recognize resolves "damaged" and mutates nothing', async () => {
         platformState.isTauri = false
         resetOpfs()
 
@@ -2054,7 +2033,7 @@ describe('CHORE-07 stage 7c-2: retryLegacyColdChatLoad', () => {
 
         const result = await retryLegacyColdChatLoad(0, 0)
 
-        expect(result).toBe('error')
+        expect(result).toBe('damaged')
         expect(chat.message).toEqual(messageBefore)
     })
 

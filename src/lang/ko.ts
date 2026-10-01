@@ -35,6 +35,12 @@ export const languageKorean = {
             `보관된 캐릭터 ${characterName}을(를) 불러올 수 없습니다. 콜드 스토리지 데이터가 없거나 올바르지 않으며, 영구적으로 손실되었을 수 있습니다. 변경된 내용은 없습니다.`,
         "coldStorageNamedRestoreUnreadable": (characterName: string) =>
             `보관된 캐릭터 ${characterName}을(를) 지금은 불러올 수 없습니다. 변경된 내용은 없습니다. 다시 시도하세요.`,
+        "coldStorageRestoreUnavailable": "이 페이지에서는 보관된 캐릭터를 열 수 없습니다. 이 브라우저는 여기서 보관된 캐릭터를 위한 저장소를 제공하지 않습니다 (예: 일반 HTTP 주소). 변경된 내용은 없습니다.",
+        "coldStorageRestoreDamaged": "이 캐릭터의 보관된 사본을 읽을 수 없습니다. 손상되었을 수 있습니다. 변경되거나 삭제된 내용은 없습니다.",
+        "coldStorageNamedRestoreUnavailable": (characterName: string) =>
+            `보관된 캐릭터 ${characterName}을(를) 이 페이지에서는 열 수 없습니다. 이 브라우저는 여기서 보관된 캐릭터를 위한 저장소를 제공하지 않습니다 (예: 일반 HTTP 주소). 변경된 내용은 없습니다.`,
+        "coldStorageNamedRestoreDamaged": (characterName: string) =>
+            `${characterName}의 보관된 사본을 읽을 수 없습니다. 손상되었을 수 있습니다. 변경되거나 삭제된 내용은 없습니다.`,
         "coldStoragePluginRestoreProgress": (leftCount: number) =>
             `플러그인을 위해 보관된 캐릭터를 불러오는 중... ${leftCount}개 남음`,
         "coldStoragePluginRestoreIncomplete": (characterNames: string) =>
@@ -81,7 +87,13 @@ export const languageKorean = {
         "coldStorageLegacyChatRetryNotice": "이 채팅의 이전 메시지가 업데이트 전에 불러오기에 실패했습니다. 다시 불러오기를 시도할 수 있습니다.",
         "coldStorageLegacyChatRetryButton": "재시도",
         "coldStorageLegacyChatRetryFailed": "이전 메시지를 불러오지 못했습니다. 나중에 다시 시도해주세요.",
-        "coldStorageLegacyChatDataMissing": "이 채팅의 이전 메시지를 찾을 수 없습니다. 이미 표시된 메시지에는 영향이 없습니다."
+        "coldStorageLegacyChatDataMissing": "이 채팅의 이전 메시지를 찾을 수 없습니다. 이미 표시된 메시지에는 영향이 없습니다.",
+        "coldStorageChatUnavailable": (coldDataKey: string) =>
+            `이 채팅의 저장된 메시지를 이 페이지에서는 불러올 수 없습니다 (키: ${coldDataKey}). 이 브라우저는 여기서 해당 메시지를 위한 저장소를 제공하지 않습니다 (예: 일반 HTTP 주소). 변경된 내용은 없습니다.`,
+        "coldStorageChatDamaged": (coldDataKey: string) =>
+            `이 채팅의 저장된 메시지를 읽을 수 없습니다 (키: ${coldDataKey}). 저장된 사본이 손상되었을 수 있습니다. 변경되거나 삭제된 내용은 없습니다.`,
+        "coldStorageLegacyChatUnavailable": "이 페이지에서는 이전 메시지를 불러올 수 없습니다. 이 브라우저는 여기서 이전 메시지를 위한 저장소를 제공하지 않습니다. 이미 표시된 메시지에는 영향이 없습니다.",
+        "coldStorageLegacyChatDamaged": "이전 메시지를 읽을 수 없습니다. 저장된 사본이 손상되었을 수 있습니다. 이미 표시된 메시지에는 영향이 없습니다."
     },
     "showHelp": "도움말 보기",
     "help": {

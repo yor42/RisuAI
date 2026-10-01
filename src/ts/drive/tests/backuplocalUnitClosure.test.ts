@@ -792,6 +792,21 @@ describe('restoring plugin storage units of every value shape', () => {
         expect(prompts).toHaveLength(1)
         expect(prompts[0]).toContain('Alice')
     })
+
+    test('a character blob whose unit on the device reads as damaged is still reported as missing after the restore', async () => {
+        const BLOB = uid(43)
+        vi.spyOn(console, 'error').mockImplementation(() => { })
+        opfsStore.set(opfsFilename(BLOB), new Uint8Array([1, 2, 3, 4]))
+        const read = await readColdStorageItem(BLOB)
+        expect(read).toMatchObject({ status: 'error', kind: 'damaged' })
+        const db = databaseWith({ characters: [makeStub('c1', 'Alice', BLOB)] })
+
+        await loadBackupBytes(buildBackup([], db))
+
+        const prompts = restorePrompts()
+        expect(prompts).toHaveLength(1)
+        expect(prompts[0]).toContain('Alice')
+    })
 })
 
 describe('restore acceptance of entries that are not written under the backup writer\'s name', () => {

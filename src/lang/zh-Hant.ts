@@ -35,6 +35,12 @@ export const languageChineseTraditional = {
             `無法載入已封存的角色 ${characterName}：其冷儲存資料遺失或無效，可能已永久遺失。未做任何變更。`,
         "coldStorageNamedRestoreUnreadable": (characterName: string) =>
             `暫時無法載入已封存的角色 ${characterName}。未做任何變更。請再試一次。`,
+        "coldStorageRestoreUnavailable": "無法在此頁面開啟已封存的角色：此瀏覽器在此處不提供用於存放它們的儲存空間（例如在純 HTTP 位址下）。未做任何變更。",
+        "coldStorageRestoreDamaged": "無法讀取此角色的封存副本：它可能已損毀。未做任何變更，也未刪除任何內容。",
+        "coldStorageNamedRestoreUnavailable": (characterName: string) =>
+            `無法在此頁面開啟已封存的角色 ${characterName}：此瀏覽器在此處不提供用於存放已封存角色的儲存空間（例如在純 HTTP 位址下）。未做任何變更。`,
+        "coldStorageNamedRestoreDamaged": (characterName: string) =>
+            `無法讀取 ${characterName} 的封存副本：它可能已損毀。未做任何變更，也未刪除任何內容。`,
         "coldStoragePluginRestoreProgress": (leftCount: number) =>
             `正在為外掛載入已封存的角色... 剩餘 ${leftCount} 項`,
         "coldStoragePluginRestoreIncomplete": (characterNames: string) =>
@@ -81,7 +87,13 @@ export const languageChineseTraditional = {
         "coldStorageLegacyChatRetryNotice": "此對話較早的訊息在更新前載入失敗。您可以嘗試重新載入它們。",
         "coldStorageLegacyChatRetryButton": "重試",
         "coldStorageLegacyChatRetryFailed": "無法載入較早的訊息。請稍後再試。",
-        "coldStorageLegacyChatDataMissing": "找不到此對話較早的訊息。您目前已能看到的訊息不受影響。"
+        "coldStorageLegacyChatDataMissing": "找不到此對話較早的訊息。您目前已能看到的訊息不受影響。",
+        "coldStorageChatUnavailable": (coldDataKey: string) =>
+            `無法在此頁面載入此對話的儲存訊息（金鑰：${coldDataKey}）：此瀏覽器在此處不提供用於存放它們的儲存空間，例如在純 HTTP 位址下。未做任何變更。`,
+        "coldStorageChatDamaged": (coldDataKey: string) =>
+            `無法讀取此對話的儲存訊息（金鑰：${coldDataKey}）：儲存的副本可能已損毀。未做任何變更，也未刪除任何內容。`,
+        "coldStorageLegacyChatUnavailable": "無法在此頁面載入較早的訊息：此瀏覽器在此處不提供用於存放它們的儲存空間。您目前已能看到的訊息不受影響。",
+        "coldStorageLegacyChatDamaged": "無法讀取較早的訊息：其儲存的副本可能已損毀。您目前已能看到的訊息不受影響。"
     },
     "showHelp": "顯示說明",
     "help": {

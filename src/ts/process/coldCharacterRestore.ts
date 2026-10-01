@@ -2,7 +2,7 @@ import { DBState } from "../stores.svelte"
 import { alertError } from "../alert"
 import { language } from "../../lang"
 import type { character, groupChat } from "../storage/database.svelte"
-import { readColdStorageItem, type ColdStorageReadResult } from "./coldstorage.svelte"
+import { readColdStorageItem, type ColdReadErrorKind, type ColdStorageReadResult } from "./coldstorage.svelte"
 import { applyStubStateOnRestore } from "./coldCharacter"
 
 /**
@@ -27,17 +27,27 @@ type Slot = character | groupChat
 
 /**
  * Why a unit could not be used: there is no usable character in it
- * (`missing`), the storage failed to read it (`unreadable`), it holds a
+ * (`missing`), the storage failed to read it in a way that may work later
+ * (`unreadable`), this page offers no storage for archived data
+ * (`unavailable`), the stored copy does not decode (`damaged`), it holds a
  * character with another `chaId` than the placeholder (`mismatch`), or the
- * `chaId` is held by several characters (`ambiguous`).
+ * `chaId` is held by several characters (`ambiguous`). Only `missing`,
+ * `mismatch` and `ambiguous` are worded as possible data loss
+ * (`restoreFailureText`).
  */
-export type ColdRestoreFailure = 'missing' | 'unreadable' | 'mismatch' | 'ambiguous'
+export type ColdRestoreFailure = 'missing' | 'unreadable' | 'unavailable' | 'damaged' | 'mismatch' | 'ambiguous'
 
-/** The outcome of reading a stub's character without installing it. */
+/**
+ * The outcome of reading a stub's character without installing it. An
+ * `unreadable` outcome is any failed read; its optional `kind` says the read
+ * was one that cannot succeed here (`unavailable`) or whose bytes do not
+ * decode (`damaged`), and only changes the reason, and so the wording, of a
+ * refusal (`restoreFailureReason`).
+ */
 export type ColdCopyOutcome =
     | { status: 'ok', character: Slot }
     | { status: 'missing' }
-    | { status: 'unreadable', error: unknown }
+    | { status: 'unreadable', error: unknown, kind?: ColdReadErrorKind }
     | { status: 'mismatch' }
 
 export type ColdRestoreOutcome =
@@ -112,7 +122,9 @@ async function readUnit(key: string): Promise<ColdStorageReadResult> {
 function checkUnit(result: ColdStorageReadResult, key: string, target: Slot): ColdCopyOutcome {
     if (result.status === 'error') {
         console.error(`Cold storage unit ${key} of ${target.name} could not be read`, result.error)
-        return { status: 'unreadable', error: result.error }
+        return result.kind
+            ? { status: 'unreadable', error: result.error, kind: result.kind }
+            : { status: 'unreadable', error: result.error }
     }
     const stored = result.status === 'ok' ? (result.value as { character?: Slot } | null | undefined)?.character : undefined
     if (!stored) {
@@ -143,10 +155,43 @@ export async function readColdCharacterCopy(stub: Slot): Promise<ColdCopyOutcome
     return { status: 'ok', character: applyStubStateOnRestore(stub, outcome.character) }
 }
 
+/**
+ * The reason a restore is refused for a copy outcome that is not `ok`: the
+ * outcome's status, except that an unreadable copy of a kind is refused as
+ * that kind.
+ */
+export function restoreFailureReason(outcome: Exclude<ColdCopyOutcome, { status: 'ok' }>): ColdRestoreFailure {
+    return outcome.status === 'unreadable' ? outcome.kind ?? 'unreadable' : outcome.status
+}
+
+/**
+ * The unnamed message for `reason`. Every reason has its own case, so a reason
+ * added to `ColdRestoreFailure` without a message fails the type check instead
+ * of falling through to the possible-data-loss text.
+ */
+function restoreFailureText(reason: ColdRestoreFailure): string {
+    switch (reason) {
+        case 'unavailable':
+            return language.errors.coldStorageRestoreUnavailable
+        case 'damaged':
+            return language.errors.coldStorageRestoreDamaged
+        case 'unreadable':
+            return language.errors.coldStorageRestoreUnreadable
+        case 'missing':
+        case 'mismatch':
+        case 'ambiguous':
+            return language.errors.coldStorageRestoreFailed
+        default: {
+            const unhandled: never = reason
+            return unhandled
+        }
+    }
+}
+
 /** The refusal of a restore, with the user-facing alert unless the request is `quiet`. */
 function refuse(options: ColdRestoreOptions, reason: ColdRestoreFailure): ColdRestoreOutcome {
     if (!options.quiet) {
-        alertError(reason === 'unreadable' ? language.errors.coldStorageRestoreUnreadable : language.errors.coldStorageRestoreFailed)
+        alertError(restoreFailureText(reason))
     }
     return { status: 'refused', reason }
 }
@@ -195,7 +240,7 @@ async function restoreOnce(stub: Slot, options: ColdRestoreOptions): Promise<Col
 
     const unit = checkUnit(result, key, target)
     if (unit.status !== 'ok') {
-        return refuse(options, unit.status)
+        return refuse(options, restoreFailureReason(unit))
     }
 
     characters[index] = applyStubStateOnRestore(target, unit.character)
@@ -206,13 +251,15 @@ async function restoreOnce(stub: Slot, options: ColdRestoreOptions): Promise<Col
  * Replaces `stub`, a character that is in `DBState.db.characters` as an
  * archived placeholder, by the full character in its unit.
  *
- * The unit is read through `readColdStorageItem`, so a missing unit and an
- * unreadable one are told apart to the user; an unreadable one never claims
- * the data may be lost. The install lands only in the slot found after the
- * read (see `ColdRestoreOptions.byChaId`), and only when the unit's character
- * carries that slot's `chaId` (the placeholder never adopts another id). The
- * restored character keeps the trash state `applyStubStateOnRestore` gives it
- * from the slot as it is when the read completes.
+ * The unit is read through `readColdStorageItem`, so a missing unit, one that
+ * cannot be read now, a page with no storage for archived data and a copy
+ * that does not decode are told apart to the user; only a missing, mismatched
+ * or shared unit claims the data may be lost. The install lands only in the
+ * slot found after the read (see `ColdRestoreOptions.byChaId`), and only when
+ * the unit's character carries that slot's `chaId` (the placeholder never
+ * adopts another id). The restored character keeps the trash state
+ * `applyStubStateOnRestore` gives it from the slot as it is when the read
+ * completes.
  *
  * Requests for one stub while a restore of it is running join that restore.
  */

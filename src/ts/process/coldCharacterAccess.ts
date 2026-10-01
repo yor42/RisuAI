@@ -2,7 +2,7 @@ import { DBState } from "../stores.svelte"
 import { alertError } from "../alert"
 import { language } from "../../lang"
 import type { character, groupChat } from "../storage/database.svelte"
-import { findChaIdHolders, readColdCharacterCopy, restoreColdCharacter, type ColdRestoreFailure } from "./coldCharacterRestore"
+import { findChaIdHolders, readColdCharacterCopy, restoreColdCharacter, restoreFailureReason, type ColdRestoreFailure } from "./coldCharacterRestore"
 
 /**
  * How a plugin call or an MCP tool reaches an archived character (a stub in
@@ -27,31 +27,55 @@ export interface ColdAccessFailure {
 }
 
 /**
+ * The named message for `reason`. Every reason has its own case, so a reason
+ * added to `ColdRestoreFailure` without a message fails the type check instead
+ * of falling through to the possible-data-loss text. Only `missing`,
+ * `mismatch` and `ambiguous` claim the data may be lost.
+ */
+function namedRestoreFailureText(name: string, reason: ColdRestoreFailure): string {
+    switch (reason) {
+        case 'unavailable':
+            return language.errors.coldStorageNamedRestoreUnavailable(name)
+        case 'damaged':
+            return language.errors.coldStorageNamedRestoreDamaged(name)
+        case 'unreadable':
+            return language.errors.coldStorageNamedRestoreUnreadable(name)
+        case 'missing':
+        case 'mismatch':
+        case 'ambiguous':
+            return language.errors.coldStorageNamedRestoreFailed(name)
+        default: {
+            const unhandled: never = reason
+            return unhandled
+        }
+    }
+}
+
+/**
  * Shows the user one alert naming `stub`, with the wording that fits `reason`,
  * and returns it as a failure. For a caller that restored with `quiet` and
  * reports the failure itself.
  */
 export function alertNamedRestoreFailure(stub: Slot, reason: ColdRestoreFailure): ColdAccessFailure {
     const name = stub.name || language.errors.coldStorageUnknownCharacterName
-    const message = reason === 'unreadable'
-        ? language.errors.coldStorageNamedRestoreUnreadable(name)
-        : language.errors.coldStorageNamedRestoreFailed(name)
+    const message = namedRestoreFailureText(name, reason)
     alertError(message)
     return { status: 'failed', message }
 }
 
 /**
  * The full character in `stub`'s unit as an independent copy. `stub` stays in
- * its slot and nothing is marked for save. On a missing, unreadable or
- * mismatched unit the user gets one alert naming the character and `message`
- * is what the caller reports.
+ * its slot and nothing is marked for save. On a missing, unreadable (including
+ * a page with no storage for archived data and a copy that does not decode) or
+ * mismatched unit the user gets one alert naming the character, worded for
+ * that reason, and `message` is what the caller reports.
  */
 export async function readArchivedCharacter(stub: Slot): Promise<{ status: 'ok', character: Slot } | ColdAccessFailure> {
     const copy = await readColdCharacterCopy(stub)
     if (copy.status === 'ok') {
         return copy
     }
-    return alertNamedRestoreFailure(stub, copy.status)
+    return alertNamedRestoreFailure(stub, restoreFailureReason(copy))
 }
 
 export type ColdWriteTarget =

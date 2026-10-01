@@ -12,10 +12,13 @@ const coldStorageLoadErrorSuffix = ']'
  * Builds the chat-message text that recorded a failed/unusable cold read.
  *
  * `preLoadChat` (`coldstorage.svelte.ts`) does not mutate the chat on a
- * failed read -- it resolves `'error'` and leaves the pointer in
- * `chat.message[0].data` untouched, so the read can simply be retried by
- * reopening the chat. An older install (or backup) can still hold a chat
- * whose `message[0]` was overwritten with this legacy error text instead.
+ * failed read -- it resolves a failure result (`'error'`, `'unavailable'` or
+ * `'damaged'`) and leaves the pointer in `chat.message[0].data` untouched, so
+ * nothing is lost. An `'error'` can be retried by reopening the chat; a repeat
+ * of an `'unavailable'` or `'damaged'` result cannot be expected to succeed, and the pointer
+ * is left so the stored unit is still referenced. An older install (or
+ * backup) can still hold a chat whose `message[0]` was overwritten with this
+ * legacy error text instead.
  *
  * This builder has no production caller of its own. It is kept only as the
  * counterpart of `matchColdStorageLoadErrorKey` -- the two share the same
@@ -24,8 +27,9 @@ const coldStorageLoadErrorSuffix = ']'
  * an install that hit a failed read under the old behaviour.
  * `listRecoverableErrorKeysFromDb` calls `matchColdStorageLoadErrorKey`
  * directly rather than this builder, and the chat-screen notice for a
- * failed read uses the differently-worded, parameterised
- * `language.errors.coldStorageChatLoadFailed`, not this text.
+ * failed read is chosen by `coldChatNoticeText` below from the
+ * differently-worded, parameterised `language.errors` texts, not from this
+ * text.
  */
 export function formatColdStorageLoadError(coldDataKey: string): string {
     return `${coldStorageLoadErrorPrefix}${coldDataKey}${coldStorageLoadErrorSuffix}`
@@ -58,6 +62,212 @@ export function matchColdStorageLoadErrorKey(text: unknown): string | null {
         return null
     }
     return text.slice(coldStorageLoadErrorPrefix.length, text.length - coldStorageLoadErrorSuffix.length)
+}
+
+/**
+ * Why a cold read that did not succeed cannot be expected to succeed by simply being repeated,
+ * as `readColdStorageItem` (`coldstorage.svelte.ts`) reports it beside
+ * `status: 'error'`:
+ *   - `'unavailable'` -- this page offers no storage for archived data at all
+ *                        (the browser has no `navigator.storage.getDirectory`).
+ *   - `'damaged'`     -- the bytes were read but do not decode.
+ * A read error with neither cause has no kind and stays a read that may work
+ * later.
+ */
+export type ColdReadErrorKind = 'unavailable' | 'damaged'
+
+/**
+ * fflate 0.8.2 (`ec` table in `lib/node.cjs`) codes that say the compressed
+ * input itself is bad: 0 unexpected EOF (a truncated stream), 1 invalid block
+ * type, 2 invalid length/literal, 3 invalid distance, 6 invalid zlib or gzip
+ * data. The remaining codes (4, 5 and 7 and up) mean the API was misused or
+ * concern archive entries, so they say nothing about stored bytes.
+ */
+const fflateDataFormatCodes: ReadonlySet<number> = new Set([0, 1, 2, 3, 6])
+
+/**
+ * `'damaged'` when `error`, thrown by the decompress step, carries a numeric
+ * fflate data-format code. Every other failure of that step (a buffer that
+ * cannot be allocated, a Worker that cannot start, an fflate API-misuse code,
+ * an error with no code, a `SyntaxError`-named error from starting a Worker)
+ * says nothing about the stored bytes and yields `null`. The code is tested
+ * with `typeof`, never truthiness: code 0 is the truncated stream.
+ */
+export function classifyColdDecompressFailure(error: unknown): 'damaged' | null {
+    if (!error || typeof error !== 'object') {
+        return null
+    }
+    const code = (error as { code?: unknown }).code
+    return typeof code === 'number' && fflateDataFormatCodes.has(code) ? 'damaged' : null
+}
+
+/**
+ * `'damaged'` when `error` says the stored bytes themselves are bad: it passes
+ * `classifyColdDecompressFailure`, or it is named `SyntaxError` (what
+ * `JSON.parse` throws, recognised by name so another realm's error counts).
+ * Every other failure while decoding says nothing about the data and yields
+ * `null`, so the read stays a plain error that invites a retry.
+ *
+ * The name rule is for the `JSON.parse` step only: the same name on a failure
+ * of the decompress step (a DOMException from starting a Worker) is not bad
+ * data, so the reader judges that step with `classifyColdDecompressFailure`
+ * (see `readLocalColdStorageValue` in `coldstorage.svelte.ts`).
+ */
+export function classifyColdDecodeFailure(error: unknown): 'damaged' | null {
+    if (classifyColdDecompressFailure(error)) {
+        return 'damaged'
+    }
+    if (!error || typeof error !== 'object') {
+        return null
+    }
+    return (error as { name?: unknown }).name === 'SyntaxError' ? 'damaged' : null
+}
+
+/**
+ * `preLoadChat`'s outcome (`coldstorage.svelte.ts`):
+ *   - `'none'`        -- the chat wasn't found, or its first message isn't a
+ *                        live cold-storage pointer (nothing to do). Also used
+ *                        when the pointer was replaced by something else while
+ *                        the read was in flight, or when the user switched to
+ *                        a different character while it was in flight -- in
+ *                        either case, restoring into this chat would be wrong.
+ *   - `'ok'`          -- the read succeeded and the chat's messages/side
+ *                        fields were restored.
+ *   - `'missing'`     -- the reader positively confirmed the data doesn't
+ *                        exist. Never mutates the chat, exactly like the
+ *                        failure values below -- the pointer is left in place,
+ *                        since a `.bin` restore from another device might
+ *                        still hold the blob.
+ *   - `'error'`       -- the read failed in a way that may work later (an I/O
+ *                        failure, a permission error): the pointer is left in
+ *                        place so the read can simply be retried by reopening
+ *                        the chat.
+ *   - `'unavailable'` -- this page offers no storage for archived data.
+ *   - `'damaged'`     -- the bytes did not decode, or the decoded value is not
+ *                        a chat.
+ * No value mutates `chat.message` and the returned promise never rejects.
+ */
+export type PreLoadChatResult = 'none' | 'ok' | 'missing' | 'error' | 'unavailable' | 'damaged'
+
+/**
+ * `retryLegacyColdChatLoad`'s outcome (`coldstorage.svelte.ts`), mirroring
+ * `PreLoadChatResult` but for a chat whose `message[0]` already holds the
+ * legacy "could not be loaded" error text (`matchColdStorageLoadErrorKey`),
+ * rather than a live `coldStorageHeader` pointer:
+ *   - `'none'`        -- the chat's first message isn't that exact error
+ *                        text when the read finishes, the selected character changed
+ *                        while the read was in flight, or the chat identity or
+ *                        order at `chatIndex` changed underneath it (a plugin
+ *                        replaced the character, or its chats were
+ *                        reordered). Nothing to retry, or unsafe to apply the
+ *                        result.
+ *   - `'busy'`        -- `doingChat` or the chat's own `isStreaming` was set,
+ *                        either before the read started or by the time it
+ *                        finished. Retry again once sending settles.
+ *   - `'ok'`          -- the read succeeded and the chat's messages/side
+ *                        fields were restored.
+ *   - `'missing'`     -- the reader positively confirmed the data doesn't
+ *                        exist.
+ *   - `'error'`       -- the read failed in a way that may work later, or the
+ *                        side-field merge failed (it can fail from the live
+ *                        chat as well as from the stored data, so it is not
+ *                        called damaged).
+ *   - `'unavailable'` -- this page offers no storage for archived data.
+ *   - `'damaged'`     -- the bytes did not decode, or the decoded value is not
+ *                        a chat.
+ * Every value except `'ok'` leaves the chat unmutated, so nothing is lost.
+ */
+export type RetryLegacyColdChatLoadResult = 'none' | 'busy' | 'ok' | 'missing' | 'error' | 'unavailable' | 'damaged'
+
+/**
+ * The notice shown in place of an archived chat that `preLoadChat` could not
+ * restore, or `null` when there is nothing to show (`'none'`, `'ok'`). Every
+ * result value has its own case; adding a value without one fails the type
+ * check. Only `'error'` invites a retry and only `'missing'` says the data is
+ * gone.
+ */
+export function coldChatNoticeText(result: PreLoadChatResult, coldDataKey: string): string | null {
+    switch (result) {
+        case 'none':
+        case 'ok':
+            return null
+        case 'missing':
+            return language.errors.coldStorageChatDataMissing(coldDataKey)
+        case 'error':
+            return language.errors.coldStorageChatLoadFailed(coldDataKey)
+        case 'unavailable':
+            return language.errors.coldStorageChatUnavailable(coldDataKey)
+        case 'damaged':
+            return language.errors.coldStorageChatDamaged(coldDataKey)
+        default: {
+            const unhandled: never = result
+            return unhandled
+        }
+    }
+}
+
+/**
+ * What the chat screen remembers about a legacy error-text chat after its
+ * Retry button was pressed. `'pending'` disables the button; `'missing'`,
+ * `'unavailable'` and `'damaged'` hold an outcome a repeated press cannot
+ * change; `'retryFailed'` holds a failure that may work later.
+ */
+export type LegacyRetryState = 'pending' | 'missing' | 'retryFailed' | 'unavailable' | 'damaged'
+
+/**
+ * The state to record for a `retryLegacyColdChatLoad` result, or `null` to
+ * delete the entry: after `'ok'` the notice disappears on its own because
+ * `message[0]` stops matching the error text, and after `'none'` nothing
+ * changed and there is nothing useful to show. Exhaustive over the result.
+ */
+export function legacyRetryStateFor(result: RetryLegacyColdChatLoadResult): LegacyRetryState | null {
+    switch (result) {
+        case 'ok':
+        case 'none':
+            return null
+        case 'missing':
+            return 'missing'
+        case 'error':
+        case 'busy':
+            return 'retryFailed'
+        case 'unavailable':
+            return 'unavailable'
+        case 'damaged':
+            return 'damaged'
+        default: {
+            const unhandled: never = result
+            return unhandled
+        }
+    }
+}
+
+/**
+ * What the legacy error-text notice shows for `state`: the text, an optional
+ * second line, and whether the Retry button is offered. Before any retry
+ * (`undefined`, `'pending'`) the cause is unknown, so the notice keeps the
+ * retry invitation. After a retry whose outcome a repeated press cannot change
+ * (`'missing'`, `'unavailable'`, `'damaged'`) the button is hidden and the text
+ * names the case; only `'retryFailed'` adds the try-later line. Exhaustive over
+ * the state.
+ */
+export function legacyRetryView(state: LegacyRetryState | undefined): { text: string, detail: string | null, showRetry: boolean } {
+    switch (state) {
+        case 'missing':
+            return { text: language.errors.coldStorageLegacyChatDataMissing, detail: null, showRetry: false }
+        case 'unavailable':
+            return { text: language.errors.coldStorageLegacyChatUnavailable, detail: null, showRetry: false }
+        case 'damaged':
+            return { text: language.errors.coldStorageLegacyChatDamaged, detail: null, showRetry: false }
+        case 'retryFailed':
+            return { text: language.errors.coldStorageLegacyChatRetryNotice, detail: language.errors.coldStorageLegacyChatRetryFailed, showRetry: true }
+        case 'pending':
+        case undefined:
+            return { text: language.errors.coldStorageLegacyChatRetryNotice, detail: null, showRetry: true }
+        default: {
+            const unhandled: never = state
+            return unhandled
+        }
+    }
 }
 
 /**

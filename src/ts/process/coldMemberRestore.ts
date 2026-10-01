@@ -11,12 +11,13 @@ import { characterFormatUpdate } from "../characters"
  * that id is warm afterwards, false when it is not.
  *
  * This function tells the user why it failed, once and by the character's
- * name, with the wording that fits: a missing unit, an unreadable one, a unit
- * for another character, or a `chaId` held by several characters, before or
- * after the read. It stays silent when no character holds the id, before the
- * read or once it is done, and when the only holder is a placeholder that
- * points at another unit than the one read: then there is nothing to install.
- * The caller shows no alert of its own.
+ * name, with the wording that fits: a missing unit, one that cannot be read
+ * now, a page with no storage for archived data, a copy that does not decode,
+ * a unit for another character, or a `chaId` held by several characters,
+ * before or after the read. It stays silent when no character holds the id,
+ * before the read or once it is done, and when the only holder is a
+ * placeholder that points at another unit than the one read: then there is
+ * nothing to install. The caller shows no alert of its own.
  *
  * `characters.ts` imports `doingChat` from `index.svelte.ts`, so a static
  * import of this module from `index.svelte.ts` would put a load-time cycle

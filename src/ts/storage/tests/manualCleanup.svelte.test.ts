@@ -1307,6 +1307,33 @@ describe('unreadable blobs stop the run with a notice that names the character a
     })
 })
 
+describe('a blob that cannot be read because the page has no storage stops the run like any other unreadable blob', () => {
+    test.each([
+        ['navigator.storage is removed', undefined],
+        ['navigator.storage has no getDirectory', {}],
+    ])('guard: aborts naming the character and deletes nothing when %s after the load-time listing was taken', async (_label, storage) => {
+        await setup()
+        seedUnit('unreferenced-unit')
+        await putBlob('main-only-blob', fullCharacter('link-cha', 'Link'))
+        setLive(makeDb([]))
+        await prime(makeDb([stubCharacter('link-cha', 'Link', 'main-only-blob')]))
+        const original = Object.getOwnPropertyDescriptor(navigator, 'storage')
+        Object.defineProperty(navigator, 'storage', { configurable: true, value: storage })
+
+        try {
+            await run()
+        } finally {
+            if (original) {
+                Object.defineProperty(navigator, 'storage', original)
+            }
+        }
+
+        expect(await units()).toEqual(expect.arrayContaining(['unreferenced-unit', 'main-only-blob']))
+        expect(errorMessages().some((m) => m.includes('Link'))).toBe(true)
+        expect(h.opfsLog.removed).toEqual([])
+    })
+})
+
 describe('the main file must be what this tab last read or committed', () => {
     test.each([
         ['differs in one byte', 'aaaa', 'bbbb'],

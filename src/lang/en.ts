@@ -36,6 +36,12 @@ export const languageEnglish = {
             `The archived character ${characterName} could not be loaded: its cold storage data is missing or invalid, and may be permanently lost. Nothing was changed.`,
         coldStorageNamedRestoreUnreadable: (characterName: string) =>
             `The archived character ${characterName} could not be loaded right now. Nothing was changed. Please try again.`,
+        coldStorageRestoreUnavailable: "Archived characters can't be opened on this page: this browser offers no storage for them here (for example on a plain-HTTP address). Nothing was changed.",
+        coldStorageRestoreDamaged: "This character's archived copy could not be read: it may be damaged. Nothing was changed or deleted.",
+        coldStorageNamedRestoreUnavailable: (characterName: string) =>
+            `The archived character ${characterName} can't be opened on this page: this browser offers no storage for archived characters here (for example on a plain-HTTP address). Nothing was changed.`,
+        coldStorageNamedRestoreDamaged: (characterName: string) =>
+            `The archived copy of ${characterName} could not be read: it may be damaged. Nothing was changed or deleted.`,
         coldStoragePluginRestoreProgress: (leftCount: number) =>
             `Loading archived characters for a plugin... ${leftCount} items left`,
         coldStoragePluginRestoreIncomplete: (characterNames: string) =>
@@ -83,6 +89,12 @@ export const languageEnglish = {
         coldStorageLegacyChatRetryButton: "Retry",
         coldStorageLegacyChatRetryFailed: "Couldn't load the earlier messages. Try again later.",
         coldStorageLegacyChatDataMissing: "The earlier messages for this chat could not be found. The messages you can already see are unaffected.",
+        coldStorageChatUnavailable: (coldDataKey: string) =>
+            `This chat's stored messages can't be loaded on this page (key: ${coldDataKey}): this browser offers no storage for them here, for example on a plain-HTTP address. Nothing was changed.`,
+        coldStorageChatDamaged: (coldDataKey: string) =>
+            `This chat's stored messages could not be read (key: ${coldDataKey}): the stored copy may be damaged. Nothing was changed or deleted.`,
+        coldStorageLegacyChatUnavailable: "The earlier messages can't be loaded on this page: this browser offers no storage for them here. The messages you can already see are unaffected.",
+        coldStorageLegacyChatDamaged: "The earlier messages could not be read: their stored copy may be damaged. The messages you can already see are unaffected.",
     },
     showHelp: "Show Help",
     help: {

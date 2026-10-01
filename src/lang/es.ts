@@ -35,6 +35,12 @@ export const languageSpanish = {
             `No se pudo cargar el personaje archivado ${characterName}: los datos de su almacenamiento frío faltan o no son válidos, y pueden haberse perdido permanentemente. No se cambió nada.`,
         "coldStorageNamedRestoreUnreadable": (characterName: string) =>
             `No se pudo cargar el personaje archivado ${characterName} en este momento. No se cambió nada. Inténtalo de nuevo.`,
+        "coldStorageRestoreUnavailable": "Los personajes archivados no se pueden abrir en esta página: este navegador no ofrece aquí almacenamiento para ellos (por ejemplo, en una dirección HTTP sin cifrar). No se cambió nada.",
+        "coldStorageRestoreDamaged": "No se pudo leer la copia archivada de este personaje: puede estar dañada. No se cambió ni se eliminó nada.",
+        "coldStorageNamedRestoreUnavailable": (characterName: string) =>
+            `No se puede abrir el personaje archivado ${characterName} en esta página: este navegador no ofrece aquí almacenamiento para personajes archivados (por ejemplo, en una dirección HTTP sin cifrar). No se cambió nada.`,
+        "coldStorageNamedRestoreDamaged": (characterName: string) =>
+            `No se pudo leer la copia archivada de ${characterName}: puede estar dañada. No se cambió ni se eliminó nada.`,
         "coldStoragePluginRestoreProgress": (leftCount: number) =>
             `Cargando personajes archivados para un plugin... quedan ${leftCount} elementos`,
         "coldStoragePluginRestoreIncomplete": (characterNames: string) =>
@@ -81,7 +87,13 @@ export const languageSpanish = {
         "coldStorageLegacyChatRetryNotice": "Los mensajes anteriores de este chat no se pudieron cargar antes de una actualización. Puedes intentar cargarlos de nuevo.",
         "coldStorageLegacyChatRetryButton": "Reintentar",
         "coldStorageLegacyChatRetryFailed": "No se pudieron cargar los mensajes anteriores. Inténtalo de nuevo más tarde.",
-        "coldStorageLegacyChatDataMissing": "No se pudieron encontrar los mensajes anteriores de este chat. Los mensajes que ya puedes ver no se han visto afectados."
+        "coldStorageLegacyChatDataMissing": "No se pudieron encontrar los mensajes anteriores de este chat. Los mensajes que ya puedes ver no se han visto afectados.",
+        "coldStorageChatUnavailable": (coldDataKey: string) =>
+            `Los mensajes guardados de este chat no se pueden cargar en esta página (clave: ${coldDataKey}): este navegador no ofrece aquí almacenamiento para ellos, por ejemplo, en una dirección HTTP sin cifrar. No se cambió nada.`,
+        "coldStorageChatDamaged": (coldDataKey: string) =>
+            `No se pudieron leer los mensajes guardados de este chat (clave: ${coldDataKey}): la copia guardada puede estar dañada. No se cambió ni se eliminó nada.`,
+        "coldStorageLegacyChatUnavailable": "Los mensajes anteriores no se pueden cargar en esta página: este navegador no ofrece aquí almacenamiento para ellos. Los mensajes que ya puedes ver no se han visto afectados.",
+        "coldStorageLegacyChatDamaged": "No se pudieron leer los mensajes anteriores: su copia guardada puede estar dañada. Los mensajes que ya puedes ver no se han visto afectados."
     },
     "showHelp": "Mostrar Ayuda",
     "help": {

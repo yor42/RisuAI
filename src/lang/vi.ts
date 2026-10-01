@@ -35,6 +35,12 @@ export const languageVietnamese = {
             `Không thể tải nhân vật đã lưu trữ ${characterName}: dữ liệu bộ nhớ lạnh của nhân vật này bị thiếu hoặc không hợp lệ và có thể đã bị mất vĩnh viễn. Không có gì bị thay đổi.`,
         "coldStorageNamedRestoreUnreadable": (characterName: string) =>
             `Hiện không thể tải nhân vật đã lưu trữ ${characterName}. Không có gì bị thay đổi. Hãy thử lại.`,
+        "coldStorageRestoreUnavailable": "Không thể mở các nhân vật đã lưu trữ trên trang này: trình duyệt này không cung cấp bộ nhớ cho chúng ở đây (ví dụ trên địa chỉ HTTP thông thường). Không có gì bị thay đổi.",
+        "coldStorageRestoreDamaged": "Không thể đọc bản đã lưu trữ của nhân vật này: bản đó có thể đã bị hỏng. Không có gì bị thay đổi hoặc bị xóa.",
+        "coldStorageNamedRestoreUnavailable": (characterName: string) =>
+            `Không thể mở nhân vật đã lưu trữ ${characterName} trên trang này: trình duyệt này không cung cấp bộ nhớ cho các nhân vật đã lưu trữ ở đây (ví dụ trên địa chỉ HTTP thông thường). Không có gì bị thay đổi.`,
+        "coldStorageNamedRestoreDamaged": (characterName: string) =>
+            `Không thể đọc bản đã lưu trữ của ${characterName}: bản đó có thể đã bị hỏng. Không có gì bị thay đổi hoặc bị xóa.`,
         "coldStoragePluginRestoreProgress": (leftCount: number) =>
             `Đang tải các nhân vật đã lưu trữ cho plugin... còn ${leftCount} mục`,
         "coldStoragePluginRestoreIncomplete": (characterNames: string) =>
@@ -81,7 +87,13 @@ export const languageVietnamese = {
         "coldStorageLegacyChatRetryNotice": "Các tin nhắn trước đó của cuộc trò chuyện này đã không tải được trước khi cập nhật. Bạn có thể thử tải lại chúng.",
         "coldStorageLegacyChatRetryButton": "Thử lại",
         "coldStorageLegacyChatRetryFailed": "Không thể tải các tin nhắn trước đó. Hãy thử lại sau.",
-        "coldStorageLegacyChatDataMissing": "Không tìm thấy các tin nhắn trước đó của cuộc trò chuyện này. Các tin nhắn bạn đã thấy không bị ảnh hưởng."
+        "coldStorageLegacyChatDataMissing": "Không tìm thấy các tin nhắn trước đó của cuộc trò chuyện này. Các tin nhắn bạn đã thấy không bị ảnh hưởng.",
+        "coldStorageChatUnavailable": (coldDataKey: string) =>
+            `Không thể tải các tin nhắn đã lưu của cuộc trò chuyện này trên trang này (khóa: ${coldDataKey}): trình duyệt này không cung cấp bộ nhớ cho chúng ở đây, ví dụ trên địa chỉ HTTP thông thường. Không có gì bị thay đổi.`,
+        "coldStorageChatDamaged": (coldDataKey: string) =>
+            `Không thể đọc các tin nhắn đã lưu của cuộc trò chuyện này (khóa: ${coldDataKey}): bản đã lưu có thể đã bị hỏng. Không có gì bị thay đổi hoặc bị xóa.`,
+        "coldStorageLegacyChatUnavailable": "Không thể tải các tin nhắn trước đó trên trang này: trình duyệt này không cung cấp bộ nhớ cho chúng ở đây. Các tin nhắn bạn đã thấy không bị ảnh hưởng.",
+        "coldStorageLegacyChatDamaged": "Không thể đọc các tin nhắn trước đó: bản đã lưu của chúng có thể đã bị hỏng. Các tin nhắn bạn đã thấy không bị ảnh hưởng."
     },
     "showHelp": "Hiển thị trợ giúp",
     "help": {

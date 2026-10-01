@@ -700,6 +700,56 @@ describe('changeChar on an archived character -- which call selects', () => {
     })
 })
 
+describe('changeChar on an archived character -- a read that cannot succeed here', () => {
+    test.each([
+        ['no storage on the page', 'unavailable', /offers no storage/i, () => language.errors.coldStorageRestoreUnavailable],
+        ['a copy that cannot be read', 'damaged', /may be damaged/i, () => language.errors.coldStorageRestoreDamaged],
+    ] as const)('%s shows its own text once, never claims loss or asks for a retry, and leaves the placeholder and the selection alone', async (_label, kind, wording, expectedText) => {
+        installDb([warmCharacter('before'), upstreamStub('member', 'unit-member')])
+        readColdStorageItemMock.mockResolvedValue({ status: 'error', error: new Error('cannot be used here'), kind })
+
+        await changeChar(1)
+
+        expect(vi.mocked(alertError)).toHaveBeenCalledTimes(1)
+        const shown = String(vi.mocked(alertError).mock.calls[0][0])
+        expect(shown).not.toMatch(/try again/i)
+        expect(shown).not.toMatch(/lost|permanently/i)
+        expect(shown).toMatch(wording)
+        expect(shown).toBe(expectedText())
+        expect(slot(1).coldstorage).toBe('unit-member')
+        expect(get(selectedCharID)).toBe(-1)
+        expect(vi.mocked(setCharacterByIndex)).not.toHaveBeenCalled()
+    })
+
+    test('guard: a read error with no cause still asks to try again and does not claim loss', async () => {
+        installDb([warmCharacter('before'), upstreamStub('member', 'unit-member')])
+        readColdStorageItemMock.mockResolvedValue({ status: 'error', error: new Error('disk unavailable') })
+
+        await changeChar(1)
+
+        expect(vi.mocked(alertError)).toHaveBeenCalledTimes(1)
+        expect(vi.mocked(alertError)).toHaveBeenCalledWith(language.errors.coldStorageRestoreUnreadable)
+        expect(String(vi.mocked(alertError).mock.calls[0][0])).toMatch(/try again/i)
+    })
+
+    test.each([
+        ['no storage on the page', 'unavailable'],
+        ['a copy that cannot be read', 'damaged'],
+        ['a read error with no cause', undefined],
+    ] as const)('guard: opening a group whose archived member has %s shows the group notice that names the member, whatever the cause, and selects the group', async (_label, kind) => {
+        const group = { type: 'group', name: 'The Group', chaId: 'group', image: '', characters: ['member'], chats: [], chatPage: 0, firstMsgIndex: -1 } as unknown as CharacterFixture
+        installDb([group, upstreamStub('member', 'unit-member')])
+        readColdStorageItemMock.mockResolvedValue({ status: 'error', error: new Error('cannot be used here'), ...(kind ? { kind } : {}) })
+
+        await changeChar(0)
+
+        expect(vi.mocked(alertError)).toHaveBeenCalledTimes(1)
+        expect(vi.mocked(alertError)).toHaveBeenCalledWith(language.errors.coldStorageGroupMembersNotLoaded('member name'))
+        expect(slot(1).coldstorage).toBe('unit-member')
+        expect(get(selectedCharID)).toBe(0)
+    })
+})
+
 describe('a by-chaId restore that joins a click restore of the same placeholder', () => {
     test('is refused with the data-loss warning when a second holder of the chaId appears during the read, leaving the selection to the click', async () => {
         installDb([warmCharacter('before'), upstreamStub('member', 'unit-member')])
