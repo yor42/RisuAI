@@ -19,6 +19,16 @@
  * that reads as zero would let a crash loop run unbounded.
  *
  * Turning the setting off clears all of it.
+ *
+ * The restore-all count of the V2.1 plugin crash-loop breaker is a separate
+ * record under its own key, outside `clearArchiveMemo` and outside the
+ * fail-closed strike reader above. A start record is made before every archived
+ * character is restored for an enabled V2.1 plugin, and a reset when the restore
+ * loop ends. It fails open, the opposite of the strike count: a count that
+ * cannot be read or a start record that cannot be written lets the restore run
+ * uncounted with a warning, and a stored value that is not a non-negative
+ * integer reads as zero. Failing closed would switch off the user's plugin
+ * whenever storage throws or is full.
  */
 
 export interface ArchiveMemo {
@@ -40,6 +50,7 @@ const SKIPPED_KEY = 'archivePassSkipped'
 const TOO_LARGE_KEY = 'archivePassTooLarge'
 const STRIKES_KEY = 'archivePassStrikes'
 const PAUSED_TOLD_KEY = 'archivePassPausedTold'
+const RESTORE_ALL_KEY = 'v21RestoreAllStrikes'
 
 function readSkippedIds(): string[] {
     try {
@@ -153,6 +164,59 @@ export function resetArchiveStrikes(): void {
     } catch (error) {
         console.warn('The archive pass could not reset its strike count on this device:', error)
     }
+}
+
+/** The stored restore-all text: null when absent, undefined when the storage threw (logged). */
+function readRestoreAllRaw(): string | null | undefined {
+    try {
+        return localStorage.getItem(RESTORE_ALL_KEY)
+    } catch (error) {
+        console.warn('The restore-all count could not be read on this device; the restore runs uncounted:', error)
+        return undefined
+    }
+}
+
+function restoreAllCountOf(raw: string | null | undefined): number {
+    return typeof raw === 'string' && /^[0-9]+$/.test(raw) ? Number(raw) : 0
+}
+
+/** The restore-all count. Zero when absent, not a count, or unreadable; never throws. */
+export function readRestoreAllStrikes(): number {
+    return restoreAllCountOf(readRestoreAllRaw())
+}
+
+/**
+ * Counts a restore that is about to read units. Writes nothing, with a warning,
+ * when the count cannot be read or the write fails; never throws.
+ */
+export function recordRestoreAllStart(): void {
+    const raw = readRestoreAllRaw()
+    if (raw === undefined) {
+        return
+    }
+    try {
+        localStorage.setItem(RESTORE_ALL_KEY, String(restoreAllCountOf(raw) + 1))
+    } catch (error) {
+        console.warn('The restore-all start could not be recorded on this device; the restore runs uncounted:', error)
+    }
+}
+
+/** Writes zero, which is how a finished restore and every clear leave the count. Never throws. */
+export function resetRestoreAllStrikes(): void {
+    try {
+        localStorage.setItem(RESTORE_ALL_KEY, '0')
+    } catch (error) {
+        console.warn('The restore-all count could not be reset on this device:', error)
+    }
+}
+
+/** Resets the count only when it holds something other than zero, so a profile that never counted never writes. Never throws. */
+export function clearRestoreAllStrikes(): void {
+    const raw = readRestoreAllRaw()
+    if (raw === null || raw === undefined || raw === '0') {
+        return
+    }
+    resetRestoreAllStrikes()
 }
 
 /** Forgets the notice memo, the strike count and the told record; other storage keys are left alone. */

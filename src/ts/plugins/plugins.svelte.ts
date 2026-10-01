@@ -1,7 +1,7 @@
 import { get, writable } from "svelte/store";
 import { language } from "../../lang";
 import { getCurrentCharacter, getDatabase, setDatabase, setDatabaseLite } from "../storage/database.svelte";
-import { alertConfirm, alertError, alertPluginConfirm, waitAlert } from "../alert";
+import { alertConfirm, alertError, alertNormal, alertPluginConfirm, waitAlert } from "../alert";
 import { selectSingleFile, sleep } from "../util";
 import type { OpenAIChat } from "../process/index.svelte";
 import { fetchNative, globalFetch, readImage, saveAsset, toGetter } from "../globalApi.svelte";
@@ -14,6 +14,7 @@ import { pluginCodeTranspiler } from "./apiV3/transpiler";
 import { markCharacterForSave } from "../storage/characterSaveMarks";
 import { incomingCharacterRefusal, withoutStubDowngrades } from "./stubDowngrade";
 import { hasEnabledV21Plugin } from "./v21Plugins";
+import { clearRestoreAllStrikes, readRestoreAllStrikes } from "../storage/bootArchiveMemo";
 import {
     fillMissingCharacterInstallIds,
     fillMissingDatabaseInstallIds,
@@ -431,40 +432,87 @@ export async function loadPlugins() {
     let db = getDatabase()
 
 
-    const enabledPlugins = safeStructuredClone(db.plugins).filter((p: RisuPlugin) => p.enabled)
-    const pluginV2 = enabledPlugins.filter((a: RisuPlugin) => a.version === 2 || a.version === '2.1')
-    const pluginV3 = enabledPlugins.filter((a: RisuPlugin) => a.version === '3.0')
-
     // An enabled V2.1 plugin reads and writes the live character list
     // directly, so every archived character is restored before any V2.1 code
     // runs. A character that cannot be restored stays archived and the plugin
     // still loads. The restore is loaded on demand: it reads cold storage,
     // which a profile without a V2.1 plugin never needs here.
+    //
+    // Two restores in a row that never finished (the count the restore keeps)
+    // mean the page may keep dying during it, which would leave the user
+    // unable to reach the plugin settings. Then the V2.1 plugins are switched
+    // off and the app opens. The count is only consulted when there is an
+    // archived character to restore, and it is not cleared here: the switch-off
+    // reaches the saved file only with a later save, and until then the next
+    // start must trip again. Turning a V2.1 plugin on clears it, and so does a
+    // start whose installed database has none enabled.
     if (hasEnabledV21Plugin(db.plugins)) {
-        try {
-            const { restoreAllColdCharacters } = await import("../process/coldRestoreAll")
-            await restoreAllColdCharacters()
-        } catch (error) {
-            console.error('Restoring archived characters before loading V2.1 plugins failed', error)
-            // The plugin is about to see whichever characters are still
-            // archived, so the user is told which they are before it runs, and
-            // loading waits until the notice has been dismissed.
-            try {
-                const archived = (DBState.db?.characters ?? [])
-                    .filter((cha) => cha?.coldstorage)
-                    .map((cha) => cha.name || language.errors.coldStorageUnknownCharacterName)
-                if (archived.length > 0) {
-                    alertError(language.errors.coldStoragePluginRestoreIncomplete(archived.join(', ')))
-                    await waitAlert()
-                }
-            } catch (noticeError) {
-                console.error('Telling the user about the archived characters failed', noticeError)
-            }
+        if ((DBState.db?.characters ?? []).some((cha) => cha?.coldstorage) && readRestoreAllStrikes() >= 2) {
+            await switchOffV21PluginsAfterRestoreStrikes(db.plugins)
+        } else {
+            await restoreAllForV21Plugins()
         }
     }
 
+    const enabledPlugins = safeStructuredClone(db.plugins).filter((p: RisuPlugin) => p.enabled)
+    const pluginV2 = enabledPlugins.filter((a: RisuPlugin) => a.version === 2 || a.version === '2.1')
+    const pluginV3 = enabledPlugins.filter((a: RisuPlugin) => a.version === '3.0')
+
     await loadV2Plugin(pluginV2)
     await loadV3Plugins(pluginV3)
+}
+
+/**
+ * Flips a plugin on or off from the plugin settings and reloads the plugins.
+ * Turning a V2.1 plugin on clears the restore-all count first, so `loadPlugins`
+ * tries again from zero.
+ */
+export async function togglePluginEnabled(plugin: RisuPlugin): Promise<void> {
+    plugin.enabled = !plugin.enabled
+    if (plugin.enabled && plugin.version === '2.1') {
+        clearRestoreAllStrikes()
+    }
+    return loadPlugins()
+}
+
+async function switchOffV21PluginsAfterRestoreStrikes(plugins: RisuPlugin[]) {
+    const switchedOff: string[] = []
+    for (const plugin of plugins) {
+        if (plugin.enabled && plugin.version === '2.1') {
+            plugin.enabled = false
+            switchedOff.push(plugin.displayName ?? plugin.name)
+        }
+    }
+    console.warn('Loading archived characters for V2.1 plugins did not finish twice in a row; switched off:', switchedOff)
+    try {
+        alertNormal(language.v21PluginRestoreDisabledNotice(switchedOff.join(', '), language.settings, language.plugin))
+        await waitAlert()
+    } catch (noticeError) {
+        console.error('Telling the user that V2.1 plugins were switched off failed', noticeError)
+    }
+}
+
+async function restoreAllForV21Plugins() {
+    try {
+        const { restoreAllColdCharacters } = await import("../process/coldRestoreAll")
+        await restoreAllColdCharacters()
+    } catch (error) {
+        console.error('Restoring archived characters before loading V2.1 plugins failed', error)
+        // The plugin is about to see whichever characters are still
+        // archived, so the user is told which they are before it runs, and
+        // loading waits until the notice has been dismissed.
+        try {
+            const archived = (DBState.db?.characters ?? [])
+                .filter((cha) => cha?.coldstorage)
+                .map((cha) => cha.name || language.errors.coldStorageUnknownCharacterName)
+            if (archived.length > 0) {
+                alertError(language.errors.coldStoragePluginRestoreIncomplete(archived.join(', ')))
+                await waitAlert()
+            }
+        } catch (noticeError) {
+            console.error('Telling the user about the archived characters failed', noticeError)
+        }
+    }
 }
 
 export type PluginV2ProviderArgument = {

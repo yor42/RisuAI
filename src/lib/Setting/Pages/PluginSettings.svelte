@@ -5,7 +5,7 @@
     import { TriangleAlert } from '@lucide/svelte';
 
     import { DBState, hotReloading } from "src/ts/stores.svelte";
-    import { checkPluginUpdate, createBlankPlugin, importPlugin, loadPlugins, updatePlugin } from "src/ts/plugins/plugins.svelte";
+    import { checkPluginUpdate, createBlankPlugin, importPlugin, loadPlugins, togglePluginEnabled, updatePlugin } from "src/ts/plugins/plugins.svelte";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
     import NumberInput from "src/lib/UI/GUI/NumberInput.svelte";
     import SelectInput from "src/lib/UI/GUI/SelectInput.svelte";
@@ -97,9 +97,8 @@
             <button
                 class="textcolor2 hover:gray-200 cursor-pointer"
                 onclick={async (e) => {
-                    plugin.enabled = !plugin.enabled
+                    togglePluginEnabled(plugin)
                     DBState.db.plugins[i] = plugin
-                    loadPlugins()
                     e.preventDefault()
                 }}
             >

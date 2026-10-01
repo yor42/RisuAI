@@ -36,7 +36,8 @@ import { sweepTauriAssets, sweepForageAssetKey } from "./storage/assetSweep";
 import { recordLoadTimeListing } from "./storage/loadTimeListing";
 import { noteMainFileBytes } from "./storage/mainFileRecord";
 import { openBootArchiveSession, type BootArchiveNotice, type BootArchiveOutcome, type BootArchiveSession } from "./storage/bootArchivePass";
-import { clearArchiveMemo, rememberPausedTold, rememberSkipped, rememberTooLarge } from "./storage/bootArchiveMemo";
+import { clearArchiveMemo, clearRestoreAllStrikes, rememberPausedTold, rememberSkipped, rememberTooLarge } from "./storage/bootArchiveMemo";
+import { hasEnabledV21Plugin } from "./plugins/v21Plugins";
 import { applyCharacterDefaults } from "./storage/characterDefaults";
 import { recordStartupCleanup } from "./storage/startupCleanupState";
 import { startAvatarThumbSweep } from "./media/avatarThumb";
@@ -337,6 +338,15 @@ export async function loadData() {
             LoadingStatusState.text = "Listing Stored Files..."
             try {
                 await recordLoadTimeListing()
+            } catch (error) { }
+
+            // The restore-all count only matters while a V2.1 plugin is enabled
+            // in the installed database; an enabled one keeps it, because a
+            // switch-off the breaker made may not have been saved yet.
+            try {
+                if (!hasEnabledV21Plugin(getDatabase().plugins)) {
+                    clearRestoreAllStrikes()
+                }
             } catch (error) { }
 
             LoadingStatusState.text = "Loading Plugins..."
