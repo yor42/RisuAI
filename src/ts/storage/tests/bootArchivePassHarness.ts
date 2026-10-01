@@ -438,6 +438,18 @@ export interface WorldOptions {
     holdCapMs?: number
     createEncoder?: () => RisuSaveEncoder
     core?: FakeLockManagerCore
+    /**
+     * The limit the pass is told (`BootArchiveDeps.nodeBodyLimit`). On the Node
+     * world the fake server also refuses a larger write body with a 413, as the
+     * real server does; on the other worlds it is only told to the pass.
+     */
+    nodeBodyLimit?: number
+}
+
+/** The device memo the pass reads (`BootArchiveDeps.readArchiveMemo`); the pass itself never writes it. */
+export interface WorldMemo {
+    skipped: Set<string>
+    tooLarge: boolean
 }
 
 export interface World {
@@ -465,6 +477,10 @@ export interface World {
     /** Makes the next `writeMainFile` call fail with this error before anything is written. */
     failNextMainWrite?: unknown
     progressTexts: string[]
+    /** What `readArchiveMemo` answers. Tests set it to model a memo that bootstrap wrote on an earlier boot. */
+    memo: WorldMemo
+    /** How many encoders the pass created: one per commit it encodes. */
+    encoderCalls: number
     opfs: FakeOpfsDirectory | null
     /** The main file's current bytes, as the storage holds them. */
     currentMain(): Uint8Array | null
@@ -508,6 +524,9 @@ export async function setupWorld(kit: WorldKit, host: WorldHost, main: Uint8Arra
         vi.stubGlobal('fetch', server.fetch)
         const storage = new kit.NodeStorage()
         nodeStorage = storage
+        if (options.nodeBodyLimit !== undefined) {
+            server.bodyLimit = options.nodeBodyLimit
+        }
         kit.setRemote(storage)
         if (main) {
             server.seed(MAIN_KEY, main)
@@ -547,6 +566,8 @@ export async function setupWorld(kit: WorldKit, host: WorldHost, main: Uint8Arra
         readQueue: [],
         reloading: false,
         progressTexts: [],
+        memo: { skipped: new Set<string>(), tooLarge: false },
+        encoderCalls: 0,
         opfs,
         currentMain: () => {
             if (server) {
@@ -600,9 +621,73 @@ export async function setupWorld(kit: WorldKit, host: WorldHost, main: Uint8Arra
         writeUnit: (key, value) => units.writeUnit(key, value),
         readUnit: (key) => units.readUnit(key) as ReturnType<BootArchiveDeps['readUnit']>,
         setProgress: (text) => { world.progressTexts.push(text) },
-        createEncoder: options.createEncoder,
+        createEncoder: () => {
+            world.encoderCalls++
+            return options.createEncoder ? options.createEncoder() : new kit.Encoder()
+        },
+        readArchiveMemo: () => ({ skipped: new Set(world.memo.skipped), tooLarge: world.memo.tooLarge }),
+        nodeBodyLimit: options.nodeBodyLimit,
     }
     return world
+}
+
+/**
+ * A world whose main file is a small valid save, for a test that hands the
+ * pass a tree directly (`runDirect`): a re-read after a failed pass then has
+ * something real to read, and nothing in the file is the tree under test.
+ */
+export async function directWorld(kit: WorldKit, host: WorldHost, options: WorldOptions = {}): Promise<World> {
+    const world = await setupWorld(kit, host, null, options)
+    world.seedMain(await encodeAsSaveDb(kit.Encoder, baseTree([fullCharacter('seed', 'Seed')])))
+    return world
+}
+
+/** Opens a session and runs the pass over `tree` as given, with no encode or decode of it first. */
+export async function runDirect(world: World, tree: Database): Promise<BootArchiveOutcome> {
+    const session = await world.kit.openBootArchiveSession(bootHost(world.host), world.deps)
+    return session.run({ tree })
+}
+
+/** A notice as bootstrap sees it, whatever kinds the pass defines. */
+interface MemoNotice {
+    kind: string
+    characters?: { chaId: string, name: string }[]
+}
+
+/**
+ * What bootstrap does once it has posted an install outcome's notices: a skip
+ * notice memoises the characters it names and a too-large notice memoises the
+ * device. The pass never does this itself, so a test models the next boot's
+ * memo by calling this on the previous boot's outcome.
+ */
+export function applyNoticeMemo(world: World, outcome: BootArchiveOutcome): void {
+    if (outcome.kind !== 'install') {
+        return
+    }
+    for (const notice of outcome.notices as unknown as MemoNotice[]) {
+        if (notice.kind === 'archive-skipped') {
+            for (const character of notice.characters ?? []) {
+                world.memo.skipped.add(character.chaId)
+            }
+        }
+        if (notice.kind === 'archive-too-large') {
+            world.memo.tooLarge = true
+        }
+    }
+}
+
+/**
+ * The `localStorage` keys of the archive memo that hold a value. The real lock
+ * code writes its own storage-epoch key whenever it grants the hold, so a test
+ * that asserts the pass left no memo reads these keys only.
+ */
+export function archiveMemoKeysWritten(): string[] {
+    return ['archivePassSkipped', 'archivePassTooLarge'].filter((key) => localStorage.getItem(key) !== null)
+}
+
+/** The kinds of an install outcome's notices, in order. */
+export function noticeKinds(outcome: BootArchiveOutcome): string[] {
+    return outcome.kind === 'install' ? outcome.notices.map((n) => n.kind) : []
 }
 
 /**

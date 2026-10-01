@@ -516,3 +516,79 @@ describe('loadData() Tauri: the pass notices are posted after the install and aw
         expect(checkRisuUpdateMock).toHaveBeenCalledTimes(1)
     })
 })
+
+describe('loadData() Tauri: the pass\'s device memo (new behaviour of the skip and size rules)', () => {
+    type MemoModule = typeof import('src/ts/storage/bootArchiveMemo')
+
+    async function memoModule(): Promise<MemoModule> {
+        const path = '/src/ts/storage/bootArchiveMemo'
+        return await import(/* @vite-ignore */ path) as MemoModule
+    }
+
+    function storageSnapshot(): Record<string, string | null> {
+        const snapshot: Record<string, string | null> = {}
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i) as string
+            snapshot[key] = localStorage.getItem(key)
+        }
+        return snapshot
+    }
+
+    test('a skip notice names the character and writes its memo after the notice was posted, not before', async () => {
+        armLegacy()
+        pass.run = async (input) => ({
+            kind: 'install',
+            tree: (input as RunInput).tree,
+            noteBytes: null,
+            notices: [{ kind: 'archive-skipped', characters: [{ chaId: 'b', name: 'Beta Marker' }] }],
+        })
+        const { loadData, alertStore, loadedStore } = await freshLoadData()
+        const before = storageSnapshot()
+        let storageWhenPosted: Record<string, string | null> | null = null
+        const seen: { type: string, msg: string }[] = []
+        const stop = alertStore.subscribe((value) => {
+            if (value.type !== 'none') {
+                seen.push(value)
+                storageWhenPosted ??= storageSnapshot()
+            }
+        })
+
+        const loading = loadData()
+        try {
+            await vi.waitFor(() => { expect(seen.length).toBeGreaterThanOrEqual(1) }, { timeout: 1000, interval: 5 })
+            alertStore.set({ type: 'none', msg: '' })
+            await loading
+
+            expect(get(loadedStore)).toBe(true)
+            expect(seen[0].msg).toContain('Beta Marker')
+            expect(storageWhenPosted).toEqual(before)
+            const memo = await memoModule()
+            expect([...memo.readArchiveMemo().skipped]).toEqual(['b'])
+        } finally {
+            stop()
+            alertStore.set({ type: 'none', msg: '' })
+            await loading.catch(() => { })
+        }
+    })
+
+    test('a strict decode with the setting off clears both memos before the pass runs', async () => {
+        armLegacy(baseDb({ archiveCharacters: false }))
+        const memo = await memoModule()
+        memo.rememberSkipped(['b'])
+        memo.rememberTooLarge()
+        let memoAtRun: { skipped: number, tooLarge: boolean } | null = null
+        pass.run = async (input) => {
+            const read = memo.readArchiveMemo()
+            memoAtRun = { skipped: read.skipped.size, tooLarge: read.tooLarge }
+            return { kind: 'install', tree: (input as RunInput).tree, noteBytes: null, notices: [] }
+        }
+        const { loadData } = await freshLoadData()
+
+        await loadData()
+
+        expect(pass.runInputs.length).toBe(1)
+        expect(memoAtRun).toEqual({ skipped: 0, tooLarge: false })
+        expect(memo.readArchiveMemo().skipped.size).toBe(0)
+        expect(memo.readArchiveMemo().tooLarge).toBe(false)
+    })
+})

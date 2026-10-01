@@ -5,6 +5,7 @@ import { readColdStorageItem, setColdStorageItem } from '../process/coldstorage.
 import { isAppInitiatedReload } from '../reloadGuard'
 import { LoadingStatusState } from '../stores.svelte'
 import { isIOS, isMobile, isNodeServer, isTauri } from '../platform'
+import { readArchiveMemo } from './bootArchiveMemo'
 import type { BootArchiveDeps, BootArchiveEnvironment, BootArchiveHost } from './bootArchivePass'
 
 /**
@@ -17,6 +18,13 @@ import type { BootArchiveDeps, BootArchiveEnvironment, BootArchiveHost } from '.
  */
 
 const MAIN_FILE = 'database/database.bin'
+
+/**
+ * The largest request body the self-hosted Node server accepts, in bytes. It
+ * must equal `NODE_BODY_LIMIT_BYTES` in `server/node/bodyLimit.cjs`, which the
+ * server's body parsers use; no endpoint reports it, so a test pins the two.
+ */
+const NODE_BODY_LIMIT_BYTES = 104857600
 
 /** A Tauri desktop build: the native OS answers when it can, the user agent otherwise. No mobile build is supported, so a mobile OS never archives. */
 function isTauriDesktop(): boolean {
@@ -66,6 +74,8 @@ export async function createProductionBootArchiveDeps(host: BootArchiveHost): Pr
         },
         writeUnit: (key, value) => setColdStorageItem(key, value),
         readUnit: (key) => readColdStorageItem(key),
+        readArchiveMemo,
+        nodeBodyLimit: NODE_BODY_LIMIT_BYTES,
         setProgress: (text) => {
             LoadingStatusState.text = text
         },

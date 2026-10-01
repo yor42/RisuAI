@@ -1,6 +1,7 @@
 
 import type { SettingItem } from './types';
 import { isNodeServer, isTauri } from '../platform';
+import { clearArchiveMemo } from '../storage/bootArchiveMemo';
 
 export const advancedSettingsItems: SettingItem[] = [
     { type: 'header', id: 'adv.header', labelKey: 'advancedSettings', options: { level: 'h2' }, classes: '!mb-0' },
@@ -161,7 +162,7 @@ export const advancedSettingsItems: SettingItem[] = [
     { id: 'adv.allowExt', type: 'check', fallbackLabel: 'Allow all in file select', bindKey: 'allowAllExtentionFiles', classes: 'mt-4' },
     { id: 'adv.dynamicModelRegistry', type: 'check', labelKey: 'dynamicModelRegistry', bindKey: 'dynamicModelRegistry', classes: 'mt-4' },
     { id: 'adv.disableSeperateParameterChangeOnPresetChange', type: 'check', labelKey: 'disableSeperateParameterChangeOnPresetChange', bindKey: 'disableSeperateParameterChangeOnPresetChange', classes: 'mt-4' },
-    { id: 'adv.coldstorage', type: 'check', labelKey: 'coldStorage', getValue: (db) => db.archiveCharacters !== false, setValue: (db, val: boolean) => { db.archiveCharacters = val }, classes: 'mt-4', helpKey: 'coldstorage', keywords: ['cold storage', 'archive'] },
+    { id: 'adv.coldstorage', type: 'check', labelKey: 'coldStorage', getValue: (db) => db.archiveCharacters !== false, setValue: (db, val: boolean) => { db.archiveCharacters = val; if (!val) { clearArchiveMemo() } }, classes: 'mt-4', helpKey: 'coldstorage', keywords: ['cold storage', 'archive'] },
 
     // Experimental Section (visible when useExperimental is true)
     {

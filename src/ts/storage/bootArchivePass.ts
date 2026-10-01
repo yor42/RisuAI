@@ -83,6 +83,18 @@ export interface BootArchiveDeps {
     newUnitKey?(): string
     /** The encoder the commit is built with; defaults to `new RisuSaveEncoder()`. */
     createEncoder?(): RisuSaveEncoder
+    /**
+     * The device memo the pass reads: `chaId`s it does not try again, and
+     * whether the Node server refused a commit as too large. The pass never
+     * writes it; `bootstrap.ts` does, after it has posted the notice that
+     * carries it. A read that fails answers an empty memo.
+     */
+    readArchiveMemo(): { skipped: ReadonlySet<string>, tooLarge: boolean }
+    /**
+     * The largest request body, in bytes, the Node server accepts. Applied only
+     * when `env().isNodeServer` (web); absent means no limit is applied.
+     */
+    nodeBodyLimit?: number
     /** Progress text shown while archiving, English, with the count of N. */
     setProgress?(text: string): void
 }
@@ -96,10 +108,20 @@ export interface BootArchivePassInput {
     keepInline?: ReadonlySet<string>
 }
 
-/** A notice the caller translates and posts after the install, awaiting each in order. */
+/**
+ * A notice the caller translates and posts after the install, awaiting each in
+ * order. The caller writes the device memo a notice carries only after it has
+ * posted that notice: `archive-skipped` memoises `characters`, and
+ * `archive-too-large` memoises the device.
+ */
 export type BootArchiveNotice =
     | { kind: 'archive-enabled' }
+    /** Characters whose unit could not be stored; they stay fully loaded. In slot order. */
+    | { kind: 'archive-skipped', characters: { chaId: string, name: string }[] }
+    /** Two units in a row could not be stored, so archiving stopped for this boot; `characterName` is the second one. */
     | { kind: 'archive-stopped', characterName: string }
+    /** On the Node server: the encoded commit was over the server's body limit and was not sent. */
+    | { kind: 'archive-too-large' }
 
 export type BootArchiveOutcome =
     /**
@@ -148,6 +170,23 @@ const HOLD_TIMEOUT_MS = 1000
  * always has, and a later boot archives it once the save holds 5.
  */
 const MIN_FORMAT_VERSION = 5
+
+/**
+ * True when a request body of `length` bytes is accepted by a server whose body
+ * parsers refuse a body larger than `limit` (`raw-body` refuses `length > limit`).
+ */
+export function fitsNodeBodyLimit(length: number, limit: number): boolean {
+    return length <= limit
+}
+
+/** The commit's encoded bytes are over the Node server's body limit; they are not sent. */
+class CommitTooLargeError extends Error { }
+
+/** Block names the save file keeps for itself; a character block of the same name replaces or collides with one of them. */
+const FIXED_BLOCK_NAMES: ReadonlySet<string> = new Set(['root', 'preset', 'modules', 'loadouts', 'plugins', 'pluginStorage', 'config'])
+
+/** The block header holds a name's byte length in one byte. */
+const MAX_BLOCK_NAME_BYTES = 255
 
 /**
  * Opens the session. Call it after `forageStorage.Init()` (web) or at the
@@ -234,7 +273,7 @@ async function createSession(host: BootArchiveHost, deps: BootArchiveDeps): Prom
             }
             ran = true
             try {
-                return await runPass(host, deps, input, canArchive)
+                return await runPass(host, deps, input, canArchive, host === 'web' && env.isNodeServer)
             } catch (error) {
                 console.error('The boot archive pass failed before it changed anything:', error)
                 return installUntouched(input.tree)
@@ -261,7 +300,16 @@ function passesTreeGates(tree: Database): boolean {
         && Array.isArray(tree.botPresets)
 }
 
-function eligibleIndexes(characters: readonly Slot[], keepInline: ReadonlySet<string> | undefined): number[] {
+/**
+ * The slots the pass archives. An array slot is never eligible: its `chaId`
+ * property does not survive the unit's JSON round trip, so its read-back could
+ * never match. A `chaId` the device memo lists is not tried again.
+ */
+function eligibleIndexes(
+    characters: readonly Slot[],
+    keepInline: ReadonlySet<string> | undefined,
+    skippedBefore: ReadonlySet<string>,
+): number[] {
     const holders = new Map<string, number>()
     for (const cha of characters) {
         const id = String(cha.chaId)
@@ -271,19 +319,57 @@ function eligibleIndexes(characters: readonly Slot[], keepInline: ReadonlySet<st
     for (let i = 0; i < characters.length; i++) {
         const cha = characters[i]
         if (
-            cha.coldstorage
+            Array.isArray(cha)
+            || cha.coldstorage
             || cha.trashTime
             || typeof cha.chaId !== 'string'
             || cha.chaId.length === 0
             || cha.chaId.startsWith('§')
             || holders.get(cha.chaId) !== 1
             || keepInline?.has(cha.chaId)
+            || skippedBefore.has(cha.chaId)
         ) {
             continue
         }
         indexes.push(i)
     }
     return indexes
+}
+
+/**
+ * Why the commit of this tree would fail on every boot, or null when it would
+ * not. Evaluated on the tree the commit would encode, so the answer is a pure
+ * function of it and a refused profile pays no write cost on any boot. It never
+ * names a character: the reason is all that is logged.
+ */
+function refusalReason(tree: Database, characters: readonly Slot[]): string | null {
+    for (const container of ['modules', 'plugins', 'loadouts'] as const) {
+        if (!Array.isArray(tree[container])) {
+            return `the ${container} container is not a list`
+        }
+    }
+    const seen = new Set<string>()
+    for (const cha of characters) {
+        const id = String(cha.chaId)
+        if (FIXED_BLOCK_NAMES.has(id)) {
+            return 'a character id is the name of a block the save file keeps for itself'
+        }
+        if (id === '__proto__') {
+            return 'a character id is __proto__'
+        }
+        if (seen.has(id)) {
+            return 'two characters have the same id'
+        }
+        seen.add(id)
+        const bytes = textEncoder.encode(id)
+        if (bytes.length > MAX_BLOCK_NAME_BYTES) {
+            return `a character id is longer than ${MAX_BLOCK_NAME_BYTES} bytes`
+        }
+        if (textDecoder.decode(bytes) !== id) {
+            return 'a character id does not survive a UTF-8 round trip'
+        }
+    }
+    return null
 }
 
 //#endregion
@@ -319,6 +405,7 @@ async function runPass(
     deps: BootArchiveDeps,
     input: BootArchivePassInput,
     canArchive: boolean,
+    nodeServer: boolean,
 ): Promise<BootArchiveOutcome> {
     const tree = input.tree
     // P7 (`archiveCharacters` false) archives nothing and writes nothing.
@@ -327,20 +414,52 @@ async function runPass(
     }
     const keyAbsent = tree.archiveCharacters === undefined
     try {
-        return await archiveAndCommit(deps, input, keyAbsent)
+        return await archiveAndCommit(deps, input, keyAbsent, nodeServer)
     } catch (error) {
-        console.error('The boot archive pass failed; installing the main file as it is:', error)
-        return await installMainFileAsItIs(host, deps, input, keyAbsent)
+        const tooLarge = error instanceof CommitTooLargeError
+        if (error instanceof CommitTooLargeError) {
+            console.warn('The boot archive pass did not send its commit; installing the main file as it is:', error.message)
+        } else {
+            console.error('The boot archive pass failed; installing the main file as it is:', error)
+        }
+        const outcome = await installMainFileAsItIs(host, deps, input, keyAbsent)
+        if (tooLarge && outcome.kind === 'install') {
+            outcome.notices.push({ kind: 'archive-too-large' })
+        }
+        return outcome
+    }
+}
+
+function readMemoOrEmpty(deps: BootArchiveDeps): { skipped: ReadonlySet<string>, tooLarge: boolean } {
+    try {
+        return deps.readArchiveMemo()
+    } catch (error) {
+        return { skipped: new Set<string>(), tooLarge: false }
     }
 }
 
 /**
  * Archives what is eligible, then commits the result as the main file. Any
  * throw is a pass failure: the caller discards the tree and re-reads the file.
- * A unit that cannot be written or read back is not a failure: archiving stops
- * there and what was archived so far is committed.
+ *
+ * A unit that cannot be written or read back is not a failure. An isolated one
+ * leaves that character fully loaded and the loop carries on; it is reported in
+ * a skip notice that travels on the committing outcome and on the
+ * nothing-changed outcome (which commits nothing), and never on a failed pass.
+ * Two in a row mean the storage itself is failing: archiving stops there, what
+ * was archived so far (if anything, or the absent key) is committed, and
+ * neither of the two is reported as a skip.
+ *
+ * Nothing is committed that the pass could not write whole: a tree that would
+ * fail its commit on every boot is refused before any unit is written, and on
+ * the Node server an encoded commit over the server's body limit is not sent.
  */
-async function archiveAndCommit(deps: BootArchiveDeps, input: BootArchivePassInput, keyAbsent: boolean): Promise<BootArchiveOutcome> {
+async function archiveAndCommit(
+    deps: BootArchiveDeps,
+    input: BootArchivePassInput,
+    keyAbsent: boolean,
+    nodeServer: boolean,
+): Promise<BootArchiveOutcome> {
     const tree = input.tree
 
     // Ids first: the encoder keeps one block per chaId, so a duplicate left in
@@ -364,8 +483,25 @@ async function archiveAndCommit(deps: BootArchiveDeps, input: BootArchivePassInp
     tree.plugins ??= []
 
     const characters = tree.characters
-    const eligible = eligibleIndexes(characters, input.keepInline)
+    const memo = readMemoOrEmpty(deps)
+    if (nodeServer && memo.tooLarge) {
+        // The commit of this save was over the server's limit on an earlier
+        // boot: until the setting is turned off and on, no unit is written and
+        // nothing is committed.
+        return installUntouched(tree)
+    }
+    const refusal = refusalReason(tree, characters)
+    if (refusal !== null) {
+        console.warn(`The boot archive pass did not run: ${refusal}.`)
+        return installUntouched(tree)
+    }
+
+    const eligible = eligibleIndexes(characters, input.keepInline, memo.skipped)
     const archivedInfo = new Map<number, { key: string, stubJson: string }>()
+    const skipped: { chaId: string, name: string }[] = []
+    // A failed unit waits here until the next unit shows the failure was
+    // isolated; a second failure in a row drops it and stops the loop.
+    let pendingSkip: { chaId: string, name: string } | null = null
     let stoppedAt: string | null = null
     const makeKey = deps.newUnitKey ?? uuidv4
     for (let n = 0; n < eligible.length; n++) {
@@ -385,20 +521,36 @@ async function archiveAndCommit(deps: BootArchiveDeps, input: BootArchivePassInp
                 readBack = candidate
             }
         }
+        const name = typeof slot.name === 'string' ? slot.name : ''
         if (!readBack) {
-            stoppedAt = typeof slot.name === 'string' ? slot.name : ''
-            break
+            if (pendingSkip) {
+                pendingSkip = null
+                stoppedAt = name
+                break
+            }
+            pendingSkip = { chaId: String(slot.chaId), name }
+            continue
+        }
+        if (pendingSkip) {
+            skipped.push(pendingSkip)
+            pendingSkip = null
         }
         // The slot's full object is dropped as soon as its stub replaces it.
         const stub = buildColdStub(readBack, key, pointerChatKeys(readBack))
         characters[index] = stub
         archivedInfo.set(index, { key, stubJson: JSON.stringify(stub) })
     }
+    if (pendingSkip) {
+        skipped.push(pendingSkip)
+    }
 
     const notices: BootArchiveNotice[] = []
     if (archivedInfo.size === 0 && !keyAbsent) {
         // Nothing changed that is worth a write: the boot's own record of the
         // file stands.
+        if (skipped.length > 0) {
+            notices.push({ kind: 'archive-skipped', characters: skipped })
+        }
         if (stoppedAt !== null) {
             notices.push({ kind: 'archive-stopped', characterName: stoppedAt })
         }
@@ -416,6 +568,9 @@ async function archiveAndCommit(deps: BootArchiveDeps, input: BootArchivePassInp
         throw new Error('The encoder produced no file.')
     }
     const bytes = new Uint8Array(encoded)
+    if (nodeServer && deps.nodeBodyLimit !== undefined && !fitsNodeBodyLimit(bytes.length, deps.nodeBodyLimit)) {
+        throw new CommitTooLargeError(`the encoded save is ${bytes.length} bytes, over the server's limit of ${deps.nodeBodyLimit} bytes`)
+    }
     const expected: CommittedCharacterExpectation[] = characters.map((cha, index) => {
         const info = archivedInfo.get(index)
         return info
@@ -430,6 +585,9 @@ async function archiveAndCommit(deps: BootArchiveDeps, input: BootArchivePassInp
 
     if (keyAbsent) {
         notices.push({ kind: 'archive-enabled' })
+    }
+    if (skipped.length > 0) {
+        notices.push({ kind: 'archive-skipped', characters: skipped })
     }
     if (stoppedAt !== null) {
         notices.push({ kind: 'archive-stopped', characterName: stoppedAt })

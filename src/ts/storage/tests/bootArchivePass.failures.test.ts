@@ -1,9 +1,9 @@
 /**
  * The boot archive pass, failures and the first-run notice
- * (`src/ts/storage/bootArchivePass.ts`): a failed unit write or read-back, a
- * lost or rejected commit, a fault in the encoded bytes, a throw inside the
- * pass, the re-read that follows, and the one-time `archiveCharacters` key
- * and notice.
+ * (`src/ts/storage/bootArchivePass.ts`): a lost or rejected commit, a fault in
+ * the encoded bytes, a throw inside the pass, the re-read that follows, and
+ * the one-time `archiveCharacters` key and notice. A unit that cannot be
+ * written or read back is covered by `bootArchivePass.skips.test.ts`.
  *
  * The real `RisuSaveEncoder`, `decodeRisuSave`, `NodeStorage` and
  * `createStorageTabLocks` are used; the Node server is `FakeNodeServer`, the
@@ -207,44 +207,6 @@ function expectOriginalInstalled(world: World, result: BootResult, original: Uin
     expect(chaIdsOf(tree)).toEqual(['a', 'b', 'c'])
     expect(charactersOf(tree).some((c) => !!c.coldstorage)).toBe(false)
 }
-
-describe('boot archive pass: a unit that cannot be written or read back', () => {
-    test.each(['node', 'opfs'] as const)('C1 (%s): a failed write at the second of three keeps the first archived and committed, leaves the others full and names the second', async (host) => {
-        const world = await boot(host)
-        world.units.failWrite = (attempt) => (attempt === 2 ? 'false' : undefined)
-
-        const result = await bootOnce(world)
-
-        const slots = charactersOf(installedTree(result.outcome))
-        expect(slots.map((c) => !!c.coldstorage)).toEqual([true, false, false])
-        expect(world.units.attempts).toBe(2)
-        expect(world.mainWrites.length).toBe(1)
-        const committed = await decodeRisuSave(world.mainWrites[0], { strict: true })
-        expect(charactersOf(committed).map((c) => !!c.coldstorage)).toEqual([true, false, false])
-        expect(result.outcome.kind === 'install' && result.outcome.notices).toEqual([{ kind: 'archive-stopped', characterName: 'B' }])
-    })
-
-    test.each([
-        ['another chaId', async () => ({ status: 'ok' as const, value: { character: { chaId: 'someone-else' } } })],
-        ['nothing at the key', async () => ({ status: 'missing' as const })],
-        ['an error', async () => ({ status: 'error' as const, error: new Error('read failed') })],
-    ])('C2: a read-back with %s at the second unit stops archiving there and leaves that character full', async (_label, answer) => {
-        const world = await boot('opfs')
-        let reads = 0
-        world.units.readOverride = async (_key, real) => {
-            reads++
-            return reads === 2 ? answer() : real()
-        }
-
-        const result = await bootOnce(world)
-
-        const slots = charactersOf(installedTree(result.outcome))
-        expect(slots.map((c) => !!c.coldstorage)).toEqual([true, false, false])
-        expect(world.units.attempts).toBe(2)
-        expect(world.mainWrites.length).toBe(1)
-        expect(result.outcome.kind === 'install' && result.outcome.notices).toEqual([{ kind: 'archive-stopped', characterName: 'B' }])
-    })
-})
 
 describe('boot archive pass: the commit on the Node server', () => {
     test('C3: a peer writing the main file during the pass makes the commit conflict, and the app installs the peer file with the next write accepted', async () => {

@@ -127,6 +127,12 @@ export class FakeNodeServer {
     afterRequest?: (path: string) => void
     /** When it returns a response for `/api/remove`, that response is sent instead and nothing is deleted. */
     removeOverride?: (keys: string[]) => Response | undefined
+    /**
+     * The largest request body `/api/write` accepts, in bytes; a larger body is
+     * refused with a 413 and nothing is stored, as the real server's raw body
+     * parser does (a body of exactly this length is accepted). Unset: no limit.
+     */
+    bodyLimit?: number
 
     /** Places a file on the server, bumping its revision as a write would. */
     seed(key: string, bytes: Uint8Array): number {
@@ -203,6 +209,9 @@ export class FakeNodeServer {
         }
         if (path === '/api/write') {
             const key = hexToKey(headers['file-path'] ?? '')
+            if (this.bodyLimit !== undefined && ((init?.body as Uint8Array | undefined)?.length ?? 0) > this.bodyLimit) {
+                return new Response('Payload Too Large', { status: 413 })
+            }
             const expected = headers['if-match-revision']
             if (expected !== undefined && Number.parseInt(expected, 10) !== this.revisionOf(key)) {
                 return json(409, { error: 'Revision conflict', currentRevision: this.revisionOf(key) })

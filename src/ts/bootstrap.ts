@@ -36,6 +36,7 @@ import { sweepTauriAssets, sweepForageAssetKey } from "./storage/assetSweep";
 import { recordLoadTimeListing } from "./storage/loadTimeListing";
 import { noteMainFileBytes } from "./storage/mainFileRecord";
 import { openBootArchiveSession, type BootArchiveNotice, type BootArchiveOutcome, type BootArchiveSession } from "./storage/bootArchivePass";
+import { clearArchiveMemo, rememberSkipped, rememberTooLarge } from "./storage/bootArchiveMemo";
 import { applyCharacterDefaults } from "./storage/characterDefaults";
 import { recordStartupCleanup } from "./storage/startupCleanupState";
 import { startAvatarThumbSweep } from "./media/avatarThumb";
@@ -424,12 +425,19 @@ async function decodeMainFile(bytes: Uint8Array): Promise<{ tree: Database, stri
  * decode and never rejects; if it does anyway, the tree it was given is
  * installed (the pass only swaps a slot for a stub after that slot's unit was
  * verified, so that tree is always safe to install), never a backup.
+ *
+ * A tree that reads the setting off clears the pass's device memo first, on
+ * every boot and whether or not a pass can run, so turning the setting off and
+ * on again always starts from an empty memo.
  */
 async function resolveArchiveOutcome(
     session: BootArchiveSession,
     decoded: { tree: Database, strict: boolean },
     prePassBytes?: Uint8Array,
 ): Promise<BootArchiveOutcome> {
+    if (decoded.tree.archiveCharacters === false) {
+        clearArchiveMemo()
+    }
     if (!decoded.strict) {
         await session.release()
         return { kind: 'install', tree: decoded.tree, noteBytes: null, notices: [] }
@@ -442,12 +450,44 @@ async function resolveArchiveOutcome(
     }
 }
 
-/** Posts each notice of the boot archive pass in order, awaiting its acknowledgement before the next. */
+/** How many skipped characters a notice names; the rest are counted. */
+const SKIPPED_NAMES_SHOWN = 5
+
+function archiveNoticeText(notice: BootArchiveNotice): string {
+    switch (notice.kind) {
+        case 'archive-enabled':
+            return language.archiveCharactersNotice(language.settings, language.advancedSettings, language.coldStorage)
+        case 'archive-skipped': {
+            const shown = notice.characters.slice(0, SKIPPED_NAMES_SHOWN).map((cha) => `"${cha.name || cha.chaId}"`)
+            return language.archiveCharactersSkippedNotice(
+                shown.join(', '),
+                notice.characters.length - shown.length,
+                language.settings,
+                language.advancedSettings,
+                language.coldStorage,
+            )
+        }
+        case 'archive-stopped':
+            return language.archiveCharactersStoppedNotice(notice.characterName)
+        case 'archive-too-large':
+            return language.archiveCharactersTooLargeNotice(language.settings, language.advancedSettings, language.coldStorage)
+    }
+}
+
+/**
+ * Posts each notice of the boot archive pass in order, awaiting its
+ * acknowledgement before the next. The device memo a notice carries is written
+ * right after that notice is posted and never before: a boot that ends without
+ * posting leaves no memo, and the next boot tries again and says so.
+ */
 async function postArchiveNotices(notices: readonly BootArchiveNotice[]) {
     for (const notice of notices) {
-        alertNormal(notice.kind === 'archive-enabled'
-            ? language.archiveCharactersNotice(language.settings, language.advancedSettings, language.coldStorage)
-            : language.archiveCharactersStoppedNotice(notice.characterName))
+        alertNormal(archiveNoticeText(notice))
+        if (notice.kind === 'archive-skipped') {
+            rememberSkipped(notice.characters.map((cha) => cha.chaId))
+        } else if (notice.kind === 'archive-too-large') {
+            rememberTooLarge()
+        }
         await waitForAlertCleared()
     }
 }
