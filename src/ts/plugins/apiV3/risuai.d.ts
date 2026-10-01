@@ -1569,9 +1569,11 @@ interface RisuaiPluginAPI {
      * Placeholders made by upstream RisuAI, which a save brought over from
      * upstream may contain, carry only the first set, plus internal fields
      * (`chatPage`, `firstMsgIndex`, `coldStoragedChats`), and their `type` is
-     * always `'character'`, even for a group. Do not rely on the fork-only
-     * fields being present. Treat any element with `coldstorage` set as a
-     * placeholder, and call `getCharacterFromIndex` for its full data.
+     * `'character'`, even for a group, until the app rewrites the placeholder
+     * at startup (on a host that supports startup archiving, whether or not it
+     * is turned on). Do not rely on the fork-only fields being present. Treat
+     * any element with `coldstorage` set as a placeholder, and call
+     * `getCharacterFromIndex` for its full data.
      */
     getDatabase(includeOnly:string[]|'all' = 'all'): Promise<DatabaseSubset|null>;
 

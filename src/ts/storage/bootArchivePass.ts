@@ -10,7 +10,7 @@ import {
     type EncodedBlockView,
     type toSaveType,
 } from './risuSave'
-import { buildColdStub } from '../process/coldCharacter'
+import { buildColdStub, enrichLegacyStub, isLegacyStub } from '../process/coldCharacter'
 import { coldStorageHeader } from '../process/coldstorageData'
 import { repairDatabaseIds } from '../process/chatIds'
 import { hasEnabledV21Plugin } from '../plugins/v21Plugins'
@@ -24,10 +24,20 @@ import type { ArchiveMemo, ArchiveStrikeState } from './bootArchiveMemo'
  * stub, and the tree is committed as the main file, all under exclusive
  * access. The caller installs the tree this module returns.
  *
- * A crash-loop breaker counts the passes that started writing and did not
- * succeed. The count is recorded before anything is written, reset when a pass
- * succeeds, and two in a row pause the pass on this device until the setting is
- * turned off and on. A count that cannot be read or recorded stops the pass.
+ * The same pass rewrites every stub the upstream application made (a
+ * "legacy" stub: no current `coldVersion`, the type always `'character'`, no
+ * description or chat count) from its unit, so it carries what the fork's own
+ * stubs carry. That runs on a profile with archiving on, in the same commit,
+ * and on a profile with archiving off, where it archives nothing, writes no
+ * unit, leaves the setting off and posts no notice.
+ *
+ * A crash-loop breaker counts the passes that started reading or writing units
+ * and did not succeed. The count is recorded before the first unit is read,
+ * reset when a pass succeeds, and two in a row pause the pass on this device
+ * until the setting is turned off and on. A count that cannot be read or
+ * recorded stops the pass. A profile with archiving off keeps its own count of
+ * enrichment attempts, which stops enrichment on this device after two failed
+ * attempts in a row.
  *
  * Every effect the pass makes itself (unit writes and reads, the main-file
  * read and write, the hold, progress) arrives through `BootArchiveDeps`; the
@@ -105,19 +115,30 @@ export interface BootArchiveDeps {
      */
     readArchiveStrikes(): ArchiveStrikeState
     /**
-     * Counts a pass that is about to write. Answers true only when the new
-     * count reads back from storage; the pass writes nothing when it answers false or
-     * throws. Called before the first unit write and before the encoder runs.
+     * Counts a pass that is about to read or write units or commit the main
+     * file. Answers true only when the new count reads back from storage; the
+     * pass reads and writes nothing when it answers false or throws. Called
+     * before the first unit read or write and before the encoder runs.
      */
     recordArchiveStart(): boolean
     /** Sets the count to zero after a pass succeeded. A failure is logged and ignored. */
     resetArchiveStrikes(): void
     /**
+     * The count that bounds stub enrichment on a profile with archiving off,
+     * with the states of `readArchiveStrikes`. Used only on such a profile that
+     * holds a legacy stub; a dep that throws is treated as `unreadable`.
+     */
+    readStubEnrichStrikes(): ArchiveStrikeState
+    /** Counts an enrichment attempt about to read units; the same contract as `recordArchiveStart`. */
+    recordStubEnrichStart(): boolean
+    /** Removes the enrichment count after an attempt completed. A failure is logged and ignored. */
+    clearStubEnrichStrikes(): void
+    /**
      * The largest request body, in bytes, the Node server accepts. Applied only
      * when `env().isNodeServer` (web); absent means no limit is applied.
      */
     nodeBodyLimit?: number
-    /** Progress text shown while archiving, English, with the count of N. */
+    /** Progress text shown while archiving or updating stubs, English, with the count of N. */
     setProgress?(text: string): void
 }
 
@@ -362,6 +383,17 @@ function eligibleIndexes(
     return indexes
 }
 
+/** The slots `enrichLegacyStub` may rewrite, in slot order. */
+function legacyStubIndexes(characters: readonly Slot[]): number[] {
+    const indexes: number[] = []
+    for (let i = 0; i < characters.length; i++) {
+        if (isLegacyStub(characters[i])) {
+            indexes.push(i)
+        }
+    }
+    return indexes
+}
+
 /**
  * Why the commit of this tree would fail on every boot, or null when it would
  * not. Evaluated on the tree the commit would encode, so the answer is a pure
@@ -434,16 +466,23 @@ async function runPass(
     nodeServer: boolean,
 ): Promise<BootArchiveOutcome> {
     const tree = input.tree
-    // P7 (`archiveCharacters` false) archives nothing and writes nothing.
-    if (!canArchive || !passesTreeGates(tree) || tree.archiveCharacters === false) {
+    if (!canArchive || !passesTreeGates(tree)) {
+        return installUntouched(tree)
+    }
+    // P7 (`archiveCharacters` false) archives nothing and writes no unit; only
+    // the rewrite of legacy stubs can run, and the scan comes before anything
+    // touches the tree, so a profile with none is installed exactly as decoded.
+    const enrichOnly = tree.archiveCharacters === false
+    if (enrichOnly && !tree.characters.some(isLegacyStub)) {
         return installUntouched(tree)
     }
     const keyAbsent = tree.archiveCharacters === undefined
     const attempt: PassAttempt = { reachedTwo: false }
     try {
-        return await archiveAndCommit(deps, input, keyAbsent, nodeServer, attempt)
+        return await archiveAndCommit(deps, input, keyAbsent, enrichOnly, nodeServer, attempt)
     } catch (error) {
-        // A pass that threw keeps the strike its start record made.
+        // A pass that threw keeps the strike its start record made (the
+        // enrichment count, on a profile with archiving off).
         const tooLarge = error instanceof CommitTooLargeError
         if (error instanceof CommitTooLargeError) {
             console.warn('The boot archive pass did not send its commit; installing the main file as it is:', error.message)
@@ -451,7 +490,8 @@ async function runPass(
             console.error('The boot archive pass failed; installing the main file as it is:', error)
         }
         const outcome = await installMainFileAsItIs(host, deps, input, keyAbsent)
-        if (outcome.kind === 'install') {
+        // A profile with archiving off is never told about archiving.
+        if (outcome.kind === 'install' && !enrichOnly) {
             if (tooLarge) {
                 outcome.notices.push({ kind: 'archive-too-large' })
             } else if (attempt.reachedTwo) {
@@ -488,6 +528,33 @@ function recordStartOrFalse(deps: BootArchiveDeps): boolean {
     }
 }
 
+/** The enrichment count read fails closed like the strike count: a dep that throws reads as `unreadable`. */
+function readStubEnrichStrikesOrUnreadable(deps: BootArchiveDeps): ArchiveStrikeState {
+    try {
+        return deps.readStubEnrichStrikes()
+    } catch (error) {
+        return 'unreadable'
+    }
+}
+
+/** True only when the enrichment start record was written; a dep that throws answers false. */
+function recordStubEnrichStartOrFalse(deps: BootArchiveDeps): boolean {
+    try {
+        return deps.recordStubEnrichStart()
+    } catch (error) {
+        return false
+    }
+}
+
+/** A failed clear leaves the count, which costs an earlier stop of enrichment and nothing else. */
+function clearStubEnrichStrikes(deps: BootArchiveDeps): void {
+    try {
+        deps.clearStubEnrichStrikes()
+    } catch (error) {
+        console.warn('The boot archive pass could not clear its stub-enrichment count:', error)
+    }
+}
+
 /** A failed reset leaves a stale strike, which costs an earlier pause and nothing else. */
 function resetStrikes(deps: BootArchiveDeps): void {
     try {
@@ -504,16 +571,29 @@ interface PassAttempt {
 }
 
 /**
- * Archives what is eligible, then commits the result as the main file. Any
- * throw is a pass failure: the caller discards the tree and re-reads the file.
+ * Rewrites the legacy stubs from their units and archives what is eligible,
+ * then commits the result as the main file. Any throw is a pass failure: the
+ * caller discards the tree and re-reads the file.
+ *
+ * With `enrichOnly` (archiving is off) nothing is archived, no unit is
+ * written, no archive memo or strike count is read or written and no notice is
+ * returned; the enrichment count stands in for the strike count.
  *
  * Order of the checks, after the tree has its ids repaired, its slots filtered
  * and its container defaults filled in: the Node too-large memo, then the
  * strike count (paused: the pass writes nothing and returns the paused notice
- * unless the user was told; unreadable: it writes nothing), then the refusal, then eligibility, then the start
- * record. The start record is made only when something will be written, before
- * the first unit write and before the encoder runs; when it cannot be stored
- * the pass writes nothing.
+ * unless the user was told; unreadable: it writes nothing), then the refusal,
+ * then the legacy stubs and the eligible characters, then the start record. The
+ * start record is made only when a unit will be read or written or the main
+ * file will be committed, before the first unit read or write and before the
+ * encoder runs; when it cannot be stored the pass reads and writes nothing.
+ * The legacy stubs are read first, one unit at a time, so a pass that dies
+ * while reading has written no unit.
+ * A stub whose unit cannot be read as its own character is left as it is.
+ *
+ * Enriched stubs are not archived characters: they never make a pass count as
+ * having made progress, so a pass whose unit writes stopped with nothing
+ * archived keeps its strike even when it enriched stubs.
  *
  * A unit that cannot be written or read back is not a failure. An isolated one
  * leaves that character fully loaded and the loop carries on; it is reported in
@@ -529,13 +609,14 @@ interface PassAttempt {
  * finishes. A return before the start record leaves the count as it is.
  *
  * Nothing is committed that the pass could not write whole: a tree that would
- * fail its commit on every boot is refused before any unit is written, and on
+ * fail its commit on every boot is refused before any unit is read or written, and on
  * the Node server an encoded commit over the server's body limit is not sent.
  */
 async function archiveAndCommit(
     deps: BootArchiveDeps,
     input: BootArchivePassInput,
     keyAbsent: boolean,
+    enrichOnly: boolean,
     nodeServer: boolean,
     attempt: PassAttempt,
 ): Promise<BootArchiveOutcome> {
@@ -562,21 +643,35 @@ async function archiveAndCommit(
     tree.plugins ??= []
 
     const characters = tree.characters
-    const memo = readMemoOrEmpty(deps)
-    if (nodeServer && memo.tooLarge) {
-        // The commit of this save was over the server's limit on an earlier
-        // boot: until the setting is turned off and on, no unit is written and
-        // nothing is committed.
-        return installUntouched(tree)
-    }
-    const strikes = readStrikesOrUnreadable(deps)
-    if (strikes === 'paused') {
-        // Nothing is written on a paused device; the tree installs as it is.
-        return { kind: 'install', tree, noteBytes: null, notices: memo.pausedTold ? [] : [{ kind: 'archive-paused' }] }
-    }
-    if (strikes !== 'none' && strikes !== 'one') {
-        console.warn('The boot archive pass did not run: its strike count could not be read on this device.')
-        return installUntouched(tree)
+    let memo: ArchiveMemo = { skipped: new Set<string>(), tooLarge: false, pausedTold: false }
+    let strikes: ArchiveStrikeState = 'none'
+    if (enrichOnly) {
+        const enrichStrikes = readStubEnrichStrikesOrUnreadable(deps)
+        if (enrichStrikes === 'paused') {
+            console.warn('The boot did not update upstream-made characters: two attempts in a row did not finish on this device. Changing the archive setting in Settings (for example on, then off again) tries once more.')
+            return installUntouched(tree)
+        }
+        if (enrichStrikes !== 'none' && enrichStrikes !== 'one') {
+            console.warn('The boot did not update upstream-made characters: its attempt count could not be read on this device.')
+            return installUntouched(tree)
+        }
+    } else {
+        memo = readMemoOrEmpty(deps)
+        if (nodeServer && memo.tooLarge) {
+            // The commit of this save was over the server's limit on an earlier
+            // boot: until the setting is turned off and on, no unit is written and
+            // nothing is committed.
+            return installUntouched(tree)
+        }
+        strikes = readStrikesOrUnreadable(deps)
+        if (strikes === 'paused') {
+            // Nothing is written on a paused device; the tree installs as it is.
+            return { kind: 'install', tree, noteBytes: null, notices: memo.pausedTold ? [] : [{ kind: 'archive-paused' }] }
+        }
+        if (strikes !== 'none' && strikes !== 'one') {
+            console.warn('The boot archive pass did not run: its strike count could not be read on this device.')
+            return installUntouched(tree)
+        }
     }
     const refusal = refusalReason(tree, characters)
     if (refusal !== null) {
@@ -584,15 +679,42 @@ async function archiveAndCommit(
         return installUntouched(tree)
     }
 
-    const eligible = eligibleIndexes(characters, input.keepInline, memo.skipped)
-    if (eligible.length === 0 && !keyAbsent) {
+    const legacy = legacyStubIndexes(characters)
+    const eligible = enrichOnly ? [] : eligibleIndexes(characters, input.keepInline, memo.skipped)
+    if (legacy.length === 0 && eligible.length === 0 && !keyAbsent) {
         return installUntouched(tree)
     }
-    if (!recordStartOrFalse(deps)) {
-        console.warn('The boot archive pass did not run: its start could not be recorded on this device.')
-        return installUntouched(tree)
+    if (enrichOnly) {
+        if (!recordStubEnrichStartOrFalse(deps)) {
+            console.warn('The boot did not update upstream-made characters: its start could not be recorded on this device.')
+            return installUntouched(tree)
+        }
+    } else {
+        if (!recordStartOrFalse(deps)) {
+            console.warn('The boot archive pass did not run: its start could not be recorded on this device.')
+            return installUntouched(tree)
+        }
+        attempt.reachedTwo = strikes === 'one'
     }
-    attempt.reachedTwo = strikes === 'one'
+
+    // The stubs this pass rewrote; they are registered with the block check
+    // apart from the archived characters, which decide whether the pass made
+    // progress.
+    const enrichedInfo = new Map<number, { key: string, stubJson: string }>()
+    for (let n = 0; n < legacy.length; n++) {
+        const index = legacy[n]
+        const slot = characters[index]
+        deps.setProgress?.(`Updating archived characters ${n + 1}/${legacy.length}`)
+        // Only this unit is held, and only until its stub is built.
+        const read = await deps.readUnit(slot.coldstorage)
+        const unitCharacter = read.status === 'ok' ? characterOf(read.value) : null
+        if (unitCharacter && unitCharacter.chaId === slot.chaId) {
+            const stub = enrichLegacyStub(slot, unitCharacter)
+            characters[index] = stub
+            enrichedInfo.set(index, { key: slot.coldstorage, stubJson: JSON.stringify(stub) })
+        }
+    }
+
     const archivedInfo = new Map<number, { key: string, stubJson: string }>()
     const skipped: { chaId: string, name: string }[] = []
     // A failed unit waits here until the next unit shows the failure was
@@ -641,15 +763,24 @@ async function archiveAndCommit(
     }
 
     // A stop with no archived character made no progress, so it keeps its
-    // strike; every other pass that returns succeeds.
+    // strike; every other pass that returns succeeds. An enriched stub is not
+    // progress: a device whose every unit write fails would otherwise reset
+    // its count each boot and never pause.
     const succeeded = stoppedAt === null || archivedInfo.size > 0
     const notices: BootArchiveNotice[] = []
-    if (archivedInfo.size === 0 && !keyAbsent) {
-        // Nothing changed that is worth a write: the boot's own record of the
-        // file stands.
-        if (succeeded) {
+    // The attempt is over once it returns or commits; one that throws keeps
+    // its count.
+    const finishAttempt = () => {
+        if (enrichOnly) {
+            clearStubEnrichStrikes(deps)
+        } else if (succeeded) {
             resetStrikes(deps)
         }
+    }
+    if (archivedInfo.size === 0 && enrichedInfo.size === 0 && !keyAbsent) {
+        // Nothing changed that is worth a write: the boot's own record of the
+        // file stands.
+        finishAttempt()
         if (skipped.length > 0) {
             notices.push({ kind: 'archive-skipped', characters: skipped })
         }
@@ -677,7 +808,7 @@ async function archiveAndCommit(
         throw new CommitTooLargeError(`the encoded save is ${bytes.length} bytes, over the server's limit of ${deps.nodeBodyLimit} bytes`)
     }
     const expected: CommittedCharacterExpectation[] = characters.map((cha, index) => {
-        const info = archivedInfo.get(index)
+        const info = archivedInfo.get(index) ?? enrichedInfo.get(index)
         return info
             ? { chaId: String(cha.chaId), archivedUnitKey: info.key, stubJson: info.stubJson }
             : { chaId: String(cha.chaId), archivedUnitKey: null }
@@ -687,9 +818,7 @@ async function archiveAndCommit(
         throw new Error(`The encoded save failed its block check: ${check.reason}`)
     }
     await deps.writeMainFile(bytes)
-    if (succeeded) {
-        resetStrikes(deps)
-    }
+    finishAttempt()
 
     if (keyAbsent) {
         notices.push({ kind: 'archive-enabled' })

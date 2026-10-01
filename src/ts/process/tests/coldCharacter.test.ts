@@ -10,9 +10,11 @@
  * the grid displays. It carries no message content.
  *
  * The marker that tells a stub built by this fork from one made upstream and
- * the field holding the chat count are not named here: tests read them only
- * through `coldStubChatCount` and `applyStubStateOnRestore`, and build an
- * upstream-shaped stub by hand.
+ * the field holding the chat count are not named here, except by the
+ * `isLegacyStub` tests, which set `coldVersion` on the stubs they classify, and
+ * the `enrichLegacyStub` tests, which assert the marker an enriched stub
+ * carries: the other tests read them only through `coldStubChatCount` and
+ * `applyStubStateOnRestore`, and build an upstream-shaped stub by hand.
  *
  * Everything here is pure except the load-time guard at the end, which
  * mocks the modules the restore side reaches so it can watch which
@@ -52,7 +54,9 @@ import {
     applyStubStateOnRestore,
     buildColdStub,
     coldStubChatCount,
+    enrichLegacyStub,
     isArchivableCharacter,
+    isLegacyStub,
 } from '../coldCharacter'
 import { listColdDataKeysFromDb } from '../coldstorageData'
 import { language } from '../../../lang'
@@ -333,6 +337,261 @@ describe('isArchivableCharacter', () => {
     test('guard: a character that is already a stub is not archivable', () => {
         expect(isArchivableCharacter(buildColdStub(fullCharacter(), 'unit-1', []))).toBe(false)
         expect(isArchivableCharacter(upstreamStub('cha-up', 'unit-up'))).toBe(false)
+    })
+})
+
+describe('isLegacyStub -- the stubs the upstream application wrote', () => {
+    test('an upstream stub is a legacy stub', () => {
+        expect(isLegacyStub(upstreamStub('cha-up', 'unit-up'))).toBe(true)
+    })
+
+    test('a stub whose coldVersion is below 2 is a legacy stub', () => {
+        expect(isLegacyStub(upstreamStub('cha-up', 'unit-up', { coldVersion: 1 }))).toBe(true)
+    })
+
+    test.each([
+        ['a stub built here', () => buildColdStub(fullCharacter(), 'unit-1', [])],
+        ['a stub with a later coldVersion', () => upstreamStub('cha-up', 'unit-up', { coldVersion: 3 })],
+    ])('%s is not a legacy stub', (_label, make) => {
+        expect(isLegacyStub(make())).toBe(false)
+    })
+
+    test.each([
+        ['a full character', () => fullCharacter()],
+        ['a slot whose coldstorage is empty', () => upstreamStub('cha-up', 'unit-up', { coldstorage: '' })],
+        ['a slot whose coldstorage is not a string', () => upstreamStub('cha-up', 'unit-up', { coldstorage: 5 })],
+        ['a stub whose chaId is empty', () => upstreamStub('', 'unit-up')],
+        ['a stub whose chaId is not a string', () => upstreamStub('cha-up', 'unit-up', { chaId: 7 })],
+        ['a stub with no chaId', () => upstreamStub('cha-up', 'unit-up', { chaId: undefined })],
+        ['a stub whose chaId is a hidden-character id', () => upstreamStub('§temp', 'unit-up')],
+        ['null', () => null],
+        ['undefined', () => undefined],
+        ['a string', () => 'text'],
+        ['a number', () => 42],
+    ])('%s is not a legacy stub', (_label, make) => {
+        expect(isLegacyStub(make())).toBe(false)
+    })
+})
+
+describe('enrichLegacyStub -- what an upstream stub takes from its unit', () => {
+    function legacy(extra: Record<string, unknown> = {}): character {
+        return upstreamStub('cha-up', 'unit-up', { name: 'Stub Name', image: 'stub.png', coldStoragedChats: ['stub-chat-key'], ...extra })
+    }
+
+    function jsonOf(value: unknown): Record<string, unknown> {
+        return JSON.parse(JSON.stringify(value)) as Record<string, unknown>
+    }
+
+    function deepFreeze<T>(value: T): T {
+        if (typeof value === 'object' && value !== null && !Object.isFrozen(value)) {
+            Object.freeze(value)
+            for (const inner of Object.values(value)) {
+                deepFreeze(inner)
+            }
+        }
+        return value
+    }
+
+    test('a group unit gives a group stub with a copy of its member list, its description, its last interaction and its chat count', () => {
+        const unit = fullGroup({ chaId: 'cha-up', creatorNotes: 'Group notes', lastInteraction: 123 })
+
+        const result = enrichLegacyStub(legacy(), unit) as unknown as groupChat
+
+        expect(result.type).toBe('group')
+        expect(result.characters).toEqual(['member-1', 'member-2'])
+        expect(result.characters).not.toBe(unit.characters)
+        expect(result.creatorNotes).toBe('Group notes')
+        expect(result.lastInteraction).toBe(123)
+        expect(result.coldChatCount).toBe(3)
+        expect(result.coldVersion).toBe(2)
+        expect(coldStubChatCount(result)).toBe(3)
+    })
+
+    test('a character unit gives a character stub with no member list', () => {
+        const unit = fullCharacter({ chaId: 'cha-up', creatorNotes: 'Character notes' })
+
+        const result = enrichLegacyStub(legacy(), unit)
+
+        expect(result.type).toBe('character')
+        expect(result).not.toHaveProperty('characters')
+        expect(result.creatorNotes).toBe('Character notes')
+        expect(result.lastInteraction).toBe(1_700_000_000_000)
+        expect(result.coldChatCount).toBe(7)
+        expect(coldStubChatCount(result)).toBe(7)
+        expect(result.coldVersion).toBe(2)
+    })
+
+    test('the stub keeps its own name, image, chaId, unit key, chat keys, page, first-message index and placeholder chat, whatever the unit holds', () => {
+        const stub = legacy({ chatPage: 0, firstMsgIndex: 0 })
+        const unit = fullCharacter({ chaId: 'cha-up', name: 'Name In Unit', image: 'unit.png', chatPage: 2, firstMsgIndex: 3, coldstorage: 'other-unit', coldStoragedChats: ['unit-chat-key'] })
+
+        const result = enrichLegacyStub(stub, unit)
+
+        expect(result.name).toBe('Stub Name')
+        expect(result.image).toBe('stub.png')
+        expect(result.chaId).toBe('cha-up')
+        expect(result.coldstorage).toBe('unit-up')
+        expect(result.coldStoragedChats).toEqual(['stub-chat-key'])
+        expect(result.chatPage).toBe(0)
+        expect(result.firstMsgIndex).toBe(0)
+        expect(result.chats).toEqual(stub.chats)
+    })
+
+    test('the placeholder chat the stub holds, with the id the boot gave it, is the one the result holds', () => {
+        const stub = legacy()
+        stub.chats[0].id = 'id-given-by-the-boot'
+
+        const result = enrichLegacyStub(stub, fullCharacter({ chaId: 'cha-up' }))
+
+        expect(result.chats).toHaveLength(1)
+        expect(result.chats[0].id).toBe('id-given-by-the-boot')
+        expect(result.chats[0].message[0].data).toBe('')
+    })
+
+    describe('trash state', () => {
+        // The startup purge reads only the installed stub's `trashTime`. The unit of a character that was in the
+        // trash before it was archived carries an old `trashTime` its upstream stub never had.
+        test('a stub with no trashTime stays without one although the unit holds an old one', () => {
+            const result = enrichLegacyStub(legacy(), fullCharacter({ chaId: 'cha-up', trashTime: 1_000 }))
+
+            expect(result).not.toHaveProperty('trashTime')
+            expect('trashTime' in jsonOf(result)).toBe(false)
+            expect(result.coldVersion).toBe(2)
+        })
+
+        test.each([
+            ['no trashTime', undefined],
+            ['another trashTime', 99],
+        ])('a stub with a trashTime keeps it when the unit holds %s', (_label, unitTrash) => {
+            const unit = fullCharacter({ chaId: 'cha-up', trashTime: unitTrash })
+
+            const result = enrichLegacyStub(legacy({ trashTime: 5_000 }), unit)
+
+            expect(result.trashTime).toBe(5_000)
+            expect(result.coldVersion).toBe(2)
+        })
+
+        test('a stub and a unit that are both untrashed give a stub with no trashTime key after JSON.stringify', () => {
+            const result = enrichLegacyStub(legacy(), fullCharacter({ chaId: 'cha-up' }))
+
+            expect('trashTime' in jsonOf(result)).toBe(false)
+            expect(result.coldVersion).toBe(2)
+        })
+    })
+
+    describe('last interaction', () => {
+        test.each([
+            ['a string', 'yesterday'],
+            ['null', null],
+            ['undefined', undefined],
+            ['an object', { at: 1 }],
+        ])('a unit whose lastInteraction is %s gives a stub with no lastInteraction', (_label, value) => {
+            const result = enrichLegacyStub(legacy(), fullCharacter({ chaId: 'cha-up', lastInteraction: value }))
+
+            expect(result).not.toHaveProperty('lastInteraction')
+            expect(result.coldVersion).toBe(2)
+        })
+
+        test('a unit whose lastInteraction is zero gives a stub with a lastInteraction of zero', () => {
+            const result = enrichLegacyStub(legacy(), fullCharacter({ chaId: 'cha-up', lastInteraction: 0 }))
+
+            expect(result.lastInteraction).toBe(0)
+        })
+    })
+
+    describe('description', () => {
+        const NOTES: [string, unknown][] = [
+            ['a plain description', 'A short note'],
+            ['a multilingual description', '# `ko`\n한국어 설명\n# `en`\nEnglish description'],
+            ['a long text before the en section', `${'k'.repeat(5_000)}\n# \`en\`\nEnglish description`],
+            ['a very long description', 'abcdefghij'.repeat(2_000)],
+            ['a description cut inside a surrogate pair', `${'a'.repeat(499)}\u{1F600}${'b'.repeat(50)}`],
+            ['no description', undefined],
+        ]
+
+        test.each(NOTES)('%s is carried as buildColdStub carries it', (_label, notes) => {
+            const unit = fullCharacter({ chaId: 'cha-up', creatorNotes: notes })
+
+            const result = enrichLegacyStub(legacy(), unit)
+
+            expect(result.creatorNotes).toBe(buildColdStub(unit, 'unit-up', []).creatorNotes)
+        })
+
+        test('a very long description is cut to a bounded length that starts like the full one', () => {
+            const long = 'abcdefghij'.repeat(2_000)
+
+            const result = enrichLegacyStub(legacy(), fullCharacter({ chaId: 'cha-up', creatorNotes: long }))
+
+            expect(result.creatorNotes.length).toBe(500)
+            expect(long.startsWith(result.creatorNotes)).toBe(true)
+        })
+
+        test.each([
+            ['a number', 42],
+            ['an object', { en: 'not a string' }],
+            ['a list', ['text']],
+        ])('a description that is %s gives an empty description', (_label, notes) => {
+            const result = enrichLegacyStub(legacy(), fullCharacter({ chaId: 'cha-up', creatorNotes: notes }))
+
+            expect(result.creatorNotes).toBe('')
+            expect(result.coldVersion).toBe(2)
+        })
+    })
+
+    test('a unit whose chats are not a list gives a chat count of zero', () => {
+        const result = enrichLegacyStub(legacy(), fullCharacter({ chaId: 'cha-up', chats: 'garbled' }))
+
+        expect(result.coldChatCount).toBe(0)
+        expect(result.coldVersion).toBe(2)
+    })
+
+    test('a group unit with no member list gives a group stub with an empty one', () => {
+        const unit = fullGroup({ chaId: 'cha-up' })
+        delete (unit as { characters?: string[] }).characters
+
+        const result = enrichLegacyStub(legacy(), unit) as unknown as groupChat
+
+        expect(result.type).toBe('group')
+        expect(result.characters).toEqual([])
+    })
+
+    test('a unit with no type gives a character stub', () => {
+        const unit = fullCharacter({ chaId: 'cha-up', type: undefined })
+
+        const result = enrichLegacyStub(legacy(), unit)
+
+        expect(result.type).toBe('character')
+    })
+
+    test('the result is not a legacy stub, and carries no message content of the unit', () => {
+        const result = enrichLegacyStub(legacy(), fullCharacter({ chaId: 'cha-up' }))
+
+        expect(isLegacyStub(result)).toBe(false)
+        const text = JSON.stringify(result)
+        for (const secret of [SECRET_DESC, SECRET_FIRST_MESSAGE, SECRET_PERSONALITY, SECRET_CHAT]) {
+            expect(text).not.toContain(secret)
+        }
+    })
+
+    test('the result lists the same unit keys as the stub did', () => {
+        const stub = legacy({ coldStoragedChats: ['chat-key-1', 'chat-key-2'] })
+
+        const result = enrichLegacyStub(stub, fullCharacter({ chaId: 'cha-up' }))
+
+        expect(listColdDataKeysFromDb({ characters: [result], pluginCustomStorage: {} } as never)).toEqual(['unit-up', 'chat-key-1', 'chat-key-2'])
+    })
+
+    test('neither the stub nor the unit is modified, and the result is a new object', () => {
+        const stub = deepFreeze(legacy({ trashTime: 5_000 }))
+        const unit = deepFreeze(fullGroup({ chaId: 'cha-up', trashTime: 99 }))
+        const stubBefore = JSON.stringify(stub)
+        const unitBefore = JSON.stringify(unit)
+
+        const result = enrichLegacyStub(stub, unit)
+
+        expect(result).not.toBe(stub)
+        expect(JSON.stringify(stub)).toBe(stubBefore)
+        expect(JSON.stringify(unit)).toBe(unitBefore)
     })
 })
 

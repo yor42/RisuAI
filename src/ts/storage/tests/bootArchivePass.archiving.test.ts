@@ -289,7 +289,6 @@ describe('boot archive pass: slots the pass leaves alone', () => {
         ['the hidden playground character', () => fullCharacter('§playground', 'Playground')],
         ['the hidden temporary character', () => fullCharacter('§temp', 'Temp')],
         ['a current stub', () => currentStub('current-stub', 'Current Stub', UNIT, { coldStoragedChats: ['inner'] })],
-        ['an upstream stub', () => upstreamStub('upstream-stub', 'Upstream Stub', UNIT)],
     ]
 
     test.each(rows)('guard: %s stays as it is and gets no unit', async (_label, make) => {
@@ -307,6 +306,32 @@ describe('boot archive pass: slots the pass leaves alone', () => {
         expect(kept.trashTime).toBe(row.trashTime)
         expect(world.units.writtenCharacters().some((c) => c.chaId === row.chaId)).toBe(false)
         expect(world.units.writes.every((w) => w.key !== UNIT)).toBe(true)
+    })
+
+    test('guard: an upstream stub whose unit is not stored gets no unit and no enrichment field, and keeps its name, image, ids, unit key and trash state', async () => {
+        useHost('opfs')
+        const row = upstreamStub('upstream-stub', 'Upstream Stub', UNIT)
+        const world = await worldFor(kit, 'opfs', baseTree([row, fullCharacter('x', 'X')]))
+        expect(await world.units.keys()).toEqual([])
+
+        const boot = await bootOnce(world)
+
+        const kept = charactersOf(installedTree(boot.outcome)).find((c) => c.chaId === row.chaId) as Json
+        expect(kept).toBeDefined()
+        // The boot's id repair may give the placeholder chat an id, so the chat is not compared.
+        for (const field of ['coldVersion', 'coldChatCount', 'creatorNotes', 'lastInteraction', 'characters']) {
+            expect(kept, field).not.toHaveProperty(field)
+        }
+        expect(kept.type).toBe(row.type)
+        expect(kept.name).toBe(row.name)
+        expect(kept.image).toBe(row.image)
+        expect(kept.chaId).toBe(row.chaId)
+        expect(kept.coldstorage).toBe(row.coldstorage)
+        expect(kept.coldStoragedChats).toEqual(row.coldStoragedChats)
+        expect(kept).not.toHaveProperty('trashTime')
+        expect(world.units.writtenCharacters().some((c) => c.chaId === row.chaId)).toBe(false)
+        expect(world.units.writes.every((w) => w.key !== UNIT)).toBe(true)
+        expect(await world.units.keys()).not.toContain(UNIT)
     })
 
     test('archives both holders of a duplicated chaId under distinct ids', async () => {

@@ -95,6 +95,30 @@ export function upstreamStub(chaId: string, name: string, unitKey: string): Json
     }
 }
 
+/** A group as a unit holds it: the real `type`, a member list, two chats and a description. */
+export function groupCharacter(chaId: string, name: string, members: string[], extra: Json = {}): Json {
+    return {
+        chaId,
+        name,
+        type: 'group',
+        image: '',
+        characters: members,
+        chatPage: 0,
+        chats: [
+            { id: `chat-${chaId}-1`, message: [{ time: 1, data: `first chat of ${name}`, role: 'user' }], note: '', name: '', localLore: [] },
+            { id: `chat-${chaId}-2`, message: [{ time: 2, data: `second chat of ${name}`, role: 'user' }], note: '', name: '', localLore: [] },
+        ],
+        creatorNotes: `${name} group notes`,
+        lastInteraction: 1_700_000_000_500,
+        ...extra,
+    }
+}
+
+/** The value a unit file holds: one `character` property, as the upstream application and the pass both write it. */
+export function unitValue(character: unknown): { character: unknown } {
+    return { character }
+}
+
 /** A decoded main-file tree holding the container fields `setDatabase` would default. */
 export function baseTree(characters: unknown[], extra: Json = {}): Database {
     return {
@@ -330,6 +354,14 @@ export class UnitStore {
         return this.backend.keys()
     }
 
+    /**
+     * Stores `value` as a unit with no write record and no attempt count: a unit
+     * the upstream application or an earlier boot left in the storage.
+     */
+    async seed(key: string, value: unknown): Promise<void> {
+        await this.backend.put(key, new TextEncoder().encode(JSON.stringify(value)))
+    }
+
     /** The stored value of a unit, parsed. */
     async valueOf(key: string): Promise<Json> {
         const bytes = await this.backend.get(key)
@@ -478,6 +510,27 @@ export interface WorldBreaker {
     calls: ('read' | 'start' | 'reset')[]
 }
 
+/**
+ * The count that bounds stub enrichment on a profile with archiving off, as the
+ * pass sees it through its deps. `stored` is the text under the count's key (the
+ * absent key is `null`); the three dep functions read and write it as the
+ * device record does: a start takes none to `'1'` and one to `'2'`, a clear
+ * removes the key, and a stored value that is not a whole number reads as paused.
+ */
+export interface WorldEnrichStrikes {
+    stored: string | null
+    /** Makes the count read throw instead of answering. */
+    readThrows: boolean
+    /** Makes the count read answer `unreadable`. */
+    unreadable: boolean
+    /** Makes the start record answer `false`: nothing is written. */
+    startFails: boolean
+    /** Makes the start record throw. */
+    startThrows: boolean
+    /** Every call the pass made to the count, in order. */
+    calls: ('read' | 'start' | 'clear')[]
+}
+
 export interface World {
     host: WorldHost
     kit: WorldKit
@@ -507,12 +560,15 @@ export interface World {
     memo: WorldMemo
     /** What the strike record answers and every call the pass made to it. */
     breaker: WorldBreaker
+    /** What the stub-enrichment count answers and every call the pass made to it. */
+    enrich: WorldEnrichStrikes
     /**
      * The effects that matter for ordering, interleaved as they happened:
-     * `start` and `reset` (the strike record), `unit-write`, `encoder`
-     * (an encoder was created) and `main-write` (a commit was attempted).
+     * `start` and `reset` (the archive strike record), `enrich-start` and
+     * `enrich-clear` (the stub-enrichment count), `unit-write`, `unit-read`,
+     * `encoder` (an encoder was created) and `main-write` (a commit was attempted).
      */
-    order: ('start' | 'reset' | 'unit-write' | 'encoder' | 'main-write')[]
+    order: ('start' | 'reset' | 'enrich-start' | 'enrich-clear' | 'unit-write' | 'unit-read' | 'encoder' | 'main-write')[]
     /** How many encoders the pass created: one per commit it encodes. */
     encoderCalls: number
     opfs: FakeOpfsDirectory | null
@@ -522,6 +578,8 @@ export interface World {
     bootRead(): Promise<Uint8Array | null>
     /** Places `bytes` as the main file, as another writer's save would. */
     seedMain(bytes: Uint8Array): void
+    /** Places a unit in the unit storage with no write record: a unit a previous build left. */
+    seedUnit(key: string, value: unknown): Promise<void>
 }
 
 export function hostEnvironment(host: WorldHost, overrides: Partial<BootArchiveEnvironment> = {}): BootArchiveEnvironment {
@@ -602,6 +660,7 @@ export async function setupWorld(kit: WorldKit, host: WorldHost, main: Uint8Arra
         progressTexts: [],
         memo: { skipped: new Set<string>(), tooLarge: false, pausedTold: false },
         breaker: { strikes: 0, readThrows: false, startFails: false, startThrows: false, resetThrows: false, calls: [] },
+        enrich: { stored: null, readThrows: false, unreadable: false, startFails: false, startThrows: false, calls: [] },
         order: [],
         encoderCalls: 0,
         opfs,
@@ -623,6 +682,7 @@ export async function setupWorld(kit: WorldKit, host: WorldHost, main: Uint8Arra
                 localMain = bytes.slice()
             }
         },
+        seedUnit: (key, value) => units.seed(key, value),
     }
 
     world.deps = {
@@ -659,7 +719,10 @@ export async function setupWorld(kit: WorldKit, host: WorldHost, main: Uint8Arra
             world.order.push('unit-write')
             return units.writeUnit(key, value)
         },
-        readUnit: (key) => units.readUnit(key) as ReturnType<BootArchiveDeps['readUnit']>,
+        readUnit: (key) => {
+            world.order.push('unit-read')
+            return units.readUnit(key) as ReturnType<BootArchiveDeps['readUnit']>
+        },
         setProgress: (text) => { world.progressTexts.push(text) },
         createEncoder: () => {
             world.encoderCalls++
@@ -697,6 +760,49 @@ export async function setupWorld(kit: WorldKit, host: WorldHost, main: Uint8Arra
                 throw new Error('injected strike reset failure')
             }
             world.breaker.strikes = 0
+        },
+        readStubEnrichStrikes: () => {
+            world.enrich.calls.push('read')
+            if (world.enrich.readThrows) {
+                throw new Error('injected enrichment count read failure')
+            }
+            if (world.enrich.unreadable) {
+                return 'unreadable'
+            }
+            const stored = world.enrich.stored
+            if (stored === null) {
+                return 'none'
+            }
+            if (!/^[0-9]+$/.test(stored)) {
+                return 'paused'
+            }
+            const count = Number(stored)
+            return count === 0 ? 'none' : count === 1 ? 'one' : 'paused'
+        },
+        recordStubEnrichStart: () => {
+            world.enrich.calls.push('start')
+            world.order.push('enrich-start')
+            if (world.enrich.startThrows) {
+                throw new Error('injected enrichment start record failure')
+            }
+            if (world.enrich.startFails || world.enrich.unreadable) {
+                return false
+            }
+            const stored = world.enrich.stored
+            if (stored === null || stored === '0') {
+                world.enrich.stored = '1'
+                return true
+            }
+            if (stored === '1') {
+                world.enrich.stored = '2'
+                return true
+            }
+            return false
+        },
+        clearStubEnrichStrikes: () => {
+            world.enrich.calls.push('clear')
+            world.order.push('enrich-clear')
+            world.enrich.stored = null
         },
         nodeBodyLimit: options.nodeBodyLimit,
     }

@@ -121,4 +121,52 @@ describe('adv.coldstorage', () => {
 
         expect(localStorage.length).toBe(0)
     })
+
+    // The stub-enrichment count (key `stubEnrichStrikes`) bounds enrichment on a profile whose archiving is off
+    // and is not cleared by `clearArchiveMemo`; a change of the setting in either direction re-arms it.
+    test.each([
+        ['off', false],
+        ['on', true],
+    ] as const)('turning the setting %s removes the stub-enrichment count', async (_label, value) => {
+        await memoModule()
+        localStorage.setItem('stubEnrichStrikes', '2')
+        localStorage.setItem('unrelated-key', 'kept')
+
+        archiveEntry().setValue({}, value)
+
+        expect(localStorage.getItem('stubEnrichStrikes')).toBeNull()
+        expect(localStorage.getItem('unrelated-key')).toBe('kept')
+    })
+
+    test.each(['1', '2', 'not a count'])('turning the setting off removes a stub-enrichment count of %j instead of writing zero', async (stored) => {
+        await memoModule()
+        localStorage.setItem('stubEnrichStrikes', stored)
+
+        archiveEntry().setValue({}, false)
+
+        expect(localStorage.getItem('stubEnrichStrikes')).toBeNull()
+    })
+
+    test('turning the setting off and on again leaves no stub-enrichment count', async () => {
+        await memoModule()
+        localStorage.setItem('stubEnrichStrikes', '2')
+        const db: Record<string, unknown> = {}
+
+        archiveEntry().setValue(db, false)
+        archiveEntry().setValue(db, true)
+
+        expect(localStorage.getItem('stubEnrichStrikes')).toBeNull()
+    })
+
+    test('guard: turning the setting off still clears the archive memo and the strike count beside the stub-enrichment count', async () => {
+        const memo = await memoModule()
+        memo.rememberTooLarge()
+        localStorage.setItem('archivePassStrikes', '2')
+        localStorage.setItem('stubEnrichStrikes', '1')
+
+        archiveEntry().setValue({}, false)
+
+        expect(memo.readArchiveMemo().tooLarge).toBe(false)
+        expect(localStorage.getItem('archivePassStrikes')).toBeNull()
+    })
 })

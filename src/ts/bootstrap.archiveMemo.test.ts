@@ -808,4 +808,51 @@ describe('loadData() web: the strike count and the told record are cleared on a 
         expect(localStorage.getItem(STRIKES_KEY)).toBe('2')
         expect(localStorage.getItem(TOLD_KEY)).toBe('1')
     })
+
+    // The stub-enrichment count bounds enrichment on a profile whose archiving is off, so the clear that runs on
+    // every boot reading the setting off must leave it: a completed enrichment attempt and a change of the setting
+    // in Settings (either direction) remove it; the boot-time clear does not.
+    const ENRICH_KEY = 'stubEnrichStrikes'
+
+    test('guard: a strict decode with the setting off leaves the stub-enrichment count alone, before the pass runs and after it', async () => {
+        armLegacy(baseDb({ archiveCharacters: false }))
+        seedBreaker()
+        localStorage.setItem(ENRICH_KEY, '1')
+        let countAtRun: string | null = 'not run'
+        pass.run = async (input) => {
+            countAtRun = localStorage.getItem(ENRICH_KEY)
+            return { kind: 'install', tree: (input as RunInput).tree, noteBytes: null, notices: [] }
+        }
+        const { loadData } = await freshLoadData()
+
+        await loadData()
+
+        expect(pass.runInputs.length).toBe(1)
+        expect(localStorage.getItem(STRIKES_KEY)).toBeNull()
+        expect(countAtRun).toBe('1')
+        expect(localStorage.getItem(ENRICH_KEY)).toBe('1')
+    })
+
+    test('guard: a boot whose session cannot archive, with the setting off, leaves the stub-enrichment count alone', async () => {
+        armLegacy(baseDb({ archiveCharacters: false }))
+        pass.canArchive = false
+        localStorage.setItem(ENRICH_KEY, '2')
+        const { loadData } = await freshLoadData()
+
+        await loadData()
+
+        expect(localStorage.getItem(ENRICH_KEY)).toBe('2')
+    })
+
+    test('guard: two boots that read the setting off in a row keep the stub-enrichment count', async () => {
+        localStorage.setItem(ENRICH_KEY, '1')
+        for (let boot = 0; boot < 2; boot++) {
+            armLegacy(baseDb({ archiveCharacters: false }))
+            const { loadData } = await freshLoadData()
+
+            await loadData()
+
+            expect(localStorage.getItem(ENRICH_KEY)).toBe('1')
+        }
+    })
 })

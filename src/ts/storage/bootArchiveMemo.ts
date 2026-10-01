@@ -20,6 +20,15 @@
  *
  * Turning the setting off clears all of it.
  *
+ * The stub-enrichment count bounds the boot pass's rewrite of upstream-made
+ * stubs on a profile whose archiving is off, with the strike count's states and
+ * its fail-closed rule, under its own key. `clearArchiveMemo` leaves it, because
+ * the boot clears the archive memo on every boot that reads the setting off and
+ * the count must outlive that. A completed enrichment attempt and a change of
+ * the setting in Settings, in either direction, remove it; the boot-time clear
+ * with archiving off does not. On a profile with archiving on the strike count
+ * covers the same work and this key is not used.
+ *
  * The restore-all count of the V2.1 plugin crash-loop breaker is a separate
  * record under its own key, outside `clearArchiveMemo` and outside the
  * fail-closed strike reader above. A start record is made before every archived
@@ -51,6 +60,7 @@ const TOO_LARGE_KEY = 'archivePassTooLarge'
 const STRIKES_KEY = 'archivePassStrikes'
 const PAUSED_TOLD_KEY = 'archivePassPausedTold'
 const RESTORE_ALL_KEY = 'v21RestoreAllStrikes'
+const STUB_ENRICH_KEY = 'stubEnrichStrikes'
 
 function readSkippedIds(): string[] {
     try {
@@ -120,9 +130,13 @@ export function rememberPausedTold(): void {
  * it).
  */
 export function readArchiveStrikes(): ArchiveStrikeState {
+    return readStrikeState(STRIKES_KEY)
+}
+
+function readStrikeState(key: string): ArchiveStrikeState {
     let raw: string | null
     try {
-        raw = localStorage.getItem(STRIKES_KEY)
+        raw = localStorage.getItem(key)
     } catch (error) {
         return 'unreadable'
     }
@@ -137,24 +151,29 @@ export function readArchiveStrikes(): ArchiveStrikeState {
 }
 
 /**
- * Counts a pass that is about to write: takes none to one and one to two, and
- * answers true only when the new count reads back. Answers false, writing
- * nothing, when the count is paused or unreadable, and false when the write
- * fails or does not stick; it never throws.
+ * Takes the count under `key` from none to one and from one to two, and answers
+ * true only when the new count reads back. Answers false, writing nothing,
+ * when the count is paused or unreadable, and false when the write fails or
+ * does not stick; it never throws.
  */
-export function recordArchiveStart(): boolean {
-    const state = readArchiveStrikes()
+function recordStrikeStart(key: string, failureMessage: string): boolean {
+    const state = readStrikeState(key)
     if (state !== 'none' && state !== 'one') {
         return false
     }
     const next = state === 'none' ? '1' : '2'
     try {
-        localStorage.setItem(STRIKES_KEY, next)
-        return localStorage.getItem(STRIKES_KEY) === next
+        localStorage.setItem(key, next)
+        return localStorage.getItem(key) === next
     } catch (error) {
-        console.warn('The archive pass could not record that it started on this device:', error)
+        console.warn(failureMessage, error)
         return false
     }
+}
+
+/** Counts a pass that is about to write: takes the strike count from none to one and from one to two. See `recordStrikeStart`. */
+export function recordArchiveStart(): boolean {
+    return recordStrikeStart(STRIKES_KEY, 'The archive pass could not record that it started on this device:')
 }
 
 /** Zero is the absence of the key. A failure is logged and ignored. */
@@ -163,6 +182,25 @@ export function resetArchiveStrikes(): void {
         localStorage.removeItem(STRIKES_KEY)
     } catch (error) {
         console.warn('The archive pass could not reset its strike count on this device:', error)
+    }
+}
+
+/** The stub-enrichment count, with the same states and failure rules as `readArchiveStrikes`. */
+export function readStubEnrichStrikes(): ArchiveStrikeState {
+    return readStrikeState(STUB_ENRICH_KEY)
+}
+
+/** Counts an enrichment attempt that is about to read units, as `recordArchiveStart` counts a pass. */
+export function recordStubEnrichStart(): boolean {
+    return recordStrikeStart(STUB_ENRICH_KEY, 'The stub update could not record that it started on this device:')
+}
+
+/** Zero is the absence of the key. A failure is logged and ignored. */
+export function clearStubEnrichStrikes(): void {
+    try {
+        localStorage.removeItem(STUB_ENRICH_KEY)
+    } catch (error) {
+        console.warn('The stub-enrichment count could not be cleared on this device:', error)
     }
 }
 

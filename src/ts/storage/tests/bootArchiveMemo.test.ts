@@ -6,12 +6,19 @@
  *
  * `localStorage` is the happy-dom one, or a stand-in that throws; nothing here
  * says anything about a browser's storage quota or about private browsing
- * modes. Every test here asserts behaviour only the memo module has.
+ * modes. A test titled `guard:` asserts behaviour that must not change; it
+ * passes with and without the stub-enrichment count. The others assert
+ * behaviour only the memo module has.
  */
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
     clearArchiveMemo,
+    clearStubEnrichStrikes,
     readArchiveMemo,
+    readArchiveStrikes,
+    readStubEnrichStrikes,
+    recordArchiveStart,
+    recordStubEnrichStart,
     rememberSkipped,
     rememberTooLarge,
 } from 'src/ts/storage/bootArchiveMemo'
@@ -101,5 +108,130 @@ describe('the device memo of the boot archive pass', () => {
         expect(() => rememberSkipped(['a'])).not.toThrow()
         expect(() => rememberTooLarge()).not.toThrow()
         expect(() => clearArchiveMemo()).not.toThrow()
+    })
+})
+
+describe('the stub-enrichment count of a profile with archiving off', () => {
+    const KEY = 'stubEnrichStrikes'
+
+    /** A storage that answers reads from `values` and silently drops every write, as one that does not persist would. */
+    function forgetfulStorage(values: Record<string, string> = {}): Storage {
+        return {
+            get length(): number { return Object.keys(values).length },
+            key: () => null,
+            getItem: (key: string) => values[key] ?? null,
+            setItem: () => { },
+            removeItem: () => { },
+            clear: () => { },
+        } as unknown as Storage
+    }
+
+    test('is none on a device that has never written it', () => {
+        expect(readStubEnrichStrikes()).toBe('none')
+    })
+
+    test.each([
+        ['0', 'none'],
+        ['1', 'one'],
+        ['2', 'paused'],
+        ['7', 'paused'],
+    ] as const)('reads a stored %s as %s', (stored, state) => {
+        localStorage.setItem(KEY, stored)
+
+        expect(readStubEnrichStrikes()).toBe(state)
+    })
+
+    test.each(['abc', '1.5', '-1', '', 'two'])('reads a stored value that is not a whole number (%j) as paused, the same as a count of two', (stored) => {
+        localStorage.setItem(KEY, stored)
+
+        expect(readStubEnrichStrikes()).toBe('paused')
+    })
+
+    test('reads as unreadable when localStorage throws', () => {
+        vi.stubGlobal('localStorage', throwingStorage())
+
+        expect(readStubEnrichStrikes()).toBe('unreadable')
+    })
+
+    test('a start record takes none to one and one to two, and answers true each time', () => {
+        expect(recordStubEnrichStart()).toBe(true)
+        expect(localStorage.getItem(KEY)).toBe('1')
+        expect(readStubEnrichStrikes()).toBe('one')
+
+        expect(recordStubEnrichStart()).toBe(true)
+        expect(localStorage.getItem(KEY)).toBe('2')
+        expect(readStubEnrichStrikes()).toBe('paused')
+    })
+
+    test.each(['2', '3', 'abc'])('a start record over a paused count (%j) answers false and writes nothing', (stored) => {
+        localStorage.setItem(KEY, stored)
+
+        expect(recordStubEnrichStart()).toBe(false)
+
+        expect(localStorage.getItem(KEY)).toBe(stored)
+    })
+
+    test('a start record answers false, without throwing, when localStorage throws', () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => { })
+        vi.stubGlobal('localStorage', throwingStorage())
+
+        expect(recordStubEnrichStart()).toBe(false)
+    })
+
+    test('a start record answers false when the new count does not read back', () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => { })
+        vi.stubGlobal('localStorage', forgetfulStorage())
+
+        expect(recordStubEnrichStart()).toBe(false)
+    })
+
+    test('a start record uses its own key and leaves the archive strike count alone', () => {
+        recordStubEnrichStart()
+        recordStubEnrichStart()
+
+        expect(localStorage.getItem('archivePassStrikes')).toBeNull()
+        expect(readArchiveStrikes()).toBe('none')
+        recordArchiveStart()
+        expect(localStorage.getItem(KEY)).toBe('2')
+    })
+
+    test('clearing removes the key, never writes zero, and leaves other keys alone', () => {
+        localStorage.setItem(KEY, '1')
+        localStorage.setItem('archivePassStrikes', '1')
+        localStorage.setItem('unrelated-key', 'kept')
+
+        clearStubEnrichStrikes()
+
+        expect(localStorage.getItem(KEY)).toBeNull()
+        expect(readStubEnrichStrikes()).toBe('none')
+        expect(localStorage.getItem('archivePassStrikes')).toBe('1')
+        expect(localStorage.getItem('unrelated-key')).toBe('kept')
+    })
+
+    test('clearing where no count is stored writes nothing', () => {
+        clearStubEnrichStrikes()
+
+        expect(localStorage.length).toBe(0)
+    })
+
+    test('clearing ignores a storage that throws', () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => { })
+        vi.stubGlobal('localStorage', throwingStorage())
+
+        expect(() => clearStubEnrichStrikes()).not.toThrow()
+    })
+
+    test('guard: clearing the archive memo leaves the count alone, because an archive-off boot clears the archive memo on every boot', () => {
+        localStorage.setItem(KEY, '2')
+        localStorage.setItem('archivePassStrikes', '2')
+        localStorage.setItem('archivePassPausedTold', '1')
+        rememberTooLarge()
+
+        clearArchiveMemo()
+
+        expect(localStorage.getItem('archivePassStrikes')).toBeNull()
+        expect(localStorage.getItem('archivePassPausedTold')).toBeNull()
+        expect(readArchiveMemo().tooLarge).toBe(false)
+        expect(localStorage.getItem(KEY)).toBe('2')
     })
 })
