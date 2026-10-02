@@ -2052,7 +2052,77 @@ hardening is integrity.
 
 ### CHORE-53 — Delete actions act on a stale target, and Enter clicks the control behind a confirm (DATA LOSS)
 
-**Status (2026-10-01):** filed from the community reports in `MC-150` and the investigation in ledger
+**Status (2026-10-02): closed by three commits, not pushed:** `1ba98d45` (stage 53a, the keyboard), `5747a7e1` (53b,
+every prompt-then-remove handler) and `07ea1882` (53c, the chat message delete). The maintainer's answers are
+`MC-161`; the dispatches are ledger rows 606 to 616. The 2026-10-01 text below is the filing record and the list of
+what was open then. **Post-merge checks on HEAD `cfa4dfa0`** (the merge of the rebranding branch, `MC-162`;
+EXECUTED by the Orchestrator, logs in the session scratchpad `chore53/postmerge/`): `pnpm check` 0 errors and 0
+warnings; `pnpm test` 284 files, 5413 passed, 4 skipped; `pnpm build` ok, with `VITE_RISU_LEGAL_CONFIGURED=TRUE`.
+
+- **What each stage fixed** (from the commit messages):
+  - **53a, `1ba98d45`:** while an alert that covers the page is shown (every alert except a toast), the page behind
+    it and the dialogs drawn after it take no focus, clicks or keys, and keyboard focus moves to the dialog's box.
+    Enter answers a confirm, or closes a notice, only when it is aimed at the dialog or at nothing; with a dialog
+    button focused, Enter presses that button, so No means no. Shift, Ctrl, Alt or Meta with Enter, a repeat, or an
+    Enter that ends a text composition never answers. A held Enter or Space never repeats a press on a button, link or
+    other control anywhere in the app. Keyboard shortcuts do nothing while a prompt waits or a dialog covers the page.
+    Enter does not close a notice or an error within 0.4 s of it appearing. The terms prompt and the stale-account
+    notice ignore button clicks for 0.4 s. Decisions: `MC-161` 1, 2, 3b and 5. This is the ticket's layer 1.
+  - **53b, `5747a7e1`:** each prompt-then-remove handler fixes its target at the click and, after the confirms,
+    removes that same object if it is still in the list it was clicked in, or nothing: lorebook entries (three lists),
+    regex scripts, V1 triggers, bot presets, lorebook presets, modules, personas, HypaV3 presets, translator presets,
+    plugins, chat folders and a HypaV3 summary's "delete this". Also the lorebook folder delete, HypaV3's "delete
+    after" and reset, the Playground's inlay delete and the trigger-type switch. `removeChar('permanent')` skips a
+    character restored from the trash while its confirms were open. The "last entry cannot be deleted" guard is
+    checked again at removal. This is the ticket's layers 2 and 3. The commit message lists these defects in the same
+    handlers as fixed as well: a chat lorebook entry delete that also removed the entry below it when the entry carried an id (a defect
+    on HEAD, the Gate 1 finding G1); a lorebook folder with a missing or empty key removing every top-level (or every
+    empty-folder) entry; a plugin re-import replacing the plugin at a position found before the confirm; and HypaV3's
+    bulk re-summary applying to the wrong summaries after one was deleted.
+  - **53c, `07ea1882`:** the chat message delete fixes the character, chat and message at the click, and removes
+    nothing if any is gone. The second question ("remove just one message?") has three choices: only this message,
+    cancel, and this message and every message after it. **Fork-only wording; upstream asks Yes/No** (`MC-161` 3c).
+    Every prompt asked through the prompt queue ignores clicks, taps and keys for its first 0.4 s (`MC-161` 5), which
+    also stops a double-click answering both of a flow's confirms (measured for the chat message delete, on a stand-in
+    and in the built app; traced, not measured, for the character delete's two confirms).
+- **What ran, per the commit messages:** tests were written before each change and checked against the previous
+  commit's source. 53a: 240 new tests in seven files: 129 fail against the previous source, the 103 guards pass, and the other 6 test the
+  new key-event snapshot module on its own; two of the 240 were added after review.
+  53b: 189 new tests in 15 files, 120 fail against the previous source of the 21 production files and the 69 guards
+  pass. 53c: 26 new tests, 21 fail and 5 pass (guards) against the previous source. Each commit records a full
+  suite, `pnpm check` and `pnpm build`: 5398 (53a), 5413 (53b) and 5377 (53c) tests passed (284 files, 4 skipped),
+  check 0 errors and 0 warnings, build ok. The 53a and 53c messages say these ran on the working tree with the other
+  stage or stages present and not yet committed. The gates: 53a Gate 1 had a
+  capture-blocker design rejected three rounds running (`adversarial-reviewer`), was escalated to `senior-advisor`
+  and redesigned, then `[REJECT]`, `[REJECT]`, `[EDITORIAL]`; its Gate 2 (`opus-reviewer`) was `[EDITORIAL]`. 53b: Gate 1
+  `[REJECT]`, `[EDITORIAL]`; Gate 2 `[EDITORIAL]`, `[EDITORIAL]`. 53c: Gate 1 `[REJECT]`, `[EDITORIAL]`; Gate 2 `[REJECT]`,
+  `[EDITORIAL]`.
+- **Live check (EXECUTED, the Orchestrator, ledger row 616):** the built app in Chromium, synthetic data, on the tree
+  with the three stages uncommitted. A covering dialog held focus; after a mouse click on a lorebook entry's delete,
+  five Enter presses removed that entry only and clicked nothing behind the dialog; Enter on No deleted nothing; the
+  three-choice question survived a double-click on the first confirm's Yes.
+- **Not run:** a real held-key auto-repeat (the pane sends discrete presses); the portalled trigger editor live; the
+  bot preset's trash by keyboard; a confirm raised while typing; Shift+Tab out of the dialog; Firefox and WebKit;
+  Android; Tauri; IME. The real app for lists other than the lorebook entry delete (the 53b commit message). No
+  test loads `App.svelte`, so its two inert scopes are shown by the live run only.
+- **Known and left (not defects of this ticket):**
+  - Escape, Tab and browser keys (reload, copy, zoom, developer tools) are deliberately not intercepted (the 53a
+    commit message), so `MC-161` 1's "no key reaches the page" does not cover them. Escape over Settings with a notice
+    showing closes both (`MC-109` behaviour, unchanged); the Gate 2 reviewer (`gate2a-r1.md` finding 2, executed) noted
+    this is in tension with `MC-161` 1, called it an optional follow-up and the maintainer's call.
+  - Modals at z-index 50 that come after the alert component in drawing order paint over it (separate).
+  - `isLocallyActivated` has a display quirk: it matches by id (display only).
+  - V3 plugins' own document key listeners keep receiving keys while an alert is up, as on upstream; the partial-edit
+    floating buttons stay reachable by mouse (`MC-161` 6).
+- **Follow-up candidates, not filed as tickets** (out of scope; Gate 1 finding 12 of 53b, a reviewer's list; the
+  first group is non-destructive, and the second is INFERRED from Svelte 5 prop semantics, not run):
+  - wrong-target writes after an await: the SideChatList copy and persona bind, export by index, and the Sidebar
+    folder rename, colour and image;
+  - a folder delete in a module's lorebook assigns a non-bindable prop, so the module keeps the entries;
+  - the MCP delete tools take the first name match.
+- **Filed from the same gates:** CHORE-64 (a plugin's `setDatabase` can delete every installed plugin).
+
+**Status (2026-10-01, the filing record):** filed from the community reports in `MC-150` and the investigation in ledger
 row 523. Open. Scheduled right after memory stage 1 step 5 and before CHORE-63, CHORE-43, CHORE-54, CHORE-51 and CHORE-52
 (`MC-150` 4; `Agents/Live-State.md` work order). It is the concrete held-Enter finding behind CHORE-03.
 It is reported on upstream too: the community reports are observations of upstream builds (`MC-011`).
@@ -2548,7 +2618,35 @@ after line 37 are two lower than at `57235222`, because the `endpoints` edit rem
   (`/proxy2`), MCP sign-in via `account.sionyw.com`, the transformers CDN and `#import=` URLs. CHORE-35 holds the
   traced list and its own "not checked" notes. The maintainer chose to set the flag now and make this a release
   condition, and chose to leave CHORE-35 where it is in the work order, item 4 (`MC-157` 5);
-- the rest of the identity list below, which has no decision yet.
+- the rest of the identity list below, which has no decision yet (*superseded in part on 2026-10-02: the name,
+  identifier, version and schemes are decided and merged; see "Identity merged" below*).
+
+**Identity merged (2026-10-02, `cfa4dfa0`; `MC-162`):** the branch `chore/risutanium-identity` was merged after the
+CHORE-53 commits (`MC-161` 8). Its commits are `98d13e7f` (the rename and the version), `63860dfe` (keep registering
+`risuailocal`) and `c9326b67` (the version in error reports). The decisions were relayed by the Rebranding session
+(`MC-162`). The "App identity" list below is the state **before** the merge; what changed, read in the working tree at
+`cfa4dfa0` for the first four lines:
+- the product name is Risutanium (`productName` and `mainBinaryName`; the window title is `RisuTanium`);
+- the `identifier` is `io.github.yor42.risutanium`, a fresh app-data folder on purpose (a save structure rework is
+  planned);
+- the version is `0.1.0`, with the upstream base as `appSubVer` `up2026.8.250`; `version.json` and the home screen's
+  Version line (`MainMenu.svelte`, through `getVersionString`; there is no About screen) show `0.1.0-up2026.8.250`;
+- the deep-link schemes are `risutaniumlocal` and `risuailocal`, the second kept so that upstream Realm's open-in-app
+  links reach the app;
+- FUNDING is not wanted and the file is absent from HEAD; the `stable.risuai.xyz` "(Stable)" label is removed, as
+  no `risuai.xyz`-hosted special cases are wanted.
+- **Consequences the maintainer accepted:** CBS `{{version}}` returns `0.1.0` and `{{majorversion}}` returns `0`, so
+  upstream cards that compare against a 2026 version behave differently; the `x-risuai-info` header sends
+  `0.1.0;<platform>` on the Realm search request, to the hub URL (`/hub-proxy` on a Node server,
+  `nightly.sv.risuai.xyz` on a nightly build, otherwise `sv.risuai.xyz`).
+- **Not changed:** the updater `pubkey` (upstream's; `endpoints` are empty), the tracked `src-tauri/key.txt` (contents
+  not opened or quoted) and the functional `risuai.xyz` URLs.
+- **`isWeb` (a note; not scheduled):** the maintainer wants it removed and it is left for now at their instruction.
+  `isWeb` is defined in `src/ts/platform.ts`; its only consumer is `preLoadCheck` in `src/preload.ts`, which writes a
+  `mainpage` localStorage key that nothing in `src` reads (searched, 2026-10-02); `src/preload.beforeUnload.test.ts`
+  mocks it.
+- **Still open on this ticket (unchanged):** the updater re-enable set at release, `src-tauri/key.txt`, the signing
+  secrets and CHORE-35.
 
 **Cleared on 2026-10-01:** the 16 inherited upstream pre-releases on the fork's GitHub Releases page
 (`164.1.2-20250723-184522` to `166.1.0-20250808-034121`, published 2025-07-23 to 2025-08-08 by
@@ -2925,6 +3023,44 @@ source or by execution.
   Chrome resolves `clipboard.write` before the OS commits the clip; whether Android Chrome grants writes outside a
   gesture; a focus or visibility rejection on a foldable's multi-window (INFERRED, low prior, not run).
 - **Related:** CHORE-40 (the same function; fixed together), `MC-011`, `MC-160`; Report 28 section 11.6; ledger row 600.
+
+### CHORE-64 — A plugin that hands `setDatabase` a database whose `plugins` list holds only installed plugins deletes every installed plugin, with its saved arguments and API keys, and gives no prompt about the deletion (DATA LOSS; upstream too; the plain-list case EXECUTED in a scratch test, the rest TRACED)
+
+**Status (2026-10-02):** open, **not scheduled**. Found by the Gate 1 round 2 review of CHORE-53 stage 53b (the
+reviewer's finding N1, called G3; `opus-reviewer`, ledger row 610). It is **not** a stale-target defect and was not
+fixed in CHORE-53. Present on `upstream/main`: the reviewer traced it to upstream's `a6e933ac` ("add confirmation
+prompt for plugin installation via another plugin"). Labels: EXECUTED = run by the reviewer; TRACED = read in source.
+
+- **What happens (the plain-list case EXECUTED by the reviewer; everything else TRACED by the Orchestrator and the
+  fact-check):**
+  - `plugins` is in `allowedDbKeys` (the array starts at `src/ts/plugins/plugins.svelte.ts:558`; `'plugins'` is `:565`).
+  - **V3's `getDatabase`** (`src/ts/plugins/apiV3/v3.svelte.ts:877-890`) first asks the `'db'` permission
+    (`getPermission('db', 'periodically')`, `:878`; it returns null if refused), then builds a `$state.snapshot` of
+    each `allowedDbKeys` key, `plugins` included. V3's `setDatabase` wraps the V2 one (`:865`). **V2's `getDatabase`**
+    (`plugins.svelte.ts:769`) is a **live proxy** over the database, not a snapshot, and has no permission gate.
+  - In the V2 `setDatabase` (`plugins.svelte.ts:885`), the `plugins` key is replaced by
+    `await handlePluginInstallViaPlugin(newDb.plugins)` (`:898`) and then assigned to `db.plugins` (`:909-910`; read at
+    HEAD `cfa4dfa0`). A console warning is printed first.
+  - `handlePluginInstallViaPlugin` (`:1081`) returns **only** the plugins that are not already installed (same name and
+    same script) and that the user confirms. An installed plugin is skipped with a console warning, so it is not in the
+    returned list. A new plugin that is not API version 3.0 is skipped too (`:1087-1090`, from the fact-check).
+  - So a `plugins` list that holds only installed plugins gives an empty list, and `db.plugins` becomes empty. There is
+    no prompt about the deletion, because nothing is new (a permission prompt can still appear for V3's `'db'` read).
+  - **EXECUTED (G3), the only part that was run:** in a scratch test on the real `plugins.svelte.ts` V2 API object at
+    HEAD `197ed08b` (mocked environment, svelte 5.56.8, happy-dom), a **plain list** `[A (with a saved argument
+    {key:'secret'}), B]` given as `setDatabase({ plugins: snapshot }, 'C')` left `plugins` as `[]`. It did not run V2
+    `getDatabase()` or V3 end to end.
+- **Reach (TRACED, not run):** a V3 plugin that has the `'db'` permission and passes its `getDatabase()` snapshot
+  back to `setDatabase` with the `plugins` key in it; a V2 plugin that passes `setDatabase` an object whose `plugins`
+  list is the installed list (for example the live proxy `getDatabase()` returned); either way, any caller whose
+  `plugins` list holds only installed plugins. It removes every plugin and its saved arguments, API keys included.
+  Whether the emptied list then reaches the save file was not run (INFERRED: the function ends by calling the store's
+  `setDatabase(db)`, `:916`).
+- **Uncertain:** unknown whether any published plugin does this (not surveyed).
+- **Not decided:** the merge rule. The reviewer's likely shape is "installed plugins kept, confirmed new ones
+  appended". That is a design call and the maintainer's; **the maintainer has not been asked.** A fix touches the plugin
+  API's `setDatabase` contract, so a plan needs an upstream-compatibility check (`MC-011`).
+- **Related:** CHORE-53 (found in its stage 53b gate); ledger row 610.
 
 ## Sequencing Summary
 

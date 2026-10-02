@@ -82,14 +82,26 @@ These later commits are local and not pushed:
   may be damaged, gets its own message, and the README's two-device sentence (`MC-159`; ledger rows 588 to 596);
 - `7cf6ac27`: "docs(agents): record MC-159, CHORE-62, steps 5d-2a to 5d-4 and ledger rows 570 to 599" (by its commit
   subject);
-- the records commit that carries this file.
+- `a7956237`: Report 56, the step 5 report;
+- `197ed08b`: "docs(agents): record MC-160, CHORE-63 and ledger rows 600 to 605" (by its commit subject);
+- `07ea1882`: CHORE-53 stage 53c, the chat message delete and its three-choice question (`MC-161`; ledger rows 611
+  and 612);
+- `98d13e7f`, `63860dfe` and `c9326b67`: the rebranding session's identity commits (by their commit subjects),
+  merged below;
+- `1ba98d45`: CHORE-53 stage 53a, keys and focus cannot reach the page behind a dialog that covers it (`MC-161`; ledger
+  rows 607 to 609 and 614);
+- `5747a7e1`: CHORE-53 stage 53b, a delete that asks first removes the entry that was clicked, or nothing (`MC-161`;
+  ledger rows 610 and 613);
+- `cfa4dfa0`: the merge of `chore/risutanium-identity` (CHORE-60 identity; `MC-162`);
+- the records commit that follows `cfa4dfa0` and carries this file.
 
 `712a76ad` and `38583d3b` were committed at the maintainer's approval ("commit the finished side works.");
 `9361ce1b` and `9b312962` at "commit the docs for now, and then 5c when ready."; `696ba5de` at "commit it, then
 do the records."; `435a8723` at "commit the docs and start step 5d."; `a6a27df5` and `590c5995` at "commit it";
 `e8cf50de` at "commit part 1, then start the part 2"; `fe7c3d1d` at "go ahead and commit the docs."; `29bf2f24` at
 "commit part 2a and continue part 2b."; `4d23b1b4` at "commit part 2b, and start part 3"; `3fca470e` at "commit part
-3 and start part 4"; `e7d7f093` at "commit part 4 and the records when ready" (the session log's quotes). Push only at the maintainer's request. None of these is
+3 and start part 4"; `e7d7f093` at "commit part 4 and the records when ready"; the three CHORE-53 stages at "commit each
+stage when ready." and the merge at "Merge after CHORE-53 commits (Recommended)" (`MC-161` 7 and 8) (the session log's quotes). Push only at the maintainer's request. None of these is
 pushed (`origin/fix/persistence-conflict-platform-hardening` is `0a3fb2b0`, from the local remote-tracking ref,
 2026-10-01; the records fact-check re-read it on 2026-10-02 and it was still `0a3fb2b0`).
 
@@ -111,8 +123,8 @@ Several sessions work **in this same checkout**:
   build"** and **"Fork rebranding exploration"** are idle or done; see Report 39/41 and ledger
   row 428.
 
-**Next free numbers:** `MC-161` (`MC-160` is used), Report 57 (Report 56 is used), ledger row 606 and CHORE-64
-(`CHORE-63` is used). Check the ledger's last row before taking one. `MC-114` and ledger rows 371-374 were reserved for W2c-a and left unused; nobody
+**Next free numbers:** `MC-163` (`MC-162` is used), Report 57 (Report 56 is used), ledger row 618 and CHORE-65
+(`CHORE-64` is used). Check the ledger's last row before taking one. `MC-114` and ledger rows 371-374 were reserved for W2c-a and left unused; nobody
 should fill them.
 
 **Rules for every session:**
@@ -171,8 +183,13 @@ should fill them.
      - there is no runtime archive engine (ledger row 475).
    - The working copy of the plan is in the session scratchpad (`memfoot/stage1c/plan.md`).
      Report 49 is the durable version.
-2. **Next: CHORE-53** (the step 5 report, Report 56, is committed as `a7956237`; work order;
-   Report 49 section 3.4, step 5, is done). Step
+2. **CHORE-53 is closed (2026-10-02; `07ea1882`, `1ba98d45`, `5747a7e1`; `MC-161`; Roadmap CHORE-53) and the
+   rebranding identity is merged (`cfa4dfa0`; `MC-162`). Next: CHORE-63 with CHORE-40**, then CHORE-43 with CHORE-54
+   (work order, unchanged). **CHORE-64 is filed** (a plugin's `setDatabase` can delete every installed plugin; DATA
+   LOSS, not scheduled; the merge rule is the maintainer's and has not been asked). Post-merge checks (check, suite,
+   build) on `cfa4dfa0`: EXECUTED by the Orchestrator: `pnpm check` 0 errors and 0 warnings; `pnpm test` 284 files, 5413 passed, 4 skipped;
+   `pnpm build` ok with `VITE_RISU_LEGAL_CONFIGURED=TRUE`. (The step 5 report, Report 56, is committed as `a7956237`;
+   Report 49 section 3.4, step 5, is done.) Step
    5d was split into sub-steps (5d-1 to 5d-4, with 5d-2 as 5d-2a and 5d-2b), listed under "5d" below.
    - **CHORE-16 PG-1 is done** (Report 54). The Wiki session has committed the Playground page
      (now `docs/wiki/Playground.md`, `6ad13bac`) to match it. The Main Campaign session does not touch `docs/wiki/**`.
@@ -197,7 +214,7 @@ should fill them.
      shape-checked before they reach a storage path, on all three backends. No traversal was found; the
      open question is key aliasing, which a shape check does not fix. Scheduled with CHORE-51, after
      step 5.
-   - **CHORE-53 is filed** (DATA LOSS, open; ledger row 523; `MC-150`): delete actions in several lists
+   - **CHORE-53 is filed** (DATA LOSS; **closed 2026-10-02**, see the start of this item; ledger row 523; `MC-150`): delete actions in several lists
      act on a stale target, and the Enter that answers a confirm also clicks the control behind it. The
      character trash case is fixed on the fork; the open defects are in the Roadmap. It is scheduled right
      after step 5, before CHORE-51 and CHORE-52 (`MC-150` 4).
@@ -436,8 +453,9 @@ should fill them.
       `29bf2f24`, `4d23b1b4`, `3fca470e` and `e7d7f093`; the scoping is ledger row 551, `MC-158` and `MC-159`; the
       step 5 report is Report 56, `a7956237`);
    2. then **CHORE-53** (DATA LOSS: delete actions act on a stale target, and Enter clicks the control
-      behind a confirm; ledger row 523; `MC-150` 4, the maintainer agreed to this position);
-   3. then **CHORE-63** (copy button reliability: the message copy button can fail silently or paste its own card)
+      behind a confirm; ledger row 523; `MC-150` 4, the maintainer agreed to this position). **Done 2026-10-02**,
+      as `1ba98d45`, `5747a7e1` and `07ea1882` (`MC-161`; ledger rows 606 to 616). Not pushed;
+   3. **next: CHORE-63** (copy button reliability: the message copy button can fail silently or paste its own card)
       **with CHORE-40** (the copy button fetches any http(s) URL), fixed in one change. The maintainer chose "Right
       after CHORE-53", and the option text says it goes before CHORE-43 and CHORE-54 (`MC-160` 3). The default copy
       becomes plain text, with the card as a separate "copy as card" action (`MC-160` 3). Ledger row 600; no

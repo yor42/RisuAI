@@ -1692,6 +1692,9 @@ on the strength of a "control" button that did not respond either. The control h
 into the same page, so the same document-level hotkey swallowed its Space too. The maintainer's hand
 test is what caught it. A control has to be isolated from the thing under test.
 
+*Amended by `MC-161` 2 (2026-10-02): "Enter confirming an open alert" is no longer unchanged. With a button inside the
+dialog focused, Enter presses that button.*
+
 ---
 
 ### MC-068 — The durable-draft restore marker: a bar above the editor, immediate revert, draft age shown
@@ -3405,6 +3408,11 @@ decide them either.** Revisit any of them on request:
    at once, as today.
 5. **Identical permission requests from one plugin that are in flight together share one prompt
    and its answer.**
+
+*Amended by `MC-161` (2026-10-02): item 3's "Enter on the alert itself keeps `MC-109`'s behaviour" no longer holds
+for Enter (`MC-161` 2), item 3's shortcut rule is extended from waiting prompts to notices, spinners and progress
+bars (`MC-161` Orchestrator call 11, put to the maintainer as overrulable), and item 4's "A prompt that opens fresh
+answers at once, as today" no longer holds: every prompt pauses for 0.4 s (`MC-161` 5).*
 
 ---
 
@@ -5254,3 +5262,145 @@ transcript):
    - **Not decided by this entry:** the gesture for "copy as card" (the option text offered "long-press or a menu item"
      and the maintainer chose the option, not one of the two); its label; and the size caps and timeouts of the plain
      path. The "about 200 lines" and "1-2 translated strings" in the option text are the Orchestrator's estimates.
+
+---
+
+### MC-161 — CHORE-53: no key reaches the page behind a dialog; Enter follows the focused button; every prompt pauses 0.4 s; message delete asks with three choices; each stage is committed on its own
+
+- **Tag:** decision
+- **Date:** 2026-10-02
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer's answers to the questions the Orchestrator asked with AskUserQuestion while CHORE-53
+  was planned and gated (items 1 to 6 and 8, each quoted by the label of the option chosen), and two instructions in
+  chat (items 7 and 9, quoted as typed). The rule in each item is the option text the
+  Orchestrator wrote and the maintainer selected. The Orchestrator's own calls are listed apart at the end and are
+  **not** maintainer decisions.
+- **Reasoning:** the maintainer gave no reason beyond the answers. The reasons in the option texts are the
+  Orchestrator's.
+- **Alternatives rejected** (the other options the Orchestrator offered):
+  - item 1: "only Enter stops at a confirm" (the ticket's layer 1) and "no keyboard change";
+  - item 2: "Keep: Enter is always Yes";
+  - item 4: "Only the 'remove just one?' choices" (only the three-choice question gets the pause); item 5: "only
+    follow-up confirms pause";
+  - item 6: "Enter never answers it" (a confirm that interrupted typing);
+  - item 3 was a multi-select and all three options were chosen;
+  - item 7 was the maintainer's own instruction, so no options were offered;
+  - item 8: "Merge now" (merge while the two other CHORE-53 stages were uncommitted) and "Don't merge yet" (leave the
+    branch for the maintainer).
+- **Amends:** `MC-115` 3, for Enter (item 2), and `MC-115` 4, "A prompt that opens fresh answers at once" (item 5).
+  Scope: widened by item 3 beyond the ticket's three layers; recorded here as a `MC-091` amendment.
+- **Related:** MC-011, MC-091, MC-103, MC-109, MC-115, MC-129, MC-150, CHORE-53; commits `07ea1882`, `1ba98d45`,
+  `5747a7e1`; ledger rows 606 to 616 (617 is the records batch).
+
+**What was decided** (the question's answer by option label, then the rule it states):
+1. **While a confirm or a notice covers the screen, no key reaches the page behind it.** The answer: "Same as the
+   mouse (Recommended)". Not Enter, not Space, not a held key, not the chat input. Typing inside the dialog itself is
+   unchanged. The option text added: "This also covers the 17 sidebar and preset icons that press themselves on
+   Enter". The option text also said that toasts and progress bars do not block anything, as today. **That is wrong for
+   progress bars** (the Orchestrator's check of source, disclosed to the maintainer in chat): on HEAD `progress`,
+   `wait` and `wait2` render inside the alert overlay that already blocks the mouse, so under this item they block
+   keys too. Only `toast` and `none` do not cover the page.
+2. **Enter on a button inside the dialog presses that button.** The answer: "Focused button wins (Recommended)". So
+   No means no. With nothing in the dialog focused, Enter answers Yes as before. Shift+Enter no longer answers.
+   - **Amends `MC-115` 3** ("Enter on the alert itself keeps `MC-109`'s behaviour") for Enter.
+3. **Scope: three more items.** A multi-select; all three were chosen:
+   - (a) "Deletes the ticket missed (Recommended)": plugin removal, the HypaV3 summary's "delete this" and "delete
+     after", the Playground's "delete selected" for inlay images, and the trigger-type switch each act on the object
+     that was clicked, or on nothing;
+   - (b) "Held key on deletes with no confirm (Recommended)": a held key never repeats a button press anywhere in the
+     app;
+   - (c) "Reword the 'remove just one?' question": the chat message delete asks with three explicit choices instead
+     of Yes/No, where No removed the message and every message after it. **Fork-only wording change** (upstream asks
+     Yes/No).
+4. **A confirm that follows another confirm pauses.** The answer: "Pause any confirm that follows one
+   (Recommended)": a confirm that opens within about 0.4 s of another being answered ignores clicks, taps and keys for
+   its first 0.4 s. **Replaced by item 5** after the 53a escalation. It was asked after Gate 1 round 1 of the chat
+   delete stage (finding 1: a double-click on the first confirm's Yes could answer the second). The same double-click
+   could answer both of `removeChar`'s confirms on HEAD (traced, not measured, per the 53c commit message).
+5. **Every prompt pauses for 0.4 s.** The answer, after three `[REJECT]` rounds on 53a and the escalation to
+   `senior-advisor`: "Every confirm pauses 0.4 s (Recommended)". Every prompt (confirm, select, any type) ignores
+   clicks, taps and keys for its first 0.4 s, however it got on screen. **Replaces item 4.**
+   - **Amends `MC-115` 4** ("A prompt that opens fresh answers at once").
+6. **Enter works after the pause.** The answer: "Enter works after the pause (Recommended)". A confirm that opened
+   while the user was typing takes keyboard focus; the pause catches an Enter already being pressed; after it, Enter
+   answers Yes as on any confirm. This drops the Orchestrator's proposed text-field rule (call 6 below).
+   - **Disclosed in chat after the answers, not in the question; no separate answer:** a plugin's own document key
+     listeners keep receiving keys while an alert is up, as on upstream (the chat message says "a plugin"; the 53a
+     commit message says V2 and V3 plugins); and the partial-edit floating buttons stay reachable by mouse, as today.
+7. **Each stage is committed when ready.** The instruction, as typed: "commit each stage when ready." It was a chat
+   message, not an answer to a question. Nothing is pushed: that is the standing rule (push only at the maintainer's
+   request; Live-State), not part of the message. The stages are 53a
+   (the keyboard: items 1, 2 and 3b; one shared mechanism for every prompt), 53b (every prompt-then-remove handler
+   removes the clicked object or nothing: item 3a and the list handlers) and 53c (the chat message delete:
+   item 3c). They are committed as `1ba98d45` (53a), `5747a7e1` (53b) and `07ea1882` (53c).
+8. **The rebranding branch merges after the CHORE-53 commits.** The answer: "Merge after CHORE-53 commits
+   (Recommended)". `chore/risutanium-identity` is merged as `cfa4dfa0`; see `MC-162`.
+9. **The maintainer's decisions go into the records when the work is committed.** The instruction, as the session
+   notes record it: "add the maintainer decisions to the records when you commit". This entry and `MC-162` are that
+   record.
+
+**The Orchestrator's own calls** (not maintainer decisions; each is in the commit or the gate record that carries it):
+1. A delete whose target is gone by the time it is confirmed does nothing, silently, as `removeChar` and
+   `removeChatConfirmed` already do (`MC-075` 2 by analogy). The reason: the user wanted it gone.
+2. `removeChar('permanent')` skips a character that was restored from the trash while its confirms were open, and
+   stops no work in it (`MC-103`, `MC-129`).
+3. "The last remaining entry cannot be deleted" guards hold at the moment of removal, not only at the click.
+4. No dedupe of identical in-flight delete prompts: with keys blocked behind dialogs and the overlay blocking the
+   mouse, a second flow needs a deliberate second action; `MC-115` 2's prompt queue stays.
+5. The HypaV3 reset is in scope with the other prompt-then-act handlers; it is a reset, not a list delete.
+6. The text-field rule (Enter never answers a confirm that interrupted typing) was proposed and then dropped by
+   item 6.
+7. Enter does not close a notice or an error within 0.4 s of it appearing, so that an Enter meant for something else
+   does not close an error unread; the OK button and Escape are unchanged.
+8. The pause on the terms prompt and the stale-account notice sits in the dialog's buttons, not in the alert logic, to
+   avoid re-timing about 90 existing test steps.
+9. Focus is not given back to the page when a dialog closes (dropped at the second Gate 1 rejection of the first
+   design).
+10. The progress-bar error in item 1's option text was the Orchestrator's, and was disclosed to the maintainer in chat.
+11. Keyboard shortcuts do nothing under notices, spinners and progress bars, as they already did while a confirm
+    waits. This **extends `MC-115` 3**. The Orchestrator put it to the maintainer in chat as a call they could overrule;
+    no answer to it is recorded.
+
+---
+
+### MC-162 — The app identity is Risutanium: name, identifier, version scheme, deep-link schemes, and what is not wanted (relayed by the Rebranding session; CHORE-60)
+
+- **Tag:** decision (relayed), plus one stated wish (`isWeb`)
+- **Date:** 2026-10-02 (the Rebranding session's hand-off, and the maintainer's confirmation of the merge the same
+  day; dates of the individual answers inside that session: not relayed)
+- **Sweep ref:** none
+- **Source:** **relayed by the Rebranding session**, a parallel session whose name in the session list is "Rebranding"
+  and which the maintainer asked to coordinate the rebrand. It is not a direct statement to the Main Campaign
+  session. The merge decision (`MC-161` 8) confirms the result. The commits are `98d13e7f`, `63860dfe` and `c9326b67`,
+  merged as `cfa4dfa0`.
+- **Reasoning:** the reasons given in the relay: the identifier is deliberately a fresh app-data folder, because a
+  save structure rework is planned; the `risuailocal` scheme is kept so that upstream Realm's open-in-app links still
+  reach the app.
+- **Alternatives rejected:** none are recorded in the relay.
+- **Related:** MC-011, MC-087, MC-089, MC-154, MC-157, MC-161 8, CHORE-60.
+
+**What was decided:**
+1. **The product name is Risutanium**, shown as RisuTanium, Risu-Tan or RT.
+2. **The identifier is `io.github.yor42.risutanium`**: a fresh app-data folder on purpose.
+3. **The version is SemVer from 0.1.0**, with the upstream base shown as a suffix: `appSubVer` is `up<upstream
+   version>`. The home screen's Version line (`MainMenu.svelte`, through `getVersionString`; a nightly build shows its own text
+   instead) shows `0.1.0-up2026.8.250`, and `version.json` holds the same string. There is no About screen.
+4. **Two deep-link schemes: `risutaniumlocal` and `risuailocal`.** The second stays registered so that upstream's
+   Realm open-in-app links keep working.
+5. **No FUNDING file is wanted.** The file is already absent from HEAD.
+6. **No `risuai.xyz`-hosted special cases.** The `stable.risuai.xyz` "(Stable)" label is removed.
+
+**What was stated:**
+7. **`isWeb` should be removed; it is left for now at the maintainer's instruction.** What is known about it: it is
+   defined in `src/ts/platform.ts`, its only consumer is `preLoadCheck` in `src/preload.ts`, which writes a
+   `mainpage` localStorage key that nothing in `src` reads, and `src/preload.beforeUnload.test.ts` mocks it.
+
+**Consequences the Rebranding session's reviewer noted and the maintainer accepted:**
+- CBS `{{version}}` returns `0.1.0` and `{{majorversion}}` returns `0`, so upstream cards that compare against a 2026
+  version behave differently.
+- The `x-risuai-info` header sends `0.1.0;<platform>` on the Realm search request, to the hub URL: `/hub-proxy` on a
+  Node server, `nightly.sv.risuai.xyz` on a nightly build, otherwise `sv.risuai.xyz` (`characterCards.ts`, read by the
+  fact-check).
+
+**Not changed by the rebrand:** the updater `pubkey` (upstream's; `endpoints` are empty), the tracked
+`src-tauri/key.txt` (its contents are not to be quoted), and the `risuai.xyz` URLs that still work.
