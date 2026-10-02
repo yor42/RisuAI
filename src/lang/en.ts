@@ -26,7 +26,7 @@ export const languageEnglish = {
         vertexAuthError: "Vertex AI authentication details are missing.",
         networkFetch: "This happens when the network is unstable or the server is down.",
         networkFetchWeb:
-            "This can be a CORS error. this only happens when using web version due to limitations of the browser. try using desktop local version, or other version of Risuai.",
+            "This can be a CORS error. this only happens when using web version due to limitations of the browser. try using desktop local version, or other version of RisuTanium.",
         networkFetchPlain: "This can be a plain fetch error. try disabling force plain fetch option in settings.",
         requestLogRemoved: "This request log is removed.",
         requestLogRemovedDesc: "This request log removes when client is refreshed or reloaded.",
@@ -176,7 +176,7 @@ export const languageEnglish = {
             "\n\n Additionaly, you can use these with additional assets:" +
             "\n - `{{bg::<asset name>}}`: inject the background as asset",
         additionalText: "The text that would be added to Character Description only when AI thinks it's needed, so you can put long texts here. Separate with double newlines.",
-        charjs: "A javascript code that would run with character. for example, you can check `https://github.com/kwaroran/Risuai/blob/main/src/etc/example-char.js` CURRENTLY NOT RECOMMENDED FOR USE DUE TO SECURITY REASONS. EXPORTING WOULD NOT INCLUDE THIS.",
+        charjs: "A javascript code that would run with character. for example, you can check `https://github.com/yor42/RisuTanium/blob/2f8904e56736a904d3d7b3585a8b8402a61a1185/src/etc/example-char.js` CURRENTLY NOT RECOMMENDED FOR USE DUE TO SECURITY REASONS. EXPORTING WOULD NOT INCLUDE THIS.",
         romanizer:
             "Romanizer is a plugin that converts non-roman characters to roman characters to reduce tokens when using non-roman characters while requesting data. This can result different output from the original model. It is not recommended to use this plugin when using roman characters on chat.",
         inlayImages: "If enabled, images could be inlayed to the chat and AIs can see it if they support it.",
@@ -224,7 +224,7 @@ export const languageEnglish = {
         additionalParams:
             'Additional parameters that would be added to the request body. If you want to exclude some parameters, you can put `{{none}}` to the value. If you want to add a header instead of body, you can put `header::` in front of the key like `header::Authorization`. If you want value as json, you can put `json::` in front of the value like `json::{"key":"value"}`. otherwise, type of the value would be determined automatically.',
         antiClaudeOverload:
-            "If Claude overload happens, Risuai would try to prevent it by continuing with same prompt, making it less likely to happen. Works only for streamed responses. This could not work for non-official api endpoints.",
+            "If Claude overload happens, RisuTanium would try to prevent it by continuing with same prompt, making it less likely to happen. Works only for streamed responses. This could not work for non-official api endpoints.",
         triggerScript:
             'Trigger Script is a custom script that runs when a condition is met. It can be used to modify the chat data, run a command, change variable, and etc. the type depends when it is triggered. It can also be run by buttons, which can be used with {{button::Display::TriggerName}}, or HTML buttons with `risu-trigger="<TriggerName>"` attribute.',
         autoContinueChat: "If enabled, it will try to continue the chat if it doesn't ends with a punctuation. DONT USE THIS WITH LANGUAGES THAT DOESN'T USE PUNCTUATION.",
@@ -239,7 +239,7 @@ export const languageEnglish = {
         customPromptTemplateToggle:
             "Here you can define your own prompt toggles. Use `<toggle variable>=<toggle name>` format, seperated by newline. for example, `cot=Toggle COT`. You can use these toggles in prompt by using `{{getglobalvar::toggle_<toggle variable>}}`. like `{{getglobalvar::toggle_cot}}`.",
         defaultVariables:
-            "Here you can define your own default variables. Use `<variable name>=<variable value>` format, seperated by newline. For example, `name=Risuai`, which then can be used with trigger scripts and variables CBS like `{{getvar::A}}`, `{{setvar::A::B}}` or `{{? $A + 1}}`. If prompt template's default variable and character's default variable has same name, character's default variable will be used.",
+            "Here you can define your own default variables. Use `<variable name>=<variable value>` format, seperated by newline. For example, `name=RisuTanium`, which then can be used with trigger scripts and variables CBS like `{{getvar::A}}`, `{{setvar::A::B}}` or `{{? $A + 1}}`. If prompt template's default variable and character's default variable has same name, character's default variable will be used.",
         lowLevelAccess:
             "If enabled, it will enable access to features that requires high computing powers and executing AI model via triggers in the character. Do not enable this unless you really need these features.",
         triggerLLMPrompt:
@@ -267,8 +267,8 @@ export const languageEnglish = {
         enableScrollToActiveChar: "If enabled, pressing the hotkey or holding Ctrl while dragging a character will scroll to the currently active character. Folders will be opened automatically if closed.",
         unrecommended: "This is a unrecommended setting. It is not recommended to use this setting.",
         jsonSchema:
-            "This is a JSON Schema that will be sent to the AI model if AI model supports JSON Schema.\n\nHowever, since JSON Schema is hard to learn, In Risuai, you can use subset of TypeScript interface instead of JSON Schema. Risuai will convert it in runtime." +
-            'For example, if you want to send a JSON like this:\n\n```js\n{\n  "name": "Risuai", //name must be Risuai,\n  "age": 1, //age must be number,\n  "icon": "slim", //icon must be \'slim\' or \'rounded\'\n  "thoughts": ["Good View!", "Lorem"] //thoughts must be array of strings\n}\n```\n\n' +
+            "This is a JSON Schema that will be sent to the AI model if AI model supports JSON Schema.\n\nHowever, since JSON Schema is hard to learn, In RisuTanium, you can use subset of TypeScript interface instead of JSON Schema. RisuTanium will convert it in runtime." +
+            'For example, if you want to send a JSON like this:\n\n```js\n{\n  "name": "RisuTanium", //name must be RisuTanium,\n  "age": 1, //age must be number,\n  "icon": "slim", //icon must be \'slim\' or \'rounded\'\n  "thoughts": ["Good View!", "Lorem"] //thoughts must be array of strings\n}\n```\n\n' +
             "You can put this TypeScript interface:\n\n```typescript\ninterface Schema {\n  name: string;\n  age: number;\n  icon: 'slim'|'rounded'\n  thoughts: string[]\n}\n```\n\n" +
             "Name of the interface doesn't matter. for more information, see the typescript documentation. (https://www.typescriptlang.org/docs/handbook/interfaces.html), and to Check what subset of TypeScript is supported, see the below." +
             "<details><summary>Supported TypeScript Subset</summary>\n\n" +
@@ -392,13 +392,13 @@ export const languageEnglish = {
         themeDescClassic: "Suitable for All devices",
         texttheme: "Select your text color",
         inputName: "Lastly, input your Nickname.",
-        welcome: "Welcome to Risuai! I am Airisu, I am here to guide you through the Risuai setup. First, what may I call you?",
+        welcome: "Welcome to RisuTanium! I am Airisu, I am here to guide you through the RisuTanium setup. First, what may I call you?",
         welcome2: "Hello {username}! Before we start, I will ask you some questions. You can change these settings later in settings.\n\nFirst select the AI provider.",
         openRouterProvider: "OpenRouter has a lot of models, some of them unfiltered and some of them free, but it is not as good as OpenAI.",
         hordeProvider: "Horde is a free provider, but the response time is long and the quality is low.",
         setProviderLater: "There are other providers, but you can set it later in settings. Select this if you want to set it later.",
         setupOpenAI:
-            "To use OpenAI, you need to get an API key. \n1. Go to https://beta.openai.com/ \n2. Login with your account \n3. Go to https://beta.openai.com/account/api-keys \n4. Click 'Create New API Key' and name your key whatever you want. \n5. Copy the key in the website.\n6. Go back to Risuai\n7. Paste it, and click send button.",
+            "To use OpenAI, you need to get an API key. \n1. Go to https://beta.openai.com/ \n2. Login with your account \n3. Go to https://beta.openai.com/account/api-keys \n4. Click 'Create New API Key' and name your key whatever you want. \n5. Copy the key in the website.\n6. Go back to RisuTanium\n7. Paste it, and click send button.",
         setupClaude: "To use Claude, you need to get an API key.",
         setupClaudeSteps: [
             "Go to this URL and Login as Google",
@@ -415,7 +415,7 @@ export const languageEnglish = {
             "Copy the key, and paste it in here and send it.",
         ],
         setupOpenRouter:
-            "To use OpenRouter, you need to get an API key. \n1. Go to https://openrouter.ai/keys\n2. Click 'Create Key'\n3. Set key name whatever you want.\n4. Copy the key in the website\n5. Go back to Risuai\n6. Paste it, and click send button.",
+            "To use OpenRouter, you need to get an API key. \n1. Go to https://openrouter.ai/keys\n2. Click 'Create Key'\n3. Set key name whatever you want.\n4. Copy the key in the website\n5. Go back to RisuTanium\n6. Paste it, and click send button.",
         allDone: "All Done! Please wait a moment.",
         setupLaterMessage: "Welcome {username}! Do you want me to guide you to setup or do it yourself?",
         setupMessageOption1: "Guide me to setup",
@@ -1406,7 +1406,7 @@ export const languageEnglish = {
     home: "Home",
     showSavingIcon: "Show Saving Icon",
     pluginVersionWarn:
-        "This is {{plugin_version}} version of the plugin. Which is not compatible with this version of Risuai. Please update the plugin to {{required_version}} version.",
+        "This is {{plugin_version}} version of the plugin. Which is not compatible with this version of RisuTanium. Please update the plugin to {{required_version}} version.",
     imageTranslation: "Image Translation",
     banCharacterset: "Auto Regenerate On Characterset",
     realmDirectOpen: "Directly open character in RisuRealm",
@@ -1620,10 +1620,10 @@ export const languageEnglish = {
     add: "Add",
     nightlyWarning:
         "## Nightly Builds\n\nYou are connecting to a nightly build of the software. This version is meant for testing and most likely contains bugs. **In this version, even if you encounter issues, we do not support resolving them directly.**",
-    pluginRiskDetectedAlert: "Risuai detected code that may be harmful which can STOLE YOUR API KEY OR PERSONAL DATA. We recommend you to NOT INSTALL THIS PLUGIN.",
+    pluginRiskDetectedAlert: "RisuTanium detected code that may be harmful which can STOLE YOUR API KEY OR PERSONAL DATA. We recommend you to NOT INSTALL THIS PLUGIN.",
     doNotInstall: "Do Not Install",
     continueAnyway: "Continue Anyway",
-    pluginNoRiskButAlert: "Risuai did not detect harmful code, but please be aware that installing plugins from untrusted sources can pose security risks.",
+    pluginNoRiskButAlert: "RisuTanium did not detect harmful code, but please be aware that installing plugins from untrusted sources can pose security risks.",
 
     pluginRisksInuserFriendly: {
         eval: "Evaluating Code from Strings",
@@ -1724,8 +1724,10 @@ export const languageEnglish = {
     confirmUpdatePluginSelf: "Plugin {plugin} wants to update itself from version {from} to version {to}. Saved settings that the new version still uses are kept. Do you want to continue?",
     confirmUpdatePluginViaPlugin: "Plugin {source} wants to update the plugin {plugin} from version {from} to version {to}. This can be dangerous if the source plugin is not trustworthy. Saved settings of {plugin} that the new version still uses are kept. Do you want to continue?",
     confirmUpdatePluginViaUnknownPlugin: "A plugin wants to update the plugin {plugin} from version {from} to version {to}. This can be dangerous if the source plugin is not trustworthy. Saved settings of {plugin} that the new version still uses are kept. Do you want to continue?",
-    risuaiProTools: "Risuai Pro Tools",
-    enableRisuaiProTools: "Enable Risuai Pro Tools",
+    risuaiProTools: "RisuTanium Pro Tools",
+    enableRisuaiProTools: "Enable RisuTanium Pro Tools",
+    sidebarWelcome: "Welcome to RisuTanium!",
+    sidebarWelcomeHint: "Select a bot to start chatting",
     easyPanel: "Easy Panel",
     mainModel: "Main Model",
     epEnabled: "Easy Panel Override",
