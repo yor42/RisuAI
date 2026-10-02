@@ -1,7 +1,8 @@
 <script lang="ts">
     import { untrack } from "svelte";
     import { alertGenerationInfoStore, STALE_ACCOUNT_NOTICE_ACK, type alertData } from "../../ts/alert";
-    import { isConsentType, isPromptType } from "../../ts/alertPrompts";
+    import { ANSWER_GUARD_MS, isConsentType, isPromptType } from "../../ts/alertPrompts";
+    import { coversPage } from "../../ts/alertEscape";
     import { UPSTREAM_AGREEMENT_ACCEPT, UPSTREAM_AGREEMENT_DECLINE } from "../../ts/upstreamAgreement";
     
     import { DBState } from 'src/ts/stores.svelte';
@@ -179,6 +180,48 @@
         }
     });
 
+    // The consent dialogs take no click until the pause after each appearance is over, so a press
+    // meant for what was on screen before cannot answer them.
+    let consentSeen: alertData | null = null
+    let consentShownAt = 0
+
+    $effect.pre(() => {
+        const value = $alertStore
+        if(value !== consentSeen){
+            consentSeen = value
+            consentShownAt = performance.now()
+        }
+    });
+
+    function consentPaused(): boolean {
+        return performance.now() - consentShownAt < ANSWER_GUARD_MS
+    }
+
+    let root: HTMLElement | undefined
+    // What the focus was last moved for. A `wait` or `progress` update is a new object every time, so
+    // for those the type stands for the alert; every other alert is its object.
+    let focusedFor: alertData | 'wait' | 'progress' | null = null
+
+    // Focus goes to a box of the shown alert, never to a control: Enter or Space that opened the
+    // alert would press a focused button.
+    $effect(() => {
+        const value = $alertStore
+        if(!coversPage(value.type)){
+            focusedFor = null
+            return
+        }
+        const identity = value.type === 'wait' || value.type === 'progress' ? value.type : value
+        if(identity === focusedFor){
+            return
+        }
+        focusedFor = identity
+        const box = Array.from(root?.querySelectorAll<HTMLElement>('[data-alert-box]') ?? [])
+            .find((el) => el.closest('[inert]') === null)
+        if(box && document.activeElement !== box){
+            box.focus({ preventScroll: true })
+        }
+    });
+
     $effect(() => {
         if ($alertStore.type === 'error' && $alertStore.stackTrace && !translatedStackTrace && !stackTraceTranslationFailed && !isTranslating) {
             void loadTranslatedTrace();
@@ -215,7 +258,7 @@
 {#snippet alertView(a: alertData)}
 {#if a.type !== 'none' &&  a.type !== 'toast' &&  a.type !== 'cardexport' && a.type !== 'branches' && a.type !== 'selectModule' && a.type !== 'pukmakkurit' && a.type !== 'requestlogs'}
     <div class="absolute w-full h-full z-50 bg-black/50 flex justify-center items-center" class:vis={ a.type === 'wait2'}>
-        <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl  max-h-full overflow-y-auto">
+        <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl  max-h-full overflow-y-auto outline-none" tabindex="-1" data-alert-box>
             {#if a.type === 'error'}
                 <h2 class="text-red-700 mt-0 mb-2 w-40 max-w-full">Error</h2>
             {:else if a.type === 'ask'}
@@ -333,12 +376,18 @@
             {:else if a.type === 'tos' && import.meta.env.VITE_RISU_LEGAL_CONFIGURED}
                 <div class="flex gap-2 w-full">
                     <Button className="mt-4 grow" onclick={() => {
+                        if(consentPaused()){
+                            return
+                        }
                         alertStore.set({
                             type: 'none',
                             msg: UPSTREAM_AGREEMENT_ACCEPT
                         })
                     }}>{language.upstreamAgreementAccept}</Button>
                     <Button styled={'outlined'} className="mt-4 grow" onclick={() => {
+                        if(consentPaused()){
+                            return
+                        }
                         alertStore.set({
                             type: 'none',
                             msg: UPSTREAM_AGREEMENT_DECLINE
@@ -378,6 +427,9 @@
                 }}>OK</Button>
             {:else if a.type === 'staleAccountNotice'}
                <Button className="mt-4" onclick={() => {
+                    if(consentPaused()){
+                        return
+                    }
                     alertStore.set({
                         type: 'none',
                         msg: STALE_ACCOUNT_NOTICE_ACK
@@ -737,7 +789,7 @@
         <div class="bg-darkbg rounded-md p-4 max-w-full flex flex-col w-2xl" role="button" tabindex="0" onclick={(e) => {
             e.stopPropagation()
         }}>
-            <h1 class="font-bold text-2xl w-full">
+            <h1 class="font-bold text-2xl w-full outline-none" tabindex="-1" data-alert-box>
                 <span>
                     {language.shareExport}
                 </span>
@@ -834,13 +886,13 @@
     <!-- Svelte, Typescript version by Kwaroran -->
     
     <div class="absolute w-full h-full z-50 bg-black/50 flex justify-center items-center">
-        <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl  max-h-full overflow-y-auto">
+        <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl  max-h-full overflow-y-auto outline-none" tabindex="-1" data-alert-box>
             <h2 class="text-green-700 mt-0 mb-2 w-40 max-w-full">{language.preview}</h2>
 
         </div>
     </div>
 {:else if a.type === 'branches'}
-    <div class="absolute w-full h-full z-50 bg-black/80 flex justify-center items-center overflow-x-auto overflow-y-auto">
+    <div class="absolute w-full h-full z-50 bg-black/80 flex justify-center items-center overflow-x-auto overflow-y-auto outline-none" tabindex="-1" data-alert-box>
         {#if branchHover !== null}
             <div class="z-30 whitespace-pre-wrap p-4 text-textcolor bg-darkbg border-darkborderc border rounded-md absolute" style="top: {branchHover.y * 80 + 24}px; left: {(branchHover.x + 1) * 80 + 24}px">
                 {branchHover.content}
@@ -913,7 +965,7 @@
     </div>
 {:else if a.type === 'requestlogs'}
     {@const logs = getFetchLogs()}
-    <div class="fixed inset-0 z-50 bg-black/80 flex justify-center items-start overflow-y-auto p-4">
+    <div class="fixed inset-0 z-50 bg-black/80 flex justify-center items-start overflow-y-auto p-4 outline-none" tabindex="-1" data-alert-box>
         <div class="bg-darkbg rounded-lg w-full max-w-4xl my-4 flex flex-col max-h-[90vh]">
             <div class="flex items-center justify-between p-4 border-b border-darkborderc sticky top-0 bg-darkbg z-10">
                 <h1 class="text-xl font-bold text-textcolor">{language.ShowLog}</h1>
@@ -1056,17 +1108,19 @@
 {/if}
 {/snippet}
 
-<!-- A prompt stays mounted, hidden and inert, while another alert covers it. -->
-{#if held}
-    {#key held}
-        <div style="display: contents" style:visibility={promptCovered ? 'hidden' : null} inert={promptCovered}>
-            {@render alertView(held)}
-        </div>
-    {/key}
-{/if}
-{#if $alertStore !== held && $alertStore.type !== 'none'}
-    {@render alertView($alertStore)}
-{/if}
+<div class="contents" data-alert-root bind:this={root}>
+    <!-- A prompt stays mounted, hidden and inert, while another alert covers it. -->
+    {#if held}
+        {#key held}
+            <div style="display: contents" style:visibility={promptCovered ? 'hidden' : null} inert={promptCovered}>
+                {@render alertView(held)}
+            </div>
+        {/key}
+    {/if}
+    {#if $alertStore !== held && $alertStore.type !== 'none'}
+        {@render alertView($alertStore)}
+    {/if}
+</div>
 
 <style>
     .plugin-confirm-content .plugin-name {

@@ -1,7 +1,8 @@
 import { get } from "svelte/store"
-import { alertSelect, alertToast, alertClear, doingAlert, alertRequestLogs } from "./alert"
-import { escapeActionFor } from "./alertEscape"
-import { promptWaiting } from "./alertPrompts"
+import { alertSelect, alertToast, alertClear, doingAlert, alertRequestLogs, type alertData } from "./alert"
+import { coversPage, escapeActionFor } from "./alertEscape"
+import { ANSWER_GUARD_MS, promptWaiting } from "./alertPrompts"
+import { recordKeyEventBlocked, setLiveKeysBlockedReader } from "./keyEventBlocked"
 import { changeToPreset as changeToPreset2, getDatabase, type Database } from "./storage/database.svelte"
 import { alertStore, DBState, loadoutModalStore, MobileGUIStack, MobileSideBar, openPersonaList, openPresetList, OpenRealmStore, PlaygroundStore, QuickSettings, SafeModeStore, selectedCharID, settingsOpen } from "./stores.svelte"
 import { language } from "src/lang"
@@ -9,11 +10,88 @@ import { updateTextThemeAndCSS } from "./gui/colorscheme"
 import { defaultHotkeys } from "./defaulthotkeys"
 import { previewMayStart, renderPromptResult, runPreview } from "./process/previewRunner"
 import { RISU_SIDEBAR_DRAG_TYPE } from "./dragTypes"
-import { shouldYieldToFocusedControl } from "./hotkeyYield"
+import { isEnterActivatedControl, shouldYieldToFocusedControl } from "./hotkeyYield"
 import { changeChar } from "./characters"
 import { isHiddenSystemCharacter } from "./hiddenCharacters"
 
+// The one predicate for every key path: a prompt is waiting, or an alert covers the page.
+function keysBlocked(): boolean {
+    return promptWaiting() || coversPage(get(alertStore).type)
+}
+
+const BUTTON_LIKE_INPUT_TYPES = ['button', 'submit', 'reset', 'image', 'checkbox', 'radio']
+
+// A control that Enter or Space presses.
+function isActivatableControl(el: Element): boolean {
+    if(el.tagName === 'INPUT'){
+        return BUTTON_LIKE_INPUT_TYPES.includes((el as HTMLInputElement).type)
+    }
+    return el.tagName === 'BUTTON' ||
+        el.tagName === 'SUMMARY' ||
+        el.getAttribute('role') === 'button' ||
+        (el.tagName === 'A' && el.hasAttribute('href'))
+}
+
+// Runs before any other listener of the event: records whether the keys were blocked when the
+// event began, and stops a held Enter or Space from repeating a press on a control.
+function captureKeydown(ev: KeyboardEvent){
+    recordKeyEventBlocked(ev, keysBlocked())
+    if(
+        ev.repeat &&
+        (ev.key === 'Enter' || ev.key === ' ') &&
+        ev.target instanceof Element &&
+        isActivatableControl(ev.target)
+    ){
+        ev.preventDefault()
+        ev.stopPropagation()
+    }
+}
+
+// When each alert object first reached the store. An alert seen before initHotkey() has no entry.
+const alertAppeared = new WeakMap<alertData, number>()
+let stopAlertClock: (() => void) | undefined
+
+function startAlertClock(){
+    stopAlertClock?.()
+    let primed = false
+    stopAlertClock = alertStore.subscribe((value) => {
+        if(primed && !alertAppeared.has(value)){
+            alertAppeared.set(value, performance.now())
+        }
+    })
+    primed = true
+}
+
+function withinAnswerPause(value: alertData): boolean {
+    const appeared = alertAppeared.get(value)
+    return appeared !== undefined && performance.now() - appeared < ANSWER_GUARD_MS
+}
+
+// A plain, first, non-composing Enter aimed at the alert or at the page body. With an
+// Enter-activated control of the alert focused, that control takes the key instead.
+function enterMayAnswer(ev: KeyboardEvent): boolean {
+    if(ev.shiftKey || ev.ctrlKey || ev.altKey || ev.metaKey || ev.repeat){
+        return false
+    }
+    if(ev.isComposing || ev.keyCode === 229){
+        return false
+    }
+    const alertRoot = document.querySelector('[data-alert-root]')
+    const target = ev.target
+    const aimedAtAlert = target === document.body ||
+        target === document ||
+        (alertRoot !== null && target instanceof Node && alertRoot.contains(target))
+    if(!aimedAtAlert){
+        return false
+    }
+    const focused = document.activeElement
+    return !(focused && alertRoot?.contains(focused) && isEnterActivatedControl(focused))
+}
+
 export function initHotkey(){
+    setLiveKeysBlockedReader(keysBlocked)
+    startAlertClock()
+    window.addEventListener('keydown', captureKeydown, true)
     document.addEventListener('keydown', async (ev) => {
         // Escape cancels a wait notice that offers a Cancel button, whatever
         // has focus, and is consumed so that nothing else acts on it.
@@ -43,11 +121,11 @@ export function initHotkey(){
         const hotKeys = database?.hotkeys ?? defaultHotkeys
 
         let hotkeyRan = false
-        // A prompt waiting for its answer, shown or covered, owns the keyboard:
-        // a shortcut is still recognised and consumed as usual, but does nothing.
-        const promptUp = promptWaiting()
+        // While the keys are blocked a shortcut is still recognised and
+        // consumed as usual, but does nothing.
+        const blocked = keysBlocked()
         const act = (action: () => void) => {
-            if(!promptUp){
+            if(!blocked){
                 action()
             }
         }
@@ -135,7 +213,7 @@ export function initHotkey(){
                     const target = sorted[targetIndex].i
                     ev.preventDefault()
                     ev.stopPropagation()
-                    if(promptUp){
+                    if(blocked){
                         break
                     }
                     await changeChar(target)
@@ -158,7 +236,7 @@ export function initHotkey(){
                     const target = sorted[targetIndex].i
                     ev.preventDefault()
                     ev.stopPropagation()
-                    if(promptUp){
+                    if(blocked){
                         break
                     }
                     await changeChar(target)
@@ -177,7 +255,7 @@ export function initHotkey(){
                     // browser's own Ctrl+U (view source) never runs.
                     ev.preventDefault()
                     ev.stopPropagation()
-                    if(promptUp || get(selectedCharID) === -1 || !previewMayStart()){
+                    if(blocked || get(selectedCharID) === -1 || !previewMayStart()){
                         return false
                     }
                     await runPreview({
@@ -303,11 +381,11 @@ export function initHotkey(){
             }
             ev.preventDefault()
         }
-        if(ev.key === 'Enter' && !ev.ctrlKey && !ev.altKey && !ev.metaKey && !ev.repeat){
-            // A plain, first press of Enter answers a confirm and closes a
-            // notice. A held key repeats, and a shortcut chord is not an answer.
-            const alertType = get(alertStore).type
-            if(alertType === 'ask' || alertType === 'normal' || alertType === 'error'){
+        if(ev.key === 'Enter' && enterMayAnswer(ev)){
+            // Enter answers a confirm yes and closes a notice, but not one
+            // that has only just appeared.
+            const shown = get(alertStore)
+            if(shown.type === 'ask' || ((shown.type === 'normal' || shown.type === 'error') && !withinAnswerPause(shown))){
                 alertStore.set({
                     type: 'none',
                     msg: 'yes'
@@ -485,7 +563,7 @@ export function initMobileGesture(){
 }
 
 function changeToPreset(num:number){
-    if(!doingAlert()){
+    if(!keysBlocked()){
         let db = getDatabase()
         let pres = db.botPresets
         if(pres.length > num){

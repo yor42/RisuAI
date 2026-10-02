@@ -44,3 +44,38 @@ export const ALERT_ESCAPE_ACTIONS: Record<alertData['type'], AlertEscapeAction> 
 export function escapeActionFor(type: alertData['type']): AlertEscapeAction {
     return ALERT_ESCAPE_ACTIONS[type]
 }
+
+/**
+ * Whether an alert of a type covers the page: the app behind it takes no keys and no focus while it is
+ * shown. Total over `alertData['type']`, so a new alert type fails the type check until it is classified.
+ */
+export const ALERT_COVERS_PAGE: Record<alertData['type'], boolean> = {
+    ask: true,
+    pluginconfirm: true,
+    select: true,
+    input: true,
+    selectChar: true,
+    addchar: true,
+    chatOptions: true,
+    cardexport: true,
+    selectModule: true,
+    tos: true,
+    staleAccountNotice: true,
+    progress: true,
+    normal: true,
+    error: true,
+    markdown: true,
+    requestdata: true,
+    hypaV2: true,
+    branches: true,
+    requestlogs: true,
+    pukmakkurit: true,
+    wait2: true,
+    wait: true,
+    none: false,
+    toast: false,
+}
+
+export function coversPage(type: alertData['type']): boolean {
+    return ALERT_COVERS_PAGE[type] === true
+}

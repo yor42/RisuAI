@@ -7,6 +7,7 @@
     import { createSimpleCharacter, bookmarkListOpen, DBState, selectedCharID, ScrollToMessageStore } from "src/ts/stores.svelte";
     import { language } from "src/lang";
     import { alertInput } from "src/ts/alert";
+    import { keyEventBlocked } from "src/ts/keyEventBlocked";
 
     const close = () => $bookmarkListOpen = false;
     let chara = $derived(DBState.db.characters[$selectedCharID]);
@@ -55,6 +56,9 @@
 
     onMount(() => {
         const handleKeydown = (event: KeyboardEvent) => {
+            if (keyEventBlocked(event)) {
+                return;
+            }
             if (event.key === 'Escape') {
                 close();
             }

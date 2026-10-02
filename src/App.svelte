@@ -4,6 +4,7 @@
     import { DBState } from './ts/stores.svelte';
     import ChatScreen from './lib/ChatScreens/ChatScreen.svelte';
     import AlertComp from './lib/Others/AlertComp.svelte';
+    import AlertInertScope from './lib/UI/GUI/AlertInertScope.svelte';
     import RealmPopUp from './lib/UI/Realm/RealmPopUp.svelte';
     import GridChars from './lib/Others/GridCatalog.svelte';
     import WelcomeRisu from './lib/Others/WelcomeRisu.svelte';
@@ -122,6 +123,7 @@
     }
 
 }}>
+    <AlertInertScope>
     {#if !import.meta.env.VITE_RISU_LEGAL_CONFIGURED}
         <Legal />
     {:else if aprilFools}
@@ -235,9 +237,11 @@
             <ChatScreen />
         {/if}
     {/if}
+    </AlertInertScope>
     {#if $alertStore.type !== 'none'}
         <AlertComp />
     {/if}
+    <AlertInertScope>
     {#if $showRealmInfoStore}
         <RealmPopUp bind:openedData={$showRealmInfoStore} />
     {/if}
@@ -279,4 +283,5 @@
     {#if customSideBarConfigDialogStore.open}
         <CustomSidebarConfig />
     {/if}
+    </AlertInertScope>
 </main>

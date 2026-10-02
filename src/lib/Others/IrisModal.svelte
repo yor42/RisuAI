@@ -6,6 +6,7 @@
     import { requestChatData } from "src/ts/process/request/request";
     import { alertError } from "src/ts/alert";
     import { getIrisSystemPrompt } from "src/ts/iris";
+    import { keyEventBlocked } from "src/ts/keyEventBlocked";
     import { RisuAccessClient } from "src/ts/process/mcp/risuaccess";
     import localforage from "localforage";
     import { getModelInfo, LLMFormat } from "src/ts/model/modellist";
@@ -183,6 +184,7 @@
     }
 
     function handleKey(e: KeyboardEvent) {
+        if (keyEventBlocked(e)) return;
         if (e.key === "Escape") {
             if (showBacklog) {
                 showBacklog = false;

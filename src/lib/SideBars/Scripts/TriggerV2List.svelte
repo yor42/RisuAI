@@ -5,6 +5,7 @@
     import CheckInput from "src/lib/UI/GUI/CheckInput.svelte";
     import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
     import Portal from "src/lib/UI/GUI/Portal.svelte";
+    import { keyEventBlocked } from "src/ts/keyEventBlocked";
     import SelectInput from "src/lib/UI/GUI/SelectInput.svelte";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
     import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
@@ -2038,6 +2039,9 @@
     }
 
     const handleKeydown = (e:KeyboardEvent) => {
+        if(keyEventBlocked(e)){
+            return
+        }
         if(e.key === 'Escape'){
             if(contextMenu){
                 contextMenu = false

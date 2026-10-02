@@ -187,25 +187,32 @@ afterEach(async () => {
 describe("AlertComp.svelte 'tos' block: the buttons answer with the agreement module's own values", () => {
     test('with the flag set, the first button writes the accept value and the second writes the decline value', () => {
         vi.stubEnv('VITE_RISU_LEGAL_CONFIGURED', 'TRUE')
-        alertStore.set({ type: 'tos', msg: 'tos' } as never)
-        const { target } = mountAlertComp()
-        flushSync()
+        vi.useFakeTimers()
+        try {
+            alertStore.set({ type: 'tos', msg: 'tos' } as never)
+            const { target } = mountAlertComp()
+            flushSync()
 
-        let buttons = Array.from(target.querySelectorAll('button'))
-        expect(buttons.length).toBe(2)
+            let buttons = Array.from(target.querySelectorAll('button'))
+            expect(buttons.length).toBe(2)
 
-        buttons[0].click()
-        flushSync()
-        expect(get(alertStore)).toEqual({ type: 'none', msg: UPSTREAM_AGREEMENT_ACCEPT })
+            vi.advanceTimersByTime(401)
+            buttons[0].click()
+            flushSync()
+            expect(get(alertStore)).toEqual({ type: 'none', msg: UPSTREAM_AGREEMENT_ACCEPT })
 
-        alertStore.set({ type: 'tos', msg: 'tos' } as never)
-        flushSync()
-        buttons = Array.from(target.querySelectorAll('button'))
-        expect(buttons.length).toBe(2)
+            alertStore.set({ type: 'tos', msg: 'tos' } as never)
+            flushSync()
+            buttons = Array.from(target.querySelectorAll('button'))
+            expect(buttons.length).toBe(2)
 
-        buttons[1].click()
-        flushSync()
-        expect(get(alertStore)).toEqual({ type: 'none', msg: UPSTREAM_AGREEMENT_DECLINE })
+            vi.advanceTimersByTime(401)
+            buttons[1].click()
+            flushSync()
+            expect(get(alertStore)).toEqual({ type: 'none', msg: UPSTREAM_AGREEMENT_DECLINE })
+        } finally {
+            vi.useRealTimers()
+        }
     })
 
     // Guard: the agreement popup keeps pointing at the upstream service's own documents, not at

@@ -5,7 +5,7 @@ function isSpaceActivatedControl(el: Element): boolean {
     return SPACE_ACTIVATED_TAGS.includes(el.tagName)
 }
 
-function isEnterActivatedControl(el: Element): boolean {
+export function isEnterActivatedControl(el: Element): boolean {
     if(isSpaceActivatedControl(el)){
         return true
     }

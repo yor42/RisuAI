@@ -37,6 +37,7 @@
  */
 
 import { flushSync, mount, unmount } from 'svelte'
+import { writable } from 'svelte/store'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
 //#region module mocks
@@ -57,11 +58,13 @@ vi.mock(import('src/ts/stores.svelte'), () => {
     // their own real imports below, which runs a top-level `$effect.root`
     // reading `selIdState.selId` and `DBState.db.characters` at module load.
     // Supplied here only so that module load does not throw.
+    // `alertStore` is what the portal's inert scope reads.
     const state = $state({ db: {} as unknown as Record<string, unknown> })
     const selId = $state({ selId: 0 })
     return {
         DBState: state,
         selIdState: selId,
+        alertStore: writable({ type: 'none', msg: '' }),
     } as unknown as typeof import('src/ts/stores.svelte')
 })
 

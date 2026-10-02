@@ -33,7 +33,8 @@
 
 
 <div class="absolute w-full h-full z-40 bg-black/50 flex justify-center items-center">
-    <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl w-full max-h-full overflow-y-auto">
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl w-full max-h-full overflow-y-auto outline-none" tabindex={alertMode ? -1 : undefined} data-alert-box={alertMode ? '' : undefined}>
         <div class="flex items-center text-textcolor">
             <h2 class="mt-0 mb-0 text-lg">{language.modules}</h2>
             <div class="grow flex justify-end">

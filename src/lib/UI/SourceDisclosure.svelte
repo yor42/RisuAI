@@ -11,6 +11,7 @@
     import { fade, slide } from "svelte/transition";
     import { openURL } from "src/ts/globalApi.svelte";
     import { language } from "src/lang";
+    import { keyEventBlocked } from "src/ts/keyEventBlocked";
 
     // A plain disclosure, not an ARIA menu: the revealed region is an
     // ordinary list of links that navigate away, not a set of in-page
@@ -142,6 +143,9 @@
     }
 
     function handleWindowKeydown(event: KeyboardEvent) {
+        if (keyEventBlocked(event)) {
+            return;
+        }
         if (event.key === "Escape") {
             event.preventDefault();
             closeAndReturnFocus();

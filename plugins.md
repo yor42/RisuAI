@@ -423,6 +423,9 @@ await element.removeEventListener('click', listenerId);
 **Allowed Events (Random Delay for Anti-Fingerprinting):**
 - Keyboard: `keydown`, `keyup`, `keypress` (delayed randomly to prevent timing attacks)
 
+**Keyboard events while an alert is shown:**
+While a confirm, notice or progress dialog covers the page, `document` key listeners (V2 and V3 plugins alike) still receive keys, as they always have. In the app's own document, held-key repeats of Enter or Space on a button, link or other control are cancelled before any listener sees them; a plugin iframe has its own document and is not affected.
+
 **Blocked Events:**
 All other event types are blocked for security reasons.
 

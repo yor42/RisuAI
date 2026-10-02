@@ -18,6 +18,7 @@
     import { onDestroy, onMount } from "svelte";
     import {defaultAutoSuggestPrompt} from "../../../ts/storage/defaultPrompts";
     import AuxModelSelectors from './Model/AuxModelSelectors.svelte'
+    import { keyEventBlocked } from "src/ts/keyEventBlocked";
 
     let sorted = 0
     let warns: string[] = $state([])
@@ -109,6 +110,9 @@
   }
 
   const handleKeyDown = (e: KeyboardEvent) => {
+    if (keyEventBlocked(e)) {
+      return
+    }
     if (e.ctrlKey && e.altKey && e.key === 'o') {
       if (openedItemIndices.size === DBState.db.promptTemplate.length) {
         openedItemIndices = new Set<number>()

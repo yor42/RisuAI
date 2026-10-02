@@ -1,7 +1,8 @@
 /**
  * What the keyboard and touch shortcuts do while a prompt (an alert that waits
  * for an answer) is waiting, whether the prompt is showing or a notice or toast
- * covers it.
+ * covers it, and what the shortcuts and Enter do under a notice that covers the
+ * page with no prompt behind it.
  *
  * Drives the REAL document keydown and touchstart listeners registered by
  * `initHotkey()` (`hotkey.ts`), installed once for the whole file, with real
@@ -11,14 +12,19 @@
  * switch, and `defaultPrevented`.
  *
  * Invariants pinned here:
- *  - while a prompt is waiting no shortcut of the configurable table runs, no
- *    Ctrl+1..9 preset key switches presets, and the triple-touch quick menu
- *    does not open;
+ *  - while a prompt is waiting, or a notice covers the page, no shortcut of the
+ *    configurable table runs; the Ctrl+1..9 preset keys and the triple-touch
+ *    quick menu do nothing while a prompt is waiting;
  *  - a key is consumed exactly when it was consumed before, so Ctrl+V and Ctrl+X
  *    still paste and cut in an input prompt;
- *  - Enter answers a prompt only with no Ctrl, Alt or Meta held, and never on
- *    key auto-repeat;
+ *  - Enter answers a confirm only with no Ctrl, Alt or Meta held, and never on
+ *    key auto-repeat; an unmodified Enter closes a notice only once the notice
+ *    has been up past the answer pause;
  *  - Escape on a cover closes the cover and the prompt returns.
+ *
+ * Which element an Enter is aimed at, Shift and composing Enters, held keys on
+ * controls and the other alert types are pinned in
+ * `hotkey.coveringAlertKeys.test.ts`.
  *
  * `hotkey.test.ts` stubs `doingAlert` to `false`, which would make these
  * assertions vacuous, so they live in their own file.
@@ -235,13 +241,13 @@ describe('a shortcut of the configurable table while a prompt is waiting', () =>
             expect(ran()).toBe(true)
         })
 
-        test('guard: runs under a notice when no prompt is waiting', () => {
+        test('does not run under a notice that covers the page, though no prompt is waiting', () => {
             const ran = shortcut.arrange()
             alertNormal('A notice')
 
             shortcut.press()
 
-            expect(ran()).toBe(true)
+            expect(ran()).toBe(false)
         })
     })
 
@@ -364,9 +370,15 @@ describe('Enter on an alert that is showing', () => {
         expect(shown()).toEqual({ type: 'none', msg: 'yes' })
     })
 
-    test.each(['normal', 'error'] as Array<alertData['type']>)('guard: an unmodified Enter closes a %s notice with yes', (type) => {
-        alertStore.set({ type, msg: 'A notice' })
+    test.each(['normal', 'error'] as Array<alertData['type']>)('an unmodified Enter closes a %s notice with yes only once the notice has been up past the pause', async (type) => {
+        vi.useFakeTimers()
+        const notice: alertData = { type, msg: 'A notice' }
+        alertStore.set(notice)
 
+        press(keydown('Enter'))
+        expect.soft(shown(), 'the store at once').toBe(notice)
+
+        await vi.advanceTimersByTimeAsync(GUARD_MS)
         press(keydown('Enter'))
 
         expect(shown()).toEqual({ type: 'none', msg: 'yes' })
