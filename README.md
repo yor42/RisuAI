@@ -1,12 +1,13 @@
-# Risuai (fork)
+# Risutanium (a fork of RisuAI)
 
 <picture>
-  <img alt="Risuai" src="public/logo_typo_small.avif" width="400"/>
+  <source media="(prefers-color-scheme: dark)" srcset="public/logo_wordmark_bright.svg">
+  <img alt="RisuTanium" src="public/logo_wordmark_dark.svg" width="400">
 </picture>
 
 [![Svelte](https://img.shields.io/badge/svelte-5-red?logo=svelte)](https://svelte.dev/) [![Typescript](https://img.shields.io/badge/typescript-5.9-blue?logo=typescript)](https://www.typescriptlang.org/) [![Tauri](https://img.shields.io/badge/tauri-2-%2324C8D8?logo=tauri)](https://tauri.app/) [![Vite](https://img.shields.io/badge/vite-8-%23646CFF?logo=vite)](https://vite.dev/) [![Tailwind CSS](https://img.shields.io/badge/tailwindcss-4-%2306B6D4?logo=tailwindcss)](https://tailwindcss.com/)
 
-This is a fork of [RisuAI](https://github.com/kwaroran/RisuAI), a cross platform AI chatting application (desktop, web and self-hosted). The fork is for stabilization and improvement: fixing data-loss and reliability problems, and making targeted improvements. Characters, modules, presets, `.bin` backups and plugins made for upstream RisuAI must keep working here.
+Risutanium (also written RisuTanium, Risu-Tan or RT) is a fork of [RisuAI](https://github.com/kwaroran/RisuAI) (called "upstream" below), a cross platform AI chatting application (desktop, web and self-hosted). The fork is for stabilization and improvement: fixing data-loss and reliability problems, and making targeted improvements. Characters, modules, presets, `.bin` backups and plugins made for upstream RisuAI must keep working here.
 
 **Status: there are no releases yet. This fork is experimental and heavily work in progress.** There is nothing to download. You can build it from source or with Docker, as described below. Keep a `.bin` backup of anything you care about.
 
@@ -29,6 +30,8 @@ This is a fork of [RisuAI](https://github.com/kwaroran/RisuAI), a cross platform
 
 This is a short list of changes you will notice. See [Migrating from upstream](docs/wiki/Migrating-from-upstream.md) for moving your data.
 
+- **A new identity.** The product is called Risutanium. The desktop app's identifier is `io.github.yor42.risutanium`, a fresh app-data folder on purpose. The version is SemVer from `0.1.0`, with the upstream version it is based on as a suffix: the home screen's Version line shows `0.1.0-up2026.8.250`. The desktop app registers two deep-link schemes, `risutaniumlocal` and `risuailocal`; the second stays so that upstream Realm's open-in-app links still reach the app. The in-app updater is switched off until the first release.
+- **The CBS version tags report this fork's version.** `{{version}}` returns `0.1.0` and `{{majorversion}}` returns `0`, so an upstream card that compares them against a 2026 version behaves differently.
 - **No RisuAccount and no Google Drive backup.** Account sign-in, sync and Drive backup are removed. RisuRealm still works, and the first time you use it the app asks you to accept upstream's Terms of Service and Privacy Policy. Move data with a local `.bin` backup. A `.bin` made while signed in to RisuAccount on `risuai.xyz` cannot be read here.
 - **Saving across tabs and devices.** A self-hosted Node server refuses a save from a stale tab instead of overwriting newer data. When another tab saves, a tab with no unsaved edits usually reloads, but not while it has an unsaved draft open, and not more than twice a minute. A tab with unsaved edits asks you first, and asks again at most once a minute. Between two devices there is no such prompt. If another device or browser saves to the same Node server first, the first device shows a message on its next save and stops saving until you reload that tab, and edits made there since its last successful save are lost when you reload. Opening the app on the other device can be enough, because archiving at startup can save even when you edit nothing. This is traced in the code and has not been run against a real server.
 - **Restoring a backup is guarded.** Load Backup Locally and Load Internal Backup refuse to run on the web build while another tab of the app is open, and warn you if the browser cannot check. They also refuse while a reply is being written into a chat. Load Internal Backup now writes the snapshot as the main save and reloads the app.
@@ -90,7 +93,7 @@ Windows `cmd` cannot hold an empty variable. There, and in any shell, you can in
 
 ## Docker
 
-This fork builds from source with Docker. It uses its own project, container and volume names (`risuai-fork` and `risuai-fork-save`), so it does not touch an upstream Docker install. To bring your data over, make a `.bin` backup on upstream and load it here, as described in [Migrating from upstream](docs/wiki/Migrating-from-upstream.md).
+This fork builds from source with Docker. It uses its own project, container and volume names (`risutanium` and `risutanium-save`), so it does not touch an upstream Docker install. To bring your data over, make a `.bin` backup on upstream and load it here, as described in [Migrating from upstream](docs/wiki/Migrating-from-upstream.md).
 
 1. Clone this repository.
 2. From the repo root, build and start it:
@@ -99,7 +102,7 @@ This fork builds from source with Docker. It uses its own project, container and
    ```
 3. Open `http://localhost:6001`.
 
-The image is built from the `Dockerfile` in this repo (base image `node:24-slim`). The build needs Docker with BuildKit, because the `Dockerfile` uses `RUN --mount=type=cache`. The save lives in the `risuai-fork-save` volume, which Docker names `risuai-fork_risuai-fork-save` (the project name plus the volume name). The Node server problems above apply to this container as well, so use `localhost`.
+The image is built from the `Dockerfile` in this repo (base image `node:24-slim`). The build needs Docker with BuildKit, because the `Dockerfile` uses `RUN --mount=type=cache`. The save lives in the `risutanium-save` volume, which Docker names `risutanium_risutanium-save` (the project name plus the volume name). The Node server problems above apply to this container as well, so use `localhost`.
 
 Upstream's compose file also maps host port 6001, so this container and an upstream one cannot run at the same time. To run both, change the left-hand number of `6001:6001` under `ports:` in one of the two compose files.
 
