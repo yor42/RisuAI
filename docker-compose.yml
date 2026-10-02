@@ -1,8 +1,8 @@
-name: risuai-fork
+name: risutanium
 
 services:
-  risuai:
-    container_name: risuai-fork
+  risutanium:
+    container_name: risutanium
     build:
       context: .
       args:
@@ -14,7 +14,7 @@ services:
     ports:
       - 6001:6001
     volumes:
-      - risuai-fork-save:/app/save
+      - risutanium-save:/app/save
 
 volumes:
-  risuai-fork-save:
+  risutanium-save:

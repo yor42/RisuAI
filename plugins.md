@@ -4,9 +4,9 @@
 
 > For migrating plugins from API v2.0 to v3.0, see the [Migration Guide](./src/ts/plugins/migrationGuide.md). For Reference documentation and type definitions, see the [DTS file](./src/ts/plugins/apiV3/Risuai.d.ts).
 
-# Risuai Plugin Development Guide
+# RisuTanium Plugin Development Guide
 
-Welcome to the Risuai Plugin Development Guide! This guide will help you create powerful, secure plugins for Risuai using API v3.0
+Welcome to the RisuTanium Plugin Development Guide! This guide will help you create powerful, secure plugins for RisuTanium using API v3.0
 
 ## Table of Contents
 
@@ -24,9 +24,9 @@ Welcome to the Risuai Plugin Development Guide! This guide will help you create 
 
 ## Getting Started
 
-### What are Risuai Plugins?
+### What are RisuTanium Plugins?
 
-Risuai plugins are JavaScript extensions that can add new features, customize behavior, and integrate with external services. Plugins run in a secure, sandboxed environment to protect user data and privacy.
+RisuTanium plugins are JavaScript extensions that can add new features, customize behavior, and integrate with external services. Plugins run in a secure, sandboxed environment to protect user data and privacy.
 
 ## Plugin Structure
 
@@ -34,13 +34,13 @@ Risuai plugins are JavaScript extensions that can add new features, customize be
 
 We recommend starting with our Typescript plugin template for best practices and type safety.
 
-You can download Typescript template from Risuai app -> Plugin Settings -> </> Menu -> Download plugin template.
+You can download Typescript template from RisuTanium app -> Plugin Settings -> </> Menu -> Download plugin template.
 
 If you are using IDE like Visual Studio Code, you can open the template folder directly and start coding with IntelliSense support.
 
 ### Initial Setup
 
-You can import your plugin script directly in Risuai app via Plugin Settings -> Import Plugin.
+You can import your plugin script directly in RisuTanium app via Plugin Settings -> Import Plugin.
 
 if your browser support local file access, we recommend using **Hot Reload** feature for faster development cycle. to use Hot Reload, import the plugin via Plugin Settings -> </> Menu -> Import plugin with hot reload
 
@@ -141,7 +141,7 @@ API v3.0 plugins run inside a **sandboxed iframe** for security. This architectu
 
 ```
 +=====================================+
-|   Main Risuai Application          |
+|   Main RisuTanium Application       |
 |                                     |
 |  +===============================+ |
 |  |  Plugin Iframe (Hidden)       | |
@@ -202,7 +202,7 @@ console.log(Risuai.apiVersion); // "3.0"
 console.log(Risuai.apiVersionCompatibleWith); // ["3.0"]
 
 // Logging
-console.log('This appears as: [Risuai Plugin: PluginName] This...');
+console.log('This appears as: [RisuAI Plugin: PluginName] This...');
 
 // Container management
 await Risuai.showContainer('fullscreen'); // Show your iframe UI
@@ -226,7 +226,7 @@ Your plugin has access to **two separate DOM contexts**:
 
 2. **Main application DOM** (via `getRootDocument()`)
    - Restricted access through `SafeDocument`/`SafeElement` wrappers
-   - Use to interact with Risuai's interface
+   - Use to interact with RisuTanium's interface
    - Security restrictions prevent malicious behavior
    - Additional restrictions might be added in the future for user safety, including breaking changes.
 
@@ -573,9 +573,9 @@ When shown in fullscreen mode, your iframe:
 - Has z-index of 1000
 - Border removed
 
-### Registering UI Elements in Risuai
+### Registering UI Elements in RisuTanium
 
-Add buttons and menu items to Risuai's interface:
+Add buttons and menu items to RisuTanium's interface:
 
 #### Settings Menu Item
 
@@ -710,7 +710,7 @@ await storage.clear();
 
 ### Database Access
 
-Access Risuai's database for characters, personas, and more:
+Access RisuTanium's database for characters, personas, and more:
 
 ```javascript
 // Get database (remember: async!)
@@ -1006,7 +1006,7 @@ await Risuai.setCustomTextTheme({
 
 ### TTS Hooks
 
-Risuai's plugin API lets you intercept Text-to-Speech just before synthesis and just before playback.
+RisuTanium's plugin API lets you intercept Text-to-Speech just before synthesis and just before playback.
 
 #### `Risuai.addTTSPreprocessor(func)`
 
@@ -1056,7 +1056,7 @@ Does **not** run for the `webspeech` provider (the browser synthesizes and plays
 
 ### Custom AI Provider
 
-Register a plugin as a custom AI provider that Risuai can use for generation:
+Register a plugin as a custom AI provider that RisuTanium can use for generation:
 
 ```javascript
 await Risuai.addProvider(
@@ -1633,7 +1633,7 @@ rootDoc.querySelector('#my-iframe-element'); // Won't find it
 // Your iframe's DOM:
 document.getElementById('my-iframe-element');
 
-// Risuai's main DOM:
+// RisuTanium's main DOM:
 const rootDoc = Risuai.getRootDocument();
 await rootDoc.querySelector('.Risuai-element');
 ```
