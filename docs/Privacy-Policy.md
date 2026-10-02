@@ -31,4 +31,4 @@ confidential, regulated, or otherwise sensitive information.
 ---
 
 ### 6. Contact
-For any privacy-related inquiries, please open an issue on our public repository tracker at **[Maintainer's Github Repository](https://github.com/yor42/RisuAI)**.
+For any privacy-related inquiries, please open an issue on our public repository tracker at **[Maintainer's Github Repository](https://github.com/yor42/RisuTanium)**.

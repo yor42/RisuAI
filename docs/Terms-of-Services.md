@@ -26,4 +26,4 @@ By downloading, installing, or using the Software, you agree to these Terms of S
 ---
 
 ### 5. Contact
-If you have questions about these Terms, you can contact us via our repository issue tracker at **[Maintainer's Github Repository](https://github.com/yor42/RisuAI)**.
+If you have questions about these Terms, you can contact us via our repository issue tracker at **[Maintainer's Github Repository](https://github.com/yor42/RisuTanium)**.
