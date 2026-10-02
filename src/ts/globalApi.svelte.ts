@@ -3252,9 +3252,6 @@ export function getVersionString(): string {
     if (import.meta.env.VITE_RISU_NIGHTLY_BUILD === 'TRUE') {
         versionString = 'Nightly Build ' + import.meta.env.VITE_RISU_BUILD_TIME
     }
-    if (window.location.hostname === 'stable.risuai.xyz') {
-        versionString += ' (Stable)';
-    }
     return versionString
 }
 
