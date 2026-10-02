@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="200.21487mm"
+   height="34.906181mm"
+   viewBox="0 0 200.21487 34.906182"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.4.4 (dcaf3e7, 2026-05-05)"
+   sodipodi:docname="RisuTanium_dark_Horizontal_Gradient.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="mm"
+     inkscape:zoom="0.71891835"
+     inkscape:cx="358.87246"
+     inkscape:cy="-52.857185"
+     inkscape:window-width="1172"
+     inkscape:window-height="1032"
+     inkscape:window-x="332"
+     inkscape:window-y="0"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="svg1" />
+  <defs
+     id="defs1">
+    <linearGradient
+       id="rtGradient"
+       x1="0"
+       y1="0"
+       x2="1"
+       y2="1">
+      <stop
+         offset="0"
+         style="stop-color:#00a1ad;stop-opacity:1"
+         id="stop1" />
+      <stop
+         offset="1"
+         style="stop-color:#587bff;stop-opacity:1"
+         id="stop2" />
+    </linearGradient>
+  </defs>
+  <text
+     xml:space="preserve"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:25.4px;font-family:'NanumSquare Neo OTF';-inkscape-font-specification:'NanumSquare Neo OTF';text-align:center;writing-mode:lr-tb;direction:ltr;text-anchor:middle;fill:url(#rtGradient);fill-opacity:1;stroke-width:0.264583"
+     x="122.27496"
+     y="25.6446"
+     id="text1"><tspan
+       id="tspan1"
+       style="font-style:normal;font-variant:normal;font-weight:900;font-stretch:normal;font-size:25.4px;font-family:'NanumSquare Neo OTF';-inkscape-font-specification:'NanumSquare Neo OTF Heavy';fill:url(#rtGradient);fill-opacity:1;stroke-width:0.264583"
+       x="122.27496"
+       y="25.6446"
+       sodipodi:role="line">Risu<tspan
+   style="font-size:25.4px;fill:#000000"
+   id="tspan2">Tanium</tspan></tspan></text>
+  <g
+     id="g2"
+     transform="matrix(0.36084268,0,0,0.36084268,-8.531777,-19.705656)">
+    <g
+       inkscape:label="Layer 1"
+       inkscape:groupmode="layer"
+       id="layer1">
+      <path
+         id="path1"
+         style="fill:#000000;stroke-width:0.264583"
+         inkscape:transform-center-y="16.12258"
+         d="M 23.644035,54.610103 79.494373,151.34528 135.34471,54.610103 Z M 49.460547,69.515137 H 109.5282 L 79.494373,121.5347 Z" />
+      <path
+         sodipodi:type="star"
+         style="fill:#000000;stroke-width:0.264583"
+         id="path3"
+         inkscape:flatsided="true"
+         sodipodi:sides="3"
+         sodipodi:cx="79.494423"
+         sodipodi:cy="86.855019"
+         sodipodi:r1="64.490318"
+         sodipodi:r2="32.245159"
+         sodipodi:arg1="1.5707963"
+         sodipodi:arg2="2.6179939"
+         inkscape:rounded="0"
+         inkscape:randomized="0"
+         d="m 79.494425,151.34534 -55.850257,-96.735479 111.700512,-3e-6 z"
+         inkscape:transform-center-y="3.3579258"
+         transform="matrix(0.20827472,0,0,0.20827472,62.937744,68.765313)" />
+      <path
+         sodipodi:type="star"
+         style="display:inline;fill:url(#rtGradient);fill-opacity:1;stroke-width:0.264583"
+         id="path4"
+         inkscape:flatsided="true"
+         sodipodi:sides="3"
+         sodipodi:cx="79.494423"
+         sodipodi:cy="86.855019"
+         sodipodi:r1="64.490318"
+         sodipodi:r2="32.245159"
+         sodipodi:arg1="1.5707963"
+         sodipodi:arg2="2.6179939"
+         inkscape:rounded="0"
+         inkscape:randomized="0"
+         d="m 79.494425,151.34534 -55.850257,-96.735479 111.700512,-3e-6 z"
+         inkscape:transform-center-y="2.1412097"
+         transform="matrix(0.13280815,0,0,0.13280815,68.936915,75.319963)" />
+    </g>
+  </g>
+</svg>

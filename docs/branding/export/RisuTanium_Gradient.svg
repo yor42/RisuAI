@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="111.70068mm"
+   height="96.735176mm"
+   viewBox="0 0 111.70068 96.735176"
+   version="1.1"
+   id="svg1"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs1">
+    <linearGradient
+       id="rtGradient"
+       x1="22.003378"
+       y1="58.682111"
+       x2="125.95242"
+       y2="162.63115"
+       gradientTransform="scale(1.0745699,0.93060486)"
+       gradientUnits="userSpaceOnUse">
+      <stop
+         offset="0"
+         style="stop-color:#00a1ad;stop-opacity:1"
+         id="stop1" />
+      <stop
+         offset="1"
+         style="stop-color:#587bff;stop-opacity:1"
+         id="stop2" />
+    </linearGradient>
+  </defs>
+  <g
+     id="layer1"
+     transform="translate(-23.644035,-54.610103)">
+    <path
+       id="path1"
+       style="fill:#000000;stroke-width:0.264583"
+       d="M 23.644035,54.610103 79.494373,151.34528 135.34471,54.610103 Z M 49.460547,69.515137 H 109.5282 L 79.494373,121.5347 Z" />
+    <path
+       id="path3"
+       style="stroke-width:0.264583"
+       transform="matrix(0.20827472,0,0,0.20827472,62.937744,68.765313)"
+       d="m 79.494425,151.34534 -55.850257,-96.735479 111.700512,-3e-6 z" />
+    <path
+       id="path4"
+       style="fill:url(#rtGradient);stroke-width:0.264583"
+       transform="matrix(0.13280815,0,0,0.13280815,68.936915,75.319963)"
+       d="m 79.494425,151.34534 -55.850257,-96.735479 111.700512,-3e-6 z" />
+  </g>
+</svg>
