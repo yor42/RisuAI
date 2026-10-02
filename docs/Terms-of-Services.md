@@ -1,8 +1,8 @@
-# Terms of Service for yor42 Fork of RisuAI
+# Terms of Service for RisuTanium
 
 **Effective Date:** October 1, 2026
 
-Welcome to **Unofficial fork of RisuAI maintained by yor42** ("the Software"). The Software is a standalone, open-source fork of RisuAI, distributed under the **GNU General Public License v3 (GPLv3)**.
+Welcome to **RisuTanium** ("the Software"). The Software is a standalone, open-source fork of RisuAI, distributed under the **GNU General Public License v3 (GPLv3)**.
 
 By downloading, installing, or using the Software, you agree to these Terms of Service ("Terms"). If you do not agree, do not install or use the Software.
 
@@ -21,7 +21,7 @@ By downloading, installing, or using the Software, you agree to these Terms of S
 * **Separate Agreement:** We do not operate these services. To access them, you must review and agree to the **upstream project's independent Terms of Service and Privacy Policy** when prompted by the application interface.
 
 ### 4. Limitation of Liability
-* To the maximum extent permitted by law, the authors and contributors of this fork shall not be liable for any direct, indirect, incidental, or consequential damages (including data loss, hardware failure, or service interruptions) arising from your use or inability to use the Software.
+* To the maximum extent permitted by law, the authors and contributors of RisuTanium shall not be liable for any direct, indirect, incidental, or consequential damages (including data loss, hardware failure, or service interruptions) arising from your use or inability to use the Software.
 
 ---
 

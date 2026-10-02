@@ -1,8 +1,8 @@
-# Privacy Policy for yor42 Fork of RisuAI
+# Privacy Policy for RisuTanium
 
 **Effective Date:** October 1, 2026
 
-Your privacy is paramount. Because **yor42 Fork of RisuAI** ("the Software") is a standalone program that can be either hosted privately hosted or installed as standalone application. we designed it to collect as close to zero personal data as possible. 
+Your privacy is paramount. Because **RisuTanium** ("the Software") is a standalone program that can be either hosted privately hosted or installed as standalone application. we designed it to collect as close to zero personal data as possible. 
 
 ---
 
@@ -20,7 +20,7 @@ Your privacy is paramount. Because **yor42 Fork of RisuAI** ("the Software") is 
 * The Node server may write operational information to standard output, including connection information such as client IP addresses, timestamps, errors, and request-related diagnostics. Server operators decide how container or host logs are retained, exported, or deleted.
 
 ## 4. AI providers and services you choose
-* When you configure an AI provider, storage provider, or another integration, prompts, files, model parameters, credentials, or other data may be sent to that provider as required for the feature you invoke. Maintainer of this forked version of RisuAI does not control how those third parties process data.
+* When you configure an AI provider, storage provider, or another integration, prompts, files, model parameters, credentials, or other data may be sent to that provider as required for the feature you invoke. Maintainer of RisuTanium does not control how those third parties process data.
 * Review each provider's privacy policy before enabling it, especially before sending personal,
 confidential, regulated, or otherwise sensitive information.
 
