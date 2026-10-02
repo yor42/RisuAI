@@ -5,5 +5,5 @@
  * acceptance step, the links only open the documents. `HEAD` resolves to the
  * repository's default branch.
  */
-export const FORK_TERMS_OF_SERVICE_URL = 'https://github.com/yor42/RisuAI/blob/HEAD/docs/Terms-of-Services.md'
-export const FORK_PRIVACY_POLICY_URL = 'https://github.com/yor42/RisuAI/blob/HEAD/docs/Privacy-Policy.md'
+export const FORK_TERMS_OF_SERVICE_URL = 'https://github.com/yor42/RisuTanium/blob/HEAD/docs/Terms-of-Services.md'
+export const FORK_PRIVACY_POLICY_URL = 'https://github.com/yor42/RisuTanium/blob/HEAD/docs/Privacy-Policy.md'

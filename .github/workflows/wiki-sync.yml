@@ -16,7 +16,7 @@
 # page deleted) on the next sync from `docs/wiki/`.
 #
 # This workflow is fork-specific and intentionally guarded to only run in
-# the `yor42/RisuAI` fork, never in upstream `kwaroran/RisuAI` or in a
+# the `yor42/RisuTanium` fork, never in upstream `kwaroran/RisuAI` or in a
 # fork that copies this file verbatim.
 
 name: Wiki Sync

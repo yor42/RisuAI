@@ -56,8 +56,8 @@
     // destination for someone looking at this build. Constants, not derived
     // from git remotes -- a built app has no git to read them from.
     const defaultDestinations: Destination[] = [
-        { label: language.homeSourceRepoLabel, href: "https://github.com/yor42/RisuAI", upstream: false },
-        { label: language.homeSourceIssuesLabel, href: "https://github.com/yor42/RisuAI/issues", upstream: false },
+        { label: language.homeSourceRepoLabel, href: "https://github.com/yor42/RisuTanium", upstream: false },
+        { label: language.homeSourceIssuesLabel, href: "https://github.com/yor42/RisuTanium/issues", upstream: false },
         { label: language.homeSourceRepoLabel, href: "https://github.com/kwaroran/RisuAI", upstream: true },
         { label: language.homeSourceIssuesLabel, href: "https://github.com/kwaroran/RisuAI/issues", upstream: true }
     ];

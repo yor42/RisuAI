@@ -42,8 +42,8 @@ import SourceDisclosure, { type Destination } from './SourceDisclosure.svelte'
 import { openURL } from 'src/ts/globalApi.svelte'
 
 const EXPECTED_URLS = [
-    'https://github.com/yor42/RisuAI',
-    'https://github.com/yor42/RisuAI/issues',
+    'https://github.com/yor42/RisuTanium',
+    'https://github.com/yor42/RisuTanium/issues',
     'https://github.com/kwaroran/RisuAI',
     'https://github.com/kwaroran/RisuAI/issues',
 ]

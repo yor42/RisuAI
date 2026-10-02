@@ -43,8 +43,8 @@ afterEach(async () => {
 
 describe('fork legal links', () => {
     test('the constants point at the fork documents on the default branch', () => {
-        expect(FORK_TERMS_OF_SERVICE_URL).toBe('https://github.com/yor42/RisuAI/blob/HEAD/docs/Terms-of-Services.md')
-        expect(FORK_PRIVACY_POLICY_URL).toBe('https://github.com/yor42/RisuAI/blob/HEAD/docs/Privacy-Policy.md')
+        expect(FORK_TERMS_OF_SERVICE_URL).toBe('https://github.com/yor42/RisuTanium/blob/HEAD/docs/Terms-of-Services.md')
+        expect(FORK_PRIVACY_POLICY_URL).toBe('https://github.com/yor42/RisuTanium/blob/HEAD/docs/Privacy-Policy.md')
     })
 })
 
