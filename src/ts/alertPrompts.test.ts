@@ -18,8 +18,9 @@
  *  - prompts are shown in the order they were asked, and a prompt that a cover
  *    the user cannot close hides is put back on screen when another prompt is
  *    queued;
- *  - for 400 ms after a prompt comes back or its turn arrives, an answer to it
- *    is discarded; a prompt that opens fresh answers at once.
+ *  - for 400 ms after a prompt appears on screen, however it got there (asked
+ *    fresh, back from under a cover, or its turn arrived), an answer to it is
+ *    discarded.
  *
  * Fake timers are on for every test, so the 400 ms guard is a clock the test
  * moves. Every outcome is read from a flag, never awaited, so a prompt that
@@ -189,6 +190,7 @@ describe('a prompt that another alert covers', () => {
     test('a confirm covered by a notice is not answered when the notice is closed with yes, and answering it after the guard resolves it', async () => {
         const confirm = track(alertConfirm('Allow the plugin?'))
         const asked = shown()
+        await passGuard()
         alertNormal('A notice')
         expect.soft(shown(), 'the notice shows at once').toMatchObject({ type: 'normal', msg: 'A notice' })
 
@@ -209,6 +211,7 @@ describe('a prompt that another alert covers', () => {
             const asked = shown()
             expect(asked.type).toBe(prompt.type)
 
+            await passGuard()
             cover.put()
             expect.soft(shown().type, 'the cover shows at once').toBe(cover.type)
             cover.close()
@@ -247,6 +250,7 @@ describe('code that closes the alert store while a prompt is showing', () => {
             const outcome = track(prompt.ask())
             const asked = shown()
 
+            await passGuard()
             closer.close()
             await settle()
 
@@ -279,6 +283,7 @@ describe('a second prompt asked for while a prompt is waiting', () => {
         const second = track(alertConfirm('Second?'))
         expect.soft(shown(), 'the store while both are asked').toEqual(firstAsked)
 
+        await passGuard()
         answer('yes')
         await settle()
 
@@ -298,6 +303,7 @@ describe('a second prompt asked for while a prompt is waiting', () => {
         const order: string[] = []
 
         order.push(`${shown().type}`)
+        await passGuard()
         answer('yes')
         await settle()
         order.push(`${shown().type}`)
@@ -340,6 +346,7 @@ describe('a consent prompt goes ahead of a waiting prompt', () => {
         const confirm = track(alertConfirm('Proceed?'))
         const asked = shown()
 
+        await passGuard()
         consent.post()
         expect.soft(shown().type, 'the consent shows at once').toBe(consent.type)
         consent.answer()
@@ -446,6 +453,7 @@ describe('an answer given just after a prompt returns or its turn comes', () => 
     test('a confirm that comes back after a cover closes discards an answer within 400 ms and stays up, and takes one after that', async () => {
         const confirm = track(alertConfirm('Proceed?'))
         const asked = shown()
+        await passGuard()
         alertNormal('A notice')
         answer('')
         await settle()
@@ -466,6 +474,7 @@ describe('an answer given just after a prompt returns or its turn comes', () => 
     test('a second prompt whose turn has come discards an answer within 400 ms and stays up, and takes one after that', async () => {
         const first = track(alertConfirm('First?'))
         const second = track(alertConfirm('Second?'))
+        await passGuard()
         answer('yes')
         await settle()
         expect.soft(first, 'the first confirm after its answer').toMatchObject({ settled: true, value: true })
@@ -484,26 +493,90 @@ describe('an answer given just after a prompt returns or its turn comes', () => 
         expect.soft(second, 'the second confirm after an answer outside the guard').toMatchObject({ settled: true, value: false })
     })
 
-    test('guard: a prompt that opens fresh takes an answer at once', async () => {
+    test('a prompt that opens fresh discards an answer within 400 ms and stays up, and takes one after that', async () => {
         const confirm = track(alertConfirm('Proceed?'))
+        const asked = shown()
 
         answer('yes')
         await settle()
+        expect.soft(confirm.settled, 'the confirm settled on an answer at the moment it opened').toBe(false)
+        expect.soft(shown(), 'the store after the discarded answer').toEqual(asked)
 
-        expect(confirm).toMatchObject({ settled: true, value: true })
+        await vi.advanceTimersByTimeAsync(100)
+        answer('yes')
+        await settle()
+        expect.soft(confirm.settled, 'the confirm settled on an answer 100 ms after it opened').toBe(false)
+
+        await passGuard()
+        answer('yes')
+        await settle()
+        expect.soft(confirm, 'the confirm after an answer outside the guard').toMatchObject({ settled: true, value: true })
     })
 
-    test('guard: a follow-up prompt asked for after the earlier one was answered takes an answer at once', async () => {
+    test('a follow-up confirm asked for right after the earlier one was answered discards an answer within 400 ms and stays up, and takes one after that', async () => {
         const first = track(alertConfirm('First?'))
+        await passGuard()
         answer('yes')
         await settle()
-        expect(first).toMatchObject({ settled: true, value: true })
+        expect.soft(first, 'the first confirm after its answer').toMatchObject({ settled: true, value: true })
 
         const followUp = track(alertConfirm('Second?'))
+        const followUpAsked = shown()
         answer('no')
         await settle()
 
-        expect(followUp).toMatchObject({ settled: true, value: false })
+        expect.soft(followUp.settled, 'the follow-up settled on an answer at the moment it opened').toBe(false)
+        expect.soft(shown(), 'the store after the discarded answer').toEqual(followUpAsked)
+        await vi.advanceTimersByTimeAsync(100)
+        answer('no')
+        await settle()
+        expect.soft(followUp.settled, 'the follow-up settled on an answer 100 ms after it opened').toBe(false)
+        expect.soft(shown(), 'the store after the second discarded answer').toEqual(followUpAsked)
+        await passGuard()
+        answer('no')
+        await settle()
+        expect.soft(followUp, 'the follow-up after an answer outside the guard').toMatchObject({ settled: true, value: false })
+    })
+
+    test('a follow-up select asked for right after a confirm was answered discards an answer within 400 ms and stays up, and takes one after that', async () => {
+        const first = track(alertConfirm('First?'))
+        await passGuard()
+        answer('yes')
+        await settle()
+        expect.soft(first, 'the first confirm after its answer').toMatchObject({ settled: true, value: true })
+
+        const followUp = track(alertSelect(['one', 'cancel', 'all'], 'Which?'))
+        const followUpAsked = shown()
+        answer('2')
+        await settle()
+
+        expect.soft(followUp.settled, 'the follow-up select settled on an answer at the moment it opened').toBe(false)
+        expect.soft(shown(), 'the store after the discarded answer').toEqual(followUpAsked)
+        await passGuard()
+        answer('1')
+        await settle()
+        expect.soft(followUp, 'the follow-up select after an answer outside the guard').toMatchObject({ settled: true, value: '1' })
+    })
+
+    test('a prompt asked for long after the earlier one was answered still discards an answer within 400 ms of opening', async () => {
+        const first = track(alertConfirm('First?'))
+        await passGuard()
+        answer('yes')
+        await settle()
+        expect.soft(first, 'the first confirm after its answer').toMatchObject({ settled: true, value: true })
+        await vi.advanceTimersByTimeAsync(5000)
+
+        const later = track(alertConfirm('Second?'))
+        const laterAsked = shown()
+        answer('no')
+        await settle()
+
+        expect.soft(later.settled, 'the later confirm settled on an answer at the moment it opened').toBe(false)
+        expect.soft(shown(), 'the store after the discarded answer').toEqual(laterAsked)
+        await passGuard()
+        answer('no')
+        await settle()
+        expect.soft(later, 'the later confirm after an answer outside the guard').toMatchObject({ settled: true, value: false })
     })
 })
 
@@ -522,6 +595,7 @@ describe('alerts that follow one another with no prompt waiting', () => {
         const confirm = track(alertConfirm('Proceed?'))
 
         expect.soft(shown()).toMatchObject({ type: 'ask', msg: 'Proceed?' })
+        await passGuard()
         answer('yes')
         await settle()
         expect.soft(confirm).toMatchObject({ settled: true, value: true })

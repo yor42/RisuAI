@@ -21,7 +21,8 @@
     import { type Unsubscriber } from "svelte/store"
     import { v4 as uuidv4, v4 } from 'uuid'
     import { language } from "../../lang"
-    import { alertClear, alertConfirm, alertInput, alertNormal, alertRequestData, alertWait } from "../../ts/alert"
+    import { alertClear, alertConfirm, alertInput, alertNormal, alertRequestData, alertSelect, alertWait } from "../../ts/alert"
+    import { markCharacterForSave } from "../../ts/storage/characterSaveMarks"
     import { ParseMarkdown, type CbsConditions, type simpleCharacterArgument } from "../../ts/parser/parser.svelte"
     import { getCurrentCharacter, getCurrentChat, type MessageGenerationInfo, type StreamingDisplayOptimizationMode } from "../../ts/storage/database.svelte"
     import { selectedCharID } from "../../ts/stores.svelte"
@@ -254,25 +255,48 @@
             return
         }
 
-        const rm = DBState.db.askRemoval ? await alertConfirm(language.removeChat) : true
-        if(rm){
-            if(DBState.db.instantRemove || rec){
-                const r = await alertConfirm(language.instantRemoveConfirm)
-                let msg = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message
-                if(!r){
-                    msg = msg.slice(0, idx)
-                }
-                else{
-                    msg.splice(idx, 1)
-                }
-                DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message = msg
+        // The owner, chat and message are fixed here; the answers arrive later and
+        // must act on these, never on whatever is selected or sits at `idx` then.
+        const owner = DBState.db.characters[selIdState.selId]
+        const chat = owner?.chats[owner.chatPage]
+        const target = chat?.message[idx]
+        if(!owner || !chat || !target){
+            return
+        }
+
+        const confirmed = DBState.db.askRemoval ? await alertConfirm(language.removeChat) : true
+        if(!confirmed){
+            return
+        }
+        let removeFromHere = false
+        if(DBState.db.instantRemove || rec){
+            const choice = await alertSelect([
+                language.removeOnlyThisMessage,
+                language.cancel,
+                language.removeThisAndFollowingMessages,
+            ], language.removeMessageQuestion)
+            if(choice === '2'){
+                removeFromHere = true
             }
-            else{
-                let msg = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message
-                msg.splice(idx, 1)
-                DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message = msg
+            else if(choice !== '0'){
+                return
             }
         }
+
+        if(!DBState.db.characters.includes(owner) || !owner.chats.includes(chat)){
+            return
+        }
+        const at = chat.message.indexOf(target)
+        if(at === -1){
+            return
+        }
+        if(removeFromHere){
+            chat.message.splice(at)
+        }
+        else{
+            chat.message.splice(at, 1)
+        }
+        markCharacterForSave(owner.chaId)
     }
 
     async function edit(){

@@ -15,7 +15,7 @@ import { alertStore } from './stores.svelte'
  * a prompt is asked for or a caller asks about, or subscribes to, prompt state.
  */
 
-/** How long an answer is discarded after a prompt comes back or its turn arrives. */
+/** How long an answer is discarded after a prompt appears on screen, however it got there: asked fresh, back from under a cover, or its turn arrived. */
 export const ANSWER_GUARD_MS = 400
 
 /**
@@ -129,6 +129,8 @@ export function askPrompt(data: alertData): Promise<string> {
         const prompt: WaitingPrompt = { data, resolve, guardUntil: 0 }
         if (current === null && !isPromptType(get(alertStore).type)) {
             current = prompt
+            // A press meant for whatever was on screen must not answer this prompt.
+            prompt.guardUntil = performance.now() + ANSWER_GUARD_MS
             alertStore.set(data)
             return
         }

@@ -85,7 +85,7 @@ vi.mock(import('src/ts/process/index.svelte'), () => ({
 import { initHotkey } from 'src/ts/hotkey'
 import { runPreviewPrompt } from 'src/ts/process/devToolActions'
 import { previewMayStart, renderPromptPreview, renderPromptResult, runPreview } from 'src/ts/process/previewRunner'
-import { resetAlertPromptsForTests } from 'src/ts/alertPrompts'
+import { ANSWER_GUARD_MS, resetAlertPromptsForTests } from 'src/ts/alertPrompts'
 import { setComposerWindow } from 'src/ts/process/generationOwnership.svelte'
 import { alertStore, DBState, selectedCharID, settingsOpen } from 'src/ts/stores.svelte'
 import { doingChat, sendChat } from 'src/ts/process/index.svelte'
@@ -245,6 +245,11 @@ function within<T>(promise: Promise<T>, ms = 1000): Promise<T> {
     ])
 }
 
+/** Real-timer wait until the answer guard of a prompt that has just opened has passed, so that an answer is taken. */
+function pastGuard(): Promise<void> {
+    return new Promise<void>((resolve) => setTimeout(resolve, ANSWER_GUARD_MS + 20))
+}
+
 //#endregion
 
 describe.each(previewEntries)('$name: a preview that produces nothing', (entry) => {
@@ -376,6 +381,7 @@ describe('the preview hotkey while another alert is up', () => {
         expect.soft(vi.mocked(sendChat), 'sends started').not.toHaveBeenCalled()
         expect.soft(shown()).toMatchObject({ type: 'ask', msg: 'Allow the plugin?' })
         expect.soft(key.defaultPrevented, 'the key was consumed').toBe(true)
+        await pastGuard()
         alertStore.set({ type: 'none', msg: 'no' })
         expect(await within(pending)).toBe(false)
     })
@@ -390,6 +396,7 @@ describe('the preview hotkey while another alert is up', () => {
         expect.soft(vi.mocked(sendChat), 'sends started').not.toHaveBeenCalled()
         expect.soft(shown().type).toBe('selectModule')
         expect.soft(key.defaultPrevented, 'the key was consumed').toBe(true)
+        await pastGuard()
         alertStore.set({ type: 'none', msg: '["module-a"]' })
         expect(await within(pending)).toBe('["module-a"]')
     })
@@ -723,6 +730,7 @@ describe.each(previewEntries)('$name: a result that finishes while another alert
         await entry.run()
         expect(shown().type, 'the alert at the end of the run').toBe('ask')
 
+        await pastGuard()
         alertStore.set({ type: 'none', msg: answerText })
 
         expect(await within(pending)).toBe(expected)
@@ -738,6 +746,7 @@ describe.each(previewEntries)('$name: a result that finishes while another alert
         await entry.run()
         const pending = alertConfirm('Proceed?')
 
+        await pastGuard()
         alertStore.set({ type: 'none', msg: answerText })
 
         expect(await within(pending)).toBe(expected)
@@ -750,6 +759,7 @@ describe.each(previewEntries)('$name: a result that finishes while another alert
         await entry.run()
         expect(shown().type, 'the alert at the end of the run').toBe('selectModule')
 
+        await pastGuard()
         alertStore.set({ type: 'none', msg: '["module-a"]' })
 
         expect(await within(pending)).toBe('["module-a"]')

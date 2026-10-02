@@ -43,7 +43,7 @@ import {
     waitAlert,
 } from './alert'
 import { alertStore } from './stores.svelte'
-import { resetAlertPromptsForTests } from './alertPrompts'
+import { ANSWER_GUARD_MS, resetAlertPromptsForTests } from './alertPrompts'
 
 //#region helpers
 
@@ -56,6 +56,11 @@ function answer(msg: string): void {
 
 function pause(ms: number): Promise<void> {
     return new Promise<void>((resolve) => setTimeout(resolve, ms))
+}
+
+/** Waits until the answer guard of a prompt that has just opened has passed, so that an answer is taken. */
+function pastGuard(): Promise<void> {
+    return pause(ANSWER_GUARD_MS + 20)
 }
 
 /** Rejects when `promise` has not settled within `ms`, so a blocked waiter fails a test instead of hanging it. */
@@ -85,6 +90,7 @@ describe('a blocking alert answered, then another alert put up in the same tick'
     test('a confirm answered no returns false when the other alert is closed with yes', async () => {
         const answered = alertConfirm('Proceed?')
 
+        await pastGuard()
         answer('no')
         alertNormal('an unrelated notice')
         await pause(40)
@@ -97,6 +103,7 @@ describe('a blocking alert answered, then another alert put up in the same tick'
     test('a select answered with a choice returns the choice when the other alert is closed empty', async () => {
         const answered = alertSelect(['first', 'second'])
 
+        await pastGuard()
         answer('1')
         alertNormal('an unrelated notice')
         await pause(40)
@@ -108,6 +115,7 @@ describe('a blocking alert answered, then another alert put up in the same tick'
     test('the module picker answered with a choice returns the choice when the other alert is closed empty', async () => {
         const answered = alertModuleSelect()
 
+        await pastGuard()
         answer('["module-a"]')
         alertNormal('an unrelated notice')
         await pause(60)
@@ -121,6 +129,7 @@ describe('a blocking alert answered, then a toast put up in the same tick', () =
     test('a confirm answered no resolves false at once, while the toast is still up', async () => {
         const answered = alertConfirm('Proceed?')
 
+        await pastGuard()
         answer('no')
         alertToast('Alert Closed')
 
@@ -131,6 +140,7 @@ describe('a blocking alert answered, then a toast put up in the same tick', () =
     test('a confirm answered yes resolves true at once, while the toast is still up', async () => {
         const answered = alertConfirm('Proceed?')
 
+        await pastGuard()
         answer('yes')
         alertToast('Alert Closed')
 
@@ -141,6 +151,7 @@ describe('a blocking alert answered, then a toast put up in the same tick', () =
     test('a select answered with a choice resolves with the choice at once, while the toast is still up', async () => {
         const answered = alertSelect(['first', 'second'])
 
+        await pastGuard()
         answer('1')
         alertToast('Alert Closed')
 
@@ -151,6 +162,7 @@ describe('a blocking alert answered, then a toast put up in the same tick', () =
     test('the module picker answered with a choice resolves with the choice at once, while the toast is still up', async () => {
         const answered = alertModuleSelect()
 
+        await pastGuard()
         answer('["module-a"]')
         alertToast('Alert Closed')
 
@@ -162,10 +174,12 @@ describe('a blocking alert answered, then a toast put up in the same tick', () =
 describe('blocking alerts without interference', () => {
     test('guard: a confirm answered yes returns true and one answered no returns false', async () => {
         const yes = alertConfirm('Proceed?')
+        await pastGuard()
         answer('yes')
         expect(await within(yes)).toBe(true)
 
         const no = alertConfirm('Proceed?')
+        await pastGuard()
         answer('no')
         expect(await within(no)).toBe(false)
     })
@@ -173,6 +187,7 @@ describe('blocking alerts without interference', () => {
     test('guard: a select returns the choice written when it ends', async () => {
         const answered = alertSelect(['first', 'second'])
 
+        await pastGuard()
         answer('0')
 
         expect(await within(answered)).toBe('0')
@@ -181,6 +196,7 @@ describe('blocking alerts without interference', () => {
     test('guard: the module picker returns the value written when it ends', async () => {
         const answered = alertModuleSelect()
 
+        await pastGuard()
         answer('["module-b"]')
 
         expect(await within(answered)).toBe('["module-b"]')
