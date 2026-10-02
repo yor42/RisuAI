@@ -1636,9 +1636,14 @@ Patreon list) — "CHORE-39 goes before W1."
 **Status (2026-09-26):** filed out of scope from CHORE-33's plan (Report 28 section 3.5, item 6).
 Traced to source, not fixed. The maintainer did not bring this into 28C.
 
+**Status (2026-10-02):** still open. **Fixed in the same change as CHORE-63**, placed right after CHORE-53
+(`MC-160` 3). A second investigation traced the same handler for the maintainer's copy-button report (ledger row 600).
+
 - `Chat.svelte`'s copy button fetches every http(s) URL in a rendered message, character icon or
   user icon, including `sv.risuai.xyz`, from a click. It is not a Realm or Drive feature (Report
   28 section 11.6's closing paragraph), so CHORE-33's agreement gate does not cover it.
+- **Related:** CHORE-63 (the same function and the same chain of awaits; the copy button's reliability). Fixing only
+  the external fetches would leave CHORE-63's problems in place.
 
 ### CHORE-41 — Bug: the edit button on earlier messages sometimes opens no editor
 
@@ -1707,8 +1712,8 @@ ledger rows 276-277; `MC-100` 2). Not fixed. Scheduled on 2026-10-01 (see the am
 
 **Amendment (2026-10-01):** from the investigation in ledger row 528 (the `investigator`'s packet, in
 the session scratchpad as `rerolledit/packet.md`, at HEAD `756e8210`). The Orchestrator verified the
-mechanism below in `src/ts/process/composerActions.svelte.ts`. **Status:** scheduled right after
-CHORE-53, with CHORE-54 (`MC-151` 3); fixing both in one change is the Orchestrator's recommendation
+mechanism below in `src/ts/process/composerActions.svelte.ts`. **Status:** scheduled after
+CHORE-53 and after CHORE-63 with CHORE-40, together with CHORE-54 (`MC-151` 3; `MC-160` 3); fixing both in one change is the Orchestrator's recommendation
 (CHORE-54). The maintainer's second relayed report
 matches this ticket's mechanism (`MC-151` 1): "reroll isn't bount to specific chat - rerolling on one
 chat and tapping 'previous message' on another chat loads previous message from previous chat".
@@ -2048,7 +2053,7 @@ hardening is integrity.
 ### CHORE-53 — Delete actions act on a stale target, and Enter clicks the control behind a confirm (DATA LOSS)
 
 **Status (2026-10-01):** filed from the community reports in `MC-150` and the investigation in ledger
-row 523. Open. Scheduled right after memory stage 1 step 5 and before CHORE-51 and CHORE-52
+row 523. Open. Scheduled right after memory stage 1 step 5 and before CHORE-63, CHORE-43, CHORE-54, CHORE-51 and CHORE-52
 (`MC-150` 4; `Agents/Live-State.md` work order). It is the concrete held-Enter finding behind CHORE-03.
 It is reported on upstream too: the community reports are observations of upstream builds (`MC-011`).
 
@@ -2142,7 +2147,7 @@ It is reported on upstream too: the community reports are observations of upstre
 
 **Status (2026-10-01):** filed from the investigation in ledger row 528 (packet in the session scratchpad,
 `rerolledit/packet.md`, at HEAD `756e8210`), after the maintainer relayed two possibly unconfirmed
-upstream bug reports (`MC-151` 1). Open. Scheduled right after CHORE-53, with CHORE-43 (`MC-151` 3);
+upstream bug reports (`MC-151` 1). Open. Scheduled after CHORE-53 and after CHORE-63 with CHORE-40, together with CHORE-43 (`MC-151` 3; `MC-160` 3);
 fixing both in one change is the Orchestrator's recommendation (below). Present on `upstream/main` `f9728b14` by source read (upstream not run) and on the
 fork. The Orchestrator verified the core of the mechanism, F1 and F2 below, in
 `src/ts/process/composerActions.svelte.ts`.
@@ -2741,10 +2746,10 @@ entry records that upstream `main` has the same one-block-per-`chaId` code.
 
 ### CHORE-62 — On a Node server, another device's save makes this device stop saving until it reloads, and its edits since its last save are lost (TRACED; not run against a real server)
 
-**Status (2026-10-02):** open, **placed in the work order after steps 6 and 7 and before CHORE-58**; type: usability
-and data-loss risk for edits made after the last successful save. **The placement is the Orchestrator's call, to
-confirm with the maintainer.** The only placement wording is in the option text the maintainer selected (`MC-159` 1,
-"Document + ticket (Recommended)"): "placed later in the work order". Filed from memory stage 1
+**Status (2026-10-02):** open, **placed in the work order after steps 6 and 7 and before CHORE-58, approved by the
+maintainer (`MC-160` 1)**; type: usability and data-loss risk for edits made after the last successful save. The
+position was the Orchestrator's; the only placement wording in `MC-159` 1 is in the option text the maintainer selected
+("Document + ticket (Recommended)"): "placed later in the work order". Filed from memory stage 1
 step 5d-4's investigation (ledger row 588). The README documents the consequence as it is today (see below).
 
 - **What exists (read at the working tree on 2026-10-02, on HEAD `3fca470e`; `globalApi.svelte.ts` has no uncommitted
@@ -2786,11 +2791,140 @@ step 5d-4's investigation (ledger row 588). The README documents the consequence
   and finish a boot on B with archiving on, then edit on A and watch for the toast and the icon; reload A and check
   whether the edit is gone. Not run. `server/node/server.cjs` resolves `dist` and `save` from its working directory,
   so a scratch folder does not touch the repo's `save/`.
-- **Placement:** after steps 6 and 7, before CHORE-58 (the Orchestrator's call, to confirm). It does not depend on the
-  idle reload; it is placed late because the option text the maintainer selected says "later in the work order" and the README now
-  states the behaviour.
+- **Placement:** after steps 6 and 7, before CHORE-58 (approved, `MC-160` 1: "I approve the chore-62 placement"). It
+  does not depend on the idle reload; it is placed late because the option text the maintainer selected says "later in
+  the work order" and the README now states the behaviour.
 - **Related:** `MC-138`, `MC-158` 4, `MC-159`; Phase 1.5 Tier B items 2, 3 and 7 (above); memory stage 1 step 5d-4
   (ledger rows 588 to 596).
+
+### CHORE-63 — Copy button reliability: the message copy button can fail silently or paste its own card (TRACED; desktop timing RUN; Android not run)
+
+**Status (2026-10-02):** open, not fixed. **Placed right after CHORE-53 and before CHORE-43 with CHORE-54, and fixed in
+the same change as CHORE-40** (`MC-160` 3). Type: reliability and surprising output; no persisted data is involved.
+Filed from the maintainer's report on upstream (`MC-160` 2) and the CHORE-40 second investigation (ledger row 600).
+Labels below: TRACED = the code path was read; RUN = executed in the investigation; INFERRED = reasoned, not verified in
+source or by execution.
+
+- **The report (`MC-160` 2, an observation of an upstream build, `MC-011`):** Chrome on Android, Galaxy S22 Ultra and Z
+  Fold 7, the Samsung keyboard. (a) A long message sometimes fails to copy, with an Android "failed to copy into
+  clipboard" toast. (b) Sometimes the persona name is prepended and "From RisuAI" appended. (c) Sometimes the copy works
+  but the text does not properly appear on the clipboard. It is random, so the maintainer could not capture output.
+- **What exists (TRACED, read at HEAD `7cf6ac27`, tree clean, against `upstream/main` `f9728b14`):** the handler is
+  textually identical in the fork and upstream (a diff of the snippet body; fork line N is upstream line N - 335). It is
+  about 225 lines inline in a snippet in `src/lib/ChatScreens/Chat.svelte` (fork `:925-1155`). The button renders only
+  if `DBState.db.useChatCopy` is on and the message is not blank (`:924`); `useChatCopy` has no default, so with
+  "Use Chat Message Copy" off there is no button.
+- **"From Risuai" is not a share sheet; it is the footer of the card the button builds (TRACED).** The footer is at
+  `Chat.svelte:1126` (upstream `:791`), and the code says "From Risuai", not "From RisuAI". The persona name is the
+  card's `<h3>` header (`:1119`; `displayName` set at `:1062`). A user message gets no model badge. The clipboard item
+  always carries both `text/plain` (the raw parsed message) and `text/html` (the card), so (b) matches a copied **user**
+  message pasted into a target that takes `text/html` (TRACED mechanism; the target dependence is INFERRED). There is no
+  `navigator.share`, no `document.execCommand('copy')` and no Tauri or Capacitor clipboard call in the message button
+  (grep of `src/` in the fork and in `upstream/main`: 0 hits for `navigator.share`; in the fork `execCommand('copy')` only in
+  `AlertComp.svelte`). The only APIs it uses are `navigator.clipboard.write` and `navigator.clipboard.writeText`.
+- **The single rich write happens after serial awaits (TRACED).** In order, all awaited before anything is written:
+  `alertWait`; `ParseMarkdown` (asset resolution, inlay reads, a lazy `highlight.js` language chunk per code-fence
+  language not yet loaded); then, one image at a time, a `fetch`, a re-encode to a data URL and a canvas JPEG at natural
+  size for each message `<img>` whose source starts with `http`, `/`, `data:` or `asset.localhost` (`:967-1014`); then
+  the **character icon on every press, even for a user message** (`:1019-1059`); then, for a user message, the persona
+  icon (`:1068-1113`). Only then `navigator.clipboard.write(...)` (`:1131-1136`). The message-image loop has no
+  `onerror` and no timeout (`:1001-1003` waits only for `onload`), so an image that fetches but will not decode leaves
+  the handler awaiting forever with the loading alert up and nothing written. The icon loops do have `onerror`.
+- **Browser activation can expire before the write (RUN on desktop; Android INFERRED).** Headless Chrome 154.0.8037.59
+  on desktop (a scratch test page calling `clipboard.write` in headless Chrome, not the app's handler), a real mouse
+  click as the gesture: `clipboard.write` and `writeText` called after a 0 s and a 3 s wait
+  succeeded; after 6 s and 12 s both were rejected with `NotAllowedError` (write permission denied) and
+  `navigator.userActivation.isActive` was false. Granting `clipboardSanitizedWrite` did not rescue it in headless; that
+  is not to be over-read. The run brackets the boundary between 3 s and 6 s, which is consistent with Chrome's documented 5 s transient
+  activation (the 5 s figure is not measured here). Android Chrome has the same engine rule
+  (INFERRED); its default for writes outside a gesture was not verified. What makes the wait long and different on each
+  press (TRACED; the magnitudes are INFERRED): the first press after a load (a cold `highlight.js` chunk, the service
+  worker round trips for `getFileSrc`, inlay reads), each external image fetched in turn with no timeout, a full-size
+  decode and encode of the character icon and of each image on a phone CPU, message length, and the number of
+  code-fence languages.
+- **A failure is silent and writes twice (TRACED).** On any failure in the rich path the `catch` block calls
+  `alertClear()` and `navigator.clipboard.writeText(copyText)`, logs nothing and has no `.catch`; it also does not
+  `return`, so control falls through to a second `writeText` (`:1140-1149`). After an activation-expiry failure both writes run past the activation window and are rejected; after a failure
+  with another cause the fallback `writeText` can still succeed inside the window and leave plain text on the
+  clipboard. If
+  both fail the user sees the loading alert disappear and nothing else: no message, no console line, an unhandled
+  rejection. No string in `en.ts` says "failed to copy"; the Android toast is **not produced by the app** (TRACED
+  absence). Success shows a modal "Copied" for the rich write and a small "Copied" text beside the message buttons for
+  the plain fallback.
+- **The payload is unbounded (TRACED structure; the Android limit is INFERRED).** The card embeds the avatar as a base64
+  JPEG q0.9 at the avatar's natural pixel size and each fetched message image as a JPEG q0.6 at natural size, plus inline
+  `style=` on every paragraph, and the same item carries the text again as `text/plain`. There is no size check. RUN on
+  desktop: 1 MB, 20 MB and 100 MB `text/html` blobs were written (100 MB in 833 ms), so size is not the limit there. On
+  Android, very large clip data is known to throw `TransactionTooLargeException` around the 1 MB mark through the system's
+  inter-process call (INFERRED from general Android knowledge; not checked against Android or One UI source). Whether Chrome Android turns that into a
+  rejected promise, a resolved one or an OS toast is **UNCERTAIN**. An expiry failure is silent and an OS refusal gives
+  a toast, which is what would tell the two apart; the toast therefore points past Chrome's gate (INFERRED).
+- **`blob:` inlay images stay dead links in the copied HTML (TRACED).** The image predicate excludes `blob:`, and
+  `parseInlayAssets` in `parser.svelte.ts` calls `URL.createObjectURL` at `:707` and emits `<img src="blob:...">` at
+  `:717`. They are copied as `blob:` URLs and do not resolve outside the page. So the ticket text in Report 28 section 11.6, that the button "re-fetches images the
+  browser has already loaded", is only half true: it re-fetches `http(s)`, `/`, `data:` and `asset.localhost` sources.
+  `getFileSrc`'s `/sw/` URLs are inlined.
+- **(c) is not settled.** App-side candidates for a copy that reports success with a poor result (INFERRED): the page
+  shows "Copied" as soon as `clipboard.write` resolves and never reads the clipboard back; `blob:` and uninlined external
+  images; a plain paste target showing only `text/plain`. On the platform side, the Samsung keyboard's clipboard layer.
+  No size or image limit for it is documented here, and the maintainer's first suspicion that (c) is not RisuAI's is
+  plausible and not excluded. The code cannot influence it beyond the MIME types it offers.
+  - **The maintainer's later hypothesis (`MC-160` 2), not established from source:** the card also explains (c), because
+    the Samsung clipboard does not seem to support images, so a copy might only partially work and the clipboard fails
+    when the card contains images. "Does not seem to support images" is the maintainer's impression, not an established
+    fact; the investigation found no documented limit for the Samsung clipboard (F12 of the packet) and did not test it. It fits the mechanism above:
+    the card's `text/html` embeds base64 images (the avatar and each fetched message image), and the same item carries
+    the text again as `text/plain`. If it is right, the plain-text default (`MC-160` 3) removes the images from the
+    default copy, and so removes this trigger whichever explanation holds; the "copy as card" action would still carry
+    them.
+- **Also found, not part of the report (TRACED):** the copied text is the parsed original message, never the translated
+  text, so copying while a translation is shown copies the untranslated text.
+- **Same code in the fork and upstream.** The fork keeps the symptoms by construction; these are observations of an
+  upstream build (`MC-011`). The handler is identical; code it calls differs, at minimum `getFileSrc` (a budgeted cache
+  with an oversize memo, `globalApi.svelte.ts:288-442`) and `parser.svelte.ts` and `alert.ts`, which differ from
+  upstream and were not compared line by line for this ticket.
+- **Decided (`MC-160` 3):** a tap copies plain text by default; the card becomes a separate "copy as card" action. Not
+  decided: its gesture (long-press or a menu item) and label, and the size caps and timeouts.
+- **Fix directions (the investigator's design opinion, not a decided design; they do not depend on which of expiry or
+  size is the cause):**
+  - Call `navigator.clipboard.write` synchronously inside the tap, before any await, with `Promise`-valued
+    `ClipboardItem` entries. RUN on desktop Chrome 154 (a scratch test page, not the app's handler): a synchronous call with promise-valued items survived awaits of
+    6 s, 12 s and 20 s, and an 8 s await producing a 5 MB blob, all resolved. Android is INFERRED to behave the same.
+    The `text/html` promise must never reject (resolve a minimal fallback on any build error), because a rejection
+    rejects the whole write and the fallback `writeText` then runs outside the gesture. With the maintainer's decision
+    the default is plain text, and `copyText` is computed before the first await (`:925-929`), so a plain write needs no
+    awaited work first (the Orchestrator's reading of the packet, not run); the card path is where the awaited work
+    remains.
+  - Bound the remaining work in the card path: a timeout per fetch, an `onerror` on the message-image loop, no icon work
+    for a user message, a downscale before `toDataURL`, a cap on the total length with a plain-text fallback. Do not
+    fetch external hosts (this is CHORE-40's fix, and it falls out of the same change).
+  - Say when a copy failed, and remove the second `writeText` (add a `return` or a `catch`).
+  - Local-only diagnostics, no telemetry: a `console.warn` in the failure path with the branch, the error name, the time
+    since the tap, `navigator.userActivation?.isActive`, `document.hasFocus()` and the sizes, and a one-line failure text
+    in the existing small status span beside the message buttons.
+- **Sizing (the investigator's estimate):** `Chat.svelte` plus a new module (for example `src/ts/chatCopy.ts`) holding the
+  html builder, the image inliner with an injected fetch and timeout, and the function that starts the write on the tap.
+  About +150 to 250 lines in the module, about -210 in `Chat.svelte` (a call site of 10 to 20 lines remains), and about
+  +30 to 60 lines of tests. One caller (the button). **No persistence code is touched:** no save format and no database
+  write path.
+- **Tests (needed; none exist today).** The `Chat.*.svelte.test.ts` files mount `Chat.svelte` under happy-dom but set
+  `useChatCopy: false`; no test exercises the handler. Needed: a regression test with a mocked `navigator.clipboard.write`
+  that records order and fails on the current code because the write comes after awaits (happy-dom has no user
+  activation, so real expiry cannot be tested there); the html builder (a user message has no model badge, the footer is
+  present); the image inliner (a timeout and an undecodable image do not hang, external URLs are not fetched); and the
+  failure path (a message is shown and `writeText` is not called twice). Verify red before green on the old code.
+- **Translation:** one new English key for the failure line (for example `copyFailed`), the existing `copied` reused, and
+  one more key for the "copy as card" label (`MC-160` 3's option text says "one more translated label"). Seven
+  languages: ko, cn, zh-Hant, vi, de, es and en.
+- **What would settle the open points (not needed for the fix; Android and One UI cannot be run from here):** on the
+  next failure, which result appeared (the modal "Copied", the small "Copied" text beside the buttons, or nothing),
+  whether the same message copies on an immediate second press, whether the failing messages have images or code
+  fences, and which app received the paste in (b). A copy of an oversized dummy payload on a Samsung device in a tiny
+  test page would settle the size limit and whether Chrome resolves before the OS commits.
+- **UNCERTAIN, not settled:** who raises the "failed to copy into clipboard" toast and at what size; whether Android
+  Chrome resolves `clipboard.write` before the OS commits the clip; whether Android Chrome grants writes outside a
+  gesture; a focus or visibility rejection on a foldable's multi-window (INFERRED, low prior, not run).
+- **Related:** CHORE-40 (the same function; fixed together), `MC-011`, `MC-160`; Report 28 section 11.6; ledger row 600.
 
 ## Sequencing Summary
 

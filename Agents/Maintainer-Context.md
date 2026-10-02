@@ -5147,8 +5147,9 @@ transcript):
      text would not suggest HTTPS, because a different address has different storage, and that the damaged text would
      not promise that retrying is pointless; its reason then, a possible half-written file on a Node server, was
      refuted by Gate 1 F6 (the Node server writes by temp file and rename), and the plan now rests on the cause of
-     undecodable bytes being unknown. The transcript does not show that the maintainer was told the key count would be
-     8 rather than "about 4-6"):
+     undecodable bytes being unknown. On the key count: the Orchestrator's chat message at transcript line 182314
+     (20:28Z) already said "I drafted the English for the eight new messages", and after the fact-check, at line
+     182782, it compared 8 explicitly with the option's "about 4-6"):
      - the no-storage text offers no remedy, because opening the page over HTTPS opens a different origin with
        different storage (plan 5d-4, I4; the 5d-4 commit message draft);
      - the damaged text says the copy "may be damaged" and that nothing was changed or deleted, and does not say that
@@ -5177,3 +5178,79 @@ transcript):
 Step 5d-2a, 5d-2b, 5d-3 and 5d-4 are committed as `29bf2f24`, `4d23b1b4`, `3fca470e` and `e7d7f093` (ledger rows 570
 to 596). The 5d-4 commit message cites `MC-159`, so the records commit that carries this entry should follow it at
 once. The mechanisms and the Orchestrator's own calls are in those rows, in Live-State and in the commits, not here.
+
+*Item 1's placement, "after steps 6 and 7 and before CHORE-58", was left to confirm. The maintainer approved it
+(`MC-160` 1).*
+
+---
+
+### MC-160 — CHORE-62's placement approved; the message copy button's failures on upstream (Android, Samsung keyboard); copy is plain text by default, and CHORE-63 goes right after CHORE-53
+
+- **Tag:** decision (1, 3) and stated (2)
+- **Date:** 2026-10-02 (the Orchestrator's dating; the transcript timestamps are 2026-10-01T23:20Z to 23:47Z, which is
+  08:20 to 08:47 on 2026-10-02 at UTC+9)
+- **Sweep ref:** none (stated directly this session)
+- **Source:** item 1 is the maintainer's own words. Item 2 is the maintainer's report to the Orchestrator this session;
+  the CHORE-40 second investigation (ledger row 600) examined it. Item 3 is two answers, both the recommended option,
+  to the two questions the Orchestrator asked with AskUserQuestion after that investigation; the texts are from the
+  session transcript (lines 182941 and 182950).
+- **Reasoning:** the maintainer gave no reason beyond the answers. The reasons in each option's text are the
+  Orchestrator's, quoted below.
+- **Alternatives rejected** (the other options the Orchestrator offered on each question):
+  - item 3, copy format: "Keep the card, make it reliable" and "Drop the card";
+  - item 3, placement: "With CHORE-43+54" and "After steps 6 and 7".
+- **Extends:** `MC-159` 1, by item 1 (it confirms the placement `MC-159` left to confirm).
+- **Related:** MC-011, MC-089, MC-151 3, MC-159, CHORE-40, CHORE-62, CHORE-63; ledger row 600.
+
+**What was decided:**
+1. **CHORE-62's placement is approved.** The maintainer wrote: "I approve the chore-62 placement". The placement is
+   after steps 6 and 7 and before CHORE-58 (the Orchestrator's position in `MC-159` 1, which the option text the
+   maintainer had selected there, "placed later in the work order", did not fix). The Roadmap's CHORE-62 status and
+   placement and the Live-State work order now say the maintainer approved it (`MC-160` 1).
+
+**What was stated** (an observation of an upstream build, `MC-011`; the fork has no separate evidence):
+2. **The message copy button behaves inconsistently on upstream's hosted site.** The maintainer reported it on
+   risuai.xyz (upstream), in Chrome on Android, on a Samsung Galaxy S22 Ultra and a Galaxy Z Fold 7, with the stock One
+   UI Samsung keyboard (not Gboard and not a third-party keyboard). Three behaviours, as reported:
+   - (a) sometimes a long message fails to copy, with no stack trace, and Android shows a "failed to copy into
+     clipboard" toast;
+   - (b) sometimes the message is there, but the persona name is prepended and "From RisuAI" is appended after the
+     message content;
+   - (c) sometimes the copy works but the text does not properly appear on the clipboard. The maintainer thinks (c) may
+     be unrelated to RisuAI.
+   - The maintainer also said that capturing real output is difficult because the problem is random: sometimes it
+     works fine and sometimes it does not.
+   - **A later statement the same day, on (c):** "I think Card also explains the "Copy that 'works' but doesn't land
+     properly" issue too - as samsung clipboard does not seem to support images. so copy might only partially work, and
+     clipboard fails as card seems to contain images." This is the maintainer's hypothesis and impression of the
+     Samsung clipboard, not a finding from source: the investigation found no documented size or image limit for it
+     (Roadmap CHORE-63).
+   - The mechanisms the investigation traced for (a) to (c), what was run and what was not, are in Roadmap CHORE-63 and
+     ledger row 600, not here. The wording in (b) is the maintainer's; the footer text in the code is "From Risuai".
+
+**What was decided** (the question, verbatim, then the answer and the option text; the texts are from the session
+transcript):
+3. **A tap on copy puts plain text on the clipboard, and the card becomes a separate action; the ticket is CHORE-63,
+   placed right after CHORE-53.**
+   - **Copy format.** The question: "The copy button builds a rich 'card' (persona or character name, avatar, message,
+     'From Risuai' footer) and puts both that card and the plain text on the clipboard. Apps that accept rich text paste
+     the card, which is symptom (b). What should a tap on copy do?" The answer: "Plain text by default
+     (Recommended)": "A tap copies only the message text: fast, small, always written within Chrome's tap window. The
+     card stays available as a separate 'copy as card' choice (long-press or a menu item; one more translated label)."
+     The options not chosen were "Keep the card, make it reliable": "Keep today's rich card as the default, but write
+     it the reliable way (clipboard reserved on the tap, images downscaled with timeouts, size capped with a plain-text
+     fallback, a visible failure message). Rich-text targets keep pasting the card."; and "Drop the card": "Copy only
+     ever puts plain text on the clipboard; the card feature is removed."
+   - **Placement.** The question: "This becomes a new copy-button reliability ticket (CHORE-63), fixed in the same
+     change as CHORE-40 (the button fetching every web address in the message). Where should it go in the work
+     order?" The answer: "Right after CHORE-53 (Recommended)": "Small and self-contained (one handler moved into a
+     tested module, about 200 lines, 1-2 translated strings, no save-file code), and seen in the wild on upstream. Goes
+     before CHORE-43+54." The options not chosen were "With CHORE-43+54": "Bundle it with the other chat-screen fixes
+     (reroll binding, reroll overwriting edits)."; and "After steps 6 and 7": "Keep the memory work first; fix the copy
+     button later, before CHORE-62 and CHORE-58."
+   - **Relation to `MC-151` 3.** CHORE-43 and CHORE-54 were placed "Right after CHORE-53" there. The option text the
+     maintainer selected here says CHORE-63 "goes before CHORE-43+54", so the order is CHORE-53, then CHORE-63 with
+     CHORE-40, then CHORE-43 with CHORE-54.
+   - **Not decided by this entry:** the gesture for "copy as card" (the option text offered "long-press or a menu item"
+     and the maintainer chose the option, not one of the two); its label; and the size caps and timeouts of the plain
+     path. The "about 200 lines" and "1-2 translated strings" in the option text are the Orchestrator's estimates.

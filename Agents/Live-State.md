@@ -80,6 +80,8 @@ These later commits are local and not pushed:
   archiving off (`MC-148`, `MC-158` 3; ledger rows 582 to 587);
 - `e7d7f093`: memory stage 1 step 5d-4, an archived character or chat that cannot be read on this page, or whose copy
   may be damaged, gets its own message, and the README's two-device sentence (`MC-159`; ledger rows 588 to 596);
+- `7cf6ac27`: "docs(agents): record MC-159, CHORE-62, steps 5d-2a to 5d-4 and ledger rows 570 to 599" (by its commit
+  subject);
 - the records commit that carries this file.
 
 `712a76ad` and `38583d3b` were committed at the maintainer's approval ("commit the finished side works.");
@@ -91,7 +93,8 @@ do the records."; `435a8723` at "commit the docs and start step 5d."; `a6a27df5`
 pushed (`origin/fix/persistence-conflict-platform-hardening` is `0a3fb2b0`, from the local remote-tracking ref,
 2026-10-01; the records fact-check re-read it on 2026-10-02 and it was still `0a3fb2b0`).
 
-The working tree holds only this records batch's edits to the `Agents/` documents (until they are committed).
+The working tree holds only this records batch's edits to the `Agents/` documents (until they are committed). Report 56
+(`Agents/Reports/56-memory-stage-1-step-5-boot-archive-pass.md`) is fact-checked and committed as `a7956237`.
 `docs/` is tracked and holds the maintainer's own Terms of Service and Privacy Policy, which they write and commit
 themselves, so a commit touching those two files is theirs (`MC-156`); agents do not edit them (`MC-155` 4). The
 wiki pages are in `docs/wiki/`, the Wiki session's lane.
@@ -108,8 +111,8 @@ Several sessions work **in this same checkout**:
   build"** and **"Fork rebranding exploration"** are idle or done; see Report 39/41 and ledger
   row 428.
 
-**Next free numbers:** `MC-160` (`MC-159` is used), Report 56, ledger row 600 and CHORE-63
-(`CHORE-62` is used). Check the ledger's last row before taking one. `MC-114` and ledger rows 371-374 were reserved for W2c-a and left unused; nobody
+**Next free numbers:** `MC-161` (`MC-160` is used), Report 57 (Report 56 is used), ledger row 606 and CHORE-64
+(`CHORE-63` is used). Check the ledger's last row before taking one. `MC-114` and ledger rows 371-374 were reserved for W2c-a and left unused; nobody
 should fill them.
 
 **Rules for every session:**
@@ -168,7 +171,8 @@ should fill them.
      - there is no runtime archive engine (ledger row 475).
    - The working copy of the plan is in the session scratchpad (`memfoot/stage1c/plan.md`).
      Report 49 is the durable version.
-2. **Next: the step 5 report (Report 56), then CHORE-53** (work order; Report 49 section 3.4, step 5, is done). Step
+2. **Next: CHORE-53** (the step 5 report, Report 56, is committed as `a7956237`; work order;
+   Report 49 section 3.4, step 5, is done). Step
    5d was split into sub-steps (5d-1 to 5d-4, with 5d-2 as 5d-2a and 5d-2b), listed under "5d" below.
    - **CHORE-16 PG-1 is done** (Report 54). The Wiki session has committed the Playground page
      (now `docs/wiki/Playground.md`, `6ad13bac`) to match it. The Main Campaign session does not touch `docs/wiki/**`.
@@ -234,7 +238,7 @@ should fill them.
            main-file boot, a complete decode, `formatversion` 5 or higher, no enabled V2.1 plugin, not a stale
            account-sync profile, and `characters` and `botPresets` both arrays), and a boot where it cannot
            leaves the `archiveCharacters` key absent;
-         - the exclusive-hold grant timeout is about 1 s (`HOLD_TIMEOUT_MS`, `bootArchivePass.ts:139`) instead
+         - the exclusive-hold grant timeout is about 1 s (`HOLD_TIMEOUT_MS`, `bootArchivePass.ts:208`) instead
            of the 5 s default (`acquireExclusiveStorageMigrationLock`, `storageTabLocks.ts:283`), so a second
            tab skips the pass rather than waiting;
          - the optional `enableRemoteSaving` input on the save encoder's `init` is an `MC-091` amendment (a
@@ -243,8 +247,8 @@ should fill them.
        - **Step 6 dependency** (Gate 1 round 2 N5): a pass skipped after an idle reload (the short timeout, or
          another tab holding the lock) releases nothing, so step 6 must observe that the post-reload pass ran
          before it treats the reload as having released memory.
-       - The step 5 report is not written yet (Report 56 is the next free number); it is to record the
-         Orchestrator's own implementation calls.
+       - The step 5 report is Report 56 (`a7956237`, fact-checked); it records the Orchestrator's own implementation
+         calls.
      - **5d, split into four sub-steps on 2026-10-01, and 5d-2 then into 5d-2a and 5d-2b** (the Orchestrator's
        calls, the first on the step 5d investigator's recommendation, ledger row 551, the second on the 5d-2
        investigator's, row 566; each sub-step has its own gates; the maintainer's five answers are `MC-158`, and the two
@@ -365,17 +369,21 @@ should fill them.
            texts say the visible messages are unaffected instead), and does not say that retrying will not help; the
            no-storage text offers no remedy (opening the page over HTTPS opens a different origin). Both differ from
            `MC-159` 2's option text ("say it needs HTTPS or localhost"; "retrying will not help"). The HTTPS and retry
-           points were told to the maintainer in chat before the plan went to Gate 1 (transcript line 182205);
-           the key count (8, not "about 4-6") was reported to the maintainer in chat on 2026-10-02, after the fact-check. "Damaged" is decided only by an fflate data
+           points were told to the maintainer in chat while the plan was out for Gate 1 (the reviewer was dispatched at
+           20:16:03Z, transcript line 182200; the chat message was sent at 20:16:16Z, line 182205);
+           the eight new keys were first mentioned in a chat message at transcript line 182314 (20:28Z: "I drafted the
+           English for the eight new messages"), and after the fact-check, at line 182782, the Orchestrator compared 8
+           explicitly with the option's "about 4-6". "Damaged" is decided only by an fflate data
            error code in {0, 1, 2, 3, 6} or, at the JSON step only, a `SyntaxError`; a worker that cannot start, an
            out-of-memory error and any other failure stay a plain read error. A failure while merging a retried chat's
            side fields stays a plain error. The seven-language text is the Orchestrator's English plus `translator`'s
            versions.
-         - **Reported to the maintainer (5d-4), 2026-10-02:** the key count is 8, not the "about 4-6" in `MC-159` 2's
-           option text.
+         - **Told to the maintainer (5d-4):** the key count is 8, not the "about 4-6" in `MC-159` 2's option text. The
+           eight were first mentioned at transcript line 182314, and the explicit comparison with "about 4-6" came at
+           line 182782, after the fact-check.
        - **Filed from 5d-4:** CHORE-62 (on a Node server, another device's save makes this device stop saving until it
          reloads, and its edits since its last save are lost; `MC-159` 1 and 3). Placed after steps 6 and 7 and before
-         CHORE-58 by the Orchestrator, **to confirm with the maintainer** (see the work order).
+         CHORE-58; **approved by the maintainer** (`MC-160` 1; see the work order).
        - **Filed from 5d-1's Gate 1:** CHORE-61 (the save encoder silently loses presets, modules or a character
          when a `chaId` equals a fixed block name; observed at encoder level only; not in the work order).
      The plan working copies and gate records are in the session scratchpad (`step5/`); the step 5
@@ -426,15 +434,20 @@ should fill them.
    1. memory stage 1 step 5, the boot pass (the scoping is recorded: ledger row 522, `MC-148` and `MC-149`;
       5a, 5b, 5c, 5d-1, 5d-2a, 5d-2b, 5d-3 and 5d-4 are done, `33545c2c`, `448962f4`, `9b312962`, `e8cf50de`,
       `29bf2f24`, `4d23b1b4`, `3fca470e` and `e7d7f093`; the scoping is ledger row 551, `MC-158` and `MC-159`; the
-      step 5 report (Report 56) is still to write);
+      step 5 report is Report 56, `a7956237`);
    2. then **CHORE-53** (DATA LOSS: delete actions act on a stale target, and Enter clicks the control
       behind a confirm; ledger row 523; `MC-150` 4, the maintainer agreed to this position);
-   3. then **CHORE-43** (unreroll can write one chat's reply into another) **with CHORE-54** (rerolling
+   3. then **CHORE-63** (copy button reliability: the message copy button can fail silently or paste its own card)
+      **with CHORE-40** (the copy button fetches any http(s) URL), fixed in one change. The maintainer chose "Right
+      after CHORE-53", and the option text says it goes before CHORE-43 and CHORE-54 (`MC-160` 3). The default copy
+      becomes plain text, with the card as a separate "copy as card" action (`MC-160` 3). Ledger row 600; no
+      persistence code is touched;
+   4. then **CHORE-43** (unreroll can write one chat's reply into another) **with CHORE-54** (rerolling
       or going back through rerolls overwrites an edited reply with its generation-time copy; data
       loss, save path inferred). The maintainer placed both right after CHORE-53 (ledger row 528;
       `MC-151` 3, "Right after CHORE-53"). The Orchestrator's recommendation (CHORE-54) is to fix them in
       one change, because both live in the reroll history's ownership;
-   4. then **CHORE-51** (DATA LOSS), **CHORE-52** (the unvalidated cold-storage key), **CHORE-55**
+   5. then **CHORE-51** (DATA LOSS), **CHORE-52** (the unvalidated cold-storage key), **CHORE-55**
       (Tauri main-file writes are not atomic) and **CHORE-59** (Load Internal Backup offers to load the
       intact data of a partly damaged snapshot; `MC-152`; placement is the Orchestrator's choice), each
       its own change with its own gates. The maintainer
@@ -442,12 +455,12 @@ should fill them.
       the Orchestrator's choice. Neither depends on step 5 or step 6, and CHORE-51 is DATA LOSS, so it
       should not wait behind the idle reload and the measurements. CHORE-55 goes in this stretch by
       the maintainer's choice (`MC-151` 3, "With CHORE-51/52");
-   5. then steps 6 and 7;
-   6. then **CHORE-62** (on a Node server, another device's save makes this device stop saving until it reloads, and
+   6. then steps 6 and 7;
+   7. then **CHORE-62** (on a Node server, another device's save makes this device stop saving until it reloads, and
       its edits since its last save are lost; `MC-159` 1 and 3). The option text the maintainer selected says only
-      "placed later in the work order"; **after steps 6 and 7 and before CHORE-58 is the Orchestrator's call, to
-      confirm with the maintainer;**
-   7. then **CHORE-58** (measure first): PNG character import copies its read buffer quadratically on
+      "placed later in the work order"; the position after steps 6 and 7 and before CHORE-58 was the Orchestrator's,
+      and **the maintainer approved it** (`MC-160` 1: "I approve the chore-62 placement");
+   8. then **CHORE-58** (measure first): PNG character import copies its read buffer quadratically on
       large assets (ledger row 532). It is import performance, not data loss, so it goes last; the maintainer
       accepted the Orchestrator's recommended placement (`MC-151` 8). Its first task is a measurement on the
       real module or the live app.
@@ -463,7 +476,6 @@ should fill them.
    close before the first release. The maintainer chose to leave it at this position (`MC-157` 5).
 
 Not placed in the sequence:
-- **CHORE-40** (the copy button's URL fetch): open; the Roadmap gives no position.
 - **CHORE-41** (the edit-button bug): blocked on the maintainer's console output.
 - **CHORE-45** (the script cache misses on a repeat send in a long chat): filed, not scheduled. It
   waits for the memory work.
@@ -587,7 +599,7 @@ Answered on 2026-10-01 and removed from this list:
   old default. Since `33545c2c` the checkbox is "Archive characters at startup" (`coldStorage` in `en.ts`),
   bound to `archiveCharacters` (absent or `true` means on; `src/ts/setting/advancedSettingsData.ts`, id
   `adv.coldstorage`). Since `9b312962` the boot pass reads it (`tree.archiveCharacters === false` stops the pass,
-  `src/ts/storage/bootArchivePass.ts:325`; an absent key is written as `true` on a boot where the pass can run,
+  `src/ts/storage/bootArchivePass.ts:475`, and `:479`; an absent key is written as `true` on a boot where the pass can run,
   with a one-time notice), so the row's old default and wording are stale in a second way.
 - **A new fourth item (2026-10-02, `MC-158` 4 and `MC-159` 1): the two-device note for a Node server.** Please add it
   to the wiki page where you think it belongs; no wiki page mentions the two-device case or the stopped-saving
