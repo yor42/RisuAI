@@ -1,8 +1,8 @@
 [package]
 name = "risuai"
-version = "0.0.0"
-description = "A Tauri App"
-authors = ["you"]
+version = "0.1.0"
+description = "Risutanium (RisuTanium), a fork of RisuAI"
+authors = ["yor42"]
 license = ""
 repository = ""
 edition = "2021"

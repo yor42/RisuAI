@@ -27,10 +27,10 @@
       }
     ]
   },
-  "productName": "RisuAI",
-  "mainBinaryName": "RisuAI",
-  "version": "2026.8.250",
-  "identifier": "co.aiclient.risu",
+  "productName": "Risutanium",
+  "mainBinaryName": "Risutanium",
+  "version": "0.1.0",
+  "identifier": "io.github.yor42.risutanium",
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU2ODMzOTIxMDMxOTY1MUYKUldRZlpSa0RJVG1EVmx5Vm1WYlhFM29HMEJrUTRrYmg5dDQ0RFpvdUphNDdxQmVlWXJHVmV5TEYK",
@@ -41,7 +41,7 @@
     },
     "deep-link": {
       "desktop": {
-        "schemes": ["risuailocal"]
+        "schemes": ["risutaniumlocal"]
       }
     }
   },
@@ -51,7 +51,7 @@
       {
         "fullscreen": false,
         "resizable": true,
-        "title": "Risuai",
+        "title": "RisuTanium",
         "width": 1024,
         "height": 768,
         "minWidth": 300,
