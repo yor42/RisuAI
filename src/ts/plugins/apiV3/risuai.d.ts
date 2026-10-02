@@ -1592,6 +1592,32 @@ interface RisuaiPluginAPI {
      * A placeholder you read from `getDatabase` and hand back unchanged is
      * accepted while the live character is still archived under that unit, and
      * so is a full character in place of a placeholder.
+     *
+     * **Fork-specific note (not upstream RisuAI):** a `plugins` value is merged
+     * into the installed plugin list by name; it never replaces the list.
+     * - A plugin left out of the list stays installed. An entry whose `script`
+     *   equals the installed script is ignored whatever its other fields hold,
+     *   so a snapshot written back unchanged changes nothing.
+     * - An entry with an installed name and a different script is an update
+     *   only when the `//@version` in the new script is newer than the installed
+     *   version. The same, an older or a missing version is ignored with a
+     *   console warning. The exception is the calling plugin's own entry: the
+     *   call then rejects with "not newer than installed".
+     * - An update or a new plugin is read from the `//@` header of its `script`,
+     *   not from the other fields of the entry. The header name must equal the
+     *   entry's `name`, and a new plugin must declare `//@api 3.0`. The user is
+     *   asked once per update or install, in list order. An update keeps the
+     *   saved argument values the new header still declares with the same type,
+     *   and the on/off state. A new plugin starts switched on with the header's
+     *   default values. An updated script runs after the next `loadPlugins()`.
+     * - If any change is declined, is refused (a header that does not parse,
+     *   names another plugin or is not 3.0), or cannot be applied once the
+     *   prompts are answered, no change to the list is applied. The other keys
+     *   of the call are still saved, and the call rejects with an `Error` whose
+     *   message names the plugin and the reason. A `plugins` value that is not
+     *   an array is handled the same way.
+     * `setDatabaseLite` saves the call's data before it returns when nothing
+     * needs asking, and after the prompts otherwise.
      */
     setDatabaseLite(db: DatabaseSubset): Promise<void>;
 
@@ -1610,6 +1636,30 @@ interface RisuaiPluginAPI {
      * A placeholder you read from `getDatabase` and hand back unchanged is
      * accepted while the live character is still archived under that unit, and
      * so is a full character in place of a placeholder.
+     *
+     * **Fork-specific note (not upstream RisuAI):** a `plugins` value is merged
+     * into the installed plugin list by name; it never replaces the list.
+     * - A plugin left out of the list stays installed. An entry whose `script`
+     *   equals the installed script is ignored whatever its other fields hold,
+     *   so a snapshot written back unchanged changes nothing.
+     * - An entry with an installed name and a different script is an update
+     *   only when the `//@version` in the new script is newer than the installed
+     *   version. The same, an older or a missing version is ignored with a
+     *   console warning. The exception is the calling plugin's own entry: the
+     *   call then rejects with "not newer than installed".
+     * - An update or a new plugin is read from the `//@` header of its `script`,
+     *   not from the other fields of the entry. The header name must equal the
+     *   entry's `name`, and a new plugin must declare `//@api 3.0`. The user is
+     *   asked once per update or install, in list order. An update keeps the
+     *   saved argument values the new header still declares with the same type,
+     *   and the on/off state. A new plugin starts switched on with the header's
+     *   default values. An updated script runs after the next `loadPlugins()`.
+     * - If any change is declined, is refused (a header that does not parse,
+     *   names another plugin or is not 3.0), or cannot be applied once the
+     *   prompts are answered, no change to the list is applied. The other keys
+     *   of the call are still saved, and the call rejects with an `Error` whose
+     *   message names the plugin and the reason. A `plugins` value that is not
+     *   an array is handled the same way.
      */
     setDatabase(db: DatabaseSubset): Promise<void>;
 

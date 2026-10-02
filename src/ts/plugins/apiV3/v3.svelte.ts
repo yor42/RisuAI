@@ -890,7 +890,7 @@ export const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             return liteDB;
         },
 
-        installPlugin: handlePluginInstallViaPlugin,
+        installPlugin: (plugins: RisuPlugin[]) => handlePluginInstallViaPlugin(plugins, plugin.name),
 
         // --- Color Scheme APIs ---
         changeColorScheme: (name: string) => {

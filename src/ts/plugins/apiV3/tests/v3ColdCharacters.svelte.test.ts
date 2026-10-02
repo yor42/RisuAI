@@ -696,12 +696,12 @@ describe('plugin setters and incoming stubs: the refusal rule by chaId', () => {
         const api = makeRisuaiAPIV3({} as HTMLIFrameElement, makePlugin())
         const snapshot = await api.getDatabase('all') as unknown as { characters: CharacterFixture[], plugins: RisuPlugin[] }
         expect((snapshot.characters[1] as unknown as ColdCharacter).coldstorage).toBe('unit-hero')
-        const newPlugin = { name: 'another-plugin', script: 'another-script', version: '3.0', arguments: {}, realArg: {}, customLink: [], argMeta: {} }
+        const newPlugin = { name: 'another-plugin', script: '//@name another-plugin\n//@api 3.0\n//@version 1.0.0\n// another-script', version: '3.0', arguments: {}, realArg: {}, customLink: [], argMeta: {} }
         let answerInstallConfirm!: (install: boolean) => void
         const confirmsBefore = alertConfirmMock.mock.calls.length
         alertConfirmMock.mockImplementationOnce(() => new Promise<boolean>((resolve) => { answerInstallConfirm = resolve }))
 
-        // The plugin lists `plugins` before `characters`, so the install confirm is awaited before the characters are assigned.
+        // The install confirm precedes the `characters` assignment, and `characters` is reconciled against the live list at the moment it is assigned, so a restore during the confirm is seen.
         const pending = api.setDatabase({ plugins: [...snapshot.plugins, newPlugin], characters: snapshot.characters })
         for (let i = 0; i < 50 && alertConfirmMock.mock.calls.length === confirmsBefore; i++) {
             await new Promise((resolve) => setTimeout(resolve, 0))

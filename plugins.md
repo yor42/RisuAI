@@ -779,6 +779,31 @@ for (let i = 0; i < db.characters.length; i++) {
 - `characterOrder`
 - `selectedPersona`
 
+#### Writing the plugin list
+
+**Fork-specific note (not upstream RisuAI):** `setDatabase()` and `setDatabaseLite()` merge a `plugins` value into the installed plugin list by name. They never replace the list. This differs from upstream RisuAI in these ways:
+
+- A plugin left out of the list stays installed. An entry whose `script` equals the installed script is ignored, whatever its other fields hold. A snapshot from `getDatabase()` written back unchanged therefore changes nothing, and a plugin cannot change another plugin's saved values or on/off state through the list. A console warning is logged when an ignored entry differs in another field. Use `setArgument` for your own arguments.
+- An entry with an installed name and a different script is an update only when the `//@version` in the new script is newer than the installed version. The same, an older or a missing version is ignored with a console warning, and a stale copy of the list cannot silently revert an update.
+- An update or a new plugin is read from the `//@` header of its `script`, not from the other fields of the entry. The header `//@name` must equal the entry's `name`, and a new plugin must declare `//@api 3.0` (2.0 and 2.1 are refused). The user is asked once per update or install, in list order, and the prompt names the plugins and, for an update, the versions.
+- An update keeps the saved argument values for arguments the new header still declares with the same type, and keeps the on/off state. A new plugin starts switched on with the header's default values, whatever `realArg` and `enabled` you sent. The new script runs after the next `loadPlugins()`.
+- If any change is declined, is refused (a header that does not parse, names another plugin or is not 3.0), or cannot be applied once the prompts are answered, no change to the list is applied. The other keys of the call are still saved, and the call rejects with an `Error` whose message names the plugin and the reason. A `plugins` value that is not an array is handled the same way. Your own entry with a different script that is not newer than the installed one rejects with "not newer than installed", so a self-updater can tell that its update did not happen.
+- `setDatabaseLite()` prompts for these changes too. It saves the call's data before it returns when nothing needs asking, and after the prompts otherwise.
+- The Update button, re-importing a plugin and `//@update-url` updates keep the saved values and the on/off state in the same way. Hot reload keeps the saved values and switches the plugin on.
+- `installPlugin()` returns the plugins the user accepted and writes nothing. It only offers plugins whose name is not installed, and its header must name the entry.
+
+```javascript
+// Self-update: the host asks once, keeps the saved settings the new version still declares, and rejects if the user declines.
+const db = await Risuai.getDatabase(['plugins']);
+const mine = db.plugins.find((p) => p.name === 'My Plugin');
+mine.script = newScript; // its //@version must be newer than the installed one
+try {
+  await Risuai.setDatabase({ plugins: db.plugins });
+} catch (e) {
+  console.warn('Update not applied:', e.message);
+}
+```
+
 ### Character Operations
 
 Convenient methods for working with the current character:

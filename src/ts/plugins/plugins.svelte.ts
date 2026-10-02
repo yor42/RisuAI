@@ -14,6 +14,16 @@ import { pluginCodeTranspiler } from "./apiV3/transpiler";
 import { markCharacterForSave } from "../storage/characterSaveMarks";
 import { incomingCharacterRefusal, withoutStubDowngrades } from "./stubDowngrade";
 import { hasEnabledV21Plugin } from "./v21Plugins";
+import {
+    apiVersionRefusal,
+    applyPluginChanges,
+    carrySavedValues,
+    classifyPluginList,
+    compareVersions,
+    parsePluginHeader,
+    pluginEntryFromHeader,
+    type PluginListClassification,
+} from "./pluginListMerge";
 import { clearRestoreAllStrikes, readRestoreAllStrikes } from "../storage/bootArchiveMemo";
 import {
     fillMissingCharacterInstallIds,
@@ -57,19 +67,6 @@ export async function createBlankPlugin(){
 Risuai.log("Hello from New Plugin!");
 `.trim()
     )
-}
-
-const compareVersions = (v1: string, v2: string): 0|1|-1 => {
-    const v1parts = v1.split('.').map(Number);
-    const v2parts = v2.split('.').map(Number);
-    const len = Math.max(v1parts.length, v2parts.length);
-    for (let i = 0; i < len; i++) {
-        const part1 = v1parts[i] || 0;
-        const part2 = v2parts[i] || 0;
-        if (part1 > part2) return 1;
-        if (part1 < part2) return -1;
-    }
-    return 0;
 }
 
 const updateCache = new Map<string, { version: string, updateURL: string } | undefined>();
@@ -183,166 +180,12 @@ export async function importPlugin(code:string|null = null, argu:{
             }
         }
 
-        let displayName: string = undefined
-        let arg: { [key: string]: 'int' | 'string' | string[] } = {}
-        let realArg: { [key: string]: number | string } = {}
-        let argMeta: { [key: string]: {[key:string]:string} } = {}
-        let customLink: ProviderPluginCustomLink[] = []
-        let updateURL: string = ''
-        let versionOfPlugin: string = '' //This is the version of the plugin itself, not the API version
-        let apiVersion = '2.0'
-        let ipcList: string[] = []
-        for (const line of splitedJs) {
-            if (line.startsWith('//@name')) {
-                const provied = line.slice(7)
-                if (provied === '') {
-                    showError('plugin name must be longer than 0, did you put it correctly?')
-                    return
-                }
-                name = provied.trim()
-            }
-            if(line.startsWith('//@api')){
-                const proviedVersions = line.slice(6).trim().split(' ')
-                const supportedVersions = ['2.0','2.1','3.0']
-                for(const ver of proviedVersions){
-                    if(supportedVersions.includes(ver)){
-                        apiVersion = ver
-                        break
-                    }
-                    else{
-                        console.warn(`Plugin API version "${ver}" is not supported.`)
-                    }
-                }
-            }
-            if (line.startsWith('//@display-name')) {
-                const provied = line.slice('//@display-name'.length + 1)
-                if (provied === '') {
-                    showError('plugin display name must be longer than 0, did you put it correctly?')
-                    return
-                }
-                displayName = provied.trim()
-            }
-
-            if (line.startsWith('//@link')) {
-                const link = line.split(" ")[1]
-                if (!link || link === '') {
-                    showError('plugin link is empty, did you put it correctly?')
-                    return
-                }
-                if (!link.startsWith('https')) {
-                    showError('plugin link must start with https, did you check it?')
-                    return
-                }
-                const hoverText = line.split(' ').slice(2).join(' ').trim()
-                if (hoverText === '') {
-                    // OK, no hover text. It's fine.
-                    customLink.push({
-                        link: link,
-                        hoverText: undefined
-                    });
-                }
-                else
-                    customLink.push({
-                        link: link,
-                        hoverText: hoverText || undefined
-                    });
-            }
-            if (line.startsWith('//@risu-arg') || line.startsWith('//@arg')) {
-                const provied = line.trim().split(' ')
-                if (provied.length < 3) {
-                    showError('plugin argument is incorrect, did you put space in argument name?')
-                    return
-                }
-                const provKey = provied[1]
-
-                if (provied[2] !== 'int' && provied[2] !== 'string') {
-                    showError(`plugin argument type is "${provied[2]}", which is an unknown type.`)
-                    return
-                }
-                if (provied[2] === 'int') {
-                    arg[provKey] = 'int'
-                    realArg[provKey] = 0
-                }
-                else if (provied[2] === 'string') {
-                    arg[provKey] = 'string'
-                    realArg[provKey] = ''
-                }
-
-                if(provied.length > 3){
-                    const meta: {[key:string]:string} = {}
-                    //Compatibility layer for unofficial meta
-                    let metaStr = provied.slice(3).join(' ').replace(
-                        /{{(.+?)(::?(.+?))?}}/g,
-                        (a,g1:string,g2,g3:string) => {
-                            console.log(g1,g3)
-                            meta[g1] = g3 || '1'
-                            return ''
-                        }
-                    ).trim()
-
-                    if(metaStr){
-                        meta['description'] = metaStr
-                    }
-
-                    argMeta[provKey] = meta
-                }
-            }
-
-            if(line.startsWith('//@update-url')){
-                updateURL = line.split(' ')[1]
-
-                try {
-                    const url = new URL(updateURL)
-                    if(url.protocol !== 'https:'){
-                        showError('plugin update URL must start with https, did you put it correctly?')
-                        return
-                    }
-                } catch (error) {
-                    showError('plugin update URL is not a valid URL, did you put it correctly?')
-                    return
-                }
-            }
-
-            if(line.startsWith('//@version')){
-                versionOfPlugin = line.split(' ').slice(1).join(' ').trim()
-
-                const versionLocation = jsFile.indexOf('//@version')
-                const numberOfBytesBefore = new TextEncoder().encode(jsFile.slice(0, versionLocation) + line).length
-                if(numberOfBytesBefore > 500){
-                    showError('plugin version declaration must be within the first 512 Bytes of the file for proper parsing. move //@version line to the top of the file.')
-                    return
-                }
-            }
-
-            if(line.startsWith('//@allowed-ipc')){
-                const provied = line.trim().split(' ')
-                if(provied.length < 2){
-                    showError('plugin allowed IPC declaration is incorrect, did you put space after //@allowed-ipc?')
-                    return
-                }
-
-                const allowedIPCList = provied.slice(1)
-
-                ipcList.push(...allowedIPCList)
-            }
-        }
-
-        if (name.length === 0) {
-            showError('plugin name not found, did you put it correctly?')
+        const header = parsePluginHeader(jsFile)
+        if ('error' in header) {
+            showError(header.error)
             return
         }
 
-        if(updateURL && versionOfPlugin.length === 0){
-            showError('plugin version not found, did you put it correctly? It is required when update URL is provided.')
-            return
-        }
-
-        if(versionOfPlugin && compareVersions(versionOfPlugin, '0.0.1') === -1){
-            showError('plugin version must be at least 0.0.1')
-            return
-        }
-
-        
         if(isTypescript){
             try {
                 jsFile = await pluginCodeTranspiler(jsFile)                
@@ -351,40 +194,13 @@ export async function importPlugin(code:string|null = null, argu:{
             }
         }
 
-        let apiInternalVersion: 2|'2.1'|'3.0' = '2.1'
-
-        if(apiVersion === '2.1'){
-            showError('Your plugin specifies API version 2.1, which is outdated and no longer supported. Please update your plugin to use at least API version 3.0.')
+        const apiRefusal = apiVersionRefusal(header.apiVersion)
+        if(apiRefusal !== null){
+            showError(apiRefusal)
             return
-        }
-        else if(apiVersion === '2.0'){
-            //Only block installing
-            showError('Your code does not include //@api or specifies API version 2.0, which is outdated. Please update your plugin to use at least API version 3.0.')
-            return
-        }
-        else if(apiVersion === '3.0'){
-            apiInternalVersion = '3.0'
         }
 
-        if(apiInternalVersion !== '3.0' && argu.isHotReload){
-            showError('Only API version 3.0 plugins can be hot-reloaded.')
-            return
-        }
-        
-        let pluginData: RisuPlugin = {
-            name: name,
-            script: jsFile,
-            realArg: realArg,
-            arguments: arg,
-            displayName: displayName,
-            version: apiInternalVersion,
-            customLink: customLink,
-            argMeta: argMeta,
-            versionOfPlugin: versionOfPlugin,
-            updateURL: updateURL,
-            allowedIPC: ipcList,
-            enabled: true
-        }
+        const pluginData: RisuPlugin = pluginEntryFromHeader(jsFile, header)
 
         db.plugins ??= []
 
@@ -407,7 +223,9 @@ export async function importPlugin(code:string|null = null, argu:{
         const replaceIndex = db.plugins.findIndex((p: RisuPlugin) => p.name === pluginData.name);
 
         if(replaceIndex !== -1){
-            db.plugins[replaceIndex] = pluginData;
+            // Saved values and the on/off state come from the installed copy as it is now, not as it was before the prompt. Hot reload switches the plugin on.
+            const carried = carrySavedValues(db.plugins[replaceIndex], pluginData)
+            db.plugins[replaceIndex] = argu.isHotReload ? { ...carried, enabled: true } : carried;
         }
         else if(!isUpdate || argu.isHotReload){
             db.plugins.push(pluginData)
@@ -417,7 +235,7 @@ export async function importPlugin(code:string|null = null, argu:{
             hotReloading.push(pluginData.name)
         }
 
-        console.log(`Imported plugin: ${pluginData.name} (API v${apiVersion})`)
+        console.log(`Imported plugin: ${pluginData.name} (API v${header.apiVersion})`)
         setDatabaseLite(db)
 
         loadPlugins()
@@ -581,6 +399,173 @@ export const allowedDbKeys = [
     'selectedPersona',
     'characterOrder'
 ]
+
+//#region plugin-list writes
+
+/** The first line of `value`, cut to a length a prompt can show. Names and versions go into prompts and messages through this. */
+function oneLine(value: unknown): string {
+    const first = String(value ?? '').split(/[\r\n]/)[0]
+    return first.length > 200 ? first.slice(0, 200) + '...' : first
+}
+
+/** Fills `{plugin}`, `{source}`, `{from}` and `{to}` in a prompt. A function replacer keeps `$` sequences in a value literal. */
+function fillPrompt(template: string, values: { plugin?: string, source?: string, from?: string, to?: string }): string {
+    return template.replace(/\{(plugin|source|from|to)\}/g, (match: string, key: 'plugin' | 'source' | 'from' | 'to') => {
+        const value = values[key]
+        return value === undefined ? match : oneLine(value)
+    })
+}
+
+/** An error whose message carries everything the plugin needs: only the message crosses the plugin bridge. */
+function pluginListFailure(parts: string[]): Error {
+    return new Error(`${parts.join(' ')} The plugin list was not changed; the other data in this call was saved.`)
+}
+
+const endSentence = (text: string): string => (text.endsWith('.') ? text : `${text}.`)
+
+type PluginListPlan =
+    | { kind: 'idle' }
+    | { kind: 'failed', error: Error }
+    | { kind: 'changes', classified: PluginListClassification }
+
+/**
+ * Classifies the `plugins` value of a plugin's write against the installed
+ * list and finds every failure that is already known, before anything is
+ * asked: a value that is not an array, a refused entry, and the caller's own
+ * entry with a script that is not newer than the installed one. Nothing is
+ * changed here.
+ */
+function planPluginListWrite(value: unknown, callerName: string | undefined): PluginListPlan {
+    if (!Array.isArray(value)) {
+        const sender = callerName === undefined ? '' : ` sent by plugin "${oneLine(callerName)}"`
+        return { kind: 'failed', error: pluginListFailure([`The plugins value${sender} is not an array.`]) }
+    }
+    const classified = classifyPluginList(getDatabase().plugins ?? [], value)
+    const who = callerName === undefined ? 'A plugin' : `Plugin ${oneLine(callerName)}`
+    for (const ignored of classified.ignored) {
+        if (ignored.warning !== null) {
+            console.warn(`[WARN] ${who} wrote the plugin list: ${ignored.warning}`)
+        }
+    }
+
+    const problems: string[] = []
+    for (const refusal of classified.refused) {
+        problems.push(`Plugin "${oneLine(refusal.name)}" was refused: ${endSentence(refusal.reason)}`)
+    }
+    if (callerName !== undefined) {
+        for (const ignored of classified.ignored) {
+            if (ignored.kind === 'not-newer' && ignored.name === callerName) {
+                problems.push(`Plugin "${oneLine(callerName)}" was not updated: its script is not newer than installed ${oneLine(callerName)} ${ignored.installedVersion === undefined ? '(no version)' : oneLine(ignored.installedVersion)}. A script only counts as an update when its //@version is newer than the installed version.`)
+            }
+        }
+    }
+    if (problems.length > 0) {
+        return { kind: 'failed', error: pluginListFailure(problems) }
+    }
+    if (classified.updates.length === 0 && classified.installs.length === 0) {
+        return { kind: 'idle' }
+    }
+    return { kind: 'changes', classified }
+}
+
+/** Asks about every update and install, in incoming order, and stops at the first decline. Returns the failure for a decline, or null. */
+async function askPluginChanges(classified: PluginListClassification, callerName: string | undefined): Promise<Error | null> {
+    const asks = [
+        ...classified.updates.map((update) => ({
+            index: update.index,
+            verb: 'Updating',
+            name: update.name,
+            text: callerName === update.name
+                ? fillPrompt(language.confirmUpdatePluginSelf, { plugin: update.name, from: update.fromVersion, to: update.toVersion })
+                : callerName === undefined
+                    ? fillPrompt(language.confirmUpdatePluginViaUnknownPlugin, { plugin: update.name, from: update.fromVersion, to: update.toVersion })
+                    : fillPrompt(language.confirmUpdatePluginViaPlugin, { source: callerName, plugin: update.name, from: update.fromVersion, to: update.toVersion }),
+        })),
+        ...classified.installs.map((install) => ({
+            index: install.index,
+            verb: 'Installing',
+            name: install.name,
+            text: callerName === undefined
+                ? fillPrompt(language.confirmInstallPluginViaUnknownPlugin, { plugin: install.name })
+                : fillPrompt(language.confirmInstallPluginViaPlugin, { source: callerName, plugin: install.name }),
+        })),
+    ].sort((left, right) => left.index - right.index)
+
+    for (const ask of asks) {
+        if (!(await alertConfirm(ask.text))) {
+            return pluginListFailure([`${ask.verb} plugin "${oneLine(ask.name)}" was declined by the user.`])
+        }
+    }
+    return null
+}
+
+/**
+ * Applies the accepted changes to the installed list as it is now and assigns
+ * the result as a new array. Returns the failure when a change cannot be
+ * applied, with the list untouched. Synchronous: callers keep it in one step
+ * with the writes that follow it.
+ */
+function commitPluginChanges(classified: PluginListClassification): Error | null {
+    const db = getDatabase()
+    const applied = applyPluginChanges(db.plugins ?? [], classified)
+    if (!Array.isArray(applied)) {
+        return pluginListFailure(applied.failed.map((problem) => problem.reason === 'taken'
+            ? `Plugin "${oneLine(problem.name)}" changed meanwhile: a plugin with that name was installed while the prompt was open.`
+            : `Plugin "${oneLine(problem.name)}" changed meanwhile: it was ${problem.reason} while the prompt was open.`))
+    }
+    db.plugins = applied
+    return null
+}
+
+/**
+ * Writes every key of a plugin's write except `plugins`. `characters` is
+ * reconciled against the live list at this moment, so a character restored
+ * while a prompt was open is not downgraded. Returns the object that was
+ * written, which is a copy when a placeholder was swapped out.
+ */
+function writeSetterKeys(db: ReturnType<typeof getDatabase>, newDb: any, pluginName: string | undefined) {
+    db.pluginCustomStorage ??= {}
+    newDb = withoutStubDowngrades(db.characters, newDb, pluginName)
+    if (Array.isArray(newDb.characters)) {
+        const beforeCharacters = db.characters
+        fillMissingDatabaseInstallIds(newDb)
+        warnDuplicatesInDatabaseInstall(newDb, beforeCharacters, pluginName)
+    }
+    for (const key of Object.keys(newDb)) {
+        if (key === 'plugins') {
+            continue
+        }
+        if (allowedDbKeys.includes(key)) {
+            (db as any)[key] = newDb[key];
+        }
+        else{
+            db.pluginCustomStorage[key] = newDb[key];
+        }
+    }
+    return newDb
+}
+
+/**
+ * Mark every character, don't reload. V2's
+ * getDatabase() is a live wrapper over DBState.db (see getDatabase in
+ * getV2PluginAPIs), so a plugin edits live elements in place and a
+ * self-assignment notifies nothing -- invisible to both the
+ * selected-character effect and the identity tracker. Never deletes: a
+ * character this call's own `characters` array omits still keeps its block and
+ * comes back on reload -- the guarantee that a save iteration without a
+ * reload can never delete a block lives in `prepareSaveIteration`'s no-reload
+ * filter (globalApi.svelte.ts), not here. The same reasoning applies to
+ * setDatabase.
+ */
+function markLiteCharacters(db: ReturnType<typeof getDatabase>, written: { characters?: unknown }) {
+    if (Array.isArray(written.characters)) {
+        for (const char of db.characters ?? []) {
+            markCharacterForSave(char?.chaId);
+        }
+    }
+}
+
+//#endregion
 
 export const getV2PluginAPIs = () => {
     return {
@@ -847,74 +832,52 @@ export const getV2PluginAPIs = () => {
                 return Object.keys(db.pluginCustomStorage).length;
             }
         },
-        setDatabaseLite: (newDb: any, pluginName?: string) => {
-            const db = getDatabase();
-            db.pluginCustomStorage ??= {}
-            newDb = withoutStubDowngrades(db.characters, newDb, pluginName)
-            if (Array.isArray(newDb.characters)) {
-                const beforeCharacters = db.characters
-                fillMissingDatabaseInstallIds(newDb)
-                warnDuplicatesInDatabaseInstall(newDb, beforeCharacters, pluginName)
+        setDatabaseLite: (newDb: any, pluginName?: string): void | Promise<void> => {
+            const plan: PluginListPlan = Object.keys(newDb).includes('plugins')
+                ? planPluginListWrite(newDb.plugins, pluginName)
+                : { kind: 'idle' }
+            if (plan.kind !== 'changes') {
+                // Nothing to ask: the other keys are written before this returns,
+                // and a plugin list that cannot be applied is a rejected promise,
+                // never a synchronous throw.
+                const db = getDatabase()
+                newDb = writeSetterKeys(db, newDb, pluginName)
+                DBState.db = db
+                markLiteCharacters(db, newDb)
+                return plan.kind === 'failed' ? Promise.reject(plan.error) : undefined
             }
-            for (const key of Object.keys(newDb)) {
-                if (allowedDbKeys.includes(key)) {
-                    (db as any)[key] = newDb[key];
+            const classified = plan.classified
+            return (async () => {
+                let failure = await askPluginChanges(classified, pluginName)
+                // From here to the key writes nothing awaits, so the list and the
+                // characters are checked and assigned against the same live state.
+                failure ??= commitPluginChanges(classified)
+                const db = getDatabase()
+                newDb = writeSetterKeys(db, newDb, pluginName)
+                DBState.db = db
+                markLiteCharacters(db, newDb)
+                if (failure) {
+                    throw failure
                 }
-                else{
-                    db.pluginCustomStorage[key] = newDb[key];
-                }
-            }
-            DBState.db = db;
-            // CHORE-01 (Report 17 Stage 1 §3.3): mark every character, don't
-            // reload. V2's getDatabase() is a live wrapper over DBState.db
-            // (see getDatabase above), so a plugin edits live elements in
-            // place and this loop's self-assignment notifies nothing --
-            // invisible to both the selected-character effect and the
-            // identity tracker. Never deletes: a character this call's own
-            // `characters` array omits still keeps its block and comes back
-            // on reload (§8) -- the guarantee that a save iteration without a
-            // reload can never delete a block lives in
-            // `prepareSaveIteration`'s no-reload filter (globalApi.svelte.ts),
-            // not here. The same reasoning applies to setDatabase below.
-            if (Array.isArray(newDb.characters)) {
-                for (const char of db.characters ?? []) {
-                    markCharacterForSave(char?.chaId);
-                }
-            }
+            })()
         },
         setDatabase: async (newDb: any, pluginName?: string) => {
-            const db = getDatabase();
-            db.pluginCustomStorage ??= {}
-            newDb = withoutStubDowngrades(db.characters, newDb, pluginName)
-            if (Array.isArray(newDb.characters)) {
-                const beforeCharacters = db.characters
-                fillMissingDatabaseInstallIds(newDb)
-                warnDuplicatesInDatabaseInstall(newDb, beforeCharacters, pluginName)
+            const plan: PluginListPlan = Object.keys(newDb).includes('plugins')
+                ? planPluginListWrite(newDb.plugins, pluginName)
+                : { kind: 'idle' }
+            let failure: Error | null = plan.kind === 'failed' ? plan.error : null
+            if (plan.kind === 'changes') {
+                failure = await askPluginChanges(plan.classified, pluginName)
             }
-            let awaited = false
-            for (const key of Object.keys(newDb)) {
-                if (key === 'plugins') {
-                    console.warn('[WARN] Plugin attempted to access plugin directly. this would be blocked in future versions. Instead, use the provided APIs to manage plugins. Attempting to handle plugin installation via plugin for new plugins in the provided database object.')
-                    newDb[key] = await handlePluginInstallViaPlugin(newDb.plugins)
-                    awaited = true
-                }
-
-                if (key === 'characters' && awaited) {
-                    // The plugin-install prompt may have been open while a
-                    // character was restored, so the list is checked again at
-                    // the moment it is replaced.
-                    newDb = withoutStubDowngrades(db.characters, newDb, pluginName)
-                }
-
-                if (allowedDbKeys.includes(key)) {
-                    (db as any)[key] = newDb[key];
-                }
-                else{
-                    db.pluginCustomStorage[key] = newDb[key];
-                }
+            // From here to the key writes nothing awaits, so the list and the
+            // characters are checked and assigned against the same live state.
+            if (plan.kind === 'changes' && failure === null) {
+                failure = commitPluginChanges(plan.classified)
             }
+            const db = getDatabase()
+            newDb = writeSetterKeys(db, newDb, pluginName)
             setDatabase(db);
-            // Same reasoning as setDatabaseLite above -- this setter is shared by
+            // Same reasoning as markLiteCharacters -- this setter is shared by
             // both V2 (live wrapper, in-place edits) and V3 (getDatabase()
             // returns fresh snapshots; apiV3/v3.svelte.ts's makeRisuaiAPIV3()
             // wraps this same function to pass the plugin's name through), so
@@ -922,12 +885,15 @@ export const getV2PluginAPIs = () => {
             // called in. V3's fresh `characters` array is also new-identity to the
             // identity tracker (dbChangeEffects.svelte.ts), so this is redundant
             // (but harmless, see appendIfAbsent) for that case specifically.
-            // Never deletes: see setDatabaseLite's comment above -- the
+            // Never deletes: see markLiteCharacters's comment -- the
             // no-reload guarantee lives in prepareSaveIteration's filter now.
             if (Array.isArray(newDb.characters)) {
                 for (const char of db.characters ?? []) {
                     markCharacterForSave(char?.chaId);
                 }
+            }
+            if (failure) {
+                throw failure
             }
         },
         SafeFunction: new Proxy(Function, {
@@ -1078,23 +1044,35 @@ export async function pluginProcess(arg: {
     }
 }
 
-export async function handlePluginInstallViaPlugin(plugins: RisuPlugin[]){
+/**
+ * The plugins of `plugins` that the user accepts to install. Writes nothing.
+ * Only an entry with a name that is not installed, whose header parses, names
+ * it and declares API 3.0, is asked about. Anything else is left out with a
+ * warning: an installed name is an update, which goes through the plugin list.
+ * `sourcePlugin` is the plugin that asks, named in the prompt.
+ */
+export async function handlePluginInstallViaPlugin(plugins: RisuPlugin[], sourcePlugin?: string){
+
+    const classified = classifyPluginList(DBState.db.plugins ?? [], plugins)
+
+    for(const ignored of classified.ignored){
+        console.warn(`Plugin ${oneLine(ignored.name ?? `at ${ignored.index}`)} is not installed via plugin: ${ignored.warning ?? 'it already exists.'}`)
+    }
+    for(const update of classified.updates){
+        console.warn(`Plugin "${oneLine(update.name)}" already exists, so it is not installed via plugin. Installed plugins are updated through the plugin list.`)
+    }
+    for(const refusal of classified.refused){
+        console.warn(`Plugin "${oneLine(refusal.name)}" was refused for installation via plugin: ${refusal.reason}`)
+    }
 
     const trimmedPlugins: RisuPlugin[] = []
-    for(const plugin of plugins){
-        if(!DBState.db.plugins.find((p: RisuPlugin) => p.name === plugin.name && p.script === plugin.script)){
-
-            if(plugin.version !== '3.0'){
-                console.warn(`Plugin "${plugin.name}" has version "${plugin.version}", which is not supported for installation via plugin. Only API version 3.0 plugins can be installed via plugin. Skipping installation of this plugin.`)
-                continue
-            }
-            const confirmation = await alertConfirm(language.confirmInstallPluginViaPlugin.replace('{plugin}', plugin.name))
-            if(confirmation){
-                trimmedPlugins.push(plugin)
-            }
-        }
-        else{
-            console.warn(`Plugin "${plugin.name}" already exists, skipping installation via plugin.`)
+    for(const install of classified.installs){
+        const prompt = sourcePlugin === undefined
+            ? fillPrompt(language.confirmInstallPluginViaUnknownPlugin, { plugin: install.name })
+            : fillPrompt(language.confirmInstallPluginViaPlugin, { source: sourcePlugin, plugin: install.name })
+        const confirmation = await alertConfirm(prompt)
+        if(confirmation){
+            trimmedPlugins.push(plugins[install.index])
         }
     }
 
