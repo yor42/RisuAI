@@ -5404,3 +5404,129 @@ transcript):
 
 **Not changed by the rebrand:** the updater `pubkey` (upstream's; `endpoints` are empty), the tracked
 `src-tauri/key.txt` (its contents are not to be quoted), and the `risuai.xyz` URLs that still work.
+
+---
+
+### MC-163 — CHORE-64: a write to the plugin list through `setDatabase` or `setDatabaseLite` never deletes plugins; updates keep saved settings; a plugin that updates itself, or another plugin, is asked about by name
+
+- **Tag:** decision
+- **Date:** 2026-10-02
+- **Sweep ref:** none (stated directly this session)
+- **Source:** the maintainer's answers to the questions the Orchestrator asked with AskUserQuestion while CHORE-64 was
+  investigated and planned, each quoted by the label of the option chosen (items 1 to 10; items 5 to 7 were asked in a
+  second round after the maintainer's two plugins were read, and items 8 to 10 in a third, after Gate 1 round 1); the
+  answer "Accept all three (Recommended)" to the Orchestrator's three calls (item 11, a fourth round, asked after Gate 1
+  closed with round 3 `[EDITORIAL]`); and one fact the maintainer stated in the message that started the work (item 12).
+  The rule in each item is the option text the Orchestrator wrote and the maintainer selected. The
+  Orchestrator's own calls are listed apart at the end and are **not** maintainer decisions.
+- **Reasoning:** the packet records no reasoning beyond the answers and the fact in item 12. The reasons in the option
+  texts are the Orchestrator's.
+- **Alternatives rejected:** item 1: removal of an omitted plugin with a prompt, and the upstream contributor's fix
+  `7221d338` (a branch that was never merged; its rule keeps installed entries and drops the approved names). The other
+  options offered (the session's question log):
+  - item 2: "Keep, plugin updates only" and "Take what the plugin sends";
+  - item 3: "Silent for itself";
+  - items 4 and 7: "Fold into CHORE-64";
+  - item 5: "Same rule, self-updates silent" and "Leave Lite as upstream";
+  - item 6: "Trust the plugin's entry";
+  - item 8: "Ask, marking older ones";
+  - item 9: "Save nothing";
+  - item 10: "Keep both";
+  - item 11: "I want to change one".
+- **Differs from upstream:** item 2 (upstream resets saved values on an update) and items 1, 5 and 9 (upstream's
+  `setDatabase` replaces the list with only the confirmed new or script-changed entries; `setDatabaseLite` takes the list
+  as given). Fork-specific behaviour; see the commit `48f00223` and `plugins.md`.
+- **Related:** MC-011, MC-036 (the same setters; not amended), MC-089, CHORE-64, CHORE-65, CHORE-66; commit
+  `48f00223`; ledger rows 618 to 622.
+
+**What was decided** (the question's answer by option label, then the rule it states):
+1. **Merge rule.** The answer: "Compare by name (Recommended)". An unchanged entry stays as it is. An entry with an
+   installed name and a changed script is an update, asked about by name. A new name is an install, asked about. An
+   installed plugin left out of the written list is kept: a plugin can never delete a plugin.
+   - **Scope note (the Orchestrator's, not the maintainer's):** the rule is implemented for `setDatabase` and
+     `setDatabaseLite`. A V2.1 plugin can still delete or replace installed plugins through the live `getDatabase()`
+     proxy, with no prompt (item 7; CHORE-65). The V2.1 proxy route is CHORE-65.
+2. **Saved settings.** The answer: "Keep, every update path (Recommended)". The saved values of the arguments the new
+   version still declares, and the on/off state, survive a plugin's self-update, the Update button and re-import. This
+   differs from upstream, which resets them.
+3. **Self-update prompt.** The answer: "Ask, naming it (Recommended)". The prompt says "Plugin X wants to update
+   itself". An update of another plugin is asked about, naming both.
+4. **Cross-plugin `getArg`/`setArg`.** The answer: "Separate ticket (Recommended)". It goes to CHORE-65.
+5. **`setDatabaseLite`.** The answer: "Same rule and prompts (Recommended)". `setDatabaseLite` follows the same rule and
+   prompts. A declined write fails visibly, so a plugin that updates itself can roll back instead of reporting a false
+   success.
+6. **Where the details come from.** The answer: "Read the header (Recommended)". The details of a script-changed or new
+   entry come from the script's own header, not from the fields the plugin sent.
+7. **V2.1 direct edits.** The answer: "Separate ticket (Recommended)". Edits through the live `getDatabase` proxy go to
+   CHORE-65.
+8. **Old copies.** The answer: "Only newer versions (Recommended)". An entry is an update only if its `//@version` is
+   newer than the installed one. The same, an older or a missing version is ignored with a console warning, with no
+   prompt.
+9. **A decline.** The answer: "Save the rest, fail (Recommended)". The call's other data is saved, the plugin list is
+   left as it was, and the call fails naming the plugin.
+10. **Hot reload.** The answer: "Keep values, switch on (Recommended)". Hot reload keeps the saved values and switches
+    the plugin on, as before.
+11. **Three Orchestrator calls, accepted.** The answer: "Accept all three (Recommended)":
+    - an entry with the same script but other fields edited is ignored with a warning;
+    - a saved value carries over only if the declared type is unchanged;
+    - a plugin's own entry with a different script that is not newer rejects the call, so the plugin cannot report a
+      false success.
+
+**What the maintainer stated:**
+12. **The maintainer's words (2026-10-02, in the message that started the work), verbatim:** "about plugin writing in
+    the plugin list-I think some plugin uses that feature for auto-update. so we have to take updates into the account."
+    The maintainer supplied two provider-manager
+    plugins (v1.16.5 and v1.35.11) in `Agents/Evidences of Investigations/` (gitignored; never quote them). What the
+    investigation found in them (ledger row 618; counts by the Orchestrator):
+    - only v1.35.11 updates itself: it writes the whole list through `setDatabaseLite`;
+    - v1.16.5 writes no list and directs the user to the Update button;
+    - the maintainer doubted that AssetGod and fast-character-import update themselves. The investigation confirmed it:
+      neither writes `plugins`.
+
+**The Orchestrator's own calls** (not maintainer decisions; each is in the commit message of `48f00223`, the plan
+(`plan-64-v2.md`, a session gate record in the scratchpad, not a repo file) or the source; calls 5 to 7 are in source
+only). The list is not exhaustive; the plan is the full record.
+1. A malformed entry or a duplicate name is ignored; the first one counts.
+2. Refusals are found before any prompt.
+3. Prompts stop at the first decline.
+4. A stale copy whose header fails to parse is a refusal.
+5. Plugin names in prompts are shown on one line and cut at 200 characters.
+6. The old "[WARN] Plugin attempted to access plugin directly" log is removed.
+7. The Update button and hot reload are not version-gated.
+8. The header must name the entry, and an update or install must declare API 3.0.
+9. The host's `compareVersions` is used unchanged, so a pre-release suffix such as `2.0.0` against `2.0.0-rc1` counts
+   as not newer.
+10. `characters` is reconciled against the live list on both setters.
+11. `setDatabaseLite` stays synchronous when nothing is asked.
+
+---
+
+### MC-164 — Identity follow-ups: the repository is yor42/RisuTanium; the README logo; `docs/branding/`; the Cargo crate name stays `risuai` (CHORE-60)
+
+- **Tag:** decision (mixed: some stated or done by the maintainer, some relayed by the Rebranding session; the source of
+  each item is named)
+- **Date:** 2026-10-02
+- **Sweep ref:** none
+- **Source:** the maintainer's own actions and requests in this session (items 1, 2, 4 and 7), and **relays from the
+  Rebranding session**, the parallel session that coordinates the rebrand (items 3, 5 and 6; see `MC-162`). Dates of
+  the individual answers inside that session: not relayed.
+- **Reasoning:** none recorded in the packet.
+- **Alternatives rejected:** none recorded.
+- **Related:** MC-011, MC-162, MC-157, CHORE-60; commits `d722edea`, `e768ef75`, `e9b70b8d`, `33cafe18`, `4a7ed14d`,
+  `b745fc29`.
+
+**What was decided or done:**
+1. **The GitHub repository is yor42/RisuTanium.** The maintainer renamed it from yor42/RisuAI and updated the local
+   remote. GitHub redirects the old URL. The fork's links in Settings and on the home screen now point at the new name
+   (`b745fc29`); the links to upstream kwaroran/RisuAI are unchanged.
+2. **The maintainer updated the repository URL in the Terms of Service and the Privacy Policy themselves** (`4a7ed14d`).
+   They write and commit those documents.
+3. **The README logo is a `<picture>` of the bright and dark wordmark SVGs.** The maintainer chose it (relayed by the
+   Rebranding session). Upstream's `public/logo_typo_small.avif` was removed, which the maintainer approved (`e9b70b8d`).
+4. **`docs/branding/` was committed at the maintainer's request** (`33cafe18`): their Inkscape sources and exports,
+   18 SVGs. They were checked before the commit for a path or personal metadata: none was found, only file names and the
+   NanumSquare Neo font name.
+5. **The Cargo crate name stays `risuai`.** The maintainer's decision, relayed by the Rebranding session.
+6. **`Title.svelte` still links risuai.net.** The maintainer has not decided on it (relayed).
+7. **The Rebranding session's leftovers merge** (`82776b3b` and `94d7be86`, merged as `e768ef75`) was first deferred by
+   the maintainer, then approved.

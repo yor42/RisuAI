@@ -2120,7 +2120,8 @@ warnings; `pnpm test` 284 files, 5413 passed, 4 skipped; `pnpm build` ok, with `
     folder rename, colour and image;
   - a folder delete in a module's lorebook assigns a non-bindable prop, so the module keeps the entries;
   - the MCP delete tools take the first name match.
-- **Filed from the same gates:** CHORE-64 (a plugin's `setDatabase` can delete every installed plugin).
+- **Filed from the same gates:** CHORE-64 (a plugin's `setDatabase` can delete every installed plugin; closed
+  2026-10-02 by `48f00223`).
 
 **Status (2026-10-01, the filing record):** filed from the community reports in `MC-150` and the investigation in ledger
 row 523. Open. Scheduled right after memory stage 1 step 5 and before CHORE-63, CHORE-43, CHORE-54, CHORE-51 and CHORE-52
@@ -2648,6 +2649,24 @@ CHORE-53 commits (`MC-161` 8). Its commits are `98d13e7f` (the rename and the ve
 - **Still open on this ticket (unchanged):** the updater re-enable set at release, `src-tauri/key.txt`, the signing
   secrets and CHORE-35.
 
+**Progress after the merge (2026-10-02; `MC-164`):**
+- The Rebranding session's leftovers and logos are merged as `e768ef75` (`82776b3b`: the remaining app-name text, the
+  Docker names and the server readmes; `94d7be86`: the Tauri icons, the public logo PNGs and two outlined wordmark
+  SVGs). The Cargo crate name stays `risuai` (maintainer decision, relayed).
+- The README is done: `e9b70b8d` (the Risutanium title and introduction, the identity entry, the CBS version-tag
+  entry, the `<picture>` wordmark logo, the Docker names `risutanium` and `risutanium-save`; upstream's
+  `public/logo_typo_small.avif` removed). `doc-verifier`: 15 claims, 0 wrong.
+- `docs/branding/` holds the maintainer's Inkscape sources and exports (`33cafe18`, 18 SVGs).
+- The repository was renamed by the maintainer to yor42/RisuTanium, and the links were updated: the Terms of Service and
+  Privacy Policy links in Settings, the source and issues links on the home screen, two tests and the wiki-sync comment
+  (`b745fc29`). The maintainer updated the repository URL inside the Terms of Service and Privacy Policy themselves
+  (`4a7ed14d`). The commits through `48f00223` are pushed (`git status` shows the branch in step with its remote-tracking
+  ref, 2026-10-02); whether the legal links now resolve on GitHub was not re-checked.
+- **One more leftover was relayed to the Rebranding session:** the sidebar shows "Welcome to RisuAI!" with no character
+  selected (seen at mobile width in the CHORE-64 live check). Not fixed here.
+- `Title.svelte` still links risuai.net; the maintainer has not decided on it (relayed, `MC-164` 6).
+- The `isWeb` removal stays pending (`MC-162`).
+
 **Cleared on 2026-10-01:** the 16 inherited upstream pre-releases on the fork's GitHub Releases page
 (`164.1.2-20250723-184522` to `166.1.0-20250808-034121`, published 2025-07-23 to 2025-08-08 by
 `github-actions[bot]`, 28 assets each) and their tags. The maintainer deleted them ("tags and releases that came
@@ -3024,12 +3043,99 @@ source or by execution.
   gesture; a focus or visibility rejection on a foldable's multi-window (INFERRED, low prior, not run).
 - **Related:** CHORE-40 (the same function; fixed together), `MC-011`, `MC-160`; Report 28 section 11.6; ledger row 600.
 
-### CHORE-64 — A plugin that hands `setDatabase` a database whose `plugins` list holds only installed plugins deletes every installed plugin, with its saved arguments and API keys, and gives no prompt about the deletion (DATA LOSS; upstream too; the plain-list case EXECUTED in a scratch test, the rest TRACED)
+### CHORE-64 — A plugin's write of the `plugins` list through `setDatabase` deleted every plugin that was not new, confirmed and API 3.0, with its saved arguments and API keys, and gave no prompt about the deletion (DATA LOSS; upstream too; closed by `48f00223`)
 
-**Status (2026-10-02):** open, **not scheduled**. Found by the Gate 1 round 2 review of CHORE-53 stage 53b (the
+**Status (2026-10-02): closed by `48f00223`, pushed.** Found by the Gate 1 round 2 review of CHORE-53 stage 53b (the
 reviewer's finding N1, called G3; `opus-reviewer`, ledger row 610). It is **not** a stale-target defect and was not
 fixed in CHORE-53. Present on `upstream/main`: the reviewer traced it to upstream's `a6e933ac` ("add confirmation
-prompt for plugin installation via another plugin"). Labels: EXECUTED = run by the reviewer; TRACED = read in source.
+prompt for plugin installation via another plugin"). The maintainer's answers are `MC-163`; the dispatches are ledger
+rows 618 to 622. The text under "Filing record" below is the 2026-10-02 filing text; where the investigation refuted
+it, the correction is in the next section. Labels: EXECUTED = run; TRACED = read in source.
+
+**Scope of the closure:** "never deletes plugins" holds for the two setters, `setDatabase` and `setDatabaseLite`. A V2.1
+plugin can still delete or replace installed plugins through the live `getDatabase()` proxy with no prompt (the set trap
+assigns `plugins` straight through; splice and in-place edits also work). That route is CHORE-65. The `48f00223` commit
+title ("a plugin's write to the plugin list never deletes plugins") is broader than its scope. The commit is pushed and
+is not amended; these records state the scope.
+
+**Outcome (from the `48f00223` commit message):**
+- Both setters (`setDatabase` and `setDatabaseLite`) now merge a written `plugins` list by name, against the
+  list as it is when the merge is applied. A plugin left out of the list stays installed. An entry whose script equals
+  the installed one changes nothing. An entry with an installed name and a different script is an update only if its
+  `//@version` is newer; the same, an older or a missing version is ignored with a console warning. An update or
+  install is read from the script's own header (name, display name, version, update URL, arguments, links, allowed
+  IPC), must name the entry and must declare API 3.0; a new plugin starts with the header's default values.
+- The user is asked once per update or install, in list order. The prompt names the plugin and, for an update, both
+  versions. Asking stops at the first decline.
+- If a change is declined or refused, or its target changed while the prompt was open, no change to the list is
+  applied. The call's other keys are still saved, and the call rejects with an `Error` that names the plugin and the
+  reason. A non-array `plugins` value does the same. A plugin that writes its own entry with a different script that the
+  host does not see as newer also gets a rejection, so a self-updater cannot report a false success.
+- Characters are reconciled against the live list when they are assigned, on both setters. `setDatabaseLite` stays
+  synchronous when no plugin change needs asking, and a failing plugin value never makes it throw synchronously.
+- Every update path keeps the saved values of the arguments the new version still declares with the same type, and the
+  on/off state (an unset state stays off). The paths are a plugin's write, the Update button, `//@update-url` updates
+  and re-import. Hot reload keeps the values and switches the plugin on. `installPlugin` returns the accepted installs
+  and writes nothing; its prompt names the plugin and the source.
+- The install prompt now names the plugin: no locale's text had the `{plugin}` slot before (`MC-163`; ledger row 618,
+  Orchestrator spot check R3b). Five prompt strings are new or changed in `en.ts` and the six locales. `plugins.md` and
+  `risuai.d.ts` describe the merge as a difference from upstream (fork-specific behaviour).
+- The header parsing moved out of `importPlugin` into the pure module `pluginListMerge.ts`; `compareVersions` moved
+  there unchanged. A 3000-header seeded parity run against the previous code matched alert texts and resulting entries
+  for every input without a BOM. Two small differences: hot-reload error logs name the plugin from its first `//@name`
+  line (this differs only for a script with several or blank `//@name` lines), and a leading BOM is now stripped before
+  parsing.
+
+**Corrections to the filing record (the investigation, ledger row 618, refuted these):**
+- **The rule was broader than the title said.** The filing text says a list holding only installed plugins empties the
+  list. The investigator found that setDatabase left in `db.plugins` only the entries that were new or script-changed,
+  API 3.0 and confirmed; everything else was deleted, whatever the list held. EXECUTED in its scratch harness (26
+  probes: 24 in the first leg and 2 added in the second, s1 and s2; against the real `plugins.svelte.ts` and the real `makeRisuaiAPIV3`, with the store, the alert and the sandbox
+  mocked): a self-update through a snapshot round trip deleted every other plugin (a1); updating another plugin deleted
+  the caller itself (e1); removing one entry deleted all of them (f1).
+- **`setDatabaseLite` and the V2 proxy were prompt-free full writes.** The filing text covered the `setDatabase`
+  path only. `setDatabaseLite` (V2 and V3) installed new and `2.1` entries with no prompt (EXECUTED d3), which defeated both
+  `a6e933ac` and `839d190b`. A V2 proxy round trip left `[]` with no prompt (EXECUTED c2, c3). The proxy's set trap,
+  `push` and in-place edits are also prompt-free writes (CHORE-65).
+- **`importPlugin` reset saved values and the on/off state.** The Update button and the `//@update-url` updater reset
+  `realArg` (API keys included) to the header defaults and forced `enabled` to true (EXECUTED u1, u2; the Orchestrator
+  read `plugins.svelte.ts`). `upstream/main` has the same code. This is not in the filing text.
+- **The merge rule was decided.** The filing text says the maintainer had not been asked, and that the reviewer's likely
+  shape was "installed kept, confirmed new ones appended". The maintainer chose a different rule (`MC-163` 1:
+  "Compare by name (Recommended)") and rejected that shape (the unmerged upstream fix `7221d338`).
+- **Whether any published plugin does this** is no longer unsurveyed. The maintainer stated that some plugins use it for
+  auto-update (`MC-163` 12). Of the maintainer's two provider-manager plugins, only v1.35.11 updates itself, with the
+  whole list through `setDatabaseLite`; v1.16.5 directs the user to the Update button. AssetGod and
+  fast-character-import do not write `plugins`. v1.35.11's own entry omitted `allowedIPC` on a self-update, so its IPC
+  would have been refused after the update; the host now re-derives `allowedIPC` from the header.
+
+**Evidence for the closure:**
+- Tests were written before the change. `pluginListWrites.svelte.test.ts` has 137 tests. Against the previous commit's
+  `plugins.svelte.ts`, `v3.svelte.ts` and `en.ts`, loaded through a scratch load hook with no tree edit, 114 fail and the
+  23 guards pass (Gate 2's swap gave the same figures). `pluginListMerge.test.ts` has 50 spec tests for the new module.
+  EXECUTED.
+- Mutants on the destructive paths: all that could lose data were killed. **Two mutants survived, judged by the Gate 2
+  reviewer not to lose data:** an `await` inside the apply step, and `setDatabaseLite` writing its other keys before the
+  prompts.
+- Full suite: 286 files, 5600 passed, 4 skipped. `pnpm check`: 0 errors, 0 warnings. `pnpm build`: ok.
+- Gates: Gate 1 (`opus-reviewer`) round 1 `[REJECT]`, round 2 `[REJECT]`, round 3 `[EDITORIAL]`; Gate 2
+  (`opus-reviewer`, a fresh reviewer) round 1 `[EDITORIAL]`, round 2 `[APPROVE]`; then the commit message check
+  `[EDITORIAL]` (ledger rows 619 and 620).
+- **Live, in the built app** (EXECUTED by the Orchestrator; Chromium in the desktop app's pane, synthetic plugins and
+  data, UI in Korean; scratch Node server on port 6011): a plugin updating itself from 1.0.0 to 1.1.0 through
+  `setDatabaseLite` with the whole list gave one prompt naming it and both versions. Declining left the list unchanged
+  and the plugin received a "declined" rejection. Accepting kept its saved value, gave the new argument its default,
+  restored its allowed IPC from the header and left the other plugin (off, with a saved value) unchanged. Re-import
+  kept a saved value and the off state. A `setDatabase` round trip of the whole list kept both plugins with no prompt.
+- **Not run:** a real third-party self-updater in the app; `//@update-url` fetches; hot reload; concurrent calls; a
+  plugin updating another plugin; Firefox, WebKit, Android and Tauri.
+- **Informational (not a defect):** under invariant I8 of the plan (`plan-64-v2.md`, a session gate record in the
+  scratchpad, not a repo file), a `setDatabaseLite` call that asks about plugin changes writes its other keys,
+  `characters` included, only after the prompts are answered, as `setDatabase` already did.
+- **Left open from this work:** CHORE-65 (plugins reading and changing each other's saved arguments, and V2.1 plugins
+  editing the list directly) and CHORE-66 (the wiki's plugin pages describe the previous behaviour).
+
+**Filing record (2026-10-02, before the investigation; superseded where the corrections above say so):**
 
 - **What happens (the plain-list case EXECUTED by the reviewer; everything else TRACED by the Orchestrator and the
   fact-check):**
@@ -3056,11 +3162,49 @@ prompt for plugin installation via another plugin"). Labels: EXECUTED = run by t
   `plugins` list holds only installed plugins. It removes every plugin and its saved arguments, API keys included.
   Whether the emptied list then reaches the save file was not run (INFERRED: the function ends by calling the store's
   `setDatabase(db)`, `:916`).
-- **Uncertain:** unknown whether any published plugin does this (not surveyed).
+- **Uncertain:** unknown whether any published plugin does this (not surveyed). *Superseded: see the corrections above
+  and `MC-163` 12.*
 - **Not decided:** the merge rule. The reviewer's likely shape is "installed plugins kept, confirmed new ones
   appended". That is a design call and the maintainer's; **the maintainer has not been asked.** A fix touches the plugin
-  API's `setDatabase` contract, so a plan needs an upstream-compatibility check (`MC-011`).
-- **Related:** CHORE-53 (found in its stage 53b gate); ledger row 610.
+  API's `setDatabase` contract, so a plan needs an upstream-compatibility check (`MC-011`). *Superseded: the
+  maintainer decided the rule on 2026-10-02 (`MC-163` 1).*
+- **Related:** CHORE-53 (found in its stage 53b gate); ledger row 610; `MC-163`; CHORE-65; CHORE-66; ledger rows 618 to
+  622.
+
+### CHORE-65 — Plugins read and change each other's saved arguments, and V2.1 plugins edit the plugin list directly through the `getDatabase` proxy (DATA LOSS (V2.1 proxy route); no prompt; the unprompted write EXECUTED in a scratch test, the removal TRACED)
+
+**Status (2026-10-02):** open, **not scheduled**. Filed from CHORE-64 at the maintainer's decision (`MC-163` 4 and 7:
+"Separate ticket (Recommended)" for each). Type: unprompted reads and writes of saved plugin settings, API keys included, and **DATA LOSS through the V2.1
+proxy route**: V2.1 plugins can still delete or replace installed plugins through the proxy (the set trap, splice and
+in-place edits), with no prompt. c1, c4 and c5 EXECUTED the unprompted write; the removal case is TRACED. Labels: EXECUTED = run in the investigator's scratch harness (ledger row 618); TRACED = read in source.
+
+- **Cross-plugin arguments (EXECUTED e3):** `getArg('Other::k')` reads and `setArg('Other::k', v)` writes another
+  plugin's saved argument (`realArg`) with no prompt, API keys included. Both are exposed to V3 as `getArg` and
+  `setArg`.
+- **The V2 proxy (EXECUTED c1, c4, c5):** through the live proxy that the V2 `getDatabase()` returns, the set trap, `push`
+  and in-place edits of `plugins` write with no prompt. Only V2.1 plugins reach the proxy, and the importer refuses new
+  2.1 installs.
+- **Not scheduled:** a fix needs a survey of the plugins that share settings. That survey has not been done.
+- **Related:** CHORE-64 (`48f00223` closed the `setDatabase` and `setDatabaseLite` paths); `MC-163` 4 and 7; `MC-011`
+  (upstream compatibility); ledger row 618.
+
+### CHORE-66 — The wiki's plugin pages describe the plugin-list behaviour from before CHORE-64
+
+**Status (2026-10-02):** open, **not scheduled**. Documentation. `docs/wiki/**` belongs to the Wiki session, so the
+maintainer chose to record this as a ticket. The `48f00223` commit message says the pages are not part of that change.
+The line numbers are those the Gate 2 reviewer found on 2026-10-02 (ledger row 620); they were re-verified by
+`doc-verifier` on 2026-10-02.
+
+- `docs/wiki/Plugin-Docs.md`, around line 82: describes an install by `setDatabase` as one confirmation per plugin,
+  with the old rule.
+- The same page, around line 126: says `setDatabase()` and `setDatabaseLite()` "have no consent prompt at all". That is
+  still true of permission gating, but it is misleading now that plugin-list changes prompt.
+- `docs/wiki/Plugin-API-Reference.md`, around lines 88 to 89: says `setDatabaseLite` merges directly and that
+  `setDatabase` confirms each new plugin.
+- The same page, around line 178: calls `installPlugin` a thin wrapper of the `setDatabase` flow.
+- **What the pages need to say:** the rule is `MC-163` 1 to 10 and the `48f00223` commit message. `plugins.md` and
+  `risuai.d.ts` already describe the merge as a difference from upstream.
+- **Related:** CHORE-64; `MC-163`; the Wiki session's lane (`docs/wiki/**`).
 
 ## Sequencing Summary
 

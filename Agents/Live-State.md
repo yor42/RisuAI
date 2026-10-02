@@ -15,8 +15,9 @@ treat it as a log or history.
 
 ## Branch and commit state
 
-The branch is `fix/persistence-conflict-platform-hardening`. **It is pushed through `0a3fb2b0`.**
-These later commits are local and not pushed:
+The branch is `fix/persistence-conflict-platform-hardening`. **It is pushed through `48f00223`** (`git status -sb` showed
+the branch in step with its remote-tracking ref on 2026-10-02; the repository is now yor42/RisuTanium, `MC-164`).
+The commits below were local when they were listed, and were pushed with it:
 - `d25a02fb`: CHORE-47's fix;
 - `bb3f9e7b`: CHORE-47's records;
 - `ccf45c53`: the chat-switch memory fix;
@@ -93,7 +94,20 @@ These later commits are local and not pushed:
 - `5747a7e1`: CHORE-53 stage 53b, a delete that asks first removes the entry that was clicked, or nothing (`MC-161`;
   ledger rows 610 and 613);
 - `cfa4dfa0`: the merge of `chore/risutanium-identity` (CHORE-60 identity; `MC-162`);
-- the records commit that follows `cfa4dfa0` and carries this file.
+- `8197f093`: "docs(agents): record MC-161, MC-162, CHORE-53 closed, CHORE-64 and ledger rows 606 to 617" (by its commit
+  subject);
+- `d722edea`: the maintainer's own "Update Privacy Policy and ToS" (by its commit subject);
+- `82776b3b` and `94d7be86`: the Rebranding session's leftovers and logo assets, merged as `e768ef75` (CHORE-60;
+  `MC-164`);
+- `e9b70b8d`: the README names the fork Risutanium and shows its logo (CHORE-60);
+- `33cafe18`: `docs/branding/`, the maintainer's logo sources and exports (`MC-164`);
+- `4a7ed14d`: the maintainer's own repository URL update in the ToS and Privacy Policy (by its commit subject);
+- `b745fc29`: the fork's links point at yor42/RisuTanium (`MC-164`);
+- `48f00223`: CHORE-64, a write to the plugin list through `setDatabase` or `setDatabaseLite` never deletes plugins,
+  and updates keep saved settings (`MC-163`; ledger rows 618 to 622). The commit title says "a plugin's write to the
+  plugin list never deletes plugins", which is broader than its scope; the commit is pushed and not amended. The V2.1
+  proxy route is CHORE-65;
+- the records commit that follows `48f00223` and carries this file (MC-163, MC-164, CHORE-64 closed, CHORE-65 and CHORE-66, ledger rows 618 to 622).
 
 `712a76ad` and `38583d3b` were committed at the maintainer's approval ("commit the finished side works.");
 `9361ce1b` and `9b312962` at "commit the docs for now, and then 5c when ready."; `696ba5de` at "commit it, then
@@ -101,9 +115,13 @@ do the records."; `435a8723` at "commit the docs and start step 5d."; `a6a27df5`
 `e8cf50de` at "commit part 1, then start the part 2"; `fe7c3d1d` at "go ahead and commit the docs."; `29bf2f24` at
 "commit part 2a and continue part 2b."; `4d23b1b4` at "commit part 2b, and start part 3"; `3fca470e` at "commit part
 3 and start part 4"; `e7d7f093` at "commit part 4 and the records when ready"; the three CHORE-53 stages at "commit each
-stage when ready." and the merge at "Merge after CHORE-53 commits (Recommended)" (`MC-161` 7 and 8) (the session log's quotes). Push only at the maintainer's request. None of these is
-pushed (`origin/fix/persistence-conflict-platform-hardening` is `0a3fb2b0`, from the local remote-tracking ref,
-2026-10-01; the records fact-check re-read it on 2026-10-02 and it was still `0a3fb2b0`).
+stage when ready." and the merge at "Merge after CHORE-53 commits (Recommended)" (`MC-161` 7 and 8) (the session log's quotes). The commits from `8197f093` on:
+- `8197f093` at "add the maintainer decisions to the records when you commit".
+- The merge `e768ef75` and the README `e9b70b8d` at "yes, let's merge the rebranding." That answered a question proposing the merge and the README commit.
+- `33cafe18` at "commit the branding folder too, and push too if its safe to do so, as readme is public facing."
+- `b745fc29` and `48f00223` were committed by the Orchestrator after their review gates, without a separate commit instruction. The maintainer then asked for each to be pushed: "push the link change for now, we can push chore 64 and other tasks separately." and "1. yes, push."
+- The records commit at "2. do the records". Push only at the maintainer's request. Everything through `48f00223`
+is pushed (the local remote-tracking ref, 2026-10-02; it was `0a3fb2b0` on 2026-10-01).
 
 The working tree holds only this records batch's edits to the `Agents/` documents (until they are committed). Report 56
 (`Agents/Reports/56-memory-stage-1-step-5-boot-archive-pass.md`) is fact-checked and committed as `a7956237`.
@@ -123,8 +141,8 @@ Several sessions work **in this same checkout**:
   build"** and **"Fork rebranding exploration"** are idle or done; see Report 39/41 and ledger
   row 428.
 
-**Next free numbers:** `MC-163` (`MC-162` is used), Report 57 (Report 56 is used), ledger row 618 and CHORE-65
-(`CHORE-64` is used). Check the ledger's last row before taking one. `MC-114` and ledger rows 371-374 were reserved for W2c-a and left unused; nobody
+**Next free numbers:** `MC-165` (`MC-164` is used), Report 57 (Report 56 is used), ledger row 623 and CHORE-67
+(`CHORE-66` is used). Check the ledger's last row before taking one. `MC-114` and ledger rows 371-374 were reserved for W2c-a and left unused; nobody
 should fill them.
 
 **Rules for every session:**
@@ -185,8 +203,15 @@ should fill them.
      Report 49 is the durable version.
 2. **CHORE-53 is closed (2026-10-02; `07ea1882`, `1ba98d45`, `5747a7e1`; `MC-161`; Roadmap CHORE-53) and the
    rebranding identity is merged (`cfa4dfa0`; `MC-162`). Next: CHORE-63 with CHORE-40**, then CHORE-43 with CHORE-54
-   (work order, unchanged). **CHORE-64 is filed** (a plugin's `setDatabase` can delete every installed plugin; DATA
-   LOSS, not scheduled; the merge rule is the maintainer's and has not been asked). Post-merge checks (check, suite,
+   (work order, unchanged). **CHORE-64 is closed (2026-10-02; `48f00223`, pushed; `MC-163`; Roadmap CHORE-64; ledger
+   rows 618 to 622):** a write to the plugin list through `setDatabase` or `setDatabaseLite` never deletes plugins, and
+   updates keep saved settings. A V2.1 plugin can still delete or replace installed plugins through the live
+   `getDatabase()` proxy with no prompt; that route is CHORE-65 (DATA LOSS (V2.1 proxy route)).
+   Checks on the final tree, from its commit message: the suite 286 files, 5600 passed, 4 skipped; `pnpm check` 0
+   errors and 0 warnings; `pnpm build` ok.
+   **CHORE-65** (plugins read and change each other's saved arguments; V2.1 plugins edit the list through the live
+   proxy; DATA LOSS on the proxy route) and **CHORE-66** (the wiki's plugin pages describe the previous behaviour) are filed from it, not
+   scheduled. The repository is now yor42/RisuTanium (`MC-164`). Post-merge checks (check, suite,
    build) on `cfa4dfa0`: EXECUTED by the Orchestrator: `pnpm check` 0 errors and 0 warnings; `pnpm test` 284 files, 5413 passed, 4 skipped;
    `pnpm build` ok with `VITE_RISU_LEGAL_CONFIGURED=TRUE`. (The step 5 report, Report 56, is committed as `a7956237`;
    Report 49 section 3.4, step 5, is done.) Step
@@ -454,7 +479,7 @@ should fill them.
       step 5 report is Report 56, `a7956237`);
    2. then **CHORE-53** (DATA LOSS: delete actions act on a stale target, and Enter clicks the control
       behind a confirm; ledger row 523; `MC-150` 4, the maintainer agreed to this position). **Done 2026-10-02**,
-      as `1ba98d45`, `5747a7e1` and `07ea1882` (`MC-161`; ledger rows 606 to 616). Not pushed;
+      as `1ba98d45`, `5747a7e1` and `07ea1882` (`MC-161`; ledger rows 606 to 616). Pushed;
    3. **next: CHORE-63** (copy button reliability: the message copy button can fail silently or paste its own card)
       **with CHORE-40** (the copy button fetches any http(s) URL), fixed in one change. The maintainer chose "Right
       after CHORE-53", and the option text says it goes before CHORE-43 and CHORE-54 (`MC-160` 3). The default copy
@@ -508,7 +533,14 @@ Not placed in the sequence:
   default in every build (`a6a27df5`; `MC-157`). **CHORE-35 closing is a release condition under this ticket**
   (`MC-157` 4).
   The 16 inherited upstream pre-releases and their tags were
-  deleted by the maintainer on 2026-10-01; `origin` now has no release and no tag.
+  deleted by the maintainer on 2026-10-01; `origin` now has no release and no tag. **Progress (2026-10-02):** the
+  leftovers and logos are merged (`e768ef75`), the README is done (`e9b70b8d`), and the repository is renamed to
+  yor42/RisuTanium with its links updated (`b745fc29`; `MC-164`). One more leftover was relayed to the Rebranding
+  session: the sidebar shows "Welcome to RisuAI!" with no character selected. The `isWeb` removal stays pending
+  (`MC-162`).
+- **CHORE-65** (plugins read and change each other's saved arguments; V2.1 plugins edit the plugin list directly
+  through the live `getDatabase` proxy; `MC-163` 4 and 7) and **CHORE-66** (the wiki's plugin pages describe the
+  behaviour from before CHORE-64; the Wiki session's lane): filed 2026-10-02, not scheduled.
 - **CHORE-56** (under the beta mobile layout, a touch that ends on a button, input, select or textarea
   throws a TypeError in the swipe handler): suspected; TRACED, not run. The maintainer has not yet
   confirmed or placed it.
