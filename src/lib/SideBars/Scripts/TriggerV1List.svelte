@@ -84,9 +84,11 @@
         {lowLevelAble}
         {onOpen}
         {onClose}
-        onRemove={() => {
+        onRemove={(target) => {
           let triggerscript = value
-          triggerscript.splice(i, 1)
+          const at = triggerscript ? triggerscript.indexOf(target) : -1
+          if (at === -1) return
+          triggerscript.splice(at, 1)
           value = triggerscript
         }}
       />

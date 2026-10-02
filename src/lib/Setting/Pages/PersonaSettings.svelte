@@ -146,11 +146,23 @@
                 if(DBState.db.personas.length === 1){
                     return
                 }
-                const d = await alertConfirm(`${language.removeConfirm}${DBState.db.personas[DBState.db.selectedPersona].name}`)
+                const target = DBState.db.personas[DBState.db.selectedPersona]
+                const selectedAtClick = DBState.db.selectedPersona
+                const d = await alertConfirm(`${language.removeConfirm}${target.name}`)
                 if(d){
-                    saveUserPersona()
+                    const targetIndex = DBState.db.personas.indexOf(target)
+                    if(targetIndex === -1 || DBState.db.personas.length <= 1){
+                        return
+                    }
+                    // The live fields belong to the selected persona. If the selection did not
+                    // move they are the target's own and go with it; a removal above the
+                    // selection can leave the index over a different persona.
+                    const selectedNow = DBState.db.personas[DBState.db.selectedPersona]
+                    if(selectedNow && selectedNow !== target && DBState.db.selectedPersona !== selectedAtClick){
+                        saveUserPersona()
+                    }
                     let personas = DBState.db.personas
-                    personas.splice(DBState.db.selectedPersona, 1)
+                    personas.splice(targetIndex, 1)
                     DBState.db.personas = personas
                     changeUserPersona(0, 'noSave')
                 }

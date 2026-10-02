@@ -123,15 +123,19 @@
                             {/if}
                             <button class="text-textcolor2 hover:text-green-500 mr-2 cursor-pointer" use:tooltip={language.remove} onclick={async (e) => {
                                 e.stopPropagation()
-                                const d = await alertConfirm(`${language.removeConfirm}` + rmodule.name)
+                                const target = rmodule
+                                const d = await alertConfirm(`${language.removeConfirm}` + target.name)
                                 if(d){
-                                    if(DBState.db.enabledModules.includes(rmodule.id)){
-                                        DBState.db.enabledModules.splice(DBState.db.enabledModules.indexOf(rmodule.id), 1)
-                                        DBState.db.enabledModules = DBState.db.enabledModules
+                                    const index = DBState.db.modules.indexOf(target)
+                                    if(index === -1){
+                                        return
                                     }
-                                    const index = DBState.db.modules.findIndex((v) => v.id === rmodule.id)
                                     DBState.db.modules.splice(index, 1)
                                     DBState.db.modules = DBState.db.modules
+                                    if(!DBState.db.modules.some((v) => v.id === target.id) && DBState.db.enabledModules.includes(target.id)){
+                                        DBState.db.enabledModules.splice(DBState.db.enabledModules.indexOf(target.id), 1)
+                                        DBState.db.enabledModules = DBState.db.enabledModules
+                                    }
                                 }
                             }}>
                                 <TrashIcon size={18}/>

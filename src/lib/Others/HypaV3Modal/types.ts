@@ -1,3 +1,5 @@
+import type { SerializableSummary } from "src/ts/process/memory/hypav3";
+
 export interface SummaryItemState {
   originalRef: HTMLTextAreaElement;
   translationRef: HTMLTextAreaElement;
@@ -40,7 +42,7 @@ export interface ChatMemoSearchResult {
 export interface BulkResummaryState {
     isProcessing: boolean;
     result: string | null;
-    selectedIndices: number[];
+    heldSummaries: SerializableSummary[];
     mergedChatMemos: string[];
     isTranslating: boolean;
     translation: string | null;

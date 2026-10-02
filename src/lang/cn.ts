@@ -1346,6 +1346,8 @@ export const languageChinese = {
         "reSummarizing": "重新总结中...",
         "reSummarizeResult": "重新总结结果",
         "retry": "重试",
+        "reSummarizeSelectionGoneMessage": "所选总结中仍然存在的不足两个。",
+        "bulkApplyChangedMessage": "所选总结中的部分内容在您选择之后已发生变化，因此未应用任何更改。请重新选择后重试。",
         "translate": "翻译",
         "tag": "标签",
         "tagManager": "标签管理",

@@ -70,9 +70,11 @@
                 <div class="text-textcolor2">No Scripts</div>
         {/if}
         {#each value as customscript, i}
-            <RegexData idx={i} bind:value={value[i]} onOpen={onOpen} onClose={onClose} onRemove={() => {
+            <RegexData idx={i} bind:value={value[i]} onOpen={onOpen} onClose={onClose} onRemove={(target) => {
                 let customscript = value
-                customscript.splice(i, 1)
+                const at = customscript ? customscript.indexOf(target) : -1
+                if(at === -1) return
+                customscript.splice(at, 1)
                 value = customscript
             }}/>
         {/each}

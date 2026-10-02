@@ -243,15 +243,20 @@
                     </div>
                     <div class="text-textcolor2 hover:text-green-500 cursor-pointer" role="button" tabindex="0" onclick={async (e) => {
                         e.stopPropagation()
+                        const target = preset
                         if(DBState.db.botPresets.length === 1){
                             alertError(language.errors.onlyOneChat)
                             return
                         }
-                        const d = await alertConfirm(`${language.removeConfirm}${preset.name}`)
+                        const d = await alertConfirm(`${language.removeConfirm}${target.name}`)
                         if(d){
+                            const targetIndex = DBState.db.botPresets.indexOf(target)
+                            if(targetIndex === -1 || DBState.db.botPresets.length <= 1){
+                                return
+                            }
                             changeToPreset(0)
                             let botPresets = DBState.db.botPresets
-                            botPresets.splice(i, 1)
+                            botPresets.splice(targetIndex, 1)
                             DBState.db.botPresets = botPresets
                             changeToPreset(0, false)
                         }

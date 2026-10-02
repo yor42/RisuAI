@@ -1484,6 +1484,8 @@ export const languageEnglish = {
         reSummarizing: "Re-summarizing...",
         reSummarizeResult: "Re-summarization result",
         retry: "Retry",
+        reSummarizeSelectionGoneMessage: "Fewer than two of the selected summaries still exist.",
+        bulkApplyChangedMessage: "Some of the selected summaries have changed since you selected them, so nothing was applied. Select them again and retry.",
         translate: "Translate",
         tag: "Tag",
         tagManager: "Tag Manager",

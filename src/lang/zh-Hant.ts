@@ -1393,6 +1393,8 @@ export const languageChineseTraditional = {
         "reSummarizing": "正在重新摘要...",
         "reSummarizeResult": "重新摘要結果",
         "retry": "重試",
+        "reSummarizeSelectionGoneMessage": "所選摘要中仍然存在的不足兩個。",
+        "bulkApplyChangedMessage": "所選摘要中的部分內容在您選取之後已發生變更，因此未套用任何變更。請重新選取後重試。",
         "translate": "翻譯",
         "tag": "標籤",
         "tagManager": "標籤管理",

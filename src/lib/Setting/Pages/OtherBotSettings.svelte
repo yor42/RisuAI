@@ -1104,15 +1104,19 @@
                         return
                     }
 
-                    const id = DBState.db.hypaV3PresetId
-                    const preset = presets[id]
+                    const preset = presets[DBState.db.hypaV3PresetId]
                     const confirmed = await alertConfirm(`${language.removeConfirm}${preset.name}`)
 
                     if (!confirmed) return
 
+                    const presetsNow = DBState.db.hypaV3Presets
+                    const index = presetsNow.indexOf(preset)
+
+                    if (index === -1 || presetsNow.length <= 1) return
+
                     DBState.db.hypaV3PresetId = 0
-                    presets.splice(id, 1)
-                    DBState.db.hypaV3Presets = presets
+                    presetsNow.splice(index, 1)
+                    DBState.db.hypaV3Presets = presetsNow
                 }}>
                     <TrashIcon size={24}/>
                 </button>

@@ -90,15 +90,19 @@
                 return;
             }
 
-            const id = DBState.db.translatorPresetId;
-            const preset = presets[id];
+            const preset = presets[DBState.db.translatorPresetId];
             const confirmed = await alertConfirm(`${language.removeConfirm}${preset.name}`);
 
             if (!confirmed) return;
 
+            const presetsNow = DBState.db.translatorPresets;
+            const index = presetsNow.indexOf(preset);
+
+            if (index === -1 || presetsNow.length <= 1) return;
+
             DBState.db.translatorPresetId = 0;
-            presets.splice(id, 1);
-            DBState.db.translatorPresets = presets;
+            presetsNow.splice(index, 1);
+            DBState.db.translatorPresets = presetsNow;
             normalizeTranslatorPresets();
         }}
     >

@@ -1346,6 +1346,8 @@ export const languageVietnamese = {
         "reSummarizing": "Đang tóm tắt lại...",
         "reSummarizeResult": "Kết quả tóm tắt lại",
         "retry": "Thử lại",
+        "reSummarizeSelectionGoneMessage": "Còn chưa đến hai bản tóm tắt đã chọn tồn tại.",
+        "bulkApplyChangedMessage": "Một số bản tóm tắt đã chọn đã thay đổi kể từ khi bạn chọn, nên chưa có gì được áp dụng. Hãy chọn lại rồi thử lại.",
         "translate": "Dịch",
         "tag": "Thẻ",
         "tagManager": "Quản lý thẻ",

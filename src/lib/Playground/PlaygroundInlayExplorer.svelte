@@ -63,19 +63,21 @@
   }
 
   const deleteSelected = async () => {
-    if (selection.size === 0) return
-    if (!(await alertConfirm(language.playground.inlayDeleteMultipleConfirm.replace('{count}', selection.size.toString())))) {
+    const ids = [...selection]
+    if (ids.length === 0) return
+    if (!(await alertConfirm(language.playground.inlayDeleteMultipleConfirm.replace('{count}', ids.length.toString())))) {
       return
     }
-    for (const id of selection) {
+    for (const id of ids) {
       await removeInlayAsset(id)
       if (previewURLs.has(id)) {
         URL.revokeObjectURL(previewURLs.get(id)!)
         previewURLs.delete(id)
       }
     }
-    allAssets = allAssets.filter(([assetId]) => !selection.has(assetId))
-    selection.clear()
+    const removed = new Set(ids)
+    allAssets = allAssets.filter(([assetId]) => !removed.has(assetId))
+    ids.forEach((id) => selection.delete(id))
   }
 
   const formatSize = (bytes: number) => {

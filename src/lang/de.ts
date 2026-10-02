@@ -1346,6 +1346,8 @@ export const languageGerman = {
         "reSummarizing": "Zusammenfassung wird neu erstellt...",
         "reSummarizeResult": "Ergebnis der erneuten Zusammenfassung",
         "retry": "Wiederholen",
+        "reSummarizeSelectionGoneMessage": "Weniger als zwei der ausgewählten Zusammenfassungen sind noch vorhanden.",
+        "bulkApplyChangedMessage": "Einige der ausgewählten Zusammenfassungen haben sich seit der Auswahl geändert, daher wurde nichts angewendet. Wählen Sie sie erneut aus und versuchen Sie es noch einmal.",
         "translate": "Übersetzen",
         "tag": "Tag",
         "tagManager": "Tag-Manager",

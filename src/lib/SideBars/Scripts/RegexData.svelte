@@ -14,7 +14,7 @@
   
 interface Props {
     value: customscript;
-    onRemove?: () => void;
+    onRemove?: (target: customscript) => void;
     onClose?: () => void;
     onOpen?: () => void;
     idx: number;
@@ -95,12 +95,13 @@ interface Props {
             <span>{value.comment.length === 0 ? 'Unnamed Script' : value.comment}</span>
         </button>
         <button class="valuer" onclick={async () => {
-            const d = await alertConfirm(language.removeConfirm + value.comment)
+            const target = value
+            const d = await alertConfirm(language.removeConfirm + target.comment)
             if(d){
                 if(!open){
                     onClose()
                 }
-                onRemove()
+                onRemove(target)
             }
         }}>
             <XIcon />

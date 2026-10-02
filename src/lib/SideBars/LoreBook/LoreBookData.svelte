@@ -15,7 +15,7 @@
 
     interface Props {
         value: loreBook;
-        onRemove?: () => void;
+        onRemove?: (target: loreBook) => void;
         onClose?: (isDetail?: boolean) => void;
         onOpen?: (isDetail?: boolean) => void;
         lorePlus?: boolean;
@@ -73,9 +73,9 @@
     function deactivateLocally(book: loreBook){
         if(!book.id) return
         const chat = getCurrentChat()
-        const childLore = chat?.localLore?.find(e => e.id === book.id)
-        if(childLore){
-            chat.localLore = chat.localLore.filter(e => e.id !== book.id)
+        const isLink = (e: loreBook) => e.mode === 'child' && e.id === book.id
+        if(chat?.localLore?.some(isLink)){
+            chat.localLore = chat.localLore.filter(e => !isLink(e))
         }
     }
     function toggleLocalActive(check: boolean, book: loreBook){
@@ -153,8 +153,9 @@
             {/if}
         </button>
         <button class="valuer" onclick={async () => {
+            const target = value;
             let shouldRemove = true;
-            if (value.mode === 'folder' && externalLoreBooks.some(e => e.folder === value.key)) {
+            if (target.mode === 'folder' && typeof target.key === 'string' && target.key !== '' && externalLoreBooks.some(e => e.folder === target.key)) {
                 const firstConfirm = await alertConfirm(language.folderRemoveConfirm);
                 if (!firstConfirm) {
                     shouldRemove = false;
@@ -162,13 +163,18 @@
             }
 
             if (shouldRemove) {
-                const secondConfirm = await alertConfirm(language.removeConfirm + (value.comment || 'Unnamed Folder'));
+                const secondConfirm = await alertConfirm(language.removeConfirm + (target.comment || 'Unnamed Folder'));
                 if (secondConfirm) {
+                    if (!externalLoreBooks?.includes(target)) {
+                        return;
+                    }
                     if (!open) {
                         onClose();
                     }
-                    deactivateLocally(value);
-                    onRemove();
+                    if (getCurrentCharacter()?.globalLore?.includes(target)) {
+                        deactivateLocally(target);
+                    }
+                    onRemove(target);
                 }
             }
         }}>
@@ -180,12 +186,16 @@
             <span>{getParentLoreName(value)}</span>
         </button>
         <button class="valuer" onclick={async () => {
-            const d = await alertConfirm(language.removeConfirm + getParentLoreName(value))
+            const target = value
+            const d = await alertConfirm(language.removeConfirm + getParentLoreName(target))
             if(d){
+                if(!externalLoreBooks?.includes(target)){
+                    return
+                }
                 if(!open){
                     onClose()
                 }
-                onRemove()
+                onRemove(target)
             }
         }}>
             <XIcon size={20} />

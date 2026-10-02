@@ -14,7 +14,7 @@
     interface Props {
         value: triggerscript;
         lowLevelAble?: boolean;
-        onRemove?: () => void;
+        onRemove?: (target: triggerscript) => void;
         onClose?: () => void;
         onOpen?: () => void;
         idx: number;
@@ -45,12 +45,13 @@
             <span>{value.comment.length === 0 ? 'Unnamed Trigger' : value.comment}</span>
         </button>
         <button class="valuer" onclick={async () => {
-            const d = await alertConfirm(language.removeConfirm + value.comment)
+            const target = value
+            const d = await alertConfirm(language.removeConfirm + target.comment)
             if(d){
                 if(!open){
                     onClose()
                 }
-                onRemove()
+                onRemove(target)
             }
         }}>
             <XIcon />

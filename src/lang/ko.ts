@@ -1347,6 +1347,8 @@ export const languageKorean = {
         "reSummarizing": "재요약 중...",
         "reSummarizeResult": "재요약 결과",
         "retry": "재시도",
+        "reSummarizeSelectionGoneMessage": "선택한 요약 중 아직 남아 있는 것이 두 개 미만입니다.",
+        "bulkApplyChangedMessage": "선택한 요약 중 일부가 선택한 이후 변경되어 아무것도 적용되지 않았습니다. 다시 선택한 후 재시도하세요.",
         "translate": "번역",
         "tag": "태그",
         "tagManager": "태그 관리",

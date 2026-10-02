@@ -9,6 +9,7 @@
   import { DBState, selectedCharID, hypaV3ModalOpen } from "src/ts/stores.svelte";
   import { language } from "src/lang";
   import { translateHTML } from "src/ts/translator/translator";
+  import { markCharacterForSave } from "src/ts/storage/characterSaveMarks";
   import { alertConfirmTwice } from "./HypaV3Modal/utils";
   import ModalHeader from "./HypaV3Modal/modal-header.svelte";
   import ModalSummaryItem from "./HypaV3Modal/modal-summary-item.svelte";
@@ -133,6 +134,7 @@
   });
 
   function handleToggleSummarySelection(summaryIndex: number) {
+    supersedeBulkRun();
     const newSelection = new Set(bulkEditState.selectedSummaries);
     if (newSelection.has(summaryIndex)) {
       newSelection.delete(summaryIndex);
@@ -208,24 +210,41 @@
     return results;
   }
 
+  // Each re-summarize or re-roll takes a new token; a result is written only if its token is
+  // still current, so a run that was cancelled, replaced or invalidated writes nothing.
+  let bulkRunToken = 0;
+
+  function supersedeBulkRun() {
+    bulkRunToken++;
+    if (bulkResummaryState?.isProcessing) bulkResummaryState = null;
+  }
+
   async function resummarizeBulkSelected() {
     if (bulkEditState.selectedSummaries.size < 2) return;
 
     const sortedIndices = Array.from(bulkEditState.selectedSummaries).sort((a, b) => a - b);
+    const selectedSummaries = sortedIndices
+      .map(index => hypaV3Data.summaries[index])
+      .filter(summary => summary !== undefined);
+
+    if (selectedSummaries.length < 2) {
+      await alertNormalWait(`Re-summarize Failed: ${language.hypaV3Modal.reSummarizeSelectionGoneMessage}`);
+      return;
+    }
+
+    const run = ++bulkRunToken;
 
     try {
       bulkResummaryState = {
         isProcessing: true,
         result: null,
-        selectedIndices: sortedIndices,
+        heldSummaries: selectedSummaries,
         mergedChatMemos: [],
         isTranslating: false,
         translation: null
       };
 
-      const selectedSummaryTexts = sortedIndices.map(index =>
-        hypaV3Data.summaries[index].text
-      );
+      const selectedSummaryTexts = selectedSummaries.map(summary => summary.text);
 
       const oaiMessages: OpenAIChat[] = selectedSummaryTexts.map(text => ({
         role: "user",
@@ -233,8 +252,7 @@
       }));
 
       const mergedChatMemos: string[] = [];
-      for (const index of sortedIndices) {
-        const summary = hypaV3Data.summaries[index];
+      for (const summary of selectedSummaries) {
         mergedChatMemos.push(...summary.chatMemos);
       }
 
@@ -242,16 +260,19 @@
 
       const resummary = await summarize(oaiMessages, true);
 
+      if (run !== bulkRunToken) return;
+
       bulkResummaryState = {
         isProcessing: false,
         result: resummary,
-        selectedIndices: sortedIndices,
+        heldSummaries: selectedSummaries,
         mergedChatMemos: uniqueChatMemos,
         isTranslating: false,
         translation: null
       };
 
     } catch (error) {
+      if (run !== bulkRunToken) return;
       console.error('Re-summarize Failed:', error);
       bulkResummaryState = null;
       await alertNormalWait(`Re-summarize Failed: ${error.message || error}`);
@@ -261,7 +282,17 @@
   async function applyBulkResummary() {
     if (!bulkResummaryState || !bulkResummaryState.result) return;
 
-    const sortedIndices = bulkResummaryState.selectedIndices;
+    const sortedIndices = bulkResummaryState.heldSummaries
+      .map(summary => hypaV3Data.summaries.indexOf(summary))
+      .sort((a, b) => a - b);
+
+    if (sortedIndices.length === 0 || sortedIndices[0] === -1) {
+      bulkResummaryState = null;
+      bulkEditState.selectedSummaries = new Set();
+      await alertNormalWait(language.hypaV3Modal.bulkApplyChangedMessage);
+      return;
+    }
+
     const minIndex = sortedIndices[0];
 
     hypaV3Data.summaries[minIndex] = {
@@ -271,7 +302,7 @@
       categoryId: hypaV3Data.summaries[minIndex].categoryId,
       tags: hypaV3Data.summaries[minIndex].tags
     };
-    
+
     for (let i = sortedIndices.length - 1; i > 0; i--) {
       hypaV3Data.summaries.splice(sortedIndices[i], 1);
     }
@@ -285,8 +316,9 @@
   async function rerollBulkResummary() {
     if (!bulkResummaryState) return;
     
-    const sortedIndices = bulkResummaryState.selectedIndices;
-    
+    const selectedSummaries = bulkResummaryState.heldSummaries;
+    const run = ++bulkRunToken;
+
     try {
       bulkResummaryState = {
         ...bulkResummaryState,
@@ -295,10 +327,8 @@
         isTranslating: false,
         translation: null
       };
-      
-      const selectedSummaryTexts = sortedIndices.map(index => 
-        hypaV3Data.summaries[index].text
-      );
+
+      const selectedSummaryTexts = selectedSummaries.map(summary => summary.text);
       
       const oaiMessages: OpenAIChat[] = selectedSummaryTexts.map(text => ({
         role: "user",
@@ -306,7 +336,9 @@
       }));
       
       const resummary = await summarize(oaiMessages, true);
-      
+
+      if (run !== bulkRunToken || !bulkResummaryState) return;
+
       bulkResummaryState = {
         ...bulkResummaryState,
         isProcessing: false,
@@ -314,8 +346,9 @@
         isTranslating: false,
         translation: null
       };
-      
+
     } catch (error) {
+      if (run !== bulkRunToken) return;
       console.error('Re-summarize Retry Failed:', error);
       bulkResummaryState = null;
       await alertNormalWait(`Re-summarize Retry Failed: ${error.message || error}`);
@@ -323,6 +356,7 @@
   }
 
   function cancelBulkResummary() {
+    supersedeBulkRun();
     bulkResummaryState = null;
     bulkEditState.selectedSummaries = new Set();
   }
@@ -352,28 +386,40 @@
   }
 
   async function handleResetData() {
+    const char = DBState.db.characters[$selectedCharID];
+    const chat = char.chats[char.chatPage];
+
     if (
       await alertConfirmTwice(
         language.hypaV3Modal.resetConfirmMessage,
         language.hypaV3Modal.resetConfirmSecondMessage
       )
     ) {
-      DBState.db.characters[$selectedCharID].chats[
-        DBState.db.characters[$selectedCharID].chatPage
-      ].hypaV3Data = {
+      if (!DBState.db.characters.includes(char) || !char.chats.includes(chat)) return;
+
+      chat.hypaV3Data = {
         summaries: [],
       };
+      markCharacterForSave(char.chaId);
     }
+  }
+
+  function handleSummariesRemoved() {
+    supersedeBulkRun();
+    bulkResummaryState = null;
+    bulkEditState.selectedSummaries = new Set();
   }
 
   function handleToggleBulkEditMode() {
     bulkEditState.isEnabled = !bulkEditState.isEnabled;
     if (!bulkEditState.isEnabled) {
+      supersedeBulkRun();
       bulkEditState.selectedSummaries = new Set();
     }
   }
 
   function handleBulkEditClearSelection() {
+    supersedeBulkRun();
     bulkEditState.selectedSummaries = new Set();
   }
 
@@ -419,6 +465,7 @@
       }
     }
 
+    supersedeBulkRun();
     bulkEditState.selectedSummaries = filteredSelection;
     bulkEditState.bulkSelectInput = "";
   }
@@ -816,6 +863,7 @@
               onToggleSummarySelection={handleToggleSummarySelection}
               onOpenTagManager={handleOpenTagManager}
               onToggleCollapse={handleToggleCollapse}
+              onSummariesRemoved={handleSummariesRemoved}
             />
           {/if}
         {/each}

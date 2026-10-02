@@ -34,14 +34,19 @@
                 <div class="grow flex justify-end">
                     <div class="text-textcolor2 hover:text-green-500 cursor-pointer" role="button" tabindex="0" onclick={async (e) => {
                         e.stopPropagation()
+                        const target = lore
                         if(DBState.db.loreBook.length === 1){
                             return
                         }
-                        const d = await alertConfirm(`${language.removeConfirm}${lore.name}`)
+                        const d = await alertConfirm(`${language.removeConfirm}${target.name}`)
                         if(d){
+                            const targetIndex = DBState.db.loreBook.indexOf(target)
+                            if(targetIndex === -1 || DBState.db.loreBook.length <= 1){
+                                return
+                            }
                             DBState.db.loreBookPage = 0
                             let loreBook = DBState.db.loreBook
-                            loreBook.splice(ind, 1)
+                            loreBook.splice(targetIndex, 1)
                             DBState.db.loreBook = loreBook
                         }
                     }} onkeydown={(e) => {

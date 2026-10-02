@@ -1346,6 +1346,8 @@ export const languageSpanish = {
         "reSummarizing": "Re-resumiendo...",
         "reSummarizeResult": "Resultado de Re-resumen",
         "retry": "Reintentar",
+        "reSummarizeSelectionGoneMessage": "Quedan menos de dos de los resúmenes seleccionados.",
+        "bulkApplyChangedMessage": "Algunos de los resúmenes seleccionados han cambiado desde que los seleccionó, por lo que no se aplicó nada. Selecciónelos de nuevo y vuelva a intentarlo.",
         "translate": "Traducir",
         "tag": "Etiqueta",
         "tagManager": "Gestor de Etiquetas",

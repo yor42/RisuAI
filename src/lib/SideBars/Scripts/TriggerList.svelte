@@ -18,16 +18,22 @@
     let v1Enabled = $derived(value?.[0]?.effect?.[0]?.type !== 'triggercode' && value?.[0]?.effect?.[0]?.type !== 'triggerlua' && value?.[0]?.effect?.[0]?.type !== 'v2Header')
 
     const loadTriggerV1List = () => import("./TriggerV1List.svelte").then(m => m.default)
+
+    // The list the warning was shown for must still be the bound list, still of the warned type.
+    const isWarnedList = (list: triggerscript[], codeType: string | undefined) => {
+        return value === list && value?.[0]?.effect?.[0]?.type === codeType
+    }
 </script>
 
 <div class="flex items-start mt-2 gap-2">
     {#if v1Enabled || DBState.db.showDeprecatedTriggerV1 }
         <button class="bg-bgcolor py-1 rounded-md text-sm px-2" class:ring-1={v1Enabled} onclick={(async (e) => {
+            const list = value
             e.stopPropagation()
-            const codeType = value?.[0]?.effect?.[0]?.type
+            const codeType = list?.[0]?.effect?.[0]?.type
             if(codeType === 'triggercode' || codeType === 'triggerlua' || codeType === 'v2Header'){
                 const t = await alertConfirm(language.triggerSwitchWarn)
-                if(!t){
+                if(!t || !isWarnedList(list, codeType)){
                     return
                 }
                 value = []
@@ -37,11 +43,12 @@
     <button class="bg-bgcolor py-1 rounded-md text-sm px-2" class:ring-1={
         value?.[0]?.effect?.[0]?.type === 'v2Header'
     } onclick={(async (e) => {
+        const list = value
         e.stopPropagation()
-        const codeType = value?.[0]?.effect?.[0]?.type
+        const codeType = list?.[0]?.effect?.[0]?.type
         if(codeType !== 'v2Header'){
             const t = await alertConfirm(language.triggerSwitchWarn)
-            if(!t){
+            if(!t || !isWarnedList(list, codeType)){
                 return
             }
             value = [{
@@ -62,11 +69,13 @@
         }
     })}>V2</button>
     <button class="bg-bgcolor py-1 rounded-md text-sm px-2" class:ring-1={value?.[0]?.effect?.[0]?.type === 'triggerlua'} onclick={(async (e) => {
+        const list = value
         e.stopPropagation()
-        if(value?.[0]?.effect?.[0]?.type !== 'triggerlua'){
-            if(value && value.length > 0){
+        const codeType = list?.[0]?.effect?.[0]?.type
+        if(codeType !== 'triggerlua'){
+            if(list && list.length > 0){
                 const t = await alertConfirm(language.triggerSwitchWarn)
-                if(!t){
+                if(!t || !isWarnedList(list, codeType)){
                     return
                 }
             }

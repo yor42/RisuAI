@@ -113,16 +113,21 @@
             <button
                 class="textcolor2 hover:gray-200 cursor-pointer"
                 onclick={async () => {
+                    const target = plugin;
                     const v = await alertConfirm(
                         language.removeConfirm +
-                            (plugin.displayName ?? plugin.name),
+                            (target.displayName ?? target.name),
                     );
                     if (v) {
-                        if (DBState.db.currentPluginProvider === plugin.name) {
+                        let plugins = DBState.db.plugins ?? [];
+                        const at = plugins.indexOf(target);
+                        if (at === -1) {
+                            return;
+                        }
+                        if (DBState.db.currentPluginProvider === target.name) {
                             DBState.db.currentPluginProvider = "";
                         }
-                        let plugins = DBState.db.plugins ?? [];
-                        plugins.splice(i, 1);
+                        plugins.splice(at, 1);
                         DBState.db.plugins = plugins;
                         loadPlugins()
                     }

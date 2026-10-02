@@ -864,6 +864,7 @@ function dataURLtoBuffer(string:string){
 
 export async function removeChar(identifier:string|number|character|groupChat,name:string, type:'normal'|'permanent'|'permanentForce' = 'normal'){
     const db = getDatabase()
+    let askedWhileTrashed = false
     if(type !== 'permanentForce'){
         // Advisory only: what is stopped is decided at the removal below. Work
         // registered for a group's turn belongs to the group, so deleting a
@@ -874,6 +875,7 @@ export async function removeChar(identifier:string|number|character|groupChat,na
             : typeof identifier === 'number'
             ? listed[identifier]
             : identifier
+        askedWhileTrashed = !!asked?.trashTime
         const busy = !!asked?.chaId && hasWorkIn({ chaId: asked.chaId })
         const conf = await alertConfirm(language.removeConfirm + name + (busy ? '\n' + language.removeCharacterWhileWorking : ''))
         if(!conf){
@@ -896,6 +898,11 @@ export async function removeChar(identifier:string|number|character|groupChat,na
         ? identifier
         : chars.indexOf(identifier)
     if (index === -1 || index >= chars.length) {
+        return
+    }
+    // A permanent delete asked for a trashed character is dropped if the user
+    // restored it while the confirms were open.
+    if (type === 'permanent' && askedWhileTrashed && !chars[index].trashTime) {
         return
     }
     // Every unit of work owned by the character actually removed is stopped in

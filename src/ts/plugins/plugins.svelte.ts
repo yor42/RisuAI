@@ -403,8 +403,11 @@ export async function importPlugin(code:string|null = null, argu:{
             }
         }
 
-        if(oldPluginIndex !== -1){
-            db.plugins[oldPluginIndex] = pluginData;
+        // The installed copy is found by name here, after the prompt, because the list may have changed while it was open.
+        const replaceIndex = db.plugins.findIndex((p: RisuPlugin) => p.name === pluginData.name);
+
+        if(replaceIndex !== -1){
+            db.plugins[replaceIndex] = pluginData;
         }
         else if(!isUpdate || argu.isHotReload){
             db.plugins.push(pluginData)

@@ -205,14 +205,17 @@
                                 e.currentTarget.click()
                             }
                         }} class="text-textcolor2 hover:text-green-500 cursor-pointer" onclick={async (e) => {
+                            const target = folder
                             e.stopPropagation()
-                            const d = await alertConfirm(`${language.removeConfirm}${folder.name}`)
+                            const d = await alertConfirm(`${language.removeConfirm}${target.name}`)
                             if (d) {
-                                $ReloadGUIPointer += 1
                                 const folders = chara.chatFolders
-                                folders.splice(i, 1)
+                                const at = folders ? folders.indexOf(target) : -1
+                                if (at === -1) return
+                                $ReloadGUIPointer += 1
+                                folders.splice(at, 1)
                                 chara.chats.forEach(chat => {
-                                    if (chat.folderId == folder.id) {
+                                    if (chat.folderId == target.id) {
                                         chat.folderId = null
                                     }
                                 })

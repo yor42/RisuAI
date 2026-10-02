@@ -55,6 +55,7 @@
     onToggleSummarySelection?: (index: number) => void;
     onOpenTagManager?: (index: number) => void;
     onToggleCollapse?: (index: number) => void;
+    onSummariesRemoved?: () => void;
   }
 
   let {
@@ -70,6 +71,7 @@
     onToggleSummarySelection,
     onOpenTagManager,
     onToggleCollapse,
+    onSummariesRemoved,
   }: Props = $props();
 
   const summary = $derived(hypaV3Data.summaries[summaryIndex]);
@@ -233,21 +235,31 @@
   }
 
   async function deleteThis(): Promise<void> {
+    const target = summary;
+
     if (await alertConfirm(language.hypaV3Modal.deleteThisConfirmMessage)) {
-      hypaV3Data.summaries = hypaV3Data.summaries.filter(
-        (_, i) => i !== summaryIndex
-      );
+      if (hypaV3Data.summaries.indexOf(target) === -1) return;
+
+      hypaV3Data.summaries = hypaV3Data.summaries.filter((s) => s !== target);
+      onSummariesRemoved?.();
     }
   }
 
   async function deleteAfter(): Promise<void> {
+    const target = summary;
+
     if (
       await alertConfirmTwice(
         language.hypaV3Modal.deleteAfterConfirmMessage,
         language.hypaV3Modal.deleteAfterConfirmSecondMessage
       )
     ) {
-      hypaV3Data.summaries.splice(summaryIndex + 1);
+      const targetIndex = hypaV3Data.summaries.indexOf(target);
+
+      if (targetIndex === -1) return;
+
+      hypaV3Data.summaries.splice(targetIndex + 1);
+      onSummariesRemoved?.();
     }
   }
 
