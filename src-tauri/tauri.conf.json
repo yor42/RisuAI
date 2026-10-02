@@ -41,7 +41,7 @@
     },
     "deep-link": {
       "desktop": {
-        "schemes": ["risutaniumlocal"]
+        "schemes": ["risutaniumlocal", "risuailocal"]
       }
     }
   },
